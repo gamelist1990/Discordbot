@@ -130,30 +130,33 @@ export class CommandRegistry {
         }
 
         // ギルド設定を取得
-        const guildSettings = await database.get<any>(`guild_${guildId}`, {
-            adminRoles: [],
-            staffRoles: [],
+        const guildSettings = await database.get<any>(`guild_settings_${guildId}`, {
+            adminRoleId: null,
+            staffRoleId: null,
         });
 
         // ADMIN レベル: 管理者ロールまたは OP
         if (requiredLevel === PermissionLevel.ADMIN) {
-            const hasAdminRole = member.roles.cache.some(role => 
-                guildSettings.adminRoles.includes(role.id)
-            );
+            if (guildSettings.adminRoleId) {
+                const hasAdminRole = member.roles.cache.has(guildSettings.adminRoleId);
+                if (hasAdminRole) return true;
+            }
             const isOp = member.permissions.has(PermissionFlagsBits.Administrator);
-            return hasAdminRole || isOp;
+            return isOp;
         }
 
         // STAFF レベル: スタッフロール、管理者ロール、または OP
         if (requiredLevel === PermissionLevel.STAFF) {
-            const hasStaffRole = member.roles.cache.some(role => 
-                guildSettings.staffRoles.includes(role.id)
-            );
-            const hasAdminRole = member.roles.cache.some(role => 
-                guildSettings.adminRoles.includes(role.id)
-            );
+            if (guildSettings.staffRoleId) {
+                const hasStaffRole = member.roles.cache.has(guildSettings.staffRoleId);
+                if (hasStaffRole) return true;
+            }
+            if (guildSettings.adminRoleId) {
+                const hasAdminRole = member.roles.cache.has(guildSettings.adminRoleId);
+                if (hasAdminRole) return true;
+            }
             const isOp = member.permissions.has(PermissionFlagsBits.Administrator);
-            return hasStaffRole || hasAdminRole || isOp;
+            return isOp;
         }
 
         return false;

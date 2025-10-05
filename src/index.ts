@@ -5,6 +5,8 @@ import { BotClient } from './core/BotClient.js';
 import { EventHandler } from './core/EventHandler.js';
 import { CommandLoader } from './core/CommandLoader.js';
 import { Logger } from './utils/Logger.js';
+import { SettingsServer } from './web/SettingsServer.js';
+import { statusManager } from './utils/StatusManager.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -15,6 +17,7 @@ interface Config {
 }
 
 let botClient: BotClient | null = null;
+let settingsServer: SettingsServer | null = null;
 
 /**
  * 設定ファイルを読み込む
@@ -63,6 +66,9 @@ async function main() {
     try {
         Logger.info('🚀 Discord Bot を起動しています...');
 
+        // StatusManager を初期化
+        await statusManager.initialize();
+
         // 設定ファイルを読み込む
         const config = await loadConfig();
 
@@ -98,10 +104,22 @@ async function main() {
         // 未登録コマンドのクリーンアップ
         Logger.info('🧹 未登録コマンドのクリーンアップを実行します...');
         await botClient.cleanupUnregisteredCommands();
+
+        // Bot を準備完了にマーク
+        await statusManager.markReady(botClient.getGuildCount());
+
+        // 設定サーバーを起動
+        Logger.info('🌐 設定サーバーを起動します...');
+        settingsServer = new SettingsServer(botClient, 3000);
+        await settingsServer.start();
+
+        // SettingsServer を client に注入（コマンドから参照できるようにする）
+        (botClient.client as any).settingsServer = settingsServer;
         
         Logger.success('✅ Bot が正常に起動しました！');
         Logger.info('💡 新しいサーバーに追加すると、自動的にコマンドがデプロイされます。');
         Logger.info(`⚠️ サーバー上限: ${botClient.getMaxGuilds()} (現在: ${botClient.getGuildCount()})`);
+        Logger.info(`🌐 Web ダッシュボード: http://localhost:3000`);
     } catch (error) {
         Logger.error('起動エラー:', error);
         process.exit(1);
@@ -125,6 +143,12 @@ process.on('uncaughtException', (error) => {
  */
 process.on('SIGINT', async () => {
     Logger.info('\n🛑 終了処理を開始します...');
+    if (statusManager) {
+        await statusManager.cleanup();
+    }
+    if (settingsServer) {
+        await settingsServer.stop();
+    }
     if (botClient) {
         await botClient.destroy();
     }
@@ -133,6 +157,12 @@ process.on('SIGINT', async () => {
 
 process.on('SIGTERM', async () => {
     Logger.info('\n🛑 終了処理を開始します...');
+    if (statusManager) {
+        await statusManager.cleanup();
+    }
+    if (settingsServer) {
+        await settingsServer.stop();
+    }
     if (botClient) {
         await botClient.destroy();
     }

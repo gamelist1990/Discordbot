@@ -3,7 +3,8 @@
         "src/**/*.ts"
     ],
     "exclude": [
-        "node_modules"
+        "node_modules",
+        "src/web/client"
     ],
     "watchOptions": {
         "excludeDirectories": [
@@ -22,6 +23,8 @@
         "typeRoots": [
             "./node_modules/@types"
         ],
+        "types": ["node"],
+        "skipLibCheck": true,
         "noEmit": false,
         "emitDecoratorMetadata": true,
         "experimentalDecorators": true,
