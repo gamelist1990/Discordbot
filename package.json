@@ -1,0 +1,39 @@
+{
+  "name": "discord",
+  "version": "0.0.1",
+  "author": "Koukunn_",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gamelist1990/PEXclient.git"
+  },
+  "main": "null",
+  "dependencies": {
+    "@google/genai": "^0.7.0",
+    "canvas": "^3.1.0",
+    "cheerio": "^1.0.0",
+    "discord.js": "^14.18.0",
+    "inquirer": "^12.5.0",
+    "sharp": "^0.34.0"
+  },
+  "bugs": {
+    "url": "https://github.com/gamelist1990/PEXclient/issues"
+  },
+  "description": "discordです",
+  "homepage": "https://github.com/gamelist1990/PEXclient#readme",
+  "license": "MIT",
+  "scripts": {
+    "auto": "npm run linux && npm run linux-arm && npm run windows-64 && npm run macOS-64 && npm run macOS-arm",
+    "linux": "bun build src/index.ts --compile --target=bun-linux-x64 --minify --outfile discord_linux --minify",
+    "linux-arm": "bun build src/index.ts --compile --target=bun-linux-arm64 --minify --outfile discord_linuxArm --minify",
+    "windows-64": "bun build src/index.ts --compile --target=bun-windows-x64 --minify --outfile discord_windows --minify",
+    "macOS-64": "bun build src/index.ts --compile --target=bun-darwin-arm64 --minify --outfile discord_mac64 --minify",
+    "macOS-arm": "bun build src/index.ts --compile --target=bun-darwin-arm64 --minify --outfile discord_macArm --minify"
+  },
+  "devDependencies": {
+    "@types/cheerio": "^0.22.35",
+    "@types/inquirer": "^9.0.7",
+    "@types/node": "^22.13.14",
+    "typescript": "^5.8.2"
+  },
+  "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e"
+}

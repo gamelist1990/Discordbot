@@ -1,0 +1,10 @@
+node_modules/
+.env
+.env.*
+dist/
+build/
+out/
+*.exe
+src/config.json
+src/database
+IP.md
