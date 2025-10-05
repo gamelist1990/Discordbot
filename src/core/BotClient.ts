@@ -2,6 +2,7 @@ import { Client, Collection, GatewayIntentBits, REST, Routes } from 'discord.js'
 import { SlashCommand } from '../types/command.js';
 import { database } from './Database.js';
 import { Logger } from '../utils/Logger.js';
+import { EventManager } from './EventManager.js';
 
 /**
  * Discord APIコマンド型定義
@@ -25,6 +26,7 @@ export class BotClient {
     public client: Client;
     public commands: Collection<string, SlashCommand>;
     public token: string;
+    public eventManager: EventManager;
     private rest: REST;
 
     constructor(token: string) {
@@ -40,6 +42,9 @@ export class BotClient {
                 GatewayIntentBits.GuildMembers,
             ],
         });
+
+        // EventManager を初期化
+        this.eventManager = new EventManager(this.client);
 
         // サーバー参加イベント
         this.setupGuildLimitHandler();

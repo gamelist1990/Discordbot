@@ -4,6 +4,7 @@ import { CommandRegistry } from './CommandRegistry.js';
 import { EnhancedSlashCommand } from '../types/enhanced-command.js';
 import { cooldownManager } from '../utils/CooldownManager.js';
 import { Logger } from '../utils/Logger.js';
+import { Event } from '../types/events.js';
 
 /**
  * Discord イベントハンドラー
@@ -34,13 +35,16 @@ export class EventHandler {
     }
 
     /**
-     * Ready イベント（Bot が起動完了したとき）
+     * Ready イベント(Bot が起動完了したとき)
      */
     private registerReadyEvent(): void {
         this.botClient.client.once(Events.ClientReady, (client) => {
             Logger.success(`🤖 Bot 起動完了: ${client.user.tag}`);
             Logger.info(`📊 サーバー数: ${client.guilds.cache.size}`);
             Logger.info(`👥 ユーザー数: ${client.users.cache.size}`);
+
+            // EventManager経由でカスタムイベントも発火
+            this.botClient.eventManager.emit(Event.READY, client);
         });
     }
 
@@ -101,6 +105,14 @@ export class EventHandler {
                     );
 
                     if (!hasPermission) {
+                        // カスタムイベント発火: 権限拒否
+                        this.botClient.eventManager.emit(Event.PERMISSION_DENIED, {
+                            commandName: interaction.commandName,
+                            user: interaction.user,
+                            guild: interaction.guild!,
+                            requiredPermission: command.permissionLevel,
+                        });
+
                         await interaction.reply({ 
                             content: `❌ このコマンドを実行する権限がありません。（必要権限: ${command.permissionLevel}）`, 
                             flags: MessageFlags.Ephemeral 
@@ -118,6 +130,13 @@ export class EventHandler {
                     );
 
                     if (timeLeft) {
+                        // カスタムイベント発火: クールダウン
+                        this.botClient.eventManager.emit(Event.COOLDOWN_HIT, {
+                            commandName: interaction.commandName,
+                            user: interaction.user,
+                            remainingTime: timeLeft,
+                        });
+
                         await interaction.reply({
                             content: `⏳ クールダウン中です。${timeLeft.toFixed(1)}秒後に再実行できます。`,
                             flags: MessageFlags.Ephemeral
@@ -127,9 +146,26 @@ export class EventHandler {
                 }
 
                 Logger.command(interaction.commandName, interaction.user.id, interaction.guildId || undefined);
+                
+                // カスタムイベント発火: コマンド実行
+                this.botClient.eventManager.emit(Event.COMMAND_EXECUTE, {
+                    commandName: interaction.commandName,
+                    user: interaction.user,
+                    guild: interaction.guild || undefined,
+                    interaction,
+                });
+
                 await command.execute(interaction);
             } catch (error) {
                 Logger.error(`❌ コマンド実行エラー [/${interaction.commandName}]:`, error);
+                
+                // カスタムイベント発火: コマンドエラー
+                this.botClient.eventManager.emit(Event.COMMAND_ERROR, {
+                    commandName: interaction.commandName,
+                    error: error as Error,
+                    user: interaction.user,
+                    guild: interaction.guild || undefined,
+                });
                 
                 const errorMessage = 'コマンドの実行中にエラーが発生しました。';
                 
