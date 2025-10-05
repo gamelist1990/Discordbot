@@ -1,5 +1,5 @@
 import { PermissionLevel, DynamicCommandOptions, CommandBuilderCallback } from '../../types/enhanced-command.js';
-import { ChatInputCommandInteraction, EmbedBuilder, SlashCommandBuilder } from 'discord.js';
+import { ChatInputCommandInteraction, EmbedBuilder, MessageFlags, SlashCommandBuilder } from 'discord.js';
 import { CommandRegistry } from '../../core/CommandRegistry.js';
 import { SlashCommand } from '../../types/command.js';
 
@@ -30,7 +30,7 @@ const command: DynamicCommandOptions = {
         if (commands.length === 0) {
             await interaction.reply({ 
                 content: '❌ 登録されているコマンドがありません。', 
-                ephemeral: true 
+                flags: MessageFlags.Ephemeral 
             });
             return;
         }
@@ -113,7 +113,7 @@ const command: DynamicCommandOptions = {
             }
         }
 
-        await interaction.reply({ embeds: [embed], ephemeral: true });
+        await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
     }
 };
 

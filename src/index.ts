@@ -21,8 +21,35 @@ let botClient: BotClient | null = null;
  */
 async function loadConfig(): Promise<Config> {
     try {
+        Logger.debug(`CONFIG_FILE_PATH = ${CONFIG_FILE_PATH}`);
         const data = await fs.readFile(CONFIG_FILE_PATH, 'utf-8');
-        return JSON.parse(data);
+        Logger.debug(`config.json length=${data.length}`);
+        if (!data) {
+            Logger.error(`設定ファイルが空です: ${CONFIG_FILE_PATH}`);
+            return {};
+        }
+
+        // remove UTF-8 BOM if present
+        const stripBOM = (s: string) => (s.charCodeAt(0) === 0xfeff ? s.slice(1) : s);
+        const cleaned = stripBOM(data).trim();
+
+        // Try plain JSON parse first
+        try {
+            return JSON.parse(cleaned);
+        } catch (errPlain) {
+            // Fallback: remove JS-style comments (/* */ and //)
+            const uncommented = cleaned.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '').trim();
+            try {
+                return JSON.parse(uncommented);
+            } catch (errComments) {
+                // Mask token before logging snippet to avoid leaking secrets
+                const masked = cleaned.replace(/("token"\s*:\s*")([^"]+)(")/i, '$1<masked>$3');
+                Logger.error('設定ファイルの JSON 解析に失敗しました。先頭スニペット（token はマスク済み）:');
+                Logger.error(masked.slice(0, 400));
+                Logger.error(String(errComments));
+                return {};
+            }
+        }
     } catch (error) {
         Logger.error('設定ファイルの読み込みに失敗しました:', error);
         return {};

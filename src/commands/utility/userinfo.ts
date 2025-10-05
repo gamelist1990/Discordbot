@@ -1,5 +1,5 @@
 import { PermissionLevel, DynamicCommandOptions, CommandBuilderCallback } from '../../types/enhanced-command.js';
-import { ChatInputCommandInteraction, EmbedBuilder, SlashCommandBuilder } from 'discord.js';
+import { ChatInputCommandInteraction, EmbedBuilder, MessageFlags, SlashCommandBuilder } from 'discord.js';
 
 const command: DynamicCommandOptions = {
     name: 'userinfo',
@@ -20,7 +20,7 @@ const command: DynamicCommandOptions = {
         if (!interaction.guild) {
             await interaction.reply({ 
                 content: 'このコマンドはサーバー内でのみ使用できます。', 
-                ephemeral: true 
+                flags: MessageFlags.Ephemeral 
             });
             return;
         }
@@ -31,7 +31,7 @@ const command: DynamicCommandOptions = {
         if (!member) {
             await interaction.reply({ 
                 content: 'ユーザー情報を取得できませんでした。', 
-                ephemeral: true 
+                flags: MessageFlags.Ephemeral 
             });
             return;
         }

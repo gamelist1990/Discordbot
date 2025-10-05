@@ -9,3 +9,5 @@ src/config.json
 src/database
 IP.md
 config.json
+/.config.json
+.history

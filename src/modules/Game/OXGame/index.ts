@@ -356,11 +356,11 @@ async function handlePlayerMove(interaction: ButtonInteraction, gameState: oxgam
 
     const expectedPlayer = currentPlayer === CellState.X ? playerX : playerO;
     if (expectedPlayer === 'AI' || user.id !== expectedPlayer.id) {
-        await interaction.reply({ content: "⏳ あなたの番ではありません！", ephemeral: true });
+        await interaction.reply({ content: "⏳ あなたの番ではありません！", flags: MessageFlags.Ephemeral });
         return;
     }
     if (!isOnBoard(row, col) || board[row][col] !== CellState.Empty) {
-        await interaction.reply({ content: "🤔 そのマスには置けません。", ephemeral: true });
+        await interaction.reply({ content: "🤔 そのマスには置けません。", flags: MessageFlags.Ephemeral });
         return;
     }
 
@@ -541,18 +541,18 @@ const oxgameCommand: Command = {
         if (customId.startsWith('oxgame_select_')) {
             const parts = customId.split('_');
             if (parts.length !== 4) {
-                await interaction.reply({ content: '内部エラー: ボタンID解析失敗', ephemeral: true }); return;
+                await interaction.reply({ content: '内部エラー: ボタンID解析失敗', flags: MessageFlags.Ephemeral }); return;
             }
             const difficulty = parts[2] as AIDifficulty;
             const starterUserId = parts[3];
 
             if (user.id !== starterUserId) {
-                await interaction.reply({ content: '⚠️ ゲームを開始した本人のみが難易度を選択できます。', ephemeral: true });
+                await interaction.reply({ content: '⚠️ ゲームを開始した本人のみが難易度を選択できます。', flags: MessageFlags.Ephemeral });
                 return;
             }
 
             if (ongoingoxgameGames.has(channelId)) {
-                await interaction.reply({ content: '❌ このチャンネルでは既にゲームが進行中です。', ephemeral: true });
+                await interaction.reply({ content: '❌ このチャンネルでは既にゲームが進行中です。', flags: MessageFlags.Ephemeral });
                 try { await interaction.message.delete(); } catch { }
                 return;
             }
@@ -591,24 +591,24 @@ const oxgameCommand: Command = {
         const gameState = ongoingoxgameGames.get(channelId);
 
         if (!gameState) {
-            await interaction.reply({ content: '👻 このゲームは既に終了しているか、見つかりません。', ephemeral: true });
+            await interaction.reply({ content: '👻 このゲームは既に終了しているか、見つかりません。', flags: MessageFlags.Ephemeral });
             try { if (interaction.message.components.length > 0) await interaction.message.edit({ components: [] }); } catch { }
             return;
         }
         if (gameState.gameOver) {
-            await interaction.reply({ content: '🏁 ゲームは既に終了しています。', ephemeral: true });
+            await interaction.reply({ content: '🏁 ゲームは既に終了しています。', flags: MessageFlags.Ephemeral });
             try { if (interaction.message.components.length > 0) await interaction.message.edit({ components: [] }); } catch { }
             return;
         }
 
         const parts = customId.split('_');
         if (parts.length !== 3) {
-            await interaction.reply({ content: '内部エラー: ボタンIDが不正です。', ephemeral: true }); return;
+            await interaction.reply({ content: '内部エラー: ボタンIDが不正です。', flags: MessageFlags.Ephemeral }); return;
         }
         const row = parseInt(parts[1]);
         const col = parseInt(parts[2]);
         if (isNaN(row) || isNaN(col)) {
-            await interaction.reply({ content: '内部エラー: 座標の解析に失敗しました。', ephemeral: true }); return;
+            await interaction.reply({ content: '内部エラー: 座標の解析に失敗しました。', flags: MessageFlags.Ephemeral }); return;
         }
 
         await handlePlayerMove(interaction, gameState, row, col);

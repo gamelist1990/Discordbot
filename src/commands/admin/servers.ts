@@ -1,5 +1,5 @@
 import { PermissionLevel, DynamicCommandOptions } from '../../types/enhanced-command.js';
-import { ChatInputCommandInteraction, EmbedBuilder, Client, Guild } from 'discord.js';
+import { ChatInputCommandInteraction, EmbedBuilder, Client, Guild, MessageFlags } from 'discord.js';
 
 const MAX_GUILDS = 50;
 
@@ -38,7 +38,7 @@ const command: DynamicCommandOptions = {
             })
             .setTimestamp();
 
-        await interaction.reply({ embeds: [embed], ephemeral: true });
+        await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
     }
 };
 

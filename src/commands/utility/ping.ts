@@ -7,7 +7,8 @@ const command: DynamicCommandOptions = {
     permissionLevel: PermissionLevel.ANY,
     
     async execute(interaction: ChatInputCommandInteraction): Promise<void> {
-        const sent = await interaction.reply({ content: '計測中...', fetchReply: true });
+        await interaction.reply({ content: '計測中...' });
+        const sent = await interaction.fetchReply();
         const latency = sent.createdTimestamp - interaction.createdTimestamp;
         const apiLatency = Math.round(interaction.client.ws.ping);
 

@@ -1,5 +1,5 @@
 import { PermissionLevel, DynamicCommandOptions, CommandBuilderCallback } from '../../types/enhanced-command.js';
-import { ChatInputCommandInteraction, EmbedBuilder, SlashCommandBuilder } from 'discord.js';
+import { ChatInputCommandInteraction, EmbedBuilder, MessageFlags, SlashCommandBuilder } from 'discord.js';
 import { database } from '../../core/Database.js';
 
 const command: DynamicCommandOptions = {
@@ -76,7 +76,7 @@ const command: DynamicCommandOptions = {
                     const data = await database.get(key);
 
                     if (!data) {
-                        await interaction.reply({ content: `❌ キー \`${key}\` は存在しません。`, ephemeral: true });
+                        await interaction.reply({ content: `❌ キー \`${key}\` は存在しません。`, flags: MessageFlags.Ephemeral });
                         return;
                     }
 
@@ -123,7 +123,7 @@ const command: DynamicCommandOptions = {
             }
         } catch (error) {
             console.error('データベース操作エラー:', error);
-            await interaction.reply({ content: '❌ データベース操作中にエラーが発生しました。', ephemeral: true });
+            await interaction.reply({ content: '❌ データベース操作中にエラーが発生しました。', flags: MessageFlags.Ephemeral });
         }
     }
 };

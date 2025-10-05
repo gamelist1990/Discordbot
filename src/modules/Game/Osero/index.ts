@@ -855,19 +855,19 @@ const reversiCommand: Command = {
         if (customId.startsWith('reversi_select_')) {
             const parts = customId.split('_');
             if (parts.length !== 5) {
-                await interaction.reply({ content: '内部エラー: ボタンID解析失敗', ephemeral: true }); return;
+                await interaction.reply({ content: '内部エラー: ボタンID解析失敗', flags: MessageFlags.Ephemeral }); return;
             }
             const difficulty = parts[2] as AIDifficulty;
             const starterUserId = parts[3];
             const showHints = parts[4] === '1';
 
             if (user.id !== starterUserId) {
-                await interaction.reply({ content: '⚠️ ゲームを開始した本人のみが難易度を選択できます。', ephemeral: true });
+                await interaction.reply({ content: '⚠️ ゲームを開始した本人のみが難易度を選択できます。', flags: MessageFlags.Ephemeral });
                 return;
             }
 
             if (ongoingGames.has(channelId)) {
-                await interaction.reply({ content: '❌ このチャンネルでは既にゲームが進行中です。', ephemeral: true });
+                await interaction.reply({ content: '❌ このチャンネルでは既にゲームが進行中です。', flags: MessageFlags.Ephemeral });
                 try { await interaction.message.delete(); } catch { }
                 return;
             }
@@ -911,13 +911,13 @@ const reversiCommand: Command = {
         const gameState = ongoingGames.get(channelId);
 
         if (!gameState) {
-            await interaction.reply({ content: '👻 このゲームセッションは既に終了しているか、見つかりません。', ephemeral: true });
+            await interaction.reply({ content: '👻 このゲームセッションは既に終了しているか、見つかりません。', flags: MessageFlags.Ephemeral });
             try { if (interaction.message.components.length > 0) await interaction.message.edit({ components: [] }); } catch { }
             return;
         }
 
         if (gameState.gameOver) {
-            await interaction.reply({ content: '🏁 ゲームは既に終了しています。', ephemeral: true });
+            await interaction.reply({ content: '🏁 ゲームは既に終了しています。', flags: MessageFlags.Ephemeral });
             try { if (interaction.message.components.length > 0) await interaction.message.edit({ components: [] }); } catch { }
             return;
         }
@@ -925,23 +925,23 @@ const reversiCommand: Command = {
         if (customId.startsWith('reversi_put_')) {
             const expectedPlayerUser = gameState.currentPlayer === CellState.Black ? gameState.playerBlack : gameState.playerWhite;
             if (expectedPlayerUser === 'AI' || typeof expectedPlayerUser === 'string' || !expectedPlayerUser || expectedPlayerUser.id !== user.id) {
-                await interaction.reply({ content: "⏳ あなたのターンではありません！", ephemeral: true });
+                await interaction.reply({ content: "⏳ あなたのターンではありません！", flags: MessageFlags.Ephemeral });
                 return;
             }
 
             const parts = customId.split('_');
             if (parts.length !== 4) {
-                await interaction.reply({ content: '内部エラー: ボタンID不正', ephemeral: true }); return;
+                await interaction.reply({ content: '内部エラー: ボタンID不正', flags: MessageFlags.Ephemeral }); return;
             }
             const row = parseInt(parts[2]);
             const col = parseInt(parts[3]);
 
             if (isNaN(row) || isNaN(col)) {
-                await interaction.reply({ content: '内部エラー: 座標変換失敗', ephemeral: true }); return;
+                await interaction.reply({ content: '内部エラー: 座標変換失敗', flags: MessageFlags.Ephemeral }); return;
             }
 
             if (!isValidMove(gameState.board, row, col, gameState.currentPlayer)) {
-                await interaction.reply({ content: "🤔 その手は現在無効です。盤面が更新されたか、他の有効な手を選んでください。", ephemeral: true });
+                await interaction.reply({ content: "🤔 その手は現在無効です。盤面が更新されたか、他の有効な手を選んでください。", flags: MessageFlags.Ephemeral });
                 await updateGameMessage(gameState, channel);
                 return;
             }
@@ -969,7 +969,7 @@ const reversiCommand: Command = {
             return;
         }
 
-        await interaction.reply({ content: "未対応のボタンです。", ephemeral: true });
+        await interaction.reply({ content: "未対応のボタンです。", flags: MessageFlags.Ephemeral });
     }
 };
 
