@@ -1,12 +1,18 @@
-import { PermissionLevel, DynamicCommandOptions } from '../../types/enhanced-command.js';
-import { ChatInputCommandInteraction, EmbedBuilder, Client, Guild, MessageFlags } from 'discord.js';
+import { SlashCommandBuilder, ChatInputCommandInteraction, EmbedBuilder, Client, Guild, MessageFlags, PermissionFlagsBits } from 'discord.js';
+import { SlashCommand } from '../../types/command.js';
 
 const MAX_GUILDS = 50;
 
-const command: DynamicCommandOptions = {
-    name: 'servers',
-    description: 'Bot が参加しているサーバー一覧を表示します',
-    permissionLevel: PermissionLevel.OP,
+/**
+ * /servers コマンド
+ * Bot が参加しているサーバー一覧を表示します（管理者のみ）
+ */
+const serversCommand: SlashCommand = {
+    data: new SlashCommandBuilder()
+        .setName('servers')
+        .setDescription('Bot が参加しているサーバー一覧を表示します')
+        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+        .setDMPermission(false),
     
     async execute(interaction: ChatInputCommandInteraction): Promise<void> {
         const client: Client = interaction.client;
@@ -42,4 +48,4 @@ const command: DynamicCommandOptions = {
     }
 };
 
-export default command;
+export default serversCommand;

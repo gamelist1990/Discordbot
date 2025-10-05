@@ -1,24 +1,24 @@
-import { PermissionLevel, DynamicCommandOptions, CommandBuilderCallback } from '../../types/enhanced-command.js';
-import { ChatInputCommandInteraction, EmbedBuilder, MessageFlags, SlashCommandBuilder } from 'discord.js';
+import { SlashCommandBuilder, ChatInputCommandInteraction, EmbedBuilder, MessageFlags } from 'discord.js';
 import { CommandRegistry } from '../../core/CommandRegistry.js';
 import { SlashCommand } from '../../types/command.js';
 
 const COMMANDS_PER_PAGE = 5;
 
-const command: DynamicCommandOptions = {
-    name: 'help',
-    description: 'コマンド一覧を表示します',
-    permissionLevel: PermissionLevel.ANY,
-    
-    builder: ((eb: SlashCommandBuilder) => {
-        return eb.addIntegerOption(option =>
+/**
+ * /help コマンド
+ * コマンド一覧を表示します
+ */
+const helpCommand: SlashCommand = {
+    data: new SlashCommandBuilder()
+        .setName('help')
+        .setDescription('コマンド一覧を表示します')
+        .addIntegerOption(option =>
             option
                 .setName('page')
                 .setDescription('表示するページ番号')
                 .setRequired(false)
                 .setMinValue(1)
-        );
-    }) as CommandBuilderCallback,
+        ) as SlashCommandBuilder,
     
     async execute(interaction: ChatInputCommandInteraction): Promise<void> {
         const requestedPage = interaction.options.getInteger('page') ?? 1;
@@ -35,27 +35,8 @@ const command: DynamicCommandOptions = {
             return;
         }
 
-        // 権限レベルでグループ化
-        const groupedCommands: Record<PermissionLevel, SlashCommand[]> = {
-            [PermissionLevel.ANY]: [],
-            [PermissionLevel.STAFF]: [],
-            [PermissionLevel.ADMIN]: [],
-            [PermissionLevel.OP]: [],
-        };
-
-        commands.forEach(cmd => {
-            const level = cmd.permissionLevel || PermissionLevel.ANY;
-            groupedCommands[level].push(cmd);
-        });
-
-        // ページネーション用にフラット化
-        const sortedCommands: Array<{ cmd: SlashCommand, level: PermissionLevel }> = [];
-        
-        for (const [level, cmds] of Object.entries(groupedCommands)) {
-            cmds.forEach(cmd => {
-                sortedCommands.push({ cmd, level: level as PermissionLevel });
-            });
-        }
+        // コマンド名でソート
+        const sortedCommands = commands.sort((a, b) => a.data.name.localeCompare(b.data.name));
 
         const totalPages = Math.ceil(sortedCommands.length / COMMANDS_PER_PAGE);
         const page = Math.max(1, Math.min(requestedPage, totalPages));
@@ -71,29 +52,14 @@ const command: DynamicCommandOptions = {
             .setTimestamp()
             .setFooter({ text: `/help <ページ番号> で他のページを表示` });
 
-        // 権限レベルの絵文字マッピング
-        const levelEmoji: Record<PermissionLevel, string> = {
-            [PermissionLevel.ANY]: '🌐',
-            [PermissionLevel.STAFF]: '👔',
-            [PermissionLevel.ADMIN]: '🛡️',
-            [PermissionLevel.OP]: '👑',
-        };
-
-        const levelName: Record<PermissionLevel, string> = {
-            [PermissionLevel.ANY]: '誰でも',
-            [PermissionLevel.STAFF]: 'スタッフ',
-            [PermissionLevel.ADMIN]: '管理者',
-            [PermissionLevel.OP]: 'サーバー管理者',
-        };
-
         // ページ内のコマンドを追加
-        pageCommands.forEach(({ cmd, level }) => {
-            const cooldownText = cmd.cooldown ? ` (クールダウン: ${cmd.cooldown}秒)` : '';
+        pageCommands.forEach((cmd) => {
             const guildOnlyText = cmd.guildOnly ? ' 🏠' : '';
+            const adminText = cmd.data.default_member_permissions ? ' 🛡️' : '';
             
             embed.addFields({
-                name: `${levelEmoji[level]} \`/${cmd.data.name}\` ${guildOnlyText}`,
-                value: `${cmd.data.description}\n**必要権限:** ${levelName[level]}${cooldownText}`,
+                name: `\`/${cmd.data.name}\`${guildOnlyText}${adminText}`,
+                value: cmd.data.description,
                 inline: false
             });
         });
@@ -117,4 +83,4 @@ const command: DynamicCommandOptions = {
     }
 };
 
-export default command;
+export default helpCommand;

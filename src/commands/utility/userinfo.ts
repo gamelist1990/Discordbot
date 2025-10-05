@@ -1,20 +1,21 @@
-import { PermissionLevel, DynamicCommandOptions, CommandBuilderCallback } from '../../types/enhanced-command.js';
-import { ChatInputCommandInteraction, EmbedBuilder, MessageFlags, SlashCommandBuilder } from 'discord.js';
+import { SlashCommandBuilder, ChatInputCommandInteraction, EmbedBuilder, MessageFlags } from 'discord.js';
+import { SlashCommand } from '../../types/command.js';
 
-const command: DynamicCommandOptions = {
-    name: 'userinfo',
-    description: 'ユーザー情報を表示します',
-    permissionLevel: PermissionLevel.ANY,
-    guildOnly: true,
-    
-    builder: ((eb: SlashCommandBuilder) => {
-        return eb.addUserOption(option =>
+/**
+ * /userinfo コマンド
+ * ユーザー情報を表示します
+ */
+const userinfoCommand: SlashCommand = {
+    data: new SlashCommandBuilder()
+        .setName('userinfo')
+        .setDescription('ユーザー情報を表示します')
+        .setDMPermission(false)
+        .addUserOption(option =>
             option
                 .setName('user')
                 .setDescription('情報を表示するユーザー')
                 .setRequired(false)
-        );
-    }) as CommandBuilderCallback,
+        ) as SlashCommandBuilder,
     
     async execute(interaction: ChatInputCommandInteraction): Promise<void> {
         if (!interaction.guild) {
@@ -57,4 +58,4 @@ const command: DynamicCommandOptions = {
     }
 };
 
-export default command;
+export default userinfoCommand;

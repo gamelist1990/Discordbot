@@ -1,10 +1,14 @@
-import { PermissionLevel, DynamicCommandOptions } from '../../types/enhanced-command.js';
-import { ChatInputCommandInteraction, EmbedBuilder } from 'discord.js';
+import { SlashCommandBuilder, ChatInputCommandInteraction, EmbedBuilder } from 'discord.js';
+import { SlashCommand } from '../../types/command.js';
 
-const command: DynamicCommandOptions = {
-    name: 'ping',
-    description: 'Bot の応答速度を確認します',
-    permissionLevel: PermissionLevel.ANY,
+/**
+ * /ping コマンド
+ * Bot の応答速度を確認します
+ */
+const pingCommand: SlashCommand = {
+    data: new SlashCommandBuilder()
+        .setName('ping')
+        .setDescription('Bot の応答速度を確認します'),
     
     async execute(interaction: ChatInputCommandInteraction): Promise<void> {
         await interaction.reply({ content: '計測中...' });
@@ -25,4 +29,4 @@ const command: DynamicCommandOptions = {
     }
 };
 
-export default command;
+export default pingCommand;
