@@ -1,24 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import styles from './PrivateChatPage.module.css';
+import {
+  validateToken,
+  fetchPrivateChats,
+  createPrivateChat,
+  deletePrivateChat,
+  fetchPrivateChatStats,
+  ApiError,
+  type PrivateChat,
+  type PrivateChatStats as Stats,
+} from '../services/api';
 
-interface PrivateChat {
-  chatId: string;
-  channelId: string;
-  userId: string;
-  staffId: string;
-  userName: string;
-  staffName: string;
-  channelExists: boolean;
-  createdAt: number;
-}
-
-interface Stats {
-  total: number;
-  today: number;
-  thisWeek: number;
-  thisMonth: number;
-}
 
 const PrivateChatPage: React.FC = () => {
   const params = useParams();
@@ -33,6 +26,8 @@ const PrivateChatPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [newUserId, setNewUserId] = useState('');
+  const [realtimeStatus, setRealtimeStatus] = useState<'connected' | 'connecting' | 'disconnected'>('disconnected');
+  const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
 
   useEffect(() => {
     // NOTE: token はパスパラメータ優先で取得するようになった
@@ -42,44 +37,60 @@ const PrivateChatPage: React.FC = () => {
     }
 
     validateAndLoadData();
+
+    // リアルタイム更新の設定（ポーリング）
+    const pollInterval = setInterval(() => {
+      loadChats();
+      loadStats();
+      setLastUpdate(new Date());
+    }, 10000); // 10秒ごとに更新
+
+    return () => {
+      clearInterval(pollInterval);
+    };
   }, [token, navigate]);
 
   const validateAndLoadData = async () => {
+    setRealtimeStatus('connecting');
     try {
       // トークン検証
-      const validateResponse = await fetch(`/api/validate/${token}`);
-      if (!validateResponse.ok) {
-        throw new Error('Invalid or expired token');
-      }
+      await validateToken(token!);
 
       // データ読み込み
       await Promise.all([loadChats(), loadStats()]);
+      setRealtimeStatus('connected');
+      setLastUpdate(new Date());
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load data');
+      const errorMessage = err instanceof ApiError 
+        ? err.message 
+        : err instanceof Error 
+        ? err.message 
+        : 'Failed to load data';
+      setError(errorMessage);
       setLoading(false);
+      setRealtimeStatus('disconnected');
     }
   };
 
   const loadChats = async () => {
     try {
-      const response = await fetch(`/api/staff/privatechats/${token}`);
-      if (!response.ok) throw new Error('Failed to fetch chats');
-      
-      const data = await response.json();
+      const data = await fetchPrivateChats(token!);
       setChats(data.chats || []);
       setLoading(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load chats');
+      const errorMessage = err instanceof ApiError 
+        ? err.message 
+        : err instanceof Error 
+        ? err.message 
+        : 'Failed to load chats';
+      setError(errorMessage);
       setLoading(false);
     }
   };
 
   const loadStats = async () => {
     try {
-      const response = await fetch(`/api/staff/stats/${token}`);
-      if (!response.ok) throw new Error('Failed to fetch stats');
-      
-      const data = await response.json();
+      const data = await fetchPrivateChatStats(token!);
       setStats(data);
     } catch (err) {
       console.error('Failed to load stats:', err);
@@ -92,22 +103,17 @@ const PrivateChatPage: React.FC = () => {
 
     setCreating(true);
     try {
-      const response = await fetch(`/api/staff/privatechats/${token}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: newUserId.trim() })
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Failed to create chat');
-      }
-
+      await createPrivateChat(token!, newUserId.trim());
       setNewUserId('');
       await loadChats();
       await loadStats();
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to create chat');
+      const errorMessage = err instanceof ApiError 
+        ? err.message 
+        : err instanceof Error 
+        ? err.message 
+        : 'Failed to create chat';
+      alert(errorMessage);
     } finally {
       setCreating(false);
     }
@@ -117,18 +123,16 @@ const PrivateChatPage: React.FC = () => {
     if (!confirm('このプライベートチャットを削除しますか？')) return;
 
     try {
-      const response = await fetch(`/api/staff/privatechats/${token}/${chatId}`, {
-        method: 'DELETE'
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to delete chat');
-      }
-
+      await deletePrivateChat(token!, chatId);
       await loadChats();
       await loadStats();
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to delete chat');
+      const errorMessage = err instanceof ApiError 
+        ? err.message 
+        : err instanceof Error 
+        ? err.message 
+        : 'Failed to delete chat';
+      alert(errorMessage);
     }
   };
 
@@ -158,9 +162,32 @@ const PrivateChatPage: React.FC = () => {
 
   return (
     <div className={styles.privateChatPage}>
+      {/* Real-time update indicator */}
+      {realtimeStatus === 'connected' && lastUpdate && (
+        <div className={`${styles.updateIndicator}`}>
+          <span className={styles.pulse}></span>
+          <span>リアルタイム更新中</span>
+        </div>
+      )}
+      {realtimeStatus === 'connecting' && (
+        <div className={`${styles.updateIndicator} ${styles.connecting}`}>
+          <span>接続中...</span>
+        </div>
+      )}
+      {realtimeStatus === 'disconnected' && (
+        <div className={`${styles.updateIndicator} ${styles.error}`}>
+          <span>切断されました</span>
+        </div>
+      )}
+
       <header className={styles.pageHeader}>
         <h1>💬 プライベートチャット管理</h1>
         <p>ユーザーとのプライベートな会話チャンネルを管理できます</p>
+        {lastUpdate && (
+          <p style={{ fontSize: '0.9rem', color: '#999', marginTop: '0.5rem' }}>
+            最終更新: {lastUpdate.toLocaleTimeString('ja-JP')}
+          </p>
+        )}
       </header>
 
       {stats && (

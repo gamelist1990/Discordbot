@@ -1,13 +1,21 @@
-.private-chat-page {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 2rem;
 /* Styles for PrivateChatPage (CSS Modules - camelCase names used in TSX) */
 
 .privateChatPage {
   max-width: 1200px;
   margin: 0 auto;
   padding: 2rem;
+  animation: fadeIn 0.3s ease-in;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .pageHeader {
@@ -29,41 +37,80 @@
 .statsSection {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 1rem;
+  gap: 1.5rem;
   margin-bottom: 3rem;
 }
 
 .statCard {
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: white;
-  padding: 1.5rem;
-  border-radius: 12px;
+  padding: 2rem 1.5rem;
+  border-radius: 16px;
   text-align: center;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 8px 16px rgba(102, 126, 234, 0.3);
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.statCard::before {
+  content: '';
+  position: absolute;
+  top: -50%;
+  right: -50%;
+  width: 200%;
+  height: 200%;
+  background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%);
+  transition: transform 0.5s ease;
+}
+
+.statCard:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 12px 24px rgba(102, 126, 234, 0.4);
+}
+
+.statCard:hover::before {
+  transform: scale(1.1);
 }
 
 .statNumber {
   font-size: 3rem;
-  font-weight: bold;
+  font-weight: 700;
   margin-bottom: 0.5rem;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  position: relative;
+  z-index: 1;
 }
 
 .statLabel {
   font-size: 1rem;
-  opacity: 0.9;
+  opacity: 0.95;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  position: relative;
+  z-index: 1;
 }
 
 .createSection {
   background: white;
-  padding: 2rem;
-  border-radius: 12px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  padding: 2.5rem;
+  border-radius: 16px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
   margin-bottom: 3rem;
+  border: 1px solid rgba(102, 126, 234, 0.1);
+  transition: box-shadow 0.3s ease;
+}
+
+.createSection:hover {
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.12);
 }
 
 .createSection h2 {
-  margin-bottom: 1rem;
+  margin-bottom: 1.5rem;
   color: #333;
+  font-size: 1.5rem;
+  font-weight: 600;
 }
 
 .createForm {
@@ -137,15 +184,34 @@
 
 .chatCard {
   background: white;
-  padding: 1.5rem;
-  border-radius: 12px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-  transition: transform 0.2s, box-shadow 0.2s;
+  padding: 2rem;
+  border-radius: 16px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  border: 1px solid rgba(102, 126, 234, 0.1);
+  position: relative;
+  overflow: hidden;
+}
+
+.chatCard::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
+  width: 4px;
+  background: linear-gradient(180deg, #667eea 0%, #764ba2 100%);
+  opacity: 0;
+  transition: opacity 0.3s ease;
 }
 
 .chatCard:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  transform: translateY(-4px);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.12);
+}
+
+.chatCard:hover::before {
+  opacity: 1;
 }
 
 .chatHeader {
@@ -246,19 +312,62 @@
   font-size: 1rem;
 }
 
-@media (max-width: 768px) {
-  .privateChatPage {
-    padding: 1rem;
-  }
+/* Real-time update indicator */
+.updateIndicator {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  background: #43b581;
+  color: white;
+  padding: 0.5rem 1rem;
+  border-radius: 20px;
+  font-size: 0.9rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  animation: slideIn 0.3s ease-out;
+  z-index: 1000;
+}
 
-  .createForm {
-    flex-direction: column;
+@keyframes slideIn {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
   }
-
-  .statNumber {
-    font-size: 2rem;
+  to {
+    transform: translateX(0);
+    opacity: 1;
   }
 }
+
+.updateIndicator.connecting {
+  background: #faa61a;
+}
+
+.updateIndicator.error {
+  background: #f04747;
+}
+
+.pulse {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: white;
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.5;
+    transform: scale(0.8);
+  }
+}
+
 @media (max-width: 768px) {
   .privateChatPage {
     padding: 1rem;
@@ -271,18 +380,11 @@
   .statNumber {
     font-size: 2rem;
   }
-}}
 
-@media (max-width: 768px) {
-  .private-chat-page {
-    padding: 1rem;
-  }
-
-  .create-form {
-    flex-direction: column;
-  }
-
-  .stat-number {
-    font-size: 2rem;
+  .updateIndicator {
+    top: 10px;
+    right: 10px;
+    font-size: 0.8rem;
+    padding: 0.4rem 0.8rem;
   }
 }
