@@ -155,3 +155,41 @@ export async function fetchPrivateChatStats(token: string): Promise<PrivateChatS
   return apiRequest<PrivateChatStats>(`${API_BASE}/staff/stats/${token}`);
 }
 
+/**
+ * チャットメンバー情報
+ */
+export interface ChatMember {
+  id: string;
+  username: string;
+  avatar: string | null;
+}
+
+export interface ChatMembersResponse {
+  members: ChatMember[];
+}
+
+/**
+ * チャットのメンバーリストを取得
+ */
+export async function fetchChatMembers(token: string, chatId: string): Promise<ChatMembersResponse> {
+  return apiRequest<ChatMembersResponse>(`${API_BASE}/staff/privatechats/${token}/${chatId}/members`);
+}
+
+/**
+ * チャットにメンバーを追加
+ */
+export async function addChatMember(token: string, chatId: string, userId: string): Promise<{ success: boolean }> {
+  return apiRequest(`${API_BASE}/staff/privatechats/${token}/${chatId}/members`, {
+    method: 'POST',
+    body: JSON.stringify({ userId }),
+  });
+}
+
+/**
+ * チャットからメンバーを削除
+ */
+export async function removeChatMember(token: string, chatId: string, userId: string): Promise<{ success: boolean }> {
+  return apiRequest(`${API_BASE}/staff/privatechats/${token}/${chatId}/members/${userId}`, {
+    method: 'DELETE',
+  });
+}

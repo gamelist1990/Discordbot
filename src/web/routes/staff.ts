@@ -30,5 +30,10 @@ export function createStaffRoutes(
     // プライベートチャットのリアルタイム更新（SSE）
     router.get('/privatechats/:token/stream', auth.validateToken, controller.streamPrivateChatUpdates.bind(controller));
 
+    // メンバー管理エンドポイント
+    router.get('/privatechats/:token/:chatId/members', auth.validateToken, controller.getChatMembers.bind(controller));
+    router.post('/privatechats/:token/:chatId/members', auth.validateToken, controller.addChatMember.bind(controller));
+    router.delete('/privatechats/:token/:chatId/members/:userId', auth.validateToken, controller.removeChatMember.bind(controller));
+
     return router;
 }

@@ -78,12 +78,10 @@ export class PrivateChatManager {
             });
         }
 
-        // base name を整形
-        let baseName = roomName.toLowerCase();
-        if (!baseName.startsWith('private-') && !baseName.startsWith('vc-')) {
-            baseName = `private-${baseName}`;
-        }
-        const channelName = baseName.replace(/[^a-z0-9-_]/g, '-');
+        // base name を整形（部屋名をそのまま使用）
+        let baseName = roomName.toLowerCase().replace(/[^a-z0-9-_]/g, '-');
+        const channelName = baseName;
+        const vcChannelName = `${baseName}-vc`;
 
         // 権限オーバーライドを作成
         const overwrites: any[] = [
@@ -116,7 +114,7 @@ export class PrivateChatManager {
         let vcChannel: any = null;
         try {
             vcChannel = await guild.channels.create({
-                name: channelName.replace(/^private-/, 'vc-'),
+                name: vcChannelName,
                 type: ChannelType.GuildVoice,
                 parent: category.id,
                 permissionOverwrites: overwrites
@@ -238,5 +236,97 @@ export class PrivateChatManager {
             thisWeek: chats.filter(chat => chat.createdAt >= oneWeekAgo).length,
             thisMonth: chats.filter(chat => chat.createdAt >= oneMonthAgo).length
         };
+    }
+
+    /**
+     * チャットにメンバーを追加
+     */
+    static async addMember(guild: Guild, chatId: string, userId: string): Promise<boolean> {
+        const chat = await this.getChat(chatId);
+        if (!chat) {
+            throw new Error('チャットが見つかりません');
+        }
+
+        const member = await guild.members.fetch(userId).catch(() => null);
+        if (!member) {
+            throw new Error('ユーザーが見つかりません');
+        }
+
+        // テキストチャンネルに権限を追加
+        const channel = guild.channels.cache.get(chat.channelId);
+        if (channel && 'permissionOverwrites' in channel) {
+            await channel.permissionOverwrites.create(userId, {
+                ViewChannel: true,
+                SendMessages: true,
+                ReadMessageHistory: true
+            });
+        }
+
+        // VCチャンネルに権限を追加
+        if (chat.vcId) {
+            const vcChannel = guild.channels.cache.get(chat.vcId);
+            if (vcChannel && 'permissionOverwrites' in vcChannel) {
+                await vcChannel.permissionOverwrites.create(userId, {
+                    ViewChannel: true,
+                    Connect: true,
+                    Speak: true
+                });
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * チャットからメンバーを削除
+     */
+    static async removeMember(guild: Guild, chatId: string, userId: string): Promise<boolean> {
+        const chat = await this.getChat(chatId);
+        if (!chat) {
+            throw new Error('チャットが見つかりません');
+        }
+
+        // テキストチャンネルから権限を削除
+        const channel = guild.channels.cache.get(chat.channelId);
+        if (channel && 'permissionOverwrites' in channel) {
+            await channel.permissionOverwrites.delete(userId);
+        }
+
+        // VCチャンネルから権限を削除
+        if (chat.vcId) {
+            const vcChannel = guild.channels.cache.get(chat.vcId);
+            if (vcChannel && 'permissionOverwrites' in vcChannel) {
+                await vcChannel.permissionOverwrites.delete(userId);
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * チャットのメンバーリストを取得
+     */
+    static async getMembers(guild: Guild, chatId: string): Promise<string[]> {
+        const chat = await this.getChat(chatId);
+        if (!chat) {
+            throw new Error('チャットが見つかりません');
+        }
+
+        const channel = guild.channels.cache.get(chat.channelId);
+        if (!channel || !('permissionOverwrites' in channel)) {
+            return [];
+        }
+
+        const members: string[] = [];
+        channel.permissionOverwrites.cache.forEach((overwrite) => {
+            if (overwrite.type === 1 && overwrite.id !== guild.id) { // type 1 = member
+                const permissions = overwrite.allow;
+                if (permissions.has(PermissionFlagsBits.ViewChannel)) {
+                    members.push(overwrite.id);
+                }
+            }
+        });
+
+        return members;
     }
 }

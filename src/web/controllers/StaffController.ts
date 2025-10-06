@@ -245,4 +245,98 @@ export class StaffController {
             res.end();
         }
     }
+
+    /**
+     * チャットのメンバーリストを取得
+     */
+    async getChatMembers(req: Request, res: Response): Promise<void> {
+        const session = (req as any).session as SettingsSession;
+        const { chatId } = req.params;
+
+        try {
+            const guild = this.botClient.client.guilds.cache.get(session.guildId);
+            if (!guild) {
+                res.status(404).json({ error: 'Guild not found' });
+                return;
+            }
+
+            const { PrivateChatManager } = await import('../../commands/staff/PrivateChatManager.js');
+            const memberIds = await PrivateChatManager.getMembers(guild, chatId);
+
+            // メンバー情報を取得
+            const members = await Promise.all(
+                memberIds.map(async (id) => {
+                    const member = await guild.members.fetch(id).catch(() => null);
+                    return {
+                        id,
+                        username: member?.user.username || 'Unknown User',
+                        avatar: member?.user.displayAvatarURL() || null
+                    };
+                })
+            );
+
+            res.json({ members });
+        } catch (error) {
+            console.error('メンバーリスト取得エラー:', error);
+            res.status(500).json({ error: 'Failed to fetch members' });
+        }
+    }
+
+    /**
+     * チャットにメンバーを追加
+     */
+    async addChatMember(req: Request, res: Response): Promise<void> {
+        const session = (req as any).session as SettingsSession;
+        const { chatId } = req.params;
+        const { userId } = req.body;
+
+        if (!userId) {
+            res.status(400).json({ error: 'userId is required' });
+            return;
+        }
+
+        try {
+            const guild = this.botClient.client.guilds.cache.get(session.guildId);
+            if (!guild) {
+                res.status(404).json({ error: 'Guild not found' });
+                return;
+            }
+
+            const { PrivateChatManager } = await import('../../commands/staff/PrivateChatManager.js');
+            await PrivateChatManager.addMember(guild, chatId, userId);
+
+            console.log(`メンバー追加: ${userId} to ${chatId}`);
+            res.json({ success: true });
+        } catch (error) {
+            console.error('メンバー追加エラー:', error);
+            const errorMessage = error instanceof Error ? error.message : 'Failed to add member';
+            res.status(500).json({ error: errorMessage });
+        }
+    }
+
+    /**
+     * チャットからメンバーを削除
+     */
+    async removeChatMember(req: Request, res: Response): Promise<void> {
+        const session = (req as any).session as SettingsSession;
+        const { chatId, userId } = req.params;
+
+        try {
+            const guild = this.botClient.client.guilds.cache.get(session.guildId);
+            if (!guild) {
+                res.status(404).json({ error: 'Guild not found' });
+                return;
+            }
+
+            const { PrivateChatManager } = await import('../../commands/staff/PrivateChatManager.js');
+            await PrivateChatManager.removeMember(guild, chatId, userId);
+
+            console.log(`メンバー削除: ${userId} from ${chatId}`);
+            res.json({ success: true });
+        } catch (error) {
+            console.error('メンバー削除エラー:', error);
+            const errorMessage = error instanceof Error ? error.message : 'Failed to remove member';
+            res.status(500).json({ error: errorMessage });
+        }
+    }
 }
