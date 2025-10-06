@@ -59,10 +59,20 @@ export class SettingsServer {
         // 静的ファイルの配信
         this.app.use(express.static(path.join(__dirname, '..', '..', 'dist', 'web')));
 
-        // SPAのフォールバック（すべての非APIルートをindex.htmlにリダイレクト）
-        this.app.get('*', (_req: Request, res: Response) => {
+        // SPAのフォールバック（GETかつ/apiで始まらないリクエストに対してindex.htmlを返す）
+        // path-to-regexp のバージョン差による '*' パースエラーを回避するため、
+        // 明示的にメソッドとパスをチェックするミドルウェアを使います。
+        this.app.use((req: Request, res: Response, next) => {
+            // APIルートは次へ
+            if (req.path.startsWith('/api')) return next();
+
+            // GETのみをSPAフォールバックとして扱う
+            if (req.method !== 'GET') return next();
+
             const indexPath = path.join(__dirname, '..', '..', 'dist', 'web', 'index.html');
-            res.sendFile(indexPath);
+            res.sendFile(indexPath, (err) => {
+                if (err) next(err);
+            });
         });
     }
 
