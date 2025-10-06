@@ -97,7 +97,7 @@ export default {
         
         await interaction.reply({
             content: `入力されたテキスト: ${text}`,
-            ephemeral: true
+            flags: MessageFlags.Ephemeral
         });
     }
 };

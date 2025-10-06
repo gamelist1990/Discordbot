@@ -6,8 +6,8 @@ import { BotClient } from '../core/BotClient.js';
 import { SessionService } from './services/SessionService.js';
 import { createStatusRoutes, createSessionRoutes, createSettingsRoutes, createStaffRoutes } from './routes/index.js';
 
-// 型定義をエクスポート
-export { SettingsSession, GuildSettings } from './types/index.js';
+// 型定義を型として再エクスポート（実行時には存在しないため type を使用）
+export type { SettingsSession, GuildSettings } from './types/index.js';
 
 /**
  * 設定画面用Webサーバー（モジュール構造）
@@ -42,7 +42,6 @@ export class SettingsServer {
     private setupMiddleware(): void {
         this.app.use(cors());
         this.app.use(express.json());
-        this.app.use(express.static(path.join(__dirname, '..', '..', 'dist', 'web')));
     }
 
     /**
@@ -51,14 +50,17 @@ export class SettingsServer {
     private setupRoutes(): void {
         const sessions = this.sessionService.getSessions();
 
-        // APIルートをモジュールから読み込み
+        // APIルートをモジュールから読み込み（静的ファイルより先に定義）
         this.app.use('/api', createStatusRoutes(this.botClient));
         this.app.use('/api', createSessionRoutes(sessions, this.botClient));
         this.app.use('/api', createSettingsRoutes(sessions));
         this.app.use('/api/staff', createStaffRoutes(sessions, this.botClient));
 
+        // 静的ファイルの配信
+        this.app.use(express.static(path.join(__dirname, '..', '..', 'dist', 'web')));
+
         // SPAのフォールバック（すべての非APIルートをindex.htmlにリダイレクト）
-        this.app.use((_req: Request, res: Response) => {
+        this.app.get('*', (_req: Request, res: Response) => {
             const indexPath = path.join(__dirname, '..', '..', 'dist', 'web', 'index.html');
             res.sendFile(indexPath);
         });

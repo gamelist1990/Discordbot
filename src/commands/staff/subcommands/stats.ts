@@ -1,4 +1,4 @@
-import { ChatInputCommandInteraction, EmbedBuilder } from 'discord.js';
+import { ChatInputCommandInteraction, EmbedBuilder, MessageFlags } from 'discord.js';
 import { PrivateChatManager } from '../PrivateChatManager.js';
 
 /**
@@ -21,12 +21,12 @@ export default {
         if (!interaction.guild) {
             await interaction.reply({
                 content: '❌ このコマンドはサーバー内でのみ使用できます。',
-                ephemeral: true
+                flags: MessageFlags.Ephemeral
             });
             return;
         }
 
-        await interaction.deferReply({ ephemeral: true });
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
         try {
             const stats = await PrivateChatManager.getStats(interaction.guild.id);

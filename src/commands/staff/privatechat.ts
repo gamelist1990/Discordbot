@@ -19,7 +19,7 @@ async function openManagementUI(interaction: ChatInputCommandInteraction): Promi
     if (!interaction.guild) {
         await interaction.reply({
             content: '❌ このコマンドはサーバー内でのみ使用できます。',
-            ephemeral: true
+            flags: MessageFlags.Ephemeral
         });
         return;
     }
@@ -30,7 +30,7 @@ async function openManagementUI(interaction: ChatInputCommandInteraction): Promi
     if (!settingsServer) {
         await interaction.reply({
             content: '❌ Web UI管理機能が利用できません。設定サーバーが起動していない可能性があります。',
-            ephemeral: true
+            flags: MessageFlags.Ephemeral
         });
         return;
     }
@@ -74,7 +74,7 @@ async function openManagementUI(interaction: ChatInputCommandInteraction): Promi
         console.error('Web UI管理画面エラー:', error);
         await interaction.reply({
             content: '❌ 管理画面URLの生成中にエラーが発生しました。',
-            ephemeral: true
+            flags: MessageFlags.Ephemeral
         });
     }
 }
