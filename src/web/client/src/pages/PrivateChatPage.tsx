@@ -28,6 +28,7 @@ const PrivateChatPage: React.FC = () => {
   const [newUserId, setNewUserId] = useState('');
   const [realtimeStatus, setRealtimeStatus] = useState<'connected' | 'connecting' | 'disconnected'>('disconnected');
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
+  const [useSSE, setUseSSE] = useState(true); // SSE を優先的に使用
 
   useEffect(() => {
     // NOTE: token はパスパラメータ優先で取得するようになった
@@ -38,17 +39,70 @@ const PrivateChatPage: React.FC = () => {
 
     validateAndLoadData();
 
-    // リアルタイム更新の設定（ポーリング）
-    const pollInterval = setInterval(() => {
-      loadChats();
-      loadStats();
-      setLastUpdate(new Date());
-    }, 10000); // 10秒ごとに更新
+    let eventSource: EventSource | null = null;
+    let pollInterval: NodeJS.Timeout | null = null;
+
+    // SSE を試行
+    if (useSSE) {
+      try {
+        eventSource = new EventSource(`/api/staff/privatechats/${token}/stream`);
+
+        eventSource.onopen = () => {
+          console.log('SSE 接続が確立されました');
+          setRealtimeStatus('connected');
+        };
+
+        eventSource.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            
+            if (data.type === 'update') {
+              setChats(data.chats || []);
+              setStats(data.stats || null);
+              setLastUpdate(new Date(data.timestamp));
+              setRealtimeStatus('connected');
+            } else if (data.error) {
+              console.error('SSE エラー:', data.error);
+              setRealtimeStatus('disconnected');
+            }
+          } catch (err) {
+            console.error('SSE データのパースエラー:', err);
+          }
+        };
+
+        eventSource.onerror = (err) => {
+          console.error('SSE 接続エラー:', err);
+          setRealtimeStatus('disconnected');
+          eventSource?.close();
+          
+          // SSE が失敗した場合、ポーリングにフォールバック
+          setUseSSE(false);
+        };
+      } catch (err) {
+        console.error('SSE 初期化エラー:', err);
+        setUseSSE(false);
+      }
+    }
+
+    // SSE が利用できない場合はポーリング
+    if (!useSSE) {
+      pollInterval = setInterval(() => {
+        loadChats();
+        loadStats();
+        setLastUpdate(new Date());
+      }, 10000); // 10秒ごとに更新
+    }
 
     return () => {
-      clearInterval(pollInterval);
+      if (eventSource) {
+        eventSource.close();
+        console.log('SSE 接続を閉じました');
+      }
+      if (pollInterval) {
+        clearInterval(pollInterval);
+      }
     };
-  }, [token, navigate]);
+  }, [token, navigate, useSSE]);
 
   const validateAndLoadData = async () => {
     setRealtimeStatus('connecting');
@@ -166,7 +220,7 @@ const PrivateChatPage: React.FC = () => {
       {realtimeStatus === 'connected' && lastUpdate && (
         <div className={`${styles.updateIndicator}`}>
           <span className={styles.pulse}></span>
-          <span>リアルタイム更新中</span>
+          <span>リアルタイム更新中 {useSSE ? '(SSE)' : '(ポーリング)'}</span>
         </div>
       )}
       {realtimeStatus === 'connecting' && (

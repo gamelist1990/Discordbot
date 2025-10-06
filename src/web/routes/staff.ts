@@ -27,5 +27,8 @@ export function createStaffRoutes(
     // プライベートチャット統計の取得
     router.get('/stats/:token', auth.validateToken, controller.getPrivateChatStats.bind(controller));
 
+    // プライベートチャットのリアルタイム更新（SSE）
+    router.get('/privatechats/:token/stream', auth.validateToken, controller.streamPrivateChatUpdates.bind(controller));
+
     return router;
 }

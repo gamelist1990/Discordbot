@@ -19,6 +19,13 @@
 - 一時的な URL（30分有効）
 - 管理者権限が必要
 
+### 💬 プライベートチャット管理 (`/staff/privatechat/:token`)
+- ユーザーとのプライベートチャット管理
+- リアルタイム更新（Server-Sent Events または ポーリング）
+- チャット統計の表示
+- チャットの作成・削除機能
+- モダンでレスポンシブなUI
+
 ## アーキテクチャ
 
 ### バックエンド
@@ -40,6 +47,11 @@
   - `GET /api/guild/:token` - ギルド情報取得
   - `GET /api/settings/:token` - 設定取得
   - `POST /api/settings/:token` - 設定保存
+  - `GET /api/staff/privatechats/:token` - プライベートチャット一覧取得
+  - `POST /api/staff/privatechats/:token` - プライベートチャット作成
+  - `DELETE /api/staff/privatechats/:token/:chatId` - プライベートチャット削除
+  - `GET /api/staff/stats/:token` - プライベートチャット統計取得
+  - `GET /api/staff/privatechats/:token/stream` - リアルタイム更新（SSE）
 
 ### フロントエンド
 
@@ -51,6 +63,7 @@
 - **ページ**
   - `DashboardPage`: デフォルトページ（起動時間・ステータス表示）
   - `SettingsPage`: 設定画面（権限ロール設定）
+  - `PrivateChatPage`: プライベートチャット管理（リアルタイム更新対応）
   - `NotFoundPage`: 404 エラーページ
 
 - **UI コンポーネント**
@@ -213,6 +226,29 @@ Bot の起動時（`src/index.ts`）に以下の順序で実行されます:
 - `/settings` コマンドは管理者権限が必要
 - Ephemeral メッセージで URL を送信（他のユーザーには見えない）
 - `/api/status` 以外の API は認証が必要
+
+## リアルタイム更新
+
+プライベートチャット管理画面では、Server-Sent Events (SSE) を使用したリアルタイム更新をサポートしています。
+
+### 動作方式
+
+1. **SSE（優先）**: ブラウザが Server-Sent Events をサポートしている場合、SSE 接続を確立してリアルタイム更新を受信します。
+2. **ポーリング（フォールバック）**: SSE が利用できない場合、10秒ごとのポーリングにフォールバックします。
+
+### 技術的詳細
+
+- **SSE エンドポイント**: `/api/staff/privatechats/:token/stream`
+- **更新間隔**: 10秒
+- **キープアライブ**: 30秒ごとに送信
+- **自動再接続**: SSE 接続が切断された場合、ポーリングに自動的に切り替わります
+
+### 利点
+
+- サーバーからの即時更新通知
+- 低レイテンシ
+- 効率的な帯域幅使用
+- 複数の管理者が同時に作業できる
 
 ## トラブルシューティング
 
