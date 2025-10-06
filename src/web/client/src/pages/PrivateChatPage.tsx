@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
     validateToken,
@@ -35,7 +35,6 @@ const PrivateChatPage: React.FC = () => {
     const [creatingChat, setCreatingChat] = useState(false);
     
     const [lastUpdate, setLastUpdate] = useState<string>('');
-    const [isConnected, setIsConnected] = useState(false);
     const eventSourceRef = useRef<EventSource | null>(null);
 
     // トークン検証
@@ -49,9 +48,8 @@ const PrivateChatPage: React.FC = () => {
         validateToken(token)
             .then(() => {
                 setLoading(false);
-                setIsConnected(true);
             })
-            .catch((err) => {
+            .catch(() => {
                 setError('トークンが無効です');
                 setLoading(false);
             });
@@ -95,7 +93,6 @@ const PrivateChatPage: React.FC = () => {
         };
 
         eventSource.onerror = () => {
-            setIsConnected(false);
             eventSource.close();
         };
 
