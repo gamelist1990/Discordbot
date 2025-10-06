@@ -2,14 +2,27 @@
 
 スタッフ向けの管理機能を提供する拡張可能なモジュール構造のコマンドです。
 
+## 🎯 新機能
+
+### 動的サブコマンドローディング
+
+サブコマンドは `subcommands/` ディレクトリから動的に読み込まれます。新しいサブコマンドを追加するには、ファイルを追加するだけで自動的に登録されます。
+
+### Web UI 統合
+
+プライベートチャットの作成、一覧表示、削除はすべて Web UI から操作できます。
+
 ## 構造
 
 ```
 src/commands/staff/
-├── index.ts          # メインコマンド（/staff）
-├── help.ts           # ヘルプサブコマンド
-├── privatechat.ts    # プライベートチャットサブコマンド
-└── README.md         # このファイル
+├── index.ts                  # メインコマンド（動的ローダー）
+├── help.ts                   # ヘルプサブコマンド
+├── privatechat.ts            # プライベートチャット（Web UI統合）
+├── PrivateChatManager.ts     # プライベートチャット管理ロジック
+├── README.md                 # このファイル
+└── subcommands/              # 動的ロードされるサブコマンド
+    └── stats.ts              # 統計情報表示（例）
 ```
 
 ## コマンド一覧
@@ -29,59 +42,184 @@ src/commands/staff/
 
 ### `/staff privatechat`
 
-プライベートチャット機能を管理します。
+プライベートチャット管理画面を開きます。すべての操作は Web UI で行います。
 
-**オプション:**
-- `action` (必須): 実行するアクション
-  - `create`: 新しいプライベートチャットを作成
-  - `list`: 現在のプライベートチャット一覧を表示
-  - `delete`: プライベートチャットを削除
-  - `manage`: Web UI で管理画面を開く
-- `user`: 対象ユーザー（作成時に必要）
-- `chat_id`: チャットID（削除時に必要）
+**Web UI でできること:**
+- プライベートチャットの作成
+- アクティブなチャットの一覧表示
+- チャットの削除
+- チャット統計の確認
 
 **例:**
 ```
-/staff privatechat action:create user:@ユーザー
-/staff privatechat action:list
-/staff privatechat action:delete chat_id:1234567890
-/staff privatechat action:manage
+/staff privatechat
+```
+
+### `/staff stats` (動的ロード)
+
+プライベートチャットの統計情報を表示します。
+
+**例:**
+```
+/staff stats
+```
+
+## 動的サブコマンドの追加方法
+
+### 1. サブコマンドファイルを作成
+
+`src/commands/staff/subcommands/` ディレクトリに新しいファイルを作成します。
+
+```typescript
+// src/commands/staff/subcommands/mycommand.ts
+import { ChatInputCommandInteraction, EmbedBuilder } from 'discord.js';
+
+export default {
+    name: 'mycommand',
+    description: '私のカスタムコマンド',
+    
+    // オプション: サブコマンドビルダー
+    builder: (subcommand: any) => {
+        return subcommand
+            .setName('mycommand')
+            .setDescription('私のカスタムコマンド')
+            .addStringOption(option =>
+                option
+                    .setName('text')
+                    .setDescription('テキスト入力')
+                    .setRequired(true)
+            );
+    },
+    
+    // 必須: 実行関数
+    async execute(interaction: ChatInputCommandInteraction): Promise<void> {
+        const text = interaction.options.getString('text');
+        
+        await interaction.reply({
+            content: `入力されたテキスト: ${text}`,
+            ephemeral: true
+        });
+    }
+};
+```
+
+### 2. 自動登録
+
+ファイルを保存するだけで、次回 Bot 起動時に自動的にサブコマンドが登録されます。
+
+**注意事項:**
+- ファイル名は任意ですが、`.ts` または `.js` 拡張子が必要です
+- `name` プロパティは Discord のサブコマンド名として使用されます
+- `execute` 関数は必須です
+- `builder` 関数はオプションで、より詳細な設定が必要な場合に使用します
+
+## Web UI API エンドポイント
+
+プライベートチャット管理用の Web API が提供されています。
+
+### GET `/api/staff/privatechats/:token`
+
+プライベートチャット一覧を取得します。
+
+**レスポンス:**
+```json
+{
+  "chats": [
+    {
+      "chatId": "1234567890",
+      "channelId": "1234567890",
+      "userId": "9876543210",
+      "staffId": "5555555555",
+      "guildId": "1111111111",
+      "createdAt": 1234567890000,
+      "userName": "User Name",
+      "staffName": "Staff Name",
+      "channelExists": true
+    }
+  ]
+}
+```
+
+### POST `/api/staff/privatechats/:token`
+
+新しいプライベートチャットを作成します。
+
+**リクエストボディ:**
+```json
+{
+  "userId": "9876543210"
+}
+```
+
+**レスポンス:**
+```json
+{
+  "success": true,
+  "chat": {
+    "chatId": "1234567890",
+    "channelId": "1234567890",
+    "userId": "9876543210",
+    "staffId": "5555555555",
+    "guildId": "1111111111",
+    "createdAt": 1234567890000
+  }
+}
+```
+
+### DELETE `/api/staff/privatechats/:token/:chatId`
+
+プライベートチャットを削除します。
+
+**レスポンス:**
+```json
+{
+  "success": true
+}
+```
+
+### GET `/api/staff/stats/:token`
+
+プライベートチャット統計を取得します。
+
+**レスポンス:**
+```json
+{
+  "total": 10,
+  "today": 2,
+  "thisWeek": 5,
+  "thisMonth": 8
+}
 ```
 
 ## プライベートチャット機能
 
 ### 概要
 
-ユーザーとスタッフの間でプライベートな会話をするためのチャンネルを作成・管理します。
+ユーザーとスタッフの間でプライベートな会話をするためのチャンネルを Web UI で管理します。
 
 ### 機能
 
-1. **作成 (create)**
-   - 指定したユーザーとのプライベートチャンネルを作成
-   - 「プライベートチャット」カテゴリに自動的に配置
-   - ユーザーとスタッフのみがアクセス可能
+1. **Web UI での管理**
+   - すべての操作をブラウザから実行可能
+   - 直感的なインターフェース
+   - リアルタイムでチャット一覧を確認
 
-2. **一覧表示 (list)**
-   - アクティブなプライベートチャットの一覧を表示
-   - チャンネル情報、ユーザー、スタッフ、作成日時を確認可能
+2. **セキュリティ**
+   - セッショントークンは30分で自動失効
+   - ManageGuild 権限が必要
+   - ギルド専用（DM では使用不可）
 
-3. **削除 (delete)**
-   - チャットIDを指定してプライベートチャットを削除
-   - チャンネルとデータベースエントリの両方を削除
-
-4. **Web UI管理 (manage)**
-   - ブラウザからプライベートチャットを管理
-   - 一時的なトークン付きURLを生成（30分間有効）
-   - より視覚的で使いやすいインターフェース
+3. **統計情報**
+   - 合計チャット数
+   - 今日、今週、今月の作成数
+   - スタッフ別のチャット数
 
 ### データ構造
-
-プライベートチャット情報は以下の形式でデータベースに保存されます：
 
 ```typescript
 interface PrivateChatInfo {
     chatId: string;        // チャットID
-    channelId: string;     // チャンネルID
+    channelId: string;     // Discord チャンネルID
     userId: string;        // ユーザーID
     staffId: string;       // スタッフID
     guildId: string;       // サーバーID
@@ -93,77 +231,58 @@ interface PrivateChatInfo {
 
 このコマンドは「サーバー管理」権限（`ManageGuild`）を持つユーザーのみが使用できます。
 
-## 拡張性
+## アーキテクチャ
 
-### 新しいサブコマンドの追加方法
+### 動的ローディングシステム
 
-1. `src/commands/staff/` ディレクトリに新しいファイルを作成
-2. サブコマンドハンドラー関数を実装
-3. `index.ts` にサブコマンドを追加：
+起動時に `subcommands/` ディレクトリをスキャンし、すべてのサブコマンドを自動的に読み込みます。
 
-```typescript
-// index.ts
-import { handleNewSubcommand } from './newsubcommand.js';
+**メリット:**
+- コードの再利用性が向上
+- 新機能の追加が容易
+- モジュール間の依存関係が最小限
 
-const staffCommand: SlashCommand = {
-    data: new SlashCommandBuilder()
-        // ... 既存の設定 ...
-        .addSubcommand(subcommand =>
-            subcommand
-                .setName('newsubcommand')
-                .setDescription('新しいサブコマンドの説明')
-        ),
-    async execute(interaction) {
-        const subcommand = interaction.options.getSubcommand();
-        switch (subcommand) {
-            // ... 既存のケース ...
-            case 'newsubcommand':
-                await handleNewSubcommand(interaction);
-                break;
-        }
-    }
-};
-```
+### Web UI 統合
 
-4. `help.ts` の `STAFF_COMMANDS` 配列にヘルプ情報を追加
+`PrivateChatManager` クラスがビジネスロジックを管理し、`SettingsServer` が Web API を提供します。
 
-### Web UI との統合
-
-Web UI で管理する機能を追加する場合：
-
-1. `src/web/SettingsServer.ts` に新しいAPIエンドポイントを追加
-2. フロントエンド (`src/web/client/`) に管理画面を実装
-3. サブコマンドから `settingsServer.createSession()` でセッションを作成
-4. 生成されたトークン付きURLをユーザーに提供
-
-## 技術的な詳細
-
-- **データベース**: `Database` クラスを使用してJSON形式でデータを永続化
-- **権限管理**: Discord.js の PermissionFlagsBits を使用
-- **エラーハンドリング**: try-catch でエラーをキャッチし、適切なメッセージを返す
-- **非同期処理**: すべての処理は async/await を使用
-
-## トラブルシューティング
-
-### プライベートチャットが作成できない
-
-- Bot に「チャンネルの管理」権限があるか確認
-- カテゴリの上限（50チャンネル）に達していないか確認
-
-### Web UI が開けない
-
-- 設定サーバーが起動しているか確認
-- `src/index.ts` で `SettingsServer` が初期化されているか確認
-
-### データベースエラー
-
-- `Data/` ディレクトリに書き込み権限があるか確認
-- JSON ファイルが破損していないか確認
+**メリット:**
+- Discord コマンドと Web UI で同じロジックを使用
+- REST API による柔軟な操作
+- フロントエンドとの明確な分離
 
 ## 今後の拡張案
 
-- チャット履歴のエクスポート機能
-- 自動クローズタイマー（一定期間無活動でチャットを閉じる）
-- チャットのアーカイブ機能
-- 複数スタッフの参加対応
-- チャット統計情報の表示
+### 動的サブコマンドの例
+
+- **notify** - 通知システム
+- **archive** - アーカイブ管理
+- **template** - メッセージテンプレート
+- **report** - レポート生成
+- **schedule** - スケジュール管理
+
+### Web UI の拡張
+
+- チャット履歴の表示
+- メッセージテンプレート管理
+- ユーザー評価システム
+- チャット分析ダッシュボード
+
+## トラブルシューティング
+
+### サブコマンドが表示されない
+
+- Bot を再起動してください
+- `subcommands/` ディレクトリが存在するか確認してください
+- ファイルが正しい形式でエクスポートされているか確認してください
+
+### Web UI が開けない
+
+- SettingsServer が起動しているか確認してください
+- ポート3000が使用可能か確認してください
+- トークンの有効期限が切れていないか確認してください（30分）
+
+### プライベートチャットが作成できない
+
+- Bot に「チャンネルの管理」権限があるか確認してください
+- カテゴリの上限（50チャンネル）に達していないか確認してください

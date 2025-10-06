@@ -76,6 +76,12 @@ export class SettingsServer {
         // 設定の保存
         this.app.post('/api/settings/:token', this.handleSaveSettings.bind(this));
 
+        // スタッフ - プライベートチャット API
+        this.app.get('/api/staff/privatechats/:token', this.handleGetPrivateChats.bind(this));
+        this.app.post('/api/staff/privatechats/:token', this.handleCreatePrivateChat.bind(this));
+        this.app.delete('/api/staff/privatechats/:token/:chatId', this.handleDeletePrivateChat.bind(this));
+        this.app.get('/api/staff/stats/:token', this.handleGetPrivateChatStats.bind(this));
+
         // SPAのフォールバック（すべての非APIルートをindex.htmlにリダイレクト）
         this.app.use((_req: Request, res: Response) => {
             const indexPath = path.join(__dirname, '..', '..', 'dist', 'web', 'index.html');
@@ -298,5 +304,139 @@ export class SettingsServer {
                 resolve();
             }
         });
+    }
+
+    /**
+     * プライベートチャット一覧の取得
+     */
+    private async handleGetPrivateChats(req: Request, res: Response): Promise<void> {
+        const { token } = req.params;
+
+        const session = this.sessions.get(token);
+        if (!session || Date.now() > session.expiresAt) {
+            res.status(401).json({ error: 'Invalid or expired session' });
+            return;
+        }
+
+        try {
+            const { PrivateChatManager } = await import('../commands/staff/PrivateChatManager.js');
+            const chats = await PrivateChatManager.getChatsByGuild(session.guildId);
+            
+            // ユーザー情報を付加
+            const guild = this.botClient.client.guilds.cache.get(session.guildId);
+            const enrichedChats = await Promise.all(
+                chats.map(async (chat) => {
+                    const user = await guild?.members.fetch(chat.userId).catch(() => null);
+                    const staff = await guild?.members.fetch(chat.staffId).catch(() => null);
+                    const channel = guild?.channels.cache.get(chat.channelId);
+                    
+                    return {
+                        ...chat,
+                        userName: user?.user.username || 'Unknown User',
+                        staffName: staff?.user.username || 'Unknown Staff',
+                        channelExists: !!channel
+                    };
+                })
+            );
+
+            res.json({ chats: enrichedChats });
+        } catch (error) {
+            Logger.error('プライベートチャット一覧取得エラー:', error);
+            res.status(500).json({ error: 'Failed to fetch private chats' });
+        }
+    }
+
+    /**
+     * プライベートチャットの作成
+     */
+    private async handleCreatePrivateChat(req: Request, res: Response): Promise<void> {
+        const { token } = req.params;
+        const { userId } = req.body;
+
+        const session = this.sessions.get(token);
+        if (!session || Date.now() > session.expiresAt) {
+            res.status(401).json({ error: 'Invalid or expired session' });
+            return;
+        }
+
+        if (!userId) {
+            res.status(400).json({ error: 'userId is required' });
+            return;
+        }
+
+        try {
+            const guild = this.botClient.client.guilds.cache.get(session.guildId);
+            if (!guild) {
+                res.status(404).json({ error: 'Guild not found' });
+                return;
+            }
+
+            const { PrivateChatManager } = await import('../commands/staff/PrivateChatManager.js');
+            const chat = await PrivateChatManager.createChat(guild, userId, session.userId);
+
+            Logger.info(`プライベートチャット作成: ${chat.chatId} (User: ${userId}, Staff: ${session.userId})`);
+            res.json({ success: true, chat });
+        } catch (error) {
+            Logger.error('プライベートチャット作成エラー:', error);
+            const errorMessage = error instanceof Error ? error.message : 'Failed to create private chat';
+            res.status(500).json({ error: errorMessage });
+        }
+    }
+
+    /**
+     * プライベートチャットの削除
+     */
+    private async handleDeletePrivateChat(req: Request, res: Response): Promise<void> {
+        const { token, chatId } = req.params;
+
+        const session = this.sessions.get(token);
+        if (!session || Date.now() > session.expiresAt) {
+            res.status(401).json({ error: 'Invalid or expired session' });
+            return;
+        }
+
+        try {
+            const guild = this.botClient.client.guilds.cache.get(session.guildId);
+            if (!guild) {
+                res.status(404).json({ error: 'Guild not found' });
+                return;
+            }
+
+            const { PrivateChatManager } = await import('../commands/staff/PrivateChatManager.js');
+            const deleted = await PrivateChatManager.deleteChat(guild, chatId);
+
+            if (deleted) {
+                Logger.info(`プライベートチャット削除: ${chatId}`);
+                res.json({ success: true });
+            } else {
+                res.status(404).json({ error: 'Chat not found' });
+            }
+        } catch (error) {
+            Logger.error('プライベートチャット削除エラー:', error);
+            res.status(500).json({ error: 'Failed to delete private chat' });
+        }
+    }
+
+    /**
+     * プライベートチャット統計の取得
+     */
+    private async handleGetPrivateChatStats(req: Request, res: Response): Promise<void> {
+        const { token } = req.params;
+
+        const session = this.sessions.get(token);
+        if (!session || Date.now() > session.expiresAt) {
+            res.status(401).json({ error: 'Invalid or expired session' });
+            return;
+        }
+
+        try {
+            const { PrivateChatManager } = await import('../commands/staff/PrivateChatManager.js');
+            const stats = await PrivateChatManager.getStats(session.guildId);
+
+            res.json(stats);
+        } catch (error) {
+            Logger.error('統計情報取得エラー:', error);
+            res.status(500).json({ error: 'Failed to fetch stats' });
+        }
     }
 }

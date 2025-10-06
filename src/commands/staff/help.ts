@@ -22,13 +22,18 @@ const STAFF_COMMANDS: StaffCommandInfo[] = [
     },
     {
         name: 'privatechat',
-        description: 'プライベートチャット機能を管理します',
-        usage: '/staff privatechat <action> [user] [chat_id]',
+        description: 'プライベートチャット機能を管理します（Web UIで操作）',
+        usage: '/staff privatechat',
         examples: [
-            '/staff privatechat action:create user:@ユーザー',
-            '/staff privatechat action:list',
-            '/staff privatechat action:delete chat_id:abc123',
-            '/staff privatechat action:manage'
+            '/staff privatechat'
+        ]
+    },
+    {
+        name: 'stats',
+        description: 'プライベートチャットの統計情報を表示します（動的ロード）',
+        usage: '/staff stats',
+        examples: [
+            '/staff stats'
         ]
     }
 ];
