@@ -207,7 +207,7 @@ const PrivateChatPage: React.FC = () => {
         {chats.length === 0 ? (
           <div className={styles.emptyState}>
             <p>まだプライベートチャットがありません</p>
-            <p className="hint">上のフォームからユーザーIDを入力して作成できます</p>
+          <p className={styles.hint}>上のフォームからユーザーIDを入力して作成できます</p>
           </div>
         ) : (
           <div className={styles.chatsList}>
