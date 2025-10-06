@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { useSearchParams, useNavigate } from 'react-router-dom';
-import './PrivateChatPage.module.css';
+import { useNavigate, useParams } from 'react-router-dom';
+import styles from './PrivateChatPage.module.css';
 
 interface PrivateChat {
   chatId: string;
@@ -21,9 +21,11 @@ interface Stats {
 }
 
 const PrivateChatPage: React.FC = () => {
-  const [searchParams] = useSearchParams();
+  const params = useParams();
   const navigate = useNavigate();
-  const token = searchParams.get('token');
+
+  // path parameter を必須とする（古い ?token 形式は廃止）
+  const token = params.token ?? undefined;
 
   const [chats, setChats] = useState<PrivateChat[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
@@ -33,6 +35,7 @@ const PrivateChatPage: React.FC = () => {
   const [newUserId, setNewUserId] = useState('');
 
   useEffect(() => {
+    // NOTE: token はパスパラメータ優先で取得するようになった
     if (!token) {
       navigate('/404');
       return;
@@ -135,16 +138,16 @@ const PrivateChatPage: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="private-chat-page">
-        <div className="loading">読み込み中...</div>
+      <div className={styles.privateChatPage}>
+        <div className={styles.loading}>読み込み中...</div>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="private-chat-page">
-        <div className="error">
+      <div className={styles.privateChatPage}>
+        <div className={styles.error}>
           <h2>エラー</h2>
           <p>{error}</p>
           <button onClick={() => navigate('/')}>ダッシュボードに戻る</button>
@@ -154,93 +157,93 @@ const PrivateChatPage: React.FC = () => {
   }
 
   return (
-    <div className="private-chat-page">
-      <header className="page-header">
+    <div className={styles.privateChatPage}>
+      <header className={styles.pageHeader}>
         <h1>💬 プライベートチャット管理</h1>
         <p>ユーザーとのプライベートな会話チャンネルを管理できます</p>
       </header>
 
       {stats && (
-        <div className="stats-section">
-          <div className="stat-card">
-            <div className="stat-number">{stats.total}</div>
-            <div className="stat-label">合計</div>
+        <div className={styles.statsSection}>
+          <div className={styles.statCard}>
+            <div className={styles.statNumber}>{stats.total}</div>
+            <div className={styles.statLabel}>合計</div>
           </div>
-          <div className="stat-card">
-            <div className="stat-number">{stats.today}</div>
-            <div className="stat-label">今日</div>
+          <div className={styles.statCard}>
+            <div className={styles.statNumber}>{stats.today}</div>
+            <div className={styles.statLabel}>今日</div>
           </div>
-          <div className="stat-card">
-            <div className="stat-number">{stats.thisWeek}</div>
-            <div className="stat-label">今週</div>
+          <div className={styles.statCard}>
+            <div className={styles.statNumber}>{stats.thisWeek}</div>
+            <div className={styles.statLabel}>今週</div>
           </div>
-          <div className="stat-card">
-            <div className="stat-number">{stats.thisMonth}</div>
-            <div className="stat-label">今月</div>
+          <div className={styles.statCard}>
+            <div className={styles.statNumber}>{stats.thisMonth}</div>
+            <div className={styles.statLabel}>今月</div>
           </div>
         </div>
       )}
 
-      <div className="create-section">
+      <div className={styles.createSection}>
         <h2>🆕 新しいチャットを作成</h2>
-        <form onSubmit={handleCreateChat} className="create-form">
+        <form onSubmit={handleCreateChat} className={styles.createForm}>
           <input
             type="text"
             placeholder="ユーザーID を入力"
             value={newUserId}
             onChange={(e) => setNewUserId(e.target.value)}
             disabled={creating}
-            className="user-id-input"
+            className={styles.userIdInput}
           />
-          <button type="submit" disabled={creating || !newUserId.trim()} className="create-button">
+          <button type="submit" disabled={creating || !newUserId.trim()} className={styles.createButton}>
             {creating ? '作成中...' : '作成'}
           </button>
         </form>
       </div>
 
-      <div className="chats-section">
+      <div className={styles.chatsSection}>
         <h2>📋 アクティブなチャット一覧 ({chats.length})</h2>
         
         {chats.length === 0 ? (
-          <div className="empty-state">
+          <div className={styles.emptyState}>
             <p>まだプライベートチャットがありません</p>
             <p className="hint">上のフォームからユーザーIDを入力して作成できます</p>
           </div>
         ) : (
-          <div className="chats-list">
+          <div className={styles.chatsList}>
             {chats.map((chat) => (
-              <div key={chat.chatId} className="chat-card">
-                <div className="chat-header">
-                  <div className="chat-title">
-                    <span className="chat-icon">💬</span>
-                    <span className="user-name">{chat.userName}</span>
-                    {!chat.channelExists && <span className="deleted-badge">削除済み</span>}
+              <div key={chat.chatId} className={styles.chatCard}>
+                <div className={styles.chatHeader}>
+                  <div className={styles.chatTitle}>
+                    <span className={styles.chatIcon}>💬</span>
+                    <span className={styles.userName}>{chat.userName}</span>
+                    {!chat.channelExists && <span className={styles.deletedBadge}>削除済み</span>}
                   </div>
                   <button 
                     onClick={() => handleDeleteChat(chat.chatId)}
-                    className="delete-button"
+                    className={styles.deleteButton}
                     title="削除"
                   >
                     🗑️
                   </button>
                 </div>
                 
-                <div className="chat-details">
-                  <div className="detail-row">
-                    <span className="label">チャットID:</span>
-                    <span className="value mono">{chat.chatId}</span>
+                <div className={styles.chatDetails}>
+                  <div className={styles.detailRow}>
+                    <span className={styles.label}>チャットID:</span>
+                    <span className={styles.value + ' ' + styles.mono}>{chat.chatId}</span>
                   </div>
-                  <div className="detail-row">
-                    <span className="label">ユーザーID:</span>
-                    <span className="value mono">{chat.userId}</span>
+                  <div className={styles.detailRow}>
+                    <span className={styles.label}>ユーザーID:</span>
+                    <span className={styles.value + ' ' + styles.mono}>{chat.userId}</span>
                   </div>
-                  <div className="detail-row">
-                    <span className="label">スタッフ:</span>
-                    <span className="value">{chat.staffName}</span>
+                  <div className={styles.detailRow}>
+                    <span className={styles.label}>スタッフ:</span>
+                    <span className={styles.value}>{chat.staffName}</span>
                   </div>
-                  <div className="detail-row">
-                    <span className="label">作成日時:</span>
-                    <span className="value">{formatDate(chat.createdAt)}</span>
+                  <div className={styles.detailRow}>
+                    <span className={styles.label}>作成日時:</span>
+                    <span className={styles.value}>{formatDate(chat.createdAt)}</span>
                   </div>
                 </div>
               </div>

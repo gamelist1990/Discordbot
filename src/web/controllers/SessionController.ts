@@ -49,11 +49,19 @@ export class SessionController {
                 return;
             }
 
+            // ロール情報を取得
+            const roles = guild.roles.cache.map(role => ({
+                id: role.id,
+                name: role.name,
+                color: role.color,
+                position: role.position,
+            }));
+
             res.json({
                 id: guild.id,
                 name: guild.name,
-                icon: guild.icon,
-                memberCount: guild.memberCount,
+                iconURL: guild.iconURL(),
+                roles: roles,
             });
         } catch (error) {
             console.error('ギルド情報取得エラー:', error);

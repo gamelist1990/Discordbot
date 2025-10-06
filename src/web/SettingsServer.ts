@@ -63,6 +63,10 @@ export class SettingsServer {
         // path-to-regexp のバージョン差による '*' パースエラーを回避するため、
         // 明示的にメソッドとパスをチェックするミドルウェアを使います。
         this.app.use((req: Request, res: Response, next) => {
+            // DEBUG: ブラウザから来たリクエストのURL（クエリ含む）をログ出力して、
+            // クライアントが送った query string がサーバに届いているか確認する
+            // 一時的なログなので調査完了後は削除してOK
+            Logger.info(`[SPA Fallback] incoming request: ${req.originalUrl}`);
             // APIルートは次へ
             if (req.path.startsWith('/api')) return next();
 

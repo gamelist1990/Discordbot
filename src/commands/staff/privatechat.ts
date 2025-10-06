@@ -1,6 +1,6 @@
-import { 
-    ChatInputCommandInteraction, 
-    EmbedBuilder, 
+import {
+    ChatInputCommandInteraction,
+    EmbedBuilder,
     MessageFlags
 } from 'discord.js';
 
@@ -38,7 +38,7 @@ async function openManagementUI(interaction: ChatInputCommandInteraction): Promi
     try {
         // セッションを作成
         const token = settingsServer.createSession(interaction.guildId, interaction.user.id);
-        const managementUrl = `http://localhost:3000/staff/privatechat?token=${token}`;
+        const managementUrl = `http://localhost:3000/staff/privatechat/${token}`;
 
         const embed = new EmbedBuilder()
             .setColor('#0099ff')
@@ -50,14 +50,14 @@ async function openManagementUI(interaction: ChatInputCommandInteraction): Promi
                 `⚠️ このURLは他の人と共有しないでください。`
             )
             .addFields(
-                { 
-                    name: '💡 Web UIでできること', 
-                    value: 
+                {
+                    name: '💡 Web UIでできること',
+                    value:
                         '• プライベートチャットの作成\n' +
                         '• アクティブなチャットの一覧表示\n' +
                         '• チャットの削除\n' +
-                        '• チャット統計の確認', 
-                    inline: false 
+                        '• チャット統計の確認',
+                    inline: false
                 },
                 {
                     name: '🔒 セキュリティ',
