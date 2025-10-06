@@ -25,7 +25,7 @@ const PrivateChatPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
-  const [newUserId, setNewUserId] = useState('');
+  const [newRoomName, setNewRoomName] = useState('');
   const [realtimeStatus, setRealtimeStatus] = useState<'connected' | 'connecting' | 'disconnected'>('disconnected');
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
   const [useSSE, setUseSSE] = useState(true); // SSE を優先的に使用
@@ -153,12 +153,12 @@ const PrivateChatPage: React.FC = () => {
 
   const handleCreateChat = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newUserId.trim()) return;
+    if (!newRoomName.trim()) return;
 
     setCreating(true);
     try {
-      await createPrivateChat(token!, newUserId.trim());
-      setNewUserId('');
+      await createPrivateChat(token!, { roomName: newRoomName.trim() });
+      setNewRoomName('');
       await loadChats();
       await loadStats();
     } catch (err) {
@@ -236,7 +236,7 @@ const PrivateChatPage: React.FC = () => {
 
       <header className={styles.pageHeader}>
         <h1>💬 プライベートチャット管理</h1>
-        <p>ユーザーとのプライベートな会話チャンネルを管理できます</p>
+        <p>部屋名でプライベートな会話チャンネルを作成・管理できます</p>
         {lastUpdate && (
           <p style={{ fontSize: '0.9rem', color: '#999', marginTop: '0.5rem' }}>
             最終更新: {lastUpdate.toLocaleTimeString('ja-JP')}
@@ -267,16 +267,17 @@ const PrivateChatPage: React.FC = () => {
 
       <div className={styles.createSection}>
         <h2>🆕 新しいチャットを作成</h2>
+        <p>部屋名を指定してプライベートチャットを作成します。作成後にメンバーを追加できます。</p>
         <form onSubmit={handleCreateChat} className={styles.createForm}>
           <input
             type="text"
-            placeholder="ユーザーID を入力"
-            value={newUserId}
-            onChange={(e) => setNewUserId(e.target.value)}
+            placeholder="部屋名を入力"
+            value={newRoomName}
+            onChange={(e) => setNewRoomName(e.target.value)}
             disabled={creating}
             className={styles.userIdInput}
           />
-          <button type="submit" disabled={creating || !newUserId.trim()} className={styles.createButton}>
+          <button type="submit" disabled={creating || !newRoomName.trim()} className={styles.createButton}>
             {creating ? '作成中...' : '作成'}
           </button>
         </form>
@@ -288,7 +289,7 @@ const PrivateChatPage: React.FC = () => {
         {chats.length === 0 ? (
           <div className={styles.emptyState}>
             <p>まだプライベートチャットがありません</p>
-          <p className={styles.hint}>上のフォームからユーザーIDを入力して作成できます</p>
+          <p className={styles.hint}>上のフォームから部屋名を入力して作成できます</p>
           </div>
         ) : (
           <div className={styles.chatsList}>
@@ -314,10 +315,18 @@ const PrivateChatPage: React.FC = () => {
                     <span className={styles.label}>チャットID:</span>
                     <span className={styles.value + ' ' + styles.mono}>{chat.chatId}</span>
                   </div>
-                  <div className={styles.detailRow}>
-                    <span className={styles.label}>ユーザーID:</span>
-                    <span className={styles.value + ' ' + styles.mono}>{chat.userId}</span>
-                  </div>
+                  {chat.roomName && (
+                    <div className={styles.detailRow}>
+                      <span className={styles.label}>部屋名:</span>
+                      <span className={styles.value}>{chat.roomName}</span>
+                    </div>
+                  )}
+                  {chat.userId && (
+                    <div className={styles.detailRow}>
+                      <span className={styles.label}>ユーザーID:</span>
+                      <span className={styles.value + ' ' + styles.mono}>{chat.userId}</span>
+                    </div>
+                  )}
                   <div className={styles.detailRow}>
                     <span className={styles.label}>スタッフ:</span>
                     <span className={styles.value}>{chat.staffName}</span>

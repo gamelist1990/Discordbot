@@ -3,7 +3,6 @@ import {
     CategoryChannel,
     ChannelType,
     PermissionFlagsBits,
-    TextChannel,
     EmbedBuilder
 } from 'discord.js';
 import { database } from '../../core/Database.js';
@@ -14,7 +13,9 @@ import { database } from '../../core/Database.js';
 export interface PrivateChatInfo {
     chatId: string;
     channelId: string;
+    vcId?: string; // 対応するボイスチャンネルID
     userId: string;
+    roomName?: string; // 部屋名（roomNameベースのチャットの場合）
     staffId: string;
     guildId: string;
     createdAt: number;
@@ -47,7 +48,116 @@ export class PrivateChatManager {
     }
 
     /**
-     * プライベートチャットを作成
+     * 部屋名とメンバーリストでチャットを作成する
+     * roomName: 任意の名前（事前に 'private-' prefix を含む/含まないどちらでもOK）
+     * members: ユーザーID の配列（空配列可）
+     * categoryName: 作成するカテゴリ名（デフォルトは 'プライベートチャット'）
+     */
+    static async createChatWithName(
+        guild: Guild,
+        roomName: string,
+        members: string[],
+        staffId: string,
+        categoryName = 'プライベートチャット'
+    ): Promise<PrivateChatInfo> {
+        // カテゴリ取得/作成
+        let category = guild.channels.cache.find(
+            ch => ch.type === ChannelType.GuildCategory && ch.name === categoryName
+        ) as CategoryChannel | undefined;
+
+        if (!category) {
+            category = await guild.channels.create({
+                name: categoryName,
+                type: ChannelType.GuildCategory,
+                permissionOverwrites: [
+                    {
+                        id: guild.id,
+                        deny: [PermissionFlagsBits.ViewChannel]
+                    }
+                ]
+            });
+        }
+
+        // base name を整形
+        let baseName = roomName.toLowerCase();
+        if (!baseName.startsWith('private-') && !baseName.startsWith('vc-')) {
+            baseName = `private-${baseName}`;
+        }
+        const channelName = baseName.replace(/[^a-z0-9-_]/g, '-');
+
+        // 権限オーバーライドを作成
+        const overwrites: any[] = [
+            { id: guild.id, deny: [PermissionFlagsBits.ViewChannel] }
+        ];
+
+        // メンバーに閲覧権限を付与
+        for (const memberId of members) {
+            overwrites.push({
+                id: memberId,
+                allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.Connect]
+            });
+        }
+
+        // スタッフ権限
+        overwrites.push({
+            id: staffId,
+            allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.ManageMessages]
+        });
+
+        // テキストチャンネル作成
+        const privateChannel = await guild.channels.create({
+            name: channelName,
+            type: ChannelType.GuildText,
+            parent: category.id,
+            permissionOverwrites: overwrites
+        });
+
+        // VC の作成（オプション）
+        let vcChannel: any = null;
+        try {
+            vcChannel = await guild.channels.create({
+                name: channelName.replace(/^private-/, 'vc-'),
+                type: ChannelType.GuildVoice,
+                parent: category.id,
+                permissionOverwrites: overwrites
+            });
+        } catch (err) {
+            console.error('Failed to create VC for private chat:', err);
+            vcChannel = null;
+        }
+
+        const chatInfo: PrivateChatInfo = {
+            chatId: privateChannel.id,
+            channelId: privateChannel.id,
+            vcId: vcChannel ? vcChannel.id : undefined,
+            userId: members.length > 0 ? members[0] : '',
+            roomName: roomName,
+            staffId: staffId,
+            guildId: guild.id,
+            createdAt: Date.now()
+        };
+
+        const chats = await this.getAllChats();
+        chats.push(chatInfo);
+        await database.set(PRIVATE_CHATS_KEY, chats);
+
+        // ウェルカムメッセージ（メンバーがいる場合はメンション）
+        const welcomeEmbed = new EmbedBuilder()
+            .setColor('#00ff00')
+            .setTitle('💬 プライベートチャットへようこそ')
+            .setDescription(
+                `${members.length > 0 ? members.map(m => `<@${m}>`).join(' ') + ' ' : ''}` +
+                `このチャネルはスタッフ <@${staffId}> によって作成されました。ご利用ください。`
+            )
+            .setTimestamp();
+
+        await privateChannel.send({ embeds: [welcomeEmbed] });
+
+        return chatInfo;
+    }
+
+    /**
+     * プライベートチャットを作成（旧 API 互換: userId を与える）
      */
     static async createChat(
         guild: Guild,
@@ -59,86 +169,8 @@ export class PrivateChatManager {
         if (!user) {
             throw new Error('ユーザーが見つかりません');
         }
-
-        // プライベートチャット用のカテゴリを取得または作成
-        let category = guild.channels.cache.find(
-            ch => ch.type === ChannelType.GuildCategory && ch.name === 'プライベートチャット'
-        ) as CategoryChannel | undefined;
-
-        if (!category) {
-            category = await guild.channels.create({
-                name: 'プライベートチャット',
-                type: ChannelType.GuildCategory,
-                permissionOverwrites: [
-                    {
-                        id: guild.id,
-                        deny: [PermissionFlagsBits.ViewChannel]
-                    }
-                ]
-            });
-        }
-
-        // チャンネル名を生成
-        const channelName = `private-${user.user.username}`.toLowerCase().replace(/[^a-z0-9-_]/g, '-');
-
-        // プライベートチャンネルを作成
-        const privateChannel = await guild.channels.create({
-            name: channelName,
-            type: ChannelType.GuildText,
-            parent: category.id,
-            permissionOverwrites: [
-                {
-                    id: guild.id,
-                    deny: [PermissionFlagsBits.ViewChannel]
-                },
-                {
-                    id: userId,
-                    allow: [
-                        PermissionFlagsBits.ViewChannel,
-                        PermissionFlagsBits.SendMessages,
-                        PermissionFlagsBits.ReadMessageHistory
-                    ]
-                },
-                {
-                    id: staffId,
-                    allow: [
-                        PermissionFlagsBits.ViewChannel,
-                        PermissionFlagsBits.SendMessages,
-                        PermissionFlagsBits.ReadMessageHistory,
-                        PermissionFlagsBits.ManageMessages
-                    ]
-                }
-            ]
-        });
-
-        // データベースに保存
-        const chatInfo: PrivateChatInfo = {
-            chatId: privateChannel.id,
-            channelId: privateChannel.id,
-            userId: userId,
-            staffId: staffId,
-            guildId: guild.id,
-            createdAt: Date.now()
-        };
-
-        const chats = await this.getAllChats();
-        chats.push(chatInfo);
-        await database.set(PRIVATE_CHATS_KEY, chats);
-
-        // ウェルカムメッセージを送信
-        const welcomeEmbed = new EmbedBuilder()
-            .setColor('#00ff00')
-            .setTitle('💬 プライベートチャットへようこそ')
-            .setDescription(
-                `<@${userId}> さん、このチャンネルはあなたとスタッフ <@${staffId}> の間の ` +
-                `プライベートな会話用です。\n\n` +
-                `質問や相談事があればお気軽にお話しください。`
-            )
-            .setTimestamp();
-
-        await privateChannel.send({ embeds: [welcomeEmbed] });
-
-        return chatInfo;
+        const sanitizedName = `private-${user.user.username}`.toLowerCase().replace(/[^a-z0-9-_]/g, '-');
+        return this.createChatWithName(guild, sanitizedName, [userId], staffId, 'プライベートチャット');
     }
 
     /**
@@ -160,6 +192,14 @@ export class PrivateChatManager {
         const channel = guild.channels.cache.get(chat.channelId);
         if (channel) {
             await channel.delete('プライベートチャット終了');
+        }
+
+        // VC があれば削除
+        if (chat.vcId) {
+            const vc = guild.channels.cache.get(chat.vcId);
+            if (vc) {
+                await vc.delete('プライベートチャット終了');
+            }
         }
 
         // データベースから削除

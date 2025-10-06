@@ -26,13 +26,29 @@ export class StaffController {
             const guild = this.botClient.client.guilds.cache.get(session.guildId);
             const enrichedChats = await Promise.all(
                 chats.map(async (chat) => {
-                    const user = await guild?.members.fetch(chat.userId).catch(() => null);
+                    console.log('GET Processing chat:', chat.chatId, 'roomName:', chat.roomName, 'userId:', chat.userId);
+                    let userName = 'Unknown User';
+                    
+                    if (chat.roomName) {
+                        // roomNameベースのチャット
+                        userName = `Room: ${chat.roomName}`;
+                        console.log('GET Using roomName for userName:', userName);
+                    } else if (chat.userId) {
+                        // userIdベースのチャット
+                        console.log('GET Fetching user for userId:', chat.userId);
+                        const user = await guild?.members.fetch(chat.userId).catch(() => null);
+                        userName = user?.user.username || 'Unknown User';
+                        console.log('GET Fetched userName:', userName);
+                    } else {
+                        console.log('GET No roomName or userId for chat:', chat.chatId);
+                    }
+                    
                     const staff = await guild?.members.fetch(chat.staffId).catch(() => null);
                     const channel = guild?.channels.cache.get(chat.channelId);
                     
                     return {
                         ...chat,
-                        userName: user?.user.username || 'Unknown User',
+                        userName: userName,
                         staffName: staff?.user.username || 'Unknown Staff',
                         channelExists: !!channel
                     };
@@ -51,10 +67,11 @@ export class StaffController {
      */
     async createPrivateChat(req: Request, res: Response): Promise<void> {
         const session = (req as any).session as SettingsSession;
-        const { userId } = req.body;
+        const { userId, roomName, members } = req.body;
 
-        if (!userId) {
-            res.status(400).json({ error: 'userId is required' });
+        // userId または roomName のどちらかが必要
+        if (!userId && !roomName) {
+            res.status(400).json({ error: 'userId or roomName is required' });
             return;
         }
 
@@ -66,9 +83,16 @@ export class StaffController {
             }
 
             const { PrivateChatManager } = await import('../../commands/staff/PrivateChatManager.js');
-            const chat = await PrivateChatManager.createChat(guild, userId, session.userId);
+            let chat;
 
-            console.log(`プライベートチャット作成: ${chat.chatId} (User: ${userId}, Staff: ${session.userId})`);
+            if (roomName) {
+                const memberList: string[] = Array.isArray(members) ? members : [];
+                chat = await PrivateChatManager.createChatWithName(guild, roomName, memberList, session.userId);
+            } else {
+                chat = await PrivateChatManager.createChat(guild, userId, session.userId);
+            }
+
+            console.log(`プライベートチャット作成: ${chat.chatId} (Staff: ${session.userId})`);
             res.json({ success: true, chat });
         } catch (error) {
             console.error('プライベートチャット作成エラー:', error);
@@ -135,7 +159,7 @@ export class StaffController {
         res.setHeader('Connection', 'keep-alive');
         res.setHeader('X-Accel-Buffering', 'no'); // nginx のバッファリングを無効化
 
-        let intervalId: NodeJS.Timeout;
+    let intervalId: NodeJS.Timeout | undefined;
 
         try {
             const { PrivateChatManager } = await import('../../commands/staff/PrivateChatManager.js');
@@ -156,20 +180,34 @@ export class StaffController {
                     // チャット情報を強化
                     const enrichedChats = await Promise.all(
                         chats.map(async (chat) => {
-                            const user = await guild.members.fetch(chat.userId).catch(() => null);
+                            console.log('Processing chat:', chat.chatId, 'roomName:', chat.roomName, 'userId:', chat.userId);
+                            let userName = 'Unknown User';
+                            
+                            if (chat.roomName) {
+                                // roomNameベースのチャット
+                                userName = `Room: ${chat.roomName}`;
+                                console.log('Using roomName for userName:', userName);
+                            } else if (chat.userId) {
+                                // userIdベースのチャット
+                                console.log('Fetching user for userId:', chat.userId);
+                                const user = await guild.members.fetch(chat.userId).catch(() => null);
+                                userName = user?.user.username || 'Unknown User';
+                                console.log('Fetched userName:', userName);
+                            } else {
+                                console.log('No roomName or userId for chat:', chat.chatId);
+                            }
+                            
                             const staff = await guild.members.fetch(chat.staffId).catch(() => null);
                             const channel = guild.channels.cache.get(chat.channelId);
-
+                            
                             return {
                                 ...chat,
-                                userName: user?.user.username || 'Unknown User',
+                                userName: userName,
                                 staffName: staff?.user.username || 'Unknown Staff',
                                 channelExists: !!channel
                             };
                         })
-                    );
-
-                    const updateData = {
+                    );                    const updateData = {
                         type: 'update',
                         timestamp: Date.now(),
                         chats: enrichedChats,
@@ -195,7 +233,7 @@ export class StaffController {
 
             // クライアントが切断した場合のクリーンアップ
             req.on('close', () => {
-                clearInterval(intervalId);
+                if (intervalId) clearInterval(intervalId);
                 clearInterval(keepAliveId);
                 console.log(`SSE 接続を閉じました (Guild: ${session.guildId})`);
             });

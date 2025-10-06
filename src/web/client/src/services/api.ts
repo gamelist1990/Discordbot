@@ -97,7 +97,9 @@ export async function saveSettings(token: string, settings: GuildSettings): Prom
 export interface PrivateChat {
   chatId: string;
   channelId: string;
+  vcId?: string;
   userId: string;
+  roomName?: string;
   staffId: string;
   userName: string;
   staffName: string;
@@ -126,10 +128,14 @@ export async function fetchPrivateChats(token: string): Promise<PrivateChatsResp
 /**
  * プライベートチャットの作成
  */
-export async function createPrivateChat(token: string, userId: string): Promise<{ success: boolean; chat: PrivateChat }> {
+// createPrivateChat supports two payload shapes:
+//  - { userId }
+//  - { roomName, members?: string[] }
+export async function createPrivateChat(token: string, payload: string | { roomName: string; members?: string[] } ): Promise<{ success: boolean; chat: PrivateChat }> {
+  const body = typeof payload === 'string' ? { userId: payload } : payload;
   return apiRequest(`${API_BASE}/staff/privatechats/${token}`, {
     method: 'POST',
-    body: JSON.stringify({ userId }),
+    body: JSON.stringify(body),
   });
 }
 

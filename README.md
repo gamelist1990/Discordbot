@@ -5,6 +5,18 @@ TypeScript で実装された Discord Bot のモジュール化されたプロ�
 ## 📁 プロジェクト構造
 
 ```
+
+## 開発用ショートカット
+
+ローカル開発で web クライアントの Vite 開発サーバと Bot を同時に起動するには:
+
+Windows (PowerShell) の例:
+
+```powershell
+npm run dev
+```
+
+このスクリプトはプロジェクトルートで `vite` (web クライアント) と `bun index.ts` (Bot) を同時に実行します。
 Discordbot/
 ├── src/
 │   ├── index.ts                # エントリポイント
