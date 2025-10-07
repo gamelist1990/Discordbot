@@ -4,14 +4,14 @@ import { ChatInputCommandInteraction, MessageFlags, EmbedBuilder } from 'discord
 const config = require('../../../config').default;
 
 /**
- * Jam サブコマンドハンドラー
+ * Jam コマンドハンドラー
  */
-export const subcommandHandler = {
+export const commandHandler = {
     name: 'jam',
     description: 'Jamboard（ホワイトボード・Todoツール）を開く',
-    
-    builder: (subcommand: any) => {
-        return subcommand
+
+    builder: (command: any) => {
+        return command
             .setName('jam')
             .setDescription('Jamboard（ホワイトボード・Todoツール）を開く');
     },
@@ -36,7 +36,7 @@ export const subcommandHandler = {
                 .setColor(0x5865F2)
                 .setTitle('🎨 Jamboard へのアクセス')
                 .setDescription(
-                    'スタッフ向けコラボレーションツールです。\nホワイトボードでアイデアを共有したり、Todoを管理できます。'
+                    'コラボレーションツールです。\nホワイトボードでアイデアを共有したり、Todoを管理できます。'
                 )
                 .addFields(
                     {
@@ -71,7 +71,7 @@ export const subcommandHandler = {
                 flags: MessageFlags.Ephemeral
             });
 
-            console.log(`Jamboard URL送信: ${interaction.user.tag}`);
+            console.log(`Jamboard URL送信: ${interaction.user.tag} (guild: ${guildId})`);
         } catch (error) {
             console.error('Jam コマンドエラー:', error);
             await interaction.reply({
@@ -82,4 +82,4 @@ export const subcommandHandler = {
     }
 };
 
-export default subcommandHandler;
+export default commandHandler;

@@ -124,8 +124,22 @@ const JamboardPage: React.FC = () => {
     };
 
     const handleDiscordLogin = () => {
-        // Redirect to Discord OAuth2
-        window.location.href = '/api/auth/discord';
+        // Redirect to Discord OAuth2 with guildId if present in URL
+        try {
+            const pathParts = window.location.pathname.split('/').filter(Boolean);
+            // Expecting path like /jamboard or /jamboard/<guildId>
+            let guildIdFromPath: string | null = null;
+            if (pathParts.length >= 2 && pathParts[0] === 'jamboard') {
+                guildIdFromPath = pathParts[1];
+            }
+
+            const redirect = guildIdFromPath ? `/jamboard/${guildIdFromPath}` : '/jamboard';
+            const guildQuery = guildIdFromPath ? `?guildId=${encodeURIComponent(guildIdFromPath)}&redirect=${encodeURIComponent(redirect)}` : '';
+
+            window.location.href = `/api/auth/discord${guildQuery}`;
+        } catch (err) {
+            window.location.href = '/api/auth/discord';
+        }
     };
 
     const loadJamboard = async (isStaff: boolean) => {

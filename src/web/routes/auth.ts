@@ -86,8 +86,28 @@ export function createAuthRoutes(
      */
     router.get('/discord', async (req: Request, res: Response) => {
         try {
-            const redirectPath = req.query.redirect as string || '/jamboard';
-            const guildId = req.query.guildId as string || 'default';
+            let redirectPath = req.query.redirect as string || '/jamboard';
+            // Prefer explicit guildId query param
+            let guildId = req.query.guildId as string || '';
+
+            // If no guildId provided, try to extract from Referer header (client page)
+            if (!guildId) {
+                const referer = req.headers.referer || req.headers.referrer;
+                if (typeof referer === 'string') {
+                    try {
+                        const url = new URL(referer);
+                        const parts = url.pathname.split('/').filter(Boolean);
+                        if (parts.length >= 2 && parts[0] === 'jamboard') {
+                            guildId = parts[1];
+                            redirectPath = `/jamboard/${guildId}`;
+                        }
+                    } catch (e) {
+                        // ignore
+                    }
+                }
+            }
+
+            if (!guildId) guildId = 'default';
             
             // 環境変数または設定からOAuth2情報を取得
             const clientId = botClient.getClientId();
