@@ -19,7 +19,7 @@ export class StaffController {
         const session = (req as any).session as SettingsSession;
 
         try {
-            const { PrivateChatManager } = await import('../../commands/staff/PrivateChatManager.js');
+            const { PrivateChatManager } = await import('../../core/PrivateChatManager.js');
             const chats = await PrivateChatManager.getChatsByGuild(session.guildId);
             
             // ユーザー情報を付加
@@ -82,7 +82,7 @@ export class StaffController {
                 return;
             }
 
-            const { PrivateChatManager } = await import('../../commands/staff/PrivateChatManager.js');
+            const { PrivateChatManager } = await import('../../core/PrivateChatManager.js');
             let chat;
 
             if (roomName) {
@@ -115,7 +115,7 @@ export class StaffController {
                 return;
             }
 
-            const { PrivateChatManager } = await import('../../commands/staff/PrivateChatManager.js');
+            const { PrivateChatManager } = await import('../../core/PrivateChatManager.js');
             const deleted = await PrivateChatManager.deleteChat(guild, chatId);
 
             if (deleted) {
@@ -137,7 +137,7 @@ export class StaffController {
         const session = (req as any).session as SettingsSession;
 
         try {
-            const { PrivateChatManager } = await import('../../commands/staff/PrivateChatManager.js');
+            const { PrivateChatManager } = await import('../../core/PrivateChatManager.js');
             const stats = await PrivateChatManager.getStats(session.guildId);
 
             res.json(stats);
@@ -159,10 +159,11 @@ export class StaffController {
         res.setHeader('Connection', 'keep-alive');
         res.setHeader('X-Accel-Buffering', 'no'); // nginx のバッファリングを無効化
 
-    let intervalId: NodeJS.Timeout | undefined;
+        let intervalId: NodeJS.Timeout | undefined;
+        let isFirstUpdate = true;
 
         try {
-            const { PrivateChatManager } = await import('../../commands/staff/PrivateChatManager.js');
+            const { PrivateChatManager } = await import('../../core/PrivateChatManager.js');
             const guild = this.botClient.client.guilds.cache.get(session.guildId);
 
             if (!guild) {
@@ -180,21 +181,31 @@ export class StaffController {
                     // チャット情報を強化
                     const enrichedChats = await Promise.all(
                         chats.map(async (chat) => {
-                            console.log('Processing chat:', chat.chatId, 'roomName:', chat.roomName, 'userId:', chat.userId);
+                            if (isFirstUpdate) {
+                                console.log('Processing chat:', chat.chatId, 'roomName:', chat.roomName, 'userId:', chat.userId);
+                            }
                             let userName = 'Unknown User';
                             
                             if (chat.roomName) {
                                 // roomNameベースのチャット
                                 userName = `Room: ${chat.roomName}`;
-                                console.log('Using roomName for userName:', userName);
+                                if (isFirstUpdate) {
+                                    console.log('Using roomName for userName:', userName);
+                                }
                             } else if (chat.userId) {
                                 // userIdベースのチャット
-                                console.log('Fetching user for userId:', chat.userId);
+                                if (isFirstUpdate) {
+                                    console.log('Fetching user for userId:', chat.userId);
+                                }
                                 const user = await guild.members.fetch(chat.userId).catch(() => null);
                                 userName = user?.user.username || 'Unknown User';
-                                console.log('Fetched userName:', userName);
+                                if (isFirstUpdate) {
+                                    console.log('Fetched userName:', userName);
+                                }
                             } else {
-                                console.log('No roomName or userId for chat:', chat.chatId);
+                                if (isFirstUpdate) {
+                                    console.log('No roomName or userId for chat:', chat.chatId);
+                                }
                             }
                             
                             const staff = await guild.members.fetch(chat.staffId).catch(() => null);
@@ -215,6 +226,7 @@ export class StaffController {
                     };
 
                     res.write(`data: ${JSON.stringify(updateData)}\n\n`);
+                    isFirstUpdate = false;
                 } catch (error) {
                     console.error('SSE データ送信エラー:', error);
                 }
@@ -260,7 +272,7 @@ export class StaffController {
                 return;
             }
 
-            const { PrivateChatManager } = await import('../../commands/staff/PrivateChatManager.js');
+            const { PrivateChatManager } = await import('../../core/PrivateChatManager.js');
             const memberIds = await PrivateChatManager.getMembers(guild, chatId);
 
             // メンバー情報を取得
@@ -288,10 +300,10 @@ export class StaffController {
     async addChatMember(req: Request, res: Response): Promise<void> {
         const session = (req as any).session as SettingsSession;
         const { chatId } = req.params;
-        const { userId } = req.body;
+        const { userName } = req.body;
 
-        if (!userId) {
-            res.status(400).json({ error: 'userId is required' });
+        if (!userName) {
+            res.status(400).json({ error: 'userName is required' });
             return;
         }
 
@@ -302,10 +314,21 @@ export class StaffController {
                 return;
             }
 
-            const { PrivateChatManager } = await import('../../commands/staff/PrivateChatManager.js');
-            await PrivateChatManager.addMember(guild, chatId, userId);
+            // ユーザー名からユーザーIDを取得
+            const member = guild.members.cache.find(m => 
+                m.user.username.toLowerCase() === userName.toLowerCase() ||
+                (m.displayName && m.displayName.toLowerCase() === userName.toLowerCase())
+            );
 
-            console.log(`メンバー追加: ${userId} to ${chatId}`);
+            if (!member) {
+                res.status(404).json({ error: 'ユーザーが見つかりません' });
+                return;
+            }
+
+            const { PrivateChatManager } = await import('../../core/PrivateChatManager.js');
+            await PrivateChatManager.addMember(guild, chatId, member.id);
+
+            console.log(`メンバー追加: ${userName} (${member.id}) to ${chatId}`);
             res.json({ success: true });
         } catch (error) {
             console.error('メンバー追加エラー:', error);
@@ -328,7 +351,7 @@ export class StaffController {
                 return;
             }
 
-            const { PrivateChatManager } = await import('../../commands/staff/PrivateChatManager.js');
+            const { PrivateChatManager } = await import('../../core/PrivateChatManager.js');
             await PrivateChatManager.removeMember(guild, chatId, userId);
 
             console.log(`メンバー削除: ${userId} from ${chatId}`);
@@ -337,6 +360,58 @@ export class StaffController {
             console.error('メンバー削除エラー:', error);
             const errorMessage = error instanceof Error ? error.message : 'Failed to remove member';
             res.status(500).json({ error: errorMessage });
+        }
+    }
+
+    /**
+     * ユーザー検索（部分一致）
+     */
+    async searchUsers(req: Request, res: Response): Promise<void> {
+        const session = (req as any).session as SettingsSession;
+        const { query, chatId } = req.query;
+
+        if (!query || typeof query !== 'string') {
+            res.status(400).json({ error: 'query parameter is required' });
+            return;
+        }
+
+        try {
+            const guild = this.botClient.client.guilds.cache.get(session.guildId);
+            if (!guild) {
+                res.status(404).json({ error: 'Guild not found' });
+                return;
+            }
+
+            // 既に追加済みのメンバーを取得（chatIdが指定されている場合）
+            let existingMemberIds: string[] = [];
+            if (chatId && typeof chatId === 'string') {
+                const { PrivateChatManager } = await import('../../core/PrivateChatManager.js');
+                existingMemberIds = await PrivateChatManager.getMembers(guild, chatId);
+            }
+
+            // ギルドメンバーを検索（部分一致）
+            const members = guild.members.cache
+                .filter(member => 
+                    // ボットと自分自身を除外
+                    !member.user.bot && member.id !== session.userId &&
+                    // 既に追加済みのユーザーを除外
+                    !existingMemberIds.includes(member.id) &&
+                    // 検索条件
+                    (member.user.username.toLowerCase().includes(query.toLowerCase()) ||
+                     (member.displayName && member.displayName.toLowerCase().includes(query.toLowerCase())))
+                )
+                .map(member => ({
+                    id: member.id,
+                    username: member.user.username,
+                    displayName: member.displayName,
+                    avatar: member.user.displayAvatarURL() || null
+                }))
+                .slice(0, 10); // 最大10件
+
+            res.json({ users: members });
+        } catch (error) {
+            console.error('ユーザー検索エラー:', error);
+            res.status(500).json({ error: 'Failed to search users' });
         }
     }
 }

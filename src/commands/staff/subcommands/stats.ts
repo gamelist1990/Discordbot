@@ -1,5 +1,5 @@
 import { ChatInputCommandInteraction, EmbedBuilder, MessageFlags } from 'discord.js';
-import { PrivateChatManager } from '../PrivateChatManager.js';
+import { PrivateChatManager } from '../../../core/PrivateChatManager';
 
 /**
  * /staff stats サブコマンド（動的ロードの例）

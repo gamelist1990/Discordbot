@@ -30,9 +30,8 @@
     "windows-64": "bun build src/index.ts --compile --target=bun-windows-x64 --minify --outfile discord_windows --minify",
     "macOS-64": "bun build src/index.ts --compile --target=bun-darwin-arm64 --minify --outfile discord_mac64 --minify",
     "macOS-arm": "bun build src/index.ts --compile --target=bun-darwin-arm64 --minify --outfile discord_macArm --minify",
-    "dev": "cd src/web/client && vite build\" \" cd ../../ && bun index.ts\" -k",
     "dev:web": "cd src/web/client && vite",
-    "build:web": "cd src/web/client && vite build && cd ../../ && bun index.ts"
+    "dev": "cd src/web/client && vite build && cd ../../ && bun index.ts"
   },
   "devDependencies": {
     "@types/cheerio": "^0.22.35",

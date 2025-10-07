@@ -9,6 +9,7 @@ import {
     fetchChatMembers,
     addChatMember,
     removeChatMember,
+    searchUsers,
     type PrivateChat,
     type PrivateChatStats,
     type ChatMember
@@ -31,7 +32,9 @@ const PrivateChatPage: React.FC = () => {
     const [roomMembers, setRoomMembers] = useState<ChatMember[]>([]);
     
     const [newRoomName, setNewRoomName] = useState('');
-    const [newMemberUserId, setNewMemberUserId] = useState('');
+    const [newMemberUserName, setNewMemberUserName] = useState('');
+    const [userSearchResults, setUserSearchResults] = useState<Array<{ id: string; username: string; displayName: string | null; avatar: string | null }>>([]);
+    const [showUserSuggestions, setShowUserSuggestions] = useState(false);
     const [creatingChat, setCreatingChat] = useState(false);
     
     const [lastUpdate, setLastUpdate] = useState<string>('');
@@ -156,11 +159,13 @@ const PrivateChatPage: React.FC = () => {
     // メンバー追加
     const handleAddMember = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!token || !selectedRoomId || !newMemberUserId.trim()) return;
+        if (!token || !selectedRoomId || !newMemberUserName.trim()) return;
 
         try {
-            await addChatMember(token, selectedRoomId, newMemberUserId.trim());
-            setNewMemberUserId('');
+            await addChatMember(token, selectedRoomId, newMemberUserName.trim());
+            setNewMemberUserName('');
+            setUserSearchResults([]);
+            setShowUserSuggestions(false);
             // メンバーリストを再取得
             const data = await fetchChatMembers(token, selectedRoomId);
             setRoomMembers(data.members);
@@ -168,6 +173,34 @@ const PrivateChatPage: React.FC = () => {
             console.error('メンバー追加エラー:', err);
             alert('メンバーの追加に失敗しました');
         }
+    };
+
+    // ユーザー名入力ハンドラー
+    const handleUserNameChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const value = e.target.value;
+        setNewMemberUserName(value);
+
+        if (value.trim().length > 0 && token) {
+            try {
+                const results = await searchUsers(token, value.trim(), selectedRoomId || undefined);
+                setUserSearchResults(results.users);
+                setShowUserSuggestions(true);
+            } catch (err) {
+                console.error('ユーザー検索エラー:', err);
+                setUserSearchResults([]);
+                setShowUserSuggestions(false);
+            }
+        } else {
+            setUserSearchResults([]);
+            setShowUserSuggestions(false);
+        }
+    };
+
+    // ユーザー候補選択
+    const handleUserSelect = (user: { username: string; displayName: string | null }) => {
+        setNewMemberUserName(user.displayName || user.username);
+        setUserSearchResults([]);
+        setShowUserSuggestions(false);
     };
 
     // メンバー削除
@@ -481,15 +514,44 @@ const PrivateChatPage: React.FC = () => {
                                                         <input
                                                             type="text"
                                                             className={styles.input}
-                                                            placeholder="ユーザーIDを入力"
-                                                            value={newMemberUserId}
-                                                            onChange={(e) => setNewMemberUserId(e.target.value)}
+                                                            placeholder="ユーザー名を入力"
+                                                            value={newMemberUserName}
+                                                            onChange={handleUserNameChange}
                                                         />
+                                                        {showUserSuggestions && userSearchResults.length > 0 && (
+                                                            <div className={styles.suggestions}>
+                                                                {userSearchResults.map((user) => (
+                                                                    <div
+                                                                        key={user.id}
+                                                                        className={styles.suggestionItem}
+                                                                        onClick={() => handleUserSelect(user)}
+                                                                    >
+                                                                        {user.avatar ? (
+                                                                            <img
+                                                                                src={user.avatar}
+                                                                                alt={user.username}
+                                                                                className={styles.suggestionAvatar}
+                                                                            />
+                                                                        ) : (
+                                                                            <div className={styles.suggestionAvatarPlaceholder}>
+                                                                                <i className="material-icons">person</i>
+                                                                            </div>
+                                                                        )}
+                                                                        <div className={styles.suggestionInfo}>
+                                                                            <div className={styles.suggestionUsername}>{user.username}</div>
+                                                                            {user.displayName && user.displayName !== user.username && (
+                                                                                <div className={styles.suggestionDisplayName}>{user.displayName}</div>
+                                                                            )}
+                                                                        </div>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        )}
                                                     </div>
                                                     <button
                                                         type="submit"
                                                         className={styles.button}
-                                                        disabled={!newMemberUserId.trim()}
+                                                        disabled={!newMemberUserName.trim()}
                                                     >
                                                         <i className="material-icons">add</i>
                                                         追加

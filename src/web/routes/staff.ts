@@ -35,5 +35,8 @@ export function createStaffRoutes(
     router.post('/privatechats/:token/:chatId/members', auth.validateToken, controller.addChatMember.bind(controller));
     router.delete('/privatechats/:token/:chatId/members/:userId', auth.validateToken, controller.removeChatMember.bind(controller));
 
+    // ユーザー検索
+    router.get('/searchusers/:token', auth.validateToken, controller.searchUsers.bind(controller));
+
     return router;
 }

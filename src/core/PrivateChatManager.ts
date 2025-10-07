@@ -5,7 +5,7 @@ import {
     PermissionFlagsBits,
     EmbedBuilder
 } from 'discord.js';
-import { database } from '../../core/Database.js';
+import { database } from './Database.js';
 
 /**
  * プライベートチャット情報
@@ -242,6 +242,10 @@ export class PrivateChatManager {
      * チャットにメンバーを追加
      */
     static async addMember(guild: Guild, chatId: string, userId: string): Promise<boolean> {
+        if (!userId || userId.trim() === '') {
+            throw new Error('ユーザーIDが無効です');
+        }
+
         const chat = await this.getChat(chatId);
         if (!chat) {
             throw new Error('チャットが見つかりません');

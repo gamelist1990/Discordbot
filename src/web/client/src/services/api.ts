@@ -178,10 +178,10 @@ export async function fetchChatMembers(token: string, chatId: string): Promise<C
 /**
  * チャットにメンバーを追加
  */
-export async function addChatMember(token: string, chatId: string, userId: string): Promise<{ success: boolean }> {
+export async function addChatMember(token: string, chatId: string, userName: string): Promise<{ success: boolean }> {
   return apiRequest(`${API_BASE}/staff/privatechats/${token}/${chatId}/members`, {
     method: 'POST',
-    body: JSON.stringify({ userId }),
+    body: JSON.stringify({ userName }),
   });
 }
 
@@ -192,4 +192,14 @@ export async function removeChatMember(token: string, chatId: string, userId: st
   return apiRequest(`${API_BASE}/staff/privatechats/${token}/${chatId}/members/${userId}`, {
     method: 'DELETE',
   });
+}
+
+/**
+ * ユーザー検索
+ */
+export async function searchUsers(token: string, query: string, chatId?: string): Promise<{ users: Array<{ id: string; username: string; displayName: string | null; avatar: string | null }> }> {
+  const url = chatId 
+    ? `${API_BASE}/staff/searchusers/${token}?query=${encodeURIComponent(query)}&chatId=${encodeURIComponent(chatId)}`
+    : `${API_BASE}/staff/searchusers/${token}?query=${encodeURIComponent(query)}`;
+  return apiRequest(url);
 }

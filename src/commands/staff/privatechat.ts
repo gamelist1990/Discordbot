@@ -72,9 +72,16 @@ async function openManagementUI(interaction: ChatInputCommandInteraction): Promi
 
     } catch (error) {
         console.error('Web UI管理画面エラー:', error);
-        await interaction.reply({
-            content: '❌ 管理画面URLの生成中にエラーが発生しました。',
-            flags: MessageFlags.Ephemeral
-        });
+        if (interaction.replied) {
+            await interaction.followUp({
+                content: '❌ 管理画面URLの生成中にエラーが発生しました。',
+                flags: MessageFlags.Ephemeral
+            });
+        } else {
+            await interaction.reply({
+                content: '❌ 管理画面URLの生成中にエラーが発生しました。',
+                flags: MessageFlags.Ephemeral
+            });
+        }
     }
 }
