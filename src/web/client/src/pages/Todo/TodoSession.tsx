@@ -392,7 +392,16 @@ const EditTodoModal: React.FC<{
 
     // Simple markdown preview (basic support)
     const renderMarkdown = (md: string) => {
-        return md
+        // First, escape HTML to prevent XSS
+        const escaped = md
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+        
+        // Then apply markdown transformations
+        return escaped
             .replace(/### (.*)/g, '<h3>$1</h3>')
             .replace(/## (.*)/g, '<h2>$1</h2>')
             .replace(/# (.*)/g, '<h1>$1</h1>')
