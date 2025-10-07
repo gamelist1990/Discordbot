@@ -1,113 +1,178 @@
-# SSO (Single Sign-On) 移行案 / 実装 TODO
+# Todo Management System
 
-目的
-- 現在の Discord OAuth2 + サーバ側セッション（sessionId cookie）方式を、全サービス（web dashboard, jamboard, private chat, settings 等）で共通利用できる SSO に統一する。
-- 最小の変更で動作する "短期 JWT" 案と、より堅牢な中央 SSO サービス案（長期）を提示する。
+## 概要
 
-前提
-- ユーザ認証は Discord OAuth2 を IdP（Identity Provider）として利用する。
-- 既存の `config.json` と OAuth2 コールバックは維持しつつ、セッションの運用方式を変更する。
+Discord Botと連携したTodo管理システムです。ユーザーはDiscordサーバー内から `/todo` コマンドを実行してWebベースのTodo管理ツールにアクセスできます。
 
+## アーキテクチャ
 
-1) 選択肢の概要
+### システム構成
 
-A. 短期案: JWT 発行（簡易 SSO）
-- フロー概要:
-  1. ユーザが Discord OAuth2 を使ってログイン（既存 `/api/auth/discord` → `/api/auth/callback`）。
-  2. サーバ (`/api/auth/callback`) が Discord からアクセストークンとユーザ情報を取得。
-  3. サーバは自前の秘密鍵（`JWT_SECRET`）で短期間有効な JWT を生成（payload: userId, guildId, exp, scopes など）。
-  4. JWT を HttpOnly セキュア cookie (`sso_token`) にセットする（または、SPAs 向けにセキュアに localStorage に入れるが推奨しない）。
-  5. 各サービス（jamboard 等）は incoming request の cookie から JWT を検証して認証情報を得る。
-- 利点:
-  - 実装が比較的簡単（既存 callback に JWT 発行を追加するだけ）。
-  - セッションストア不要（stateless）。
-  - 複数サーバー（水平スケール）に対応しやすい。
-- 欠点/注意点:
-  - JWT の失効（即時ログアウト）は難しい（ブラックリストや短い有効期間で緩和）。
-  - リフレッシュトークン戦略が必要（長期ログインサポート）。
+```
+Discord Bot (/todo command)
+    ↓
+Web Application (React + Express)
+    ↓
+Authentication (Discord OAuth2)
+    ↓
+Todo Manager (Backend)
+    ↓
+Database (JSON DB)
+```
 
-B. 中長期案: Central SSO Service + Stateful セッション（Redis 等）
-- フロー概要:
-  1. 専用の SSO サービスを用意（`sso.example.com`）。
-  2. ユーザは SSO の `/login` にリダイレクトされ、そこで Discord OAuth2 を完了。
-  3. SSO は自身のセッションストア（Redis）で sessionId を管理し、cookie を発行する。
-  4. 他のサービスは SSO の `/validate` エンドポイントを呼ぶか、SSO が発行した JWT を受けて検証する。
-- 利点:
-  - セッションの即時失効や集中管理が可能。
-  - 複数ドメイン/サブドメインでの SSO 実装が容易（cookie domain 設定やトークン共有）。
-  - より柔軟な認可（scopes/roles）管理が可能。
-- 欠点/注意点:
-  - 新サービスの導入コスト（設計・運用・インフラ）。
-  - SSO が単一障害点になりうるため冗長化が必要。
+### 主要コンポーネント
 
+#### バックエンド
 
-2) 推奨順序
-- まず短期案 A（JWT ベース）を導入して素早く "全サービス共通ログイン" を実現。
-- その間に中長期案 B の設計と PoC を進め、必要なら段階的に移行（JWT→Central SSO）する。
+- **TodoManager** (`src/core/TodoManager.ts`)
+  - Todoセッションとアイテムの管理
+  - データベース操作（JSON DB)
+  - アクセス権限の管理
 
+- **TodoController** (`src/web/controllers/TodoController.ts`)
+  - HTTPリクエストハンドリング
+  - 認証・認可の確認
+  - エラーハンドリング
 
-3) JWT ベース実装の詳細（実装 TODO）
-- 環境:
-  - `JWT_SECRET`（環境変数または安全に保管）
-  - `JWT_EXP`（例: 15m）
-  - `JWT_REFRESH_EXP`（例: 14d、refresh token が必要なら別途実装）
+- **Todo Routes** (`src/web/routes/todo.ts`)
+  - RESTful APIエンドポイント
+  - 認証ミドルウェアの適用
 
-- エンドポイント:
-  - `/api/auth/callback` — Discord コールバック。JWT を発行して HttpOnly cookie にセットし、元ページへリダイレクト。
-  - `/api/auth/refresh` — (オプション) refresh token を受けて新しい JWT を発行。
-  - ミドルウェア: `verifyJwt` — cookie から JWT を検証し、`req.user` をセット。
+#### フロントエンド
 
-- ファイル/変更箇所:
-  - `src/web/routes/auth.ts` — コールバックで `res.cookie('sso_token', jwt, { httpOnly: true, secure: ..., sameSite: ... })` を出す。
-  - `src/web/middleware/auth.ts` — sessionId 参照の代わりに `sso_token` を検証（既存ロジックと併存可）。
-  - `src/web/routes/*` — sessionId ベースのルートを JWT ベースに切り替える（段階的に）。
+- **Login Page** - Discord OAuth2認証
+- **Dashboard** - Todoセッション一覧（プロジェクト画面）
+- **Session Detail** - 個別Todoセッションの詳細と編集
+- **Components** - 再利用可能なUIコンポーネント
 
-- セキュリティ考慮:
-  - short lived JWT（例 15分） + refresh token を HttpOnly cookie に入れるパターンを推奨。
-  - HTTPS 必須（secure cookie）
-  - SameSite ポリシーは `lax` またはフロー次第で `none`（クロスサイトの場合）。
+## 認証フロー（Discord OAuth2）
 
+既存の認証システム（`src/web/routes/auth.ts`、`src/web/middleware/auth.ts`、`src/web/services/SessionService.ts`）を使用します。
 
-4) Central SSO 実装の概要（要件）
-- サービス:
-  - `POST /sso/login` → 認証開始（あるいは GET で Discord OAuth 認証 URL を返す）
-  - `GET /sso/callback` → Discord コールバック。SSO でセッションを作成して cookie をセット。
-  - `GET /sso/validate` → 他サービスが SSO にトークンを投げて検証。もしくは JWT を返す。
-  - `POST /sso/logout` → セッション無効化
-- ストレージ: Redis（セッションストア・ブラックリスト用）
-- 可用性: SSO を冗長化（ロードバランサ + Redis クラスタ）
+### フロー
 
+1. User clicks `/todo` command button → Redirects to: `http://baseUrl/todo/{guildId}`
+2. Frontend checks `/api/auth/session` (with sessionId cookie)
+3. Not authenticated → Redirect to `/api/auth/discord`
+4. Discord OAuth2 Login → Callback to `/api/auth/callback`
+5. Create session with token → Set cookie: sessionId
+6. Redirect to `/todo/{guildId}`
 
-5) 移行ステップ（段階的）
-- フェーズ 0: 準備
-  - `JWT_SECRET` を用意
-  - 環境で HTTPS を使える場合は設定を確認
-- フェーズ 1: JWT を既存 callback に追加
-  - `/api/auth/callback` 実装を修正して JWT を返す/セットする
-  - `verifyJwt` ミドルウェアを実装
-  - 小さなサービス（jamboard）で JWT 認証を試す
-- フェーズ 2: 全ルートを JWT へ置換（段階的）
-  - sessionId ベースは暫定的に残すが、新クライアントは JWT を利用
-- フェーズ 3: Central SSO（任意）
-  - SSO サービスを動かし、JWT または cookie ベースの認証を統一
+### セッション管理
 
+- **SessionService** - セッションの作成・検証・削除、`Data/sessions.json` に永続化
+- **Cookie**: `sessionId` (HttpOnly, SameSite='lax')
 
-6) テスト & 受け入れ基準
-- ユーザが Discord ログインを完了すると `sso_token` cookie がブラウザに保存される
-- `GET /api/auth/session`（or `/api/auth/validate`）が 200 を返してユーザ情報を返す
-- Jamboard, PrivateChat, Settings の各画面でログイン済み状態が正しく表示される
-- ログアウト時に cookie が削除され、protected API が 401 を返す
+## データ構造
 
+### TodoSession
 
-7) リスクと緩和策
-- JWT の無効化（ログアウト直後に失効させたい） → 短寿命 + リフレッシュ + Redis blacklist
-- Cookie の SameSite/secure 設定ミス → dev/prod 用に設定を分けて実装
-- セキュリティ: `JWT_SECRET` の秘匿管理、HTTPS 強制
+```typescript
+{
+  id: string;              // セッションID（ランダム生成）
+  guildId: string;         // DiscordギルドID
+  name: string;            // セッション名（最大100文字）
+  ownerId: string;         // 作成者のユーザーID
+  createdAt: number;       // 作成日時（UNIX timestamp）
+  updatedAt: number;       // 更新日時（UNIX timestamp）
+  viewers: string[];       // 閲覧者のユーザーID配列
+  editors: string[];       // 編集者のユーザーID配列
+  favoritedBy: string[];   // お気に入り登録したユーザーID配列
+}
+```
 
+### TodoItem
 
-8) 次のアクション（私がやれます）
-- 1) まず短期案 A を実装するパッチを作り、`/api/auth/callback` で JWT を発行して cookie にセット（15〜30分の有効期限）。
-- 2) `verifyJwt` ミドルウェアを実装して jamboard 等のルートで使うようにする。
-- 3) 本番用に `SameSite`/`secure` を環境依存で切り替える設定を入れる。
+```typescript
+{
+  id: string;              // TodoアイテムID
+  sessionId: string;       // 所属するセッションID
+  text: string;            // Todoテキスト
+  completed: boolean;      // 完了状態
+  priority: 'low' | 'medium' | 'high';  // 優先度
+  dueDate?: number;        // 期限（UNIX timestamp、オプション）
+  createdBy: string;       // 作成者のユーザーID
+  createdAt: number;       // 作成日時
+  updatedAt: number;       // 更新日時
+  completedAt?: number;    // 完了日時（オプション）
+  tags: string[];          // タグ配列
+  description?: string;    // 説明文（オプション）
+}
+```
 
-作業を開始して良ければ `1` を返してください（私がパッチを作成・テストまで進めます）。
+## API エンドポイント
+
+### Todoセッション
+
+- `GET /api/todos/sessions` - セッション一覧取得
+- `POST /api/todos/sessions` - セッション作成 (Body: `{ name: string }`, 制限: 最大3個/ユーザー)
+- `GET /api/todos/sessions/:sessionId` - セッション詳細取得
+- `DELETE /api/todos/sessions/:sessionId` - セッション削除（オーナーのみ）
+
+### Todoアイテム
+
+- `GET /api/todos/sessions/:sessionId/content` - コンテンツ取得
+- `POST /api/todos/sessions/:sessionId/items` - Todoアイテム追加 (権限: オーナー or エディター)
+- `PATCH /api/todos/sessions/:sessionId/items/:todoId` - Todoアイテム更新
+- `DELETE /api/todos/sessions/:sessionId/items/:todoId` - Todoアイテム削除
+
+### 共有とメンバー管理
+
+- `POST /api/todos/sessions/:sessionId/members` - メンバー追加 (Body: `{ userId, role: 'viewer' | 'editor' }`, 権限: オーナーのみ)
+- `DELETE /api/todos/sessions/:sessionId/members/:userId` - メンバー削除（オーナーのみ）
+
+### お気に入り
+
+- `POST /api/todos/sessions/:sessionId/favorite` - お気に入りトグル
+
+## 権限モデル
+
+1. **Owner（オーナー）** - セッション作成者、全操作可能、メンバー管理・削除
+2. **Editor（編集者）** - Todoの追加・編集・削除、セッション閲覧
+3. **Viewer（閲覧者）** - Todo閲覧のみ
+
+## 制限事項
+
+- ユーザーあたり最大3つのTodoセッションを作成可能
+- セッション名は最大100文字
+
+## フロントエンド UI仕様
+
+### デザインシステム
+
+- **スタイル**: Google Material Design
+- **カラーパレット**: Primary #4285F4, Secondary #34A853, Error #EA4335, Warning #FBBC04
+
+### ページ構成
+
+1. **ログイン画面** - Discord OAuth2ボタン、サービス説明
+2. **プロジェクト画面（Dashboard）** - ヘッダー（アプリタイトル、ユーザーメニュー）、新規セッション作成ボタン、セッションカード一覧、フィルター
+3. **セッション詳細画面** - ヘッダー、Todoリスト、Todoアイテム（チェックボックス、優先度、タグ、期限、編集・削除）
+4. **共有モーダル** - メンバーリスト、メンバー追加
+
+## データベース
+
+- `database/todo_sessions.json` - Todoセッションデータ
+- `database/todo_contents.json` - Todoアイテムデータ
+- `Data/sessions.json` - 認証セッションデータ
+
+## セキュリティ
+
+- Discord OAuth2認証
+- sessionIdはHTTPOnly cookie
+- 全APIで認証確認・権限チェック
+- 入力値バリデーション
+
+## 開発者向け情報
+
+```bash
+# クライアントビルド
+cd src/web/client && npm run build
+
+# サーバー起動
+bun run dev
+```
+
+## まとめ
+
+Discordとシームレスに統合されたTodo管理システム。OAuth2認証と柔軟な共有機能でプロジェクト管理をサポート。
