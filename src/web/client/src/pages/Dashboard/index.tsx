@@ -1,14 +1,25 @@
 import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import AppHeader from '../../components/Common/AppHeader';
 import { fetchBotStatus } from '../../services/api';
 import type { BotStatusResponse } from '../../types';
 import styles from './DashboardPage.module.css';
 
+interface UserSession {
+    userId: string;
+    username: string;
+    avatar?: string | null;
+}
+
 const DashboardPage: React.FC = () => {
+  const navigate = useNavigate();
+  const [user, setUser] = useState<UserSession | null>(null);
   const [status, setStatus] = useState<BotStatusResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    checkAuth();
     const loadStatus = async () => {
       try {
         const data = await fetchBotStatus();
@@ -27,20 +38,41 @@ const DashboardPage: React.FC = () => {
     return () => clearInterval(interval);
   }, []);
 
+  const checkAuth = async () => {
+    try {
+      const response = await fetch('/api/auth/session', {
+        credentials: 'include'
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setUser(data.user);
+      }
+    } catch (err) {
+      console.error('Auth check failed:', err);
+    }
+  };
+
   if (loading) {
     return (
-      <div className={styles.loading}>
-        <div className={styles.spinner} />
-        <p>読み込み中...</p>
+      <div>
+        <AppHeader user={user} />
+        <div className={styles.loading}>
+          <div className={styles.spinner} />
+          <p>読み込み中...</p>
+        </div>
       </div>
     );
   }
 
   if (error || !status) {
     return (
-      <div className={styles.error}>
-        <h2>エラー</h2>
-        <p>{error || 'ステータスの取得に失敗しました'}</p>
+      <div>
+        <AppHeader user={user} />
+        <div className={styles.error}>
+          <h2>エラー</h2>
+          <p>{error || 'ステータスの取得に失敗しました'}</p>
+        </div>
       </div>
     );
   }
@@ -48,7 +80,9 @@ const DashboardPage: React.FC = () => {
   const startDate = new Date(status.startTime);
 
   return (
-    <div className={styles.container}>
+    <div className={styles.page}>
+      <AppHeader user={user} />
+      <div className={styles.container}>
       <header className={styles.header}>
         <h1 className={styles.title}>🤖 Discord Bot ダッシュボード</h1>
         <div className={styles.statusBadge}>
@@ -151,6 +185,7 @@ const DashboardPage: React.FC = () => {
         >
           通知をテスト
         </button>
+      </div>
       </div>
     </div>
   );

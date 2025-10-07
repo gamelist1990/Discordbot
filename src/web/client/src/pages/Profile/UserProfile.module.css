@@ -1,7 +1,16 @@
+/* Google Material Design inspired profile page */
+.page {
+    min-height: 100vh;
+    background: #F8F9FA;
+    display: flex;
+    flex-direction: column;
+}
+
 .container {
     max-width: 1200px;
     margin: 0 auto;
-    padding: 16px;
+    padding: 24px;
+    flex: 1;
 }
 
 .loading {
@@ -9,22 +18,23 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    min-height: 200px;
+    min-height: calc(100vh - 64px);
     gap: 16px;
 }
 
 .loadingSpinner {
-    width: 48px;
-    height: 48px;
-    border: 4px solid var(--md-sys-color-outline-variant);
-    border-top: 4px solid var(--md-sys-color-primary);
+    width: 40px;
+    height: 40px;
+    border: 4px solid #E8EAED;
+    border-top-color: #4285F4;
     border-radius: 50%;
     animation: spin 1s linear infinite;
 }
 
 @keyframes spin {
-    0% { transform: rotate(0deg); }
-    100% { transform: rotate(360deg); }
+    to {
+        transform: rotate(360deg);
+    }
 }
 
 .error {
@@ -32,50 +42,64 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    min-height: 300px;
+    min-height: calc(100vh - 64px);
+    padding: 24px;
     text-align: center;
-    gap: 16px;
-    padding: 32px;
+}
+
+.error h2 {
+    font-size: 24px;
+    font-weight: 400;
+    color: #202124;
+    margin: 0 0 16px 0;
+}
+
+.error p {
+    font-size: 14px;
+    color: #5F6368;
+    margin: 0 0 24px 0;
 }
 
 .loginButton {
-    background-color: #5865f2;
-    color: white;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 24px;
     border: none;
-    border-radius: 8px;
-    padding: 12px 24px;
-    font-size: 16px;
+    border-radius: 4px;
+    background: #4285F4;
+    color: white;
+    font-size: 14px;
     font-weight: 500;
     cursor: pointer;
-    transition: background-color 0.2s;
+    transition: background 0.2s;
 }
 
 .loginButton:hover {
-    background-color: #4752c4;
+    background: #1A73E8;
 }
 
 /* Profile Header */
 .profileHeader {
+    background: white;
+    border-radius: 8px;
+    padding: 32px;
+    box-shadow: 0 1px 2px 0 rgba(60,64,67,0.3);
+    margin-bottom: 24px;
     display: flex;
     align-items: center;
     gap: 24px;
-    padding: 24px;
-    background: var(--md-sys-color-surface-container-low);
-    border-radius: 16px;
-    margin-bottom: 24px;
-    position: relative;
-    overflow: hidden;
 }
 
 .avatarContainer {
-    position: relative;
+    flex-shrink: 0;
 }
 
 .avatar {
-    width: 120px;
-    height: 120px;
+    width: 96px;
+    height: 96px;
     border-radius: 50%;
-    border: 4px solid var(--md-sys-color-outline);
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
 }
 
 .userInfo {
@@ -83,35 +107,29 @@
 }
 
 .username {
-    font-size: 32px;
+    font-size: 28px;
     font-weight: 400;
+    color: #202124;
     margin: 0 0 8px 0;
-    color: var(--md-sys-color-on-surface);
-    display: flex;
-    align-items: center;
-    gap: 8px;
 }
 
 .discriminator {
-    font-size: 24px;
-    color: var(--md-sys-color-on-surface-variant);
-    font-weight: 300;
+    color: #5F6368;
+    font-weight: 400;
 }
 
 .userId {
     font-size: 14px;
-    color: var(--md-sys-color-on-surface-variant);
+    color: #5F6368;
     margin: 0;
 }
 
 .bannerContainer {
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 80px;
+    width: 100%;
+    height: 120px;
+    border-radius: 8px;
     overflow: hidden;
-    border-radius: 16px 16px 0 0;
+    margin-top: 16px;
 }
 
 .banner {
@@ -123,7 +141,7 @@
 /* Tabs */
 .tabs {
     display: flex;
-    border-bottom: 1px solid var(--md-sys-color-outline-variant);
+    gap: 8px;
     margin-bottom: 24px;
 }
 
@@ -131,24 +149,29 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 16px 24px;
-    background: none;
+    padding: 12px 24px;
     border: none;
-    border-bottom: 2px solid transparent;
-    color: var(--md-sys-color-on-surface-variant);
-    font-size: 16px;
+    border-radius: 24px;
+    background: white;
+    color: #5F6368;
+    font-size: 14px;
     font-weight: 500;
     cursor: pointer;
     transition: all 0.2s;
+    box-shadow: 0 1px 2px 0 rgba(60,64,67,0.3);
 }
 
 .tab:hover {
-    color: var(--md-sys-color-on-surface);
+    background: #F8F9FA;
 }
 
 .tab.active {
-    color: var(--md-sys-color-primary);
-    border-bottom-color: var(--md-sys-color-primary);
+    background: #4285F4;
+    color: white;
+}
+
+.tab .material-icons-outlined {
+    font-size: 20px;
 }
 
 /* Tab Content */
@@ -156,88 +179,103 @@
     min-height: 400px;
 }
 
+.overview {
+    padding: 24px 0;
+}
+
 .sectionTitle {
     font-size: 24px;
     font-weight: 400;
+    color: #202124;
     margin: 0 0 24px 0;
-    color: var(--md-sys-color-on-surface);
 }
 
-/* Overview Stats */
 .statsGrid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-    gap: 16px;
+    gap: 24px;
 }
 
 .statCard {
+    background: white;
+    border-radius: 8px;
+    padding: 24px;
+    box-shadow: 0 1px 2px 0 rgba(60,64,67,0.3);
     display: flex;
-    align-items: center;
     gap: 16px;
-    padding: 20px;
-    background: var(--md-sys-color-surface-container-high);
-    border-radius: 12px;
-    border: 1px solid var(--md-sys-color-outline-variant);
+    transition: box-shadow 0.2s;
+}
+
+.statCard:hover {
+    box-shadow: 0 1px 3px 1px rgba(60,64,67,0.15);
 }
 
 .statIcon {
     width: 48px;
     height: 48px;
-    border-radius: 12px;
-    background: var(--md-sys-color-primary-container);
+    background: #E8F0FE;
+    border-radius: 50%;
     display: flex;
     align-items: center;
     justify-content: center;
-    color: var(--md-sys-color-on-primary-container);
+    flex-shrink: 0;
+}
+
+.statIcon .material-icons-outlined {
     font-size: 24px;
+    color: #4285F4;
+}
+
+.statContent {
+    flex: 1;
 }
 
 .statContent h3 {
-    margin: 0 0 4px 0;
     font-size: 14px;
     font-weight: 500;
-    color: var(--md-sys-color-on-surface-variant);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
+    color: #5F6368;
+    margin: 0 0 8px 0;
 }
 
 .statValue {
+    font-size: 28px;
+    font-weight: 400;
+    color: #202124;
     margin: 0;
-    font-size: 32px;
-    font-weight: 700;
-    color: var(--md-sys-color-on-surface);
 }
 
-/* Guilds */
+/* Servers */
+.servers {
+    padding: 24px 0;
+}
+
 .guildsGrid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-    gap: 20px;
+    gap: 24px;
 }
 
 .guildCard {
-    padding: 20px;
-    background: var(--md-sys-color-surface-container-high);
-    border-radius: 12px;
-    border: 1px solid var(--md-sys-color-outline-variant);
-    transition: transform 0.2s, box-shadow 0.2s;
+    background: white;
+    border-radius: 8px;
+    padding: 24px;
+    box-shadow: 0 1px 2px 0 rgba(60,64,67,0.3);
+    transition: box-shadow 0.2s;
 }
 
 .guildCard:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    box-shadow: 0 1px 3px 1px rgba(60,64,67,0.15);
 }
 
 .guildHeader {
     display: flex;
-    align-items: center;
     gap: 16px;
     margin-bottom: 16px;
 }
 
 .guildIcon {
-    width: 48px;
-    height: 48px;
+    width: 56px;
+    height: 56px;
     border-radius: 50%;
     overflow: hidden;
     flex-shrink: 0;
@@ -252,32 +290,38 @@
 .defaultIcon {
     width: 100%;
     height: 100%;
-    background: var(--md-sys-color-secondary-container);
+    background: #4285F4;
     display: flex;
     align-items: center;
     justify-content: center;
-    color: var(--md-sys-color-on-secondary-container);
-    font-weight: 500;
+    color: white;
     font-size: 24px;
+    font-weight: 500;
+}
+
+.guildInfo {
+    flex: 1;
 }
 
 .guildInfo h3 {
-    margin: 0 0 4px 0;
     font-size: 18px;
     font-weight: 500;
-    color: var(--md-sys-color-on-surface);
+    color: #202124;
+    margin: 0 0 4px 0;
 }
 
 .guildInfo p {
-    margin: 0;
     font-size: 14px;
-    color: var(--md-sys-color-on-surface-variant);
+    color: #5F6368;
+    margin: 0;
 }
 
 .guildStats {
     display: flex;
-    justify-content: space-between;
-    margin-bottom: 16px;
+    gap: 16px;
+    padding: 16px 0;
+    border-top: 1px solid #E8EAED;
+    border-bottom: 1px solid #E8EAED;
 }
 
 .guildStat {
@@ -288,66 +332,100 @@
     flex: 1;
 }
 
-.guildStat span.material-icons-outlined {
+.guildStat .material-icons-outlined {
     font-size: 20px;
-    color: var(--md-sys-color-on-surface-variant);
+    color: #5F6368;
 }
 
-.guildStat span:not(.material-icons-outlined) {
-    font-size: 16px;
-    font-weight: 600;
-    color: var(--md-sys-color-on-surface);
+.guildStat span:nth-child(2) {
+    font-size: 18px;
+    font-weight: 500;
+    color: #202124;
 }
 
 .guildStat label {
     font-size: 12px;
-    color: var(--md-sys-color-on-surface-variant);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
+    color: #5F6368;
 }
 
 .guildRole {
+    padding-top: 12px;
     font-size: 14px;
-    color: var(--md-sys-color-secondary);
-    background: var(--md-sys-color-secondary-container);
-    padding: 4px 8px;
-    border-radius: 6px;
-    display: inline-block;
+    color: #5F6368;
+}
+
+.guildRolesList {
+    padding-top: 12px;
+    font-size: 14px;
+    color: #5F6368;
+}
+
+.guildRolesList strong {
+    display: block;
     margin-bottom: 8px;
+    color: #202124;
+}
+
+.guildRolesList ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.guildRolesList li {
+    padding: 4px 8px;
+    background: #F1F3F4;
+    border-radius: 4px;
+    margin-bottom: 4px;
 }
 
 .guildJoined {
-    font-size: 14px;
-    color: var(--md-sys-color-on-surface-variant);
+    padding-top: 12px;
+    font-size: 13px;
+    color: #5F6368;
 }
 
-/* Responsive Design */
+/* Mobile Responsive */
 @media (max-width: 768px) {
+    .container {
+        padding: 16px;
+    }
+
     .profileHeader {
         flex-direction: column;
         text-align: center;
-    }
-
-    .avatar {
-        width: 80px;
-        height: 80px;
+        padding: 24px 16px;
     }
 
     .username {
         font-size: 24px;
     }
 
+    .tabs {
+        flex-direction: column;
+    }
+
+    .tab {
+        justify-content: center;
+    }
+
     .statsGrid {
         grid-template-columns: 1fr;
     }
 
-    .guildStats {
-        flex-direction: column;
-        gap: 12px;
+    .guildsGrid {
+        grid-template-columns: 1fr;
     }
 
-    .guildStat {
-        flex-direction: row;
-        justify-content: space-between;
+    .guildStats {
+        flex-wrap: wrap;
+    }
+}
+
+@media (max-width: 480px) {
+    .guildHeader {
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
     }
 }

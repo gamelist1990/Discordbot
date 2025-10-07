@@ -1,5 +1,6 @@
 import React from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
+import HomePage from './pages/Home';
 import DashboardPage from './pages/Dashboard';
 import SettingsPage from './pages/Settings';
 import PrivateChatPage from './pages/PrivateChat';
@@ -11,7 +12,8 @@ import UserProfile from './pages/Profile';
 const App: React.FC = () => {
   return (
     <Routes>
-      <Route path="/" element={<DashboardPage />} />
+      <Route path="/" element={<HomePage />} />
+      <Route path="/dashboard" element={<DashboardPage />} />
       <Route path="/profile" element={<UserProfile />} />
       <Route path="/settings/:token" element={<SettingsPage />} />
       <Route path="/staff/privatechat/:token" element={<PrivateChatPage />} />

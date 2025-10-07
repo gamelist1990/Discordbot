@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import AppHeader from '../../components/Common/AppHeader';
 import LoginPage from '../../components/Login/LoginPage';
 import styles from './TodoDashboard.module.css';
 
@@ -192,39 +193,12 @@ const TodoDashboard: React.FC = () => {
     const filteredSessions = getFilteredSessions();
 
     return (
-        <div className={styles.dashboard}>
-            {/* Header */}
-            <header className={styles.header}>
-                <div className={styles.headerLeft}>
-                    <i className="material-icons" style={{ fontSize: '32px', color: '#4285F4' }}>assignment</i>
-                    <h1 className={styles.title}>Todo Management</h1>
-                </div>
-                <div className={styles.headerRight}>
-                    {session && (
-                        <div className={styles.userMenu}>
-                            <img
-                                src={
-                                    session.avatar
-                                    ? `https://cdn.discordapp.com/avatars/${session.userId}/${session.avatar}.png`
-                                    : `https://cdn.discordapp.com/embed/avatars/0.png`
-                                }
-                                alt="Avatar"
-                                className={styles.avatar}
-                                onError={(e) => { e.currentTarget.src = 'https://cdn.discordapp.com/embed/avatars/0.png'; }}
-                            />
-                            <div className={styles.userInfo}>
-                                <span className={styles.username}>{session.username}</span>
-                                <span className={styles.userId}>ID: {session.userId}</span>
-                            </div>
-                            <button className={styles.logoutBtn} onClick={handleLogout}>
-                                <i className="material-icons">logout</i>
-                                ログアウト
-                            </button>
-                        </div>
-                    )}
-                </div>
-            </header>
-
+        <div className={styles.page}>
+            <AppHeader user={session} />
+            <div className={styles.dashboard}>
+            <div className={styles.dashboard}>
+            {/* Header removed - using AppHeader component */}
+            
             {/* Main Content */}
             <main className={styles.main}>
                 {/* Actions Bar */}
@@ -406,6 +380,7 @@ const TodoDashboard: React.FC = () => {
                     </div>
                 </div>
             )}
+            </div>
         </div>
     );
 };

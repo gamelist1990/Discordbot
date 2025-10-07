@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import AppHeader from '../../components/Common/AppHeader';
 import styles from './UserProfile.module.css';
 
 interface GuildStats {
@@ -128,33 +129,41 @@ const UserProfile: React.FC<UserProfileProps> = ({ user, onLoginClick }) => {
 
     if (loading) {
         return (
-            <div className={styles.loading}>
-                <div className={styles.loadingSpinner}></div>
-                <p>プロフィールを読み込み中...</p>
+            <div>
+                <AppHeader user={profileData ? { userId: profileData.id, username: profileData.username, avatar: profileData.avatar } : null} />
+                <div className={styles.loading}>
+                    <div className={styles.loadingSpinner}></div>
+                    <p>プロフィールを読み込み中...</p>
+                </div>
             </div>
         );
     }
 
     if (!profileData) {
         return (
-            <div className={styles.error}>
-                <h2>ログインが必要です</h2>
-                <p>Discord でログインして、あなたのプロフィールを表示しましょう。</p>
-                {onLoginClick ? (
-                    <button onClick={onLoginClick} className={styles.loginButton}>
-                        Discord でログイン
-                    </button>
-                ) : (
-                    <button onClick={handleLoginClick} className={styles.loginButton}>
-                        Discord でログイン
-                    </button>
-                )}
+            <div>
+                <AppHeader user={null} />
+                <div className={styles.error}>
+                    <h2>ログインが必要です</h2>
+                    <p>Discord でログインして、あなたのプロフィールを表示しましょう。</p>
+                    {onLoginClick ? (
+                        <button onClick={onLoginClick} className={styles.loginButton}>
+                            Discord でログイン
+                        </button>
+                    ) : (
+                        <button onClick={handleLoginClick} className={styles.loginButton}>
+                            Discord でログイン
+                        </button>
+                    )}
+                </div>
             </div>
         );
     }
 
     return (
-        <div className={styles.container}>
+        <div className={styles.page}>
+            <AppHeader user={{ userId: profileData.id, username: profileData.username, avatar: profileData.avatar }} />
+            <div className={styles.container}>
             {/* User Header */}
             <div className={styles.profileHeader}>
                 <div className={styles.avatarContainer}>
@@ -323,6 +332,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ user, onLoginClick }) => {
                         </div>
                     </div>
                 )}
+            </div>
             </div>
         </div>
     );

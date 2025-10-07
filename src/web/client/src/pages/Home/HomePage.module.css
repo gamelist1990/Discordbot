@@ -1,0 +1,366 @@
+/* Google Material Design inspired home page */
+:root {
+    --google-blue: #4285F4;
+    --google-green: #34A853;
+    --google-red: #EA4335;
+    --google-yellow: #FBBC04;
+}
+
+.page {
+    min-height: 100vh;
+    background: #F8F9FA;
+    display: flex;
+    flex-direction: column;
+}
+
+.main {
+    flex: 1;
+}
+
+/* Loading */
+.loadingContainer {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    gap: 16px;
+}
+
+.spinner {
+    width: 40px;
+    height: 40px;
+    border: 4px solid #E8EAED;
+    border-top-color: var(--google-blue);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+/* Hero Section */
+.hero {
+    background: linear-gradient(135deg, var(--google-blue) 0%, #1A73E8 100%);
+    color: white;
+    padding: 80px 24px;
+    text-align: center;
+}
+
+.heroContent {
+    max-width: 800px;
+    margin: 0 auto;
+}
+
+.heroTitle {
+    font-size: 48px;
+    font-weight: 400;
+    margin: 0 0 16px 0;
+    line-height: 1.2;
+}
+
+.heroDescription {
+    font-size: 20px;
+    margin: 0 0 32px 0;
+    opacity: 0.95;
+    line-height: 1.6;
+}
+
+.heroActions {
+    display: flex;
+    gap: 16px;
+    justify-content: center;
+    flex-wrap: wrap;
+}
+
+.primaryBtn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 32px;
+    border: 2px solid white;
+    border-radius: 4px;
+    background: white;
+    color: var(--google-blue);
+    font-size: 16px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    box-shadow: 0 1px 2px 0 rgba(60,64,67,0.3);
+}
+
+.primaryBtn:hover {
+    box-shadow: 0 1px 3px 1px rgba(60,64,67,0.15);
+    transform: translateY(-1px);
+}
+
+.secondaryBtn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 32px;
+    border: 2px solid white;
+    border-radius: 4px;
+    background: transparent;
+    color: white;
+    font-size: 16px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.secondaryBtn:hover {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+/* Status Section */
+.statusSection {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 48px 24px;
+}
+
+.sectionTitle {
+    font-size: 28px;
+    font-weight: 400;
+    color: #202124;
+    margin: 0 0 24px 0;
+    text-align: center;
+}
+
+.cardsGrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 24px;
+}
+
+.card {
+    background: white;
+    border-radius: 8px;
+    padding: 24px;
+    box-shadow: 0 1px 2px 0 rgba(60,64,67,0.3);
+    display: flex;
+    gap: 16px;
+    align-items: flex-start;
+    transition: box-shadow 0.2s;
+}
+
+.card:hover {
+    box-shadow: 0 1px 3px 1px rgba(60,64,67,0.15);
+}
+
+.cardIcon {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.cardIcon .material-icons {
+    font-size: 24px;
+}
+
+.cardContent {
+    flex: 1;
+}
+
+.cardTitle {
+    font-size: 14px;
+    font-weight: 500;
+    color: #5F6368;
+    margin: 0 0 8px 0;
+}
+
+.cardValue {
+    font-size: 24px;
+    font-weight: 400;
+    color: #202124;
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.statusDot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+}
+
+.statusDot.online {
+    background: var(--google-green);
+}
+
+.statusDot.offline {
+    background: #80868B;
+}
+
+/* Features Section */
+.featuresSection {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 48px 24px;
+    background: white;
+}
+
+.featuresGrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 32px;
+}
+
+.featureCard {
+    text-align: center;
+    padding: 24px;
+}
+
+.featureIcon {
+    width: 64px;
+    height: 64px;
+    margin: 0 auto 16px;
+    background: #E8F0FE;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.featureIcon .material-icons {
+    font-size: 32px;
+    color: var(--google-blue);
+}
+
+.featureCard h3 {
+    font-size: 20px;
+    font-weight: 500;
+    color: #202124;
+    margin: 0 0 8px 0;
+}
+
+.featureCard p {
+    font-size: 14px;
+    color: #5F6368;
+    margin: 0;
+    line-height: 1.5;
+}
+
+/* Getting Started Section */
+.gettingStarted {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 48px 24px;
+}
+
+.steps {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 24px;
+    flex-wrap: wrap;
+}
+
+.step {
+    background: white;
+    border-radius: 8px;
+    padding: 24px;
+    box-shadow: 0 1px 2px 0 rgba(60,64,67,0.3);
+    flex: 1;
+    min-width: 250px;
+    max-width: 300px;
+    display: flex;
+    gap: 16px;
+}
+
+.stepNumber {
+    width: 40px;
+    height: 40px;
+    background: var(--google-blue);
+    color: white;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+    font-weight: 500;
+    flex-shrink: 0;
+}
+
+.stepContent h3 {
+    font-size: 18px;
+    font-weight: 500;
+    color: #202124;
+    margin: 0 0 8px 0;
+}
+
+.stepContent p {
+    font-size: 14px;
+    color: #5F6368;
+    margin: 0;
+}
+
+.stepArrow {
+    color: #80868B;
+    flex-shrink: 0;
+}
+
+.stepArrow .material-icons {
+    font-size: 32px;
+}
+
+/* Footer */
+.footer {
+    background: #202124;
+    color: #9AA0A6;
+    text-align: center;
+    padding: 24px;
+    margin-top: auto;
+}
+
+.footer p {
+    margin: 0;
+    font-size: 14px;
+}
+
+/* Mobile Responsive */
+@media (max-width: 768px) {
+    .heroTitle {
+        font-size: 32px;
+    }
+
+    .heroDescription {
+        font-size: 16px;
+    }
+
+    .heroActions {
+        flex-direction: column;
+    }
+
+    .primaryBtn, .secondaryBtn {
+        width: 100%;
+        justify-content: center;
+    }
+
+    .cardsGrid {
+        grid-template-columns: 1fr;
+    }
+
+    .featuresGrid {
+        grid-template-columns: 1fr;
+    }
+
+    .steps {
+        flex-direction: column;
+    }
+
+    .stepArrow {
+        transform: rotate(90deg);
+    }
+
+    .step {
+        max-width: 100%;
+    }
+}
