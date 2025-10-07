@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { SettingsSession } from '../types/index.js';
 import { BotClient } from '../../core/BotClient.js';
 import crypto from 'crypto';
+import config from '../../config.js';
 
 /**
  * OAuth2 state情報
@@ -83,7 +84,7 @@ export function createAuthRoutes(
             
             // 環境変数または設定からOAuth2情報を取得
             const clientId = botClient.getClientId();
-            const baseUrl = process.env.BASE_URL || 'http://localhost:3000';
+            const baseUrl = config.BASE_URL;
             const redirectUri = `${baseUrl}/api/auth/callback`;
             
             // stateを生成
@@ -138,8 +139,8 @@ export function createAuthRoutes(
 
             // 環境変数から設定を取得
             const clientId = botClient.getClientId();
-            const clientSecret = process.env.DISCORD_CLIENT_SECRET;
-            const baseUrl = process.env.BASE_URL || 'http://localhost:3000';
+            const clientSecret = config.DISCORD_CLIENT_SECRET;
+            const baseUrl = config.BASE_URL;
             const redirectUri = `${baseUrl}/api/auth/callback`;
             
             if (!clientSecret) {
@@ -202,7 +203,7 @@ export function createAuthRoutes(
             // クッキーを設定してリダイレクト
             res.cookie('sessionId', sessionId, {
                 httpOnly: true,
-                secure: process.env.NODE_ENV === 'production',
+                secure: config.NODE_ENV === 'production',
                 maxAge: 24 * 60 * 60 * 1000, // 24時間
                 sameSite: 'lax'
             });

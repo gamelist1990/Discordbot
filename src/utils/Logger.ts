@@ -47,8 +47,17 @@ export class Logger {
      * デバッグログ
      */
     static debug(message: string, ...args: any[]): void {
-        if (process.env.DEBUG === 'true') {
-            console.log(`${this.colors.magenta}[DEBUG]${this.colors.reset} ${message}`, ...args);
+        try {
+            // lazy import to avoid circular deps
+            // eslint-disable-next-line @typescript-eslint/no-var-requires
+            const config = require('../config').default;
+            if (config.DEBUG === 'true') {
+                console.log(`${this.colors.magenta}[DEBUG]${this.colors.reset} ${message}`, ...args);
+            }
+        } catch (err) {
+            if (process.env.DEBUG === 'true') {
+                console.log(`${this.colors.magenta}[DEBUG]${this.colors.reset} ${message}`, ...args);
+            }
         }
     }
 

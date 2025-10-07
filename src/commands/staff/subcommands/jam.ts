@@ -1,4 +1,7 @@
 import { ChatInputCommandInteraction, MessageFlags, EmbedBuilder } from 'discord.js';
+// lazy import config to avoid circular deps at runtime
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const config = require('../../../config').default;
 
 /**
  * Jam サブコマンドハンドラー
@@ -24,7 +27,7 @@ export const subcommandHandler = {
 
         try {
             // JamboardのURLを生成（常に /jamboard）
-            const baseUrl = process.env.WEB_BASE_URL || 'http://localhost:3000';
+            const baseUrl = config.WEB_BASE_URL;
             const jamboardUrl = `${baseUrl}/jamboard`;
 
             // 埋め込みメッセージを作成
