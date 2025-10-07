@@ -28,6 +28,8 @@ export class SettingsServer {
 
     constructor(botClient: BotClient, port: number = 3000) {
         this.app = express();
+        // Disable ETag generation for API responses to avoid 304 cached responses
+        this.app.disable('etag');
         this.port = port;
         this.sessionService = new SessionService();
         this.botClient = botClient;
@@ -136,8 +138,10 @@ export class SettingsServer {
      */
     public async start(): Promise<void> {
         return new Promise((resolve) => {
-            this.server = this.app.listen(this.port, () => {
-                Logger.info(`Webサーバーをポート ${this.port} で起動しました`);
+                // 明示的に 0.0.0.0 にバインドして外部からアクセス可能にする
+                this.server = this.app.listen(this.port, '0.0.0.0', () => {
+                    Logger.info(`Webサーバーをポート ${this.port} で起動しました (bound to 0.0.0.0)`);
+                    Logger.info(`BASE_URL: ${process.env.BASE_URL}, WEB_BASE_URL: ${process.env.WEB_BASE_URL}`);
                 resolve();
             });
         });

@@ -35,7 +35,7 @@ interface JamboardContent {
 interface UserSession {
     userId: string;
     username: string;
-    isStaff: boolean;
+    permission: number;
 }
 
 const JamboardPage: React.FC = () => {
@@ -75,7 +75,8 @@ const JamboardPage: React.FC = () => {
             fetchContent();
             
             // SSEでリアルタイム更新を受信
-            const eventSource = new EventSource(`/api/jamboards/stream/${jamboard.id}`);
+            // Server expects /api/jamboards/:jamboardId/stream
+            const eventSource = new EventSource(`/api/jamboards/${jamboard.id}/stream`);
             
             eventSource.onmessage = (event) => {
                 const data = JSON.parse(event.data);
@@ -109,8 +110,8 @@ const JamboardPage: React.FC = () => {
             if (response.ok) {
                 const data = await response.json();
                 setSession(data.user);
-                // Load appropriate jamboard based on user role
-                await loadJamboard(data.user.isStaff);
+                // permission >=1 => staff
+                await loadJamboard((data.user.permission || 0) >= 1);
             } else {
                 setSession(null);
             }

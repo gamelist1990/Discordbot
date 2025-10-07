@@ -15,14 +15,15 @@ export class AuthMiddleware {
      * トークンを検証するミドルウェア
      */
     validateToken = (req: Request, res: Response, next: NextFunction): void => {
-        const token = req.params.token;
+        // Accept token from path param or sessionId cookie (cookie-based sessions)
+        const token = req.params?.token || (req as any).cookies?.sessionId;
 
         if (!token) {
-            res.status(400).json({ error: 'Token is required' });
+            res.status(401).json({ error: 'Token is required' });
             return;
         }
 
-        const session = this.sessions.get(token);
+        const session = this.sessions.get(token as string);
         
         if (!session) {
             res.status(404).json({ error: 'Session not found' });

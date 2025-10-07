@@ -11,9 +11,11 @@ export class JamboardController {
      * ユーザーがスタッフかどうかを確認
      * TODO: 実際のスタッフ判定ロジックに置き換える
      */
-    private async isStaff(_guildId: string, _userId: string): Promise<boolean> {
-        // 簡易実装: 実際にはギルドの権限をチェックする必要がある
-        return true; // 仮実装
+    // permission levels: 0=any,1=staff,2=admin,3=owner
+    private async permissionLevel(_guildId: string, _userId: string): Promise<number> {
+        // TODO: 本来は Discord API で guild のメンバー情報を確認して権限を決定する
+        // 現在はデフォルトで 0 を返す（一般ユーザー）
+        return 0;
     }
 
     /**
@@ -23,7 +25,8 @@ export class JamboardController {
         const session = (req as any).session as SettingsSession;
 
         try {
-            const isStaff = await this.isStaff(session.guildId, session.userId);
+            const perm = await this.permissionLevel(session.guildId, session.userId);
+            const isStaff = perm >= 1;
             const jamboards = await JamboardManager.getAccessibleJamboards(
                 session.guildId,
                 session.userId,
@@ -44,8 +47,8 @@ export class JamboardController {
         const session = (req as any).session as SettingsSession;
 
         try {
-            const isStaff = await this.isStaff(session.guildId, session.userId);
-            if (!isStaff) {
+            const perm = await this.permissionLevel(session.guildId, session.userId);
+            if (perm < 1) {
                 res.status(403).json({ error: 'Staff only' });
                 return;
             }
@@ -94,12 +97,12 @@ export class JamboardController {
                 return;
             }
 
-            const isStaff = await this.isStaff(session.guildId, session.userId);
+            const perm = await this.permissionLevel(session.guildId, session.userId);
             const canAccess = await JamboardManager.canAccess(
                 session.guildId,
                 jamboardId,
                 session.userId,
-                isStaff
+                perm >= 1
             );
 
             if (!canAccess) {
@@ -122,12 +125,12 @@ export class JamboardController {
         const { jamboardId } = req.params;
 
         try {
-            const isStaff = await this.isStaff(session.guildId, session.userId);
+            const perm = await this.permissionLevel(session.guildId, session.userId);
             const canAccess = await JamboardManager.canAccess(
                 session.guildId,
                 jamboardId,
                 session.userId,
-                isStaff
+                perm >= 1
             );
 
             if (!canAccess) {
@@ -157,12 +160,12 @@ export class JamboardController {
         const { points, color, width, tool } = req.body;
 
         try {
-            const isStaff = await this.isStaff(session.guildId, session.userId);
+            const perm = await this.permissionLevel(session.guildId, session.userId);
             const canAccess = await JamboardManager.canAccess(
                 session.guildId,
                 jamboardId,
                 session.userId,
-                isStaff
+                perm >= 1
             );
 
             if (!canAccess) {
@@ -195,12 +198,12 @@ export class JamboardController {
         const { jamboardId, strokeId } = req.params;
 
         try {
-            const isStaff = await this.isStaff(session.guildId, session.userId);
+            const perm = await this.permissionLevel(session.guildId, session.userId);
             const canAccess = await JamboardManager.canAccess(
                 session.guildId,
                 jamboardId,
                 session.userId,
-                isStaff
+                perm >= 1
             );
 
             if (!canAccess) {
@@ -230,12 +233,12 @@ export class JamboardController {
         }
 
         try {
-            const isStaff = await this.isStaff(session.guildId, session.userId);
+            const perm = await this.permissionLevel(session.guildId, session.userId);
             const canAccess = await JamboardManager.canAccess(
                 session.guildId,
                 jamboardId,
                 session.userId,
-                isStaff
+                perm >= 1
             );
 
             if (!canAccess) {
@@ -268,12 +271,12 @@ export class JamboardController {
         const updates = req.body;
 
         try {
-            const isStaff = await this.isStaff(session.guildId, session.userId);
+            const perm = await this.permissionLevel(session.guildId, session.userId);
             const canAccess = await JamboardManager.canAccess(
                 session.guildId,
                 jamboardId,
                 session.userId,
-                isStaff
+                perm >= 1
             );
 
             if (!canAccess) {
@@ -297,12 +300,12 @@ export class JamboardController {
         const { jamboardId, todoId } = req.params;
 
         try {
-            const isStaff = await this.isStaff(session.guildId, session.userId);
+            const perm = await this.permissionLevel(session.guildId, session.userId);
             const canAccess = await JamboardManager.canAccess(
                 session.guildId,
                 jamboardId,
                 session.userId,
-                isStaff
+                perm >= 1
             );
 
             if (!canAccess) {
@@ -390,12 +393,12 @@ export class JamboardController {
         const { jamboardId } = req.params;
 
         try {
-            const isStaff = await this.isStaff(session.guildId, session.userId);
+            const perm = await this.permissionLevel(session.guildId, session.userId);
             const canAccess = await JamboardManager.canAccess(
                 session.guildId,
                 jamboardId,
                 session.userId,
-                isStaff
+                perm >= 1
             );
 
             if (!canAccess) {

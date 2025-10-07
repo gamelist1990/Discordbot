@@ -3,6 +3,7 @@ import { SettingsSession } from '../types/index.js';
 import { BotClient } from '../../core/BotClient.js';
 import crypto from 'crypto';
 import config from '../../config.js';
+import { Logger } from '../../utils/Logger.js';
 
 /**
  * OAuth2 state情報
@@ -42,6 +43,11 @@ export function createAuthRoutes(
      */
     router.get('/session', async (req: Request, res: Response) => {
         try {
+            // Ensure the session endpoint responses are not cached by browsers/proxies
+            res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+            res.setHeader('Pragma', 'no-cache');
+            res.setHeader('Expires', '0');
+            res.setHeader('Surrogate-Control', 'no-store');
             const sessionId = req.cookies?.sessionId;
             
             if (!sessionId) {
@@ -64,8 +70,9 @@ export function createAuthRoutes(
                 user: {
                     userId: session.userId,
                     guildId: session.guildId,
-                    username: session.userId, // TODO: ユーザー名を取得
-                    isStaff: true // TODO: 実際の権限チェック
+                    username: session.username || session.userId,
+                    // permission: 0=any,1=staff,2=admin,3=owner
+                    permission: typeof session.permission === 'number' ? session.permission : 0
                 }
             });
         } catch (error) {
@@ -86,6 +93,7 @@ export function createAuthRoutes(
             const clientId = botClient.getClientId();
             const baseUrl = config.BASE_URL;
             const redirectUri = `${baseUrl}/api/auth/callback`;
+            Logger.info(`[OAuth] initiating Discord auth - baseUrl=${baseUrl} redirect_uri=${redirectUri}`);
             
             // stateを生成
             const state = crypto.randomBytes(16).toString('hex');
@@ -142,6 +150,7 @@ export function createAuthRoutes(
             const clientSecret = config.DISCORD_CLIENT_SECRET;
             const baseUrl = config.BASE_URL;
             const redirectUri = `${baseUrl}/api/auth/callback`;
+            Logger.info(`[OAuth] callback received - expected redirect_uri=${redirectUri}`);
             
             if (!clientSecret) {
                 console.error('DISCORD_CLIENT_SECRET not configured');
@@ -188,12 +197,20 @@ export function createAuthRoutes(
 
             const userData = await userResponse.json() as any;
 
+            // Determine username (username#discriminator)
+            const username = userData.username && userData.discriminator ? `${userData.username}#${userData.discriminator}` : userData.username || userData.id;
+
+            // TODO: determine permission level properly using guild roles/members; default to 0
+            const defaultPermission = 0;
+
             // セッションを作成
             const sessionId = crypto.randomBytes(32).toString('hex');
             const session: SettingsSession = {
                 token: sessionId,
                 userId: userData.id,
                 guildId: stateData.guildId,
+                username,
+                permission: defaultPermission,
                 createdAt: Date.now(),
                 expiresAt: Date.now() + (24 * 60 * 60 * 1000) // 24時間
             };
