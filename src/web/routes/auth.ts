@@ -4,6 +4,8 @@ import crypto from 'crypto';
 import config from '../../config.js';
 import { Logger } from '../../utils/Logger.js';
 import { SettingsSession } from '../types';
+import fs from 'fs';
+import path from 'path';
 
 /**
  * OAuth2 state情報
@@ -26,6 +28,35 @@ export function createAuthRoutes(
     
     // OAuth2 state管理
     const states = new Map<string, OAuth2State>();
+
+    // Persisted OAuth sessions (Data/Auth/sessions.json)
+    const authPersistPath = path.join(process.cwd(), 'Data', 'Auth', 'sessions.json');
+    const oauthSessions: Map<string, any> = new Map();
+
+    const loadOauthFromDisk = () => {
+        try {
+            if (!fs.existsSync(authPersistPath)) return;
+            const raw = fs.readFileSync(authPersistPath, 'utf8');
+            if (!raw) return;
+            const obj = JSON.parse(raw) as Record<string, any>;
+            for (const k of Object.keys(obj)) oauthSessions.set(k, obj[k]);
+        } catch (e) {
+            console.error('Failed to load OAuth sessions from disk:', e);
+        }
+    };
+
+    const saveOauthToDisk = () => {
+        try {
+            const dir = path.dirname(authPersistPath);
+            if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+            const obj: Record<string, any> = Object.fromEntries(oauthSessions as any);
+            fs.writeFileSync(authPersistPath, JSON.stringify(obj, null, 2), 'utf8');
+        } catch (e) {
+            console.error('Failed to save OAuth sessions to disk:', e);
+        }
+    };
+
+    loadOauthFromDisk();
     
     // 期限切れstateのクリーンアップ（10分ごと）
     setInterval(() => {
@@ -224,8 +255,9 @@ export function createAuthRoutes(
             // TODO: determine permission level properly using guild roles/members; default to 0
             const defaultPermission = 0;
 
-            // セッションを作成
+            // セッションを作成（有効期限を長めに設定: 30日）
             const sessionId = crypto.randomBytes(32).toString('hex');
+            const sessionTTL = 30 * 24 * 60 * 60 * 1000; // 30日
             const session: SettingsSession = {
                 token: sessionId,
                 userId: userData.id,
@@ -235,18 +267,33 @@ export function createAuthRoutes(
                 ...(userData.avatar ? { avatar: userData.avatar } : {}),
                 permission: defaultPermission,
                 createdAt: Date.now(),
-                expiresAt: Date.now() + (24 * 60 * 60 * 1000) // 24時間
+                expiresAt: Date.now() + sessionTTL
             };
 
             // Permission computation is intentionally omitted here; keep default permission
 
             sessions.set(sessionId, session);
 
+            // Save OAuth tokens into Data/Auth so we can refresh later and avoid asking user to re-login
+            try {
+                oauthSessions.set(userData.id, {
+                    userId: userData.id,
+                    guildId: stateData.guildId,
+                    accessToken: tokenData.access_token,
+                    refreshToken: tokenData.refresh_token,
+                    expiresAt: Date.now() + (tokenData.expires_in * 1000),
+                    scopes: tokenData.scope ? tokenData.scope.split(' ') : []
+                });
+                saveOauthToDisk();
+            } catch (e) {
+                console.error('Failed to persist OAuth token:', e);
+            }
+
             // クッキーを設定してリダイレクト
             res.cookie('sessionId', sessionId, {
                 httpOnly: true,
                 secure: config.NODE_ENV === 'production',
-                maxAge: 24 * 60 * 60 * 1000, // 24時間
+                maxAge: sessionTTL,
                 sameSite: 'lax'
             });
 

@@ -40,7 +40,7 @@ export const commandHandler = {
                 .addFields(
                     {
                         name: '✨ 主な機能',
-                        value: 
+                        value:
                             '• 最大3つのTodoセッションを作成\n' +
                             '• タスクの優先度とタグ管理\n' +
                             '• チームメンバーとの共有（閲覧者・編集者）\n' +
