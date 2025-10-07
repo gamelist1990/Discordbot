@@ -44,9 +44,6 @@ export const config: Required<AppConfig> = {
     WEB_BASE_URL: raw.WEB_BASE_URL || raw.BASE_URL || 'http://localhost:3000',
 };
 
-console.log('exporting config:', config);
 
 export default config;
 
-// ログ: BASE_URL と WEB_BASE_URL の供給元を明示
-Logger.info(`[Config] BASE_URL=${config.BASE_URL}, WEB_BASE_URL=${config.WEB_BASE_URL} (source=${rawSource})`);

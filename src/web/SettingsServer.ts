@@ -4,7 +4,7 @@ import path from 'path';
 import { Logger } from '../utils/Logger.js';
 import { BotClient } from '../core/BotClient.js';
 import { SessionService } from './services/SessionService.js';
-import { createStatusRoutes, createSessionRoutes, createSettingsRoutes, createStaffRoutes, createAuthRoutes, createTodoRoutes } from './routes/index.js';
+import { createStatusRoutes, createSessionRoutes, createSettingsRoutes, createStaffRoutes, createAuthRoutes, createTodoRoutes, createUserRoutes } from './routes/index.js';
 
 // 型定義を型として再エクスポート（実行時には存在しないため type を使用）
 
@@ -107,6 +107,7 @@ export class SettingsServer {
         this.app.use('/api/staff', createStaffRoutes(sessions, this.botClient));
         this.app.use('/api', createTodoRoutes(sessions, this.botClient));
         this.app.use('/api/auth', createAuthRoutes(sessions, this.botClient));
+        this.app.use('/api/user', createUserRoutes(this.botClient));
 
         // 静的ファイルの配信
         this.app.use(express.static(path.join(__dirname, '..', '..', 'dist', 'web')));
@@ -140,7 +141,6 @@ export class SettingsServer {
                 // 明示的に 0.0.0.0 にバインドして外部からアクセス可能にする
                 this.server = this.app.listen(this.port, '0.0.0.0', () => {
                     Logger.info(`Webサーバーをポート ${this.port} で起動しました (bound to 0.0.0.0)`);
-                    Logger.info(`BASE_URL: ${process.env.BASE_URL}, WEB_BASE_URL: ${process.env.WEB_BASE_URL}`);
                 resolve();
             });
         });

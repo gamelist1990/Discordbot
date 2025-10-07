@@ -534,32 +534,37 @@ const EditTodoModal: React.FC<{
     );
 };
 
-const ShareModal: React.FC<{ sessionId: string; onClose: () => void; }> = 
+const ShareModal: React.FC<{ sessionId: string; onClose: () => void; }> =
     ({ sessionId, onClose }) => {
     const [shareLinks, setShareLinks] = useState<{ token: string; mode: 'view' | 'edit'; url: string }[]>([]);
     const [creating, setCreating] = useState(false);
     const [mode, setMode] = useState<'view' | 'edit'>('view');
+    const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
     useEffect(() => {
         loadShareLinks();
-    }, []);
+    }, [sessionId]);
 
     const loadShareLinks = async () => {
         try {
             const response = await fetch(`/api/todos/sessions/${sessionId}/share`, {
-                credentials: 'include'
+                credentials: 'include',
+                cache: 'no-store'
             });
             if (response.ok) {
                 const data = await response.json();
+                console.log('[ShareModal] Loaded share links:', data);
                 const links = data.shareLinks.map((link: any) => ({
                     token: link.token,
                     mode: link.mode,
                     url: `${window.location.origin}/todo/shared/${link.token}`
                 }));
                 setShareLinks(links);
+            } else {
+                console.error('[ShareModal] Failed to load share links:', response.status, await response.text());
             }
         } catch (err) {
-            console.error('Failed to load share links:', err);
+            console.error('[ShareModal] Failed to load share links:', err);
         }
     };
 
@@ -600,14 +605,63 @@ const ShareModal: React.FC<{ sessionId: string; onClose: () => void; }> =
         }
     };
 
-    const copyToClipboard = (url: string) => {
-        navigator.clipboard.writeText(url);
-        // TODO: コピー成功の通知を表示
+    const copyToClipboard = async (url: string) => {
+        try {
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                await navigator.clipboard.writeText(url);
+                setNotification({ type: 'success', message: 'URLをコピーしました' });
+            } else {
+                // Fallback for older browsers or local environments (HTTP)
+                fallbackCopyTextToClipboard(url);
+            }
+        } catch (err) {
+            console.error('Failed to copy URL:', err);
+            setNotification({ type: 'error', message: 'URLのコピーに失敗しました' });
+        }
+    };
+
+    const fallbackCopyTextToClipboard = (text: string) => {
+        const textArea = document.createElement('textarea');
+        textArea.value = text;
+
+        // Avoid scrolling to bottom
+        textArea.style.top = '0';
+        textArea.style.left = '0';
+        textArea.style.position = 'fixed';
+        textArea.style.visibility = 'hidden'; // Make it invisible
+
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+
+        try {
+            const successful = document.execCommand('copy');
+            const msg = successful ? 'successful' : 'unsuccessful';
+            console.log('Fallback: Copying text command was ' + msg);
+            if (successful) {
+                setNotification({ type: 'success', message: 'URLをコピーしました' });
+            } else {
+                setNotification({ type: 'error', message: 'URLのコピーに失敗しました' });
+            }
+        } catch (err) {
+            console.error('Fallback: Oops, unable to copy', err);
+            setNotification({ type: 'error', message: 'URLのコピーに失敗しました' });
+        }
+
+        document.body.removeChild(textArea);
     };
 
     return (
         <div className={styles.modalOverlay} onClick={onClose}>
-            <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
+            {notification && (
+                <div className={`${styles.notification} ${styles[`notification-${notification.type}`]}`}>
+                    <span>{notification.message}</span>
+                    <button onClick={() => setNotification(null)} className={styles.notificationClose}>
+                        <i className="material-icons">close</i>
+                    </button>
+                </div>
+            )}
+            <div className={styles.editModal} onClick={(e) => e.stopPropagation()}>
                 <div className={styles.modalHeader}>
                     <h2>共有設定</h2>
                     <button onClick={onClose}><i className="material-icons">close</i></button>

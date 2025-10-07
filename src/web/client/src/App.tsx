@@ -6,11 +6,13 @@ import PrivateChatPage from './pages/PrivateChat';
 import NotFoundPage from './pages/NotFound';
 import TodoDashboard from './pages/Todo/TodoDashboard';
 import TodoSession from './pages/Todo/TodoSession';
+import UserProfile from './pages/Profile';
 
 const App: React.FC = () => {
   return (
     <Routes>
       <Route path="/" element={<DashboardPage />} />
+      <Route path="/profile" element={<UserProfile />} />
       <Route path="/settings/:token" element={<SettingsPage />} />
       <Route path="/staff/privatechat/:token" element={<PrivateChatPage />} />
       <Route path="/todo/:guildId" element={<TodoDashboard />} />

@@ -1,9 +1,6 @@
 import fs from 'fs/promises';
 import path from 'path';
-import { fileURLToPath } from 'url';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 /**
  * JSON ベースのデータベースシステム
@@ -14,13 +11,13 @@ export class Database {
     private cache: Map<string, any>;
 
     constructor(dataDir?: string) {
-        // プロジェクトルートの Data フォルダをデフォルトとして使用
-        this.dataDir = dataDir || path.join(path.dirname(path.dirname(__dirname)), 'Data');
+        // プロジェクトルートの Data フォルダをデフォルトとして使用 (src内避け)
+        this.dataDir = dataDir || path.join(process.cwd(), 'Data');
         this.cache = new Map();
     }
 
     /**
-     * データベースを初期化（Data フォルダを作成）
+     * データベースを初期化（data フォルダを作成）
      */
     async initialize(): Promise<void> {
         try {
@@ -170,28 +167,32 @@ export class Database {
 
     /**
      * すべてのキーを取得
-     * @returns 保存されているすべてのキー
+     * @returns 保存されているすべてのキー（相対パス含む）
      */
     async keys(): Promise<string[]> {
         try {
             const result: string[] = [];
-            
+
             // 再帰的にファイルを検索
-            const searchDir = async (dirPath: string): Promise<void> => {
+            const searchDir = async (dirPath: string, prefix: string = ''): Promise<void> => {
                 const items = await fs.readdir(dirPath, { withFileTypes: true });
-                
+
                 for (const item of items) {
                     const itemPath = path.join(dirPath, item.name);
-                    
+
                     if (item.isDirectory()) {
-                        await searchDir(itemPath);
+                        // サブディレクトリ内を再帰的に検索
+                        const newPrefix = prefix ? `${prefix}/${item.name}` : item.name;
+                        await searchDir(itemPath, newPrefix);
                     } else if (item.isFile() && item.name.endsWith('.json')) {
-                        const key = item.name.replace('.json', '');
-                        result.push(key);
+                        const fileName = item.name.replace('.json', '');
+                        // プレフィックス（サブディレクトリパス）がある場合は含める
+                        const fullKey = prefix ? `${prefix}/${fileName}` : fileName;
+                        result.push(fullKey);
                     }
                 }
             };
-            
+
             await searchDir(this.dataDir);
             return result;
         } catch (error) {
