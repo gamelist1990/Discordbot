@@ -1,14 +1,40 @@
 import { Router, Request, Response } from 'express';
 import { SettingsSession } from '../types/index.js';
+import { BotClient } from '../../core/BotClient.js';
+import crypto from 'crypto';
+
+/**
+ * OAuth2 state情報
+ */
+interface OAuth2State {
+    guildId: string;
+    redirectPath: string;
+    createdAt: number;
+}
 
 /**
  * 認証ルート
  * Discord OAuth2認証を処理
  */
 export function createAuthRoutes(
-    sessions: Map<string, SettingsSession>
+    sessions: Map<string, SettingsSession>,
+    botClient: BotClient
 ): Router {
     const router = Router();
+    
+    // OAuth2 state管理
+    const states = new Map<string, OAuth2State>();
+    
+    // 期限切れstateのクリーンアップ（10分ごと）
+    setInterval(() => {
+        const now = Date.now();
+        const maxAge = 10 * 60 * 1000; // 10分
+        for (const [state, data] of states.entries()) {
+            if (now - data.createdAt > maxAge) {
+                states.delete(state);
+            }
+        }
+    }, 10 * 60 * 1000);
 
     /**
      * 現在のセッション情報を取得
@@ -37,6 +63,7 @@ export function createAuthRoutes(
                 user: {
                     userId: session.userId,
                     guildId: session.guildId,
+                    username: session.userId, // TODO: ユーザー名を取得
                     isStaff: true // TODO: 実際の権限チェック
                 }
             });
@@ -48,19 +75,38 @@ export function createAuthRoutes(
 
     /**
      * Discord OAuth2認証開始
-     * TODO: 実際のOAuth2フローを実装
      */
     router.get('/discord', async (req: Request, res: Response) => {
         try {
             const redirectPath = req.query.redirect as string || '/jamboard';
+            const guildId = req.query.guildId as string || 'default';
             
-            // TODO: 実際のDiscord OAuth2フローを実装
-            // 現在は簡易的なエラーメッセージを返す
-            res.status(501).json({
-                error: 'OAuth2 flow not yet implemented',
-                message: 'Discord OAuth2認証は現在開発中です。',
-                redirectPath
+            // 環境変数または設定からOAuth2情報を取得
+            const clientId = botClient.getClientId();
+            const baseUrl = process.env.BASE_URL || 'http://localhost:3000';
+            const redirectUri = `${baseUrl}/api/auth/callback`;
+            
+            // stateを生成
+            const state = crypto.randomBytes(16).toString('hex');
+            states.set(state, {
+                guildId,
+                redirectPath,
+                createdAt: Date.now()
             });
+
+            // Discord OAuth2 URLを生成
+            const params = new URLSearchParams({
+                client_id: clientId,
+                redirect_uri: redirectUri,
+                response_type: 'code',
+                scope: 'identify guilds',
+                state: state
+            });
+
+            const authUrl = `https://discord.com/api/oauth2/authorize?${params.toString()}`;
+            
+            // リダイレクト
+            res.redirect(authUrl);
         } catch (error) {
             console.error('Discord OAuth2 error:', error);
             res.status(500).json({ error: 'Internal server error' });
@@ -69,7 +115,6 @@ export function createAuthRoutes(
 
     /**
      * OAuth2コールバック
-     * TODO: 実装
      */
     router.get('/callback', async (req: Request, res: Response) => {
         try {
@@ -77,17 +122,96 @@ export function createAuthRoutes(
             const state = req.query.state as string;
             
             if (!code || !state) {
-                res.status(400).json({ error: 'Invalid callback parameters' });
+                res.status(400).send('Invalid callback parameters');
                 return;
             }
 
-            // TODO: Discord OAuth2トークン交換とセッション作成
-            res.status(501).json({
-                error: 'OAuth2 callback not yet implemented'
+            // stateを検証
+            const stateData = states.get(state);
+            if (!stateData) {
+                res.status(400).send('Invalid or expired state');
+                return;
+            }
+            
+            // stateを削除（使い捨て）
+            states.delete(state);
+
+            // 環境変数から設定を取得
+            const clientId = botClient.getClientId();
+            const clientSecret = process.env.DISCORD_CLIENT_SECRET;
+            const baseUrl = process.env.BASE_URL || 'http://localhost:3000';
+            const redirectUri = `${baseUrl}/api/auth/callback`;
+            
+            if (!clientSecret) {
+                console.error('DISCORD_CLIENT_SECRET not configured');
+                res.status(500).send('Server configuration error');
+                return;
+            }
+
+            // アクセストークンを取得
+            const tokenResponse = await fetch('https://discord.com/api/oauth2/token', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded'
+                },
+                body: new URLSearchParams({
+                    client_id: clientId,
+                    client_secret: clientSecret,
+                    grant_type: 'authorization_code',
+                    code: code,
+                    redirect_uri: redirectUri
+                })
             });
+
+            if (!tokenResponse.ok) {
+                const errorText = await tokenResponse.text();
+                console.error('Token exchange failed:', tokenResponse.status, errorText);
+                res.status(500).send('Authentication failed');
+                return;
+            }
+
+            const tokenData = await tokenResponse.json() as any;
+
+            // ユーザー情報を取得
+            const userResponse = await fetch('https://discord.com/api/users/@me', {
+                headers: {
+                    Authorization: `Bearer ${tokenData.access_token}`
+                }
+            });
+
+            if (!userResponse.ok) {
+                console.error('Failed to fetch user info');
+                res.status(500).send('Failed to fetch user info');
+                return;
+            }
+
+            const userData = await userResponse.json() as any;
+
+            // セッションを作成
+            const sessionId = crypto.randomBytes(32).toString('hex');
+            const session: SettingsSession = {
+                token: sessionId,
+                userId: userData.id,
+                guildId: stateData.guildId,
+                createdAt: Date.now(),
+                expiresAt: Date.now() + (24 * 60 * 60 * 1000) // 24時間
+            };
+
+            sessions.set(sessionId, session);
+
+            // クッキーを設定してリダイレクト
+            res.cookie('sessionId', sessionId, {
+                httpOnly: true,
+                secure: process.env.NODE_ENV === 'production',
+                maxAge: 24 * 60 * 60 * 1000, // 24時間
+                sameSite: 'lax'
+            });
+
+            // 元のページにリダイレクト
+            res.redirect(stateData.redirectPath);
         } catch (error) {
             console.error('OAuth2 callback error:', error);
-            res.status(500).json({ error: 'Internal server error' });
+            res.status(500).send('Authentication failed');
         }
     });
 

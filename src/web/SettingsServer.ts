@@ -56,6 +56,39 @@ export class SettingsServer {
                     req.cookies[name] = value;
                 });
             }
+            
+            // res.cookie() ヘルパーを追加
+            res.cookie = function(name: string, value: string, options: any = {}) {
+                let cookie = `${name}=${value}`;
+                
+                if (options.maxAge) {
+                    cookie += `; Max-Age=${Math.floor(options.maxAge / 1000)}`;
+                }
+                if (options.httpOnly) {
+                    cookie += '; HttpOnly';
+                }
+                if (options.secure) {
+                    cookie += '; Secure';
+                }
+                if (options.sameSite) {
+                    cookie += `; SameSite=${options.sameSite}`;
+                }
+                if (options.path) {
+                    cookie += `; Path=${options.path}`;
+                } else {
+                    cookie += '; Path=/';
+                }
+                
+                res.setHeader('Set-Cookie', cookie);
+                return res;
+            };
+            
+            // res.clearCookie() ヘルパーを追加
+            res.clearCookie = function(name: string) {
+                res.setHeader('Set-Cookie', `${name}=; Path=/; Max-Age=0`);
+                return res;
+            };
+            
             next();
         });
     }
@@ -72,7 +105,7 @@ export class SettingsServer {
         this.app.use('/api', createSettingsRoutes(sessions));
         this.app.use('/api/staff', createStaffRoutes(sessions, this.botClient));
         this.app.use('/api', createJamboardRoutes(sessions));
-        this.app.use('/api/auth', createAuthRoutes(sessions));
+        this.app.use('/api/auth', createAuthRoutes(sessions, this.botClient));
 
         // 静的ファイルの配信
         this.app.use(express.static(path.join(__dirname, '..', '..', 'dist', 'web')));
