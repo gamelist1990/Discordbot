@@ -14,8 +14,8 @@ interface TodoItem {
     id: string;
     text: string;
     completed: boolean;
-    status: 'planned' | 'in_progress' | 'completed';
-    progress: number;
+    status?: 'planned' | 'in_progress' | 'completed';
+    progress?: number;
     priority: 'low' | 'medium' | 'high';
     tags: string[];
     description?: string;
@@ -183,8 +183,9 @@ const TodoSessionPage: React.FC = () => {
             if (!todo.completed) return false;
         }
         
-        // Filter by status
-        if (statusFilter !== 'all' && todo.status !== statusFilter) {
+        // Filter by status (with fallback for old data)
+        const todoStatus = todo.status || 'planned';
+        if (statusFilter !== 'all' && todoStatus !== statusFilter) {
             return false;
         }
         
@@ -280,7 +281,11 @@ const TodoSessionPage: React.FC = () => {
                             <p>Todoがありません</p>
                         </div>
                     ) : (
-                        filteredTodos.map(todo => (
+                        filteredTodos.map(todo => {
+                            const todoStatus = todo.status || 'planned';
+                            const todoProgress = todo.progress ?? 0;
+                            
+                            return (
                             <div key={todo.id} className={`${styles.todoItem} ${todo.completed ? styles.completed : ''}`}>
                                 <input
                                     type="checkbox"
@@ -292,9 +297,9 @@ const TodoSessionPage: React.FC = () => {
                                 <div className={styles.todoContent}>
                                     <div className={styles.todoHeader}>
                                         <span className={styles.todoText}>{todo.text}</span>
-                                        <span className={styles.statusBadge} data-status={todo.status}>
-                                            {todo.status === 'planned' ? '📋 予定' : 
-                                             todo.status === 'in_progress' ? '🔄 進行中' : 
+                                        <span className={styles.statusBadge} data-status={todoStatus}>
+                                            {todoStatus === 'planned' ? '📋 予定' : 
+                                             todoStatus === 'in_progress' ? '🔄 進行中' : 
                                              '✅ 完了'}
                                         </span>
                                     </div>
@@ -307,10 +312,10 @@ const TodoSessionPage: React.FC = () => {
                                     <div className={styles.progressBar}>
                                         <div 
                                             className={styles.progressFill} 
-                                            style={{ width: `${todo.progress}%` }}
-                                            data-status={todo.status}
+                                            style={{ width: `${todoProgress}%` }}
+                                            data-status={todoStatus}
                                         ></div>
-                                        <span className={styles.progressText}>{todo.progress}%</span>
+                                        <span className={styles.progressText}>{todoProgress}%</span>
                                     </div>
                                     {todo.tags.length > 0 && (
                                         <div className={styles.tags}>
@@ -334,7 +339,7 @@ const TodoSessionPage: React.FC = () => {
                                     </>
                                 )}
                             </div>
-                        ))
+                        )})
                     )}
                 </div>
             </main>
@@ -367,8 +372,8 @@ const EditTodoModal: React.FC<{
 }> = ({ todo, onSave, onClose }) => {
     const [text, setText] = useState(todo.text);
     const [description, setDescription] = useState(todo.description || '');
-    const [status, setStatus] = useState<'planned' | 'in_progress' | 'completed'>(todo.status);
-    const [progress, setProgress] = useState(todo.progress);
+    const [status, setStatus] = useState<'planned' | 'in_progress' | 'completed'>(todo.status || 'planned');
+    const [progress, setProgress] = useState(todo.progress ?? 0);
     const [priority, setPriority] = useState<'low' | 'medium' | 'high'>(todo.priority);
     const [tags, setTags] = useState(todo.tags.join(', '));
     const [showPreview, setShowPreview] = useState(false);
