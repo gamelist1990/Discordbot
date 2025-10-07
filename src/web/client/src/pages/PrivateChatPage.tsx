@@ -14,6 +14,7 @@ import {
     type PrivateChatStats,
     type ChatMember
 } from '../services/api';
+import { useAppToast } from '../AppToastProvider';
 import styles from './PrivateChatPage.module.css';
 
 type TabType = 'overview' | 'rooms' | 'stats';
@@ -39,6 +40,13 @@ const PrivateChatPage: React.FC = () => {
     
     const [lastUpdate, setLastUpdate] = useState<string>('');
     const eventSourceRef = useRef<EventSource | null>(null);
+    const { addToast } = (() => {
+        try {
+            return useAppToast();
+        } catch {
+            return { addToast: undefined } as any;
+        }
+    })();
 
     // トークン検証
     useEffect(() => {
@@ -169,9 +177,11 @@ const PrivateChatPage: React.FC = () => {
             // メンバーリストを再取得
             const data = await fetchChatMembers(token, selectedRoomId);
             setRoomMembers(data.members);
+            // トースト通知
+            try { addToast && addToast('メンバーを追加しました', 'success'); } catch {}
         } catch (err) {
             console.error('メンバー追加エラー:', err);
-            alert('メンバーの追加に失敗しました');
+            try { addToast && addToast('メンバーの追加に失敗しました', 'error'); } catch {}
         }
     };
 
@@ -212,9 +222,10 @@ const PrivateChatPage: React.FC = () => {
             // メンバーリストを再取得
             const data = await fetchChatMembers(token, selectedRoomId);
             setRoomMembers(data.members);
+            try { addToast && addToast('メンバーを削除しました', 'info'); } catch {}
         } catch (err) {
             console.error('メンバー削除エラー:', err);
-            alert('メンバーの削除に失敗しました');
+            try { addToast && addToast('メンバーの削除に失敗しました', 'error'); } catch {}
         }
     };
 

@@ -315,10 +315,26 @@ export class StaffController {
             }
 
             // ユーザー名からユーザーIDを取得
-            const member = guild.members.cache.find(m => 
-                m.user.username.toLowerCase() === userName.toLowerCase() ||
-                (m.displayName && m.displayName.toLowerCase() === userName.toLowerCase())
+            const searchName = userName.trim().toLowerCase();
+            let member = guild.members.cache.find(m =>
+                m.user.username.toLowerCase() === searchName ||
+                (m.displayName && m.displayName.toLowerCase() === searchName)
             );
+
+            // キャッシュに見つからない場合は Discord API を使って検索（部分一致）
+            if (!member) {
+                try {
+                    const fetched = await guild.members.fetch({ query: userName, limit: 5 });
+                    member = Array.from(fetched.values()).find(m =>
+                        m.user.username.toLowerCase() === searchName ||
+                        (m.displayName && m.displayName.toLowerCase() === searchName) ||
+                        m.user.username.toLowerCase().includes(searchName) ||
+                        (m.displayName && m.displayName.toLowerCase().includes(searchName))
+                    );
+                } catch (fetchErr) {
+                    console.warn('guild.members.fetch failed during addChatMember lookup:', fetchErr);
+                }
+            }
 
             if (!member) {
                 res.status(404).json({ error: 'ユーザーが見つかりません' });
@@ -389,26 +405,42 @@ export class StaffController {
                 existingMemberIds = await PrivateChatManager.getMembers(guild, chatId);
             }
 
-            // ギルドメンバーを検索（部分一致）
-            const members = guild.members.cache
-                .filter(member => 
-                    // ボットと自分自身を除外
-                    !member.user.bot && member.id !== session.userId &&
-                    // 既に追加済みのユーザーを除外
-                    !existingMemberIds.includes(member.id) &&
-                    // 検索条件
-                    (member.user.username.toLowerCase().includes(query.toLowerCase()) ||
-                     (member.displayName && member.displayName.toLowerCase().includes(query.toLowerCase())))
-                )
-                .map(member => ({
-                    id: member.id,
-                    username: member.user.username,
-                    displayName: member.displayName,
-                    avatar: member.user.displayAvatarURL() || null
-                }))
-                .slice(0, 10); // 最大10件
+            // ギルドメンバーを検索（REST を使ってサーバー側で検索する）
+            // キャッシュに存在しない場合でも Discord API から取得するため、guild.members.fetch を使用する
+            const queryStr = (query as string).trim();
+            let foundMembers: Array<any> = [];
 
-            res.json({ users: members });
+            try {
+                // Discord のメンバー検索（部分一致）。limit は最大 25 件に設定し、後でクライアント側で最大 10 件に制限する
+                const fetched = await guild.members.fetch({ query: queryStr, limit: 25 });
+
+                foundMembers = Array.from(fetched.values())
+                    .filter(member => !member.user.bot && member.id !== session.userId && !existingMemberIds.includes(member.id))
+                    .map(member => ({
+                        id: member.id,
+                        username: member.user.username,
+                        displayName: member.displayName,
+                        avatar: member.user.displayAvatarURL() || null
+                    }));
+            } catch (fetchErr) {
+                // fetch が失敗した場合はフォールバックでキャッシュを検索
+                console.warn('guild.members.fetch failed, falling back to cache search:', fetchErr);
+                foundMembers = guild.members.cache
+                    .filter(member =>
+                        !member.user.bot && member.id !== session.userId && !existingMemberIds.includes(member.id) &&
+                        (member.user.username.toLowerCase().includes(queryStr.toLowerCase()) ||
+                         (member.displayName && member.displayName.toLowerCase().includes(queryStr.toLowerCase())))
+                    )
+                    .map(member => ({
+                        id: member.id,
+                        username: member.user.username,
+                        displayName: member.displayName,
+                        avatar: member.user.displayAvatarURL() || null
+                    }));
+            }
+
+            // クライアントには最大 10 件だけ返す
+            res.json({ users: foundMembers.slice(0, 10) });
         } catch (error) {
             console.error('ユーザー検索エラー:', error);
             res.status(500).json({ error: 'Failed to search users' });
