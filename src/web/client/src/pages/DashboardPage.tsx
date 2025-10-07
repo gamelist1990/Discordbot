@@ -132,6 +132,26 @@ const DashboardPage: React.FC = () => {
           </div>
         </div>
       </div>
+
+      <div style={{ marginTop: 24 }}>
+        <button
+          onClick={() => {
+            try {
+              if (window.web && typeof window.web.notify === 'function') {
+                window.web.notify('これはテスト通知です。右上からスライドして表示されます。', 'success', 'テスト通知');
+              } else {
+                // eslint-disable-next-line no-console
+                console.warn('window.web.notify is not available');
+              }
+            } catch (e) {
+              // eslint-disable-next-line no-console
+              console.warn('notify failed', e);
+            }
+          }}
+        >
+          通知をテスト
+        </button>
+      </div>
     </div>
   );
 };

@@ -235,6 +235,25 @@ export class StaffController {
             // 初回送信
             await sendUpdate();
 
+            // PrivateChatEvents の emitter を購読して即時通知を送る
+            let eventListener: ((payload: any) => void) | undefined;
+            try {
+                const { getPrivateChatEmitter } = await import('../../core/PrivateChatEvents.js');
+                const emitter = getPrivateChatEmitter();
+                eventListener = (payload: any) => {
+                    try {
+                        // SSE で送るイベント
+                        const ev = { type: 'privateChatEvent', timestamp: Date.now(), payload };
+                        res.write(`data: ${JSON.stringify(ev)}\n\n`);
+                    } catch (err) {
+                        console.error('SSE event push failed:', err);
+                    }
+                };
+                emitter.on('privateChatEvent', eventListener);
+            } catch (err) {
+                console.error('Failed to subscribe to PrivateChatEvents:', err);
+            }
+
             // 10秒ごとに更新を送信
             intervalId = setInterval(sendUpdate, 10000);
 
@@ -247,6 +266,15 @@ export class StaffController {
             req.on('close', () => {
                 if (intervalId) clearInterval(intervalId);
                 clearInterval(keepAliveId);
+                if (eventListener) {
+                    try {
+                        const { getPrivateChatEmitter } = require('../../core/PrivateChatEvents.js');
+                        const emitter = getPrivateChatEmitter();
+                        emitter.removeListener('privateChatEvent', eventListener as any);
+                    } catch (e) {
+                        // require may not be available in ESM or other issues; ignore
+                    }
+                }
                 console.log(`SSE 接続を閉じました (Guild: ${session.guildId})`);
             });
 

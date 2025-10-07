@@ -6,6 +6,7 @@ import {
     EmbedBuilder
 } from 'discord.js';
 import { database } from './Database.js';
+import { emitPrivateChatEvent } from './PrivateChatEvents.js';
 
 /**
  * プライベートチャット情報
@@ -139,6 +140,13 @@ export class PrivateChatManager {
         chats.push(chatInfo);
         await database.set(PRIVATE_CHATS_KEY, chats);
 
+        // emit event
+        try {
+            emitPrivateChatEvent({ type: 'chatCreated', chatId: chatInfo.chatId, guildId: guild.id, staffId: staffId, roomName: chatInfo.roomName, userId: chatInfo.userId });
+        } catch (err) {
+            console.error('Failed to emit chatCreated event:', err);
+        }
+
         // ウェルカムメッセージ（メンバーがいる場合はメンション）
         const welcomeEmbed = new EmbedBuilder()
             .setColor('#00ff00')
@@ -186,9 +194,24 @@ export class PrivateChatManager {
 
         const chat = chats[chatIndex];
 
-        // チャンネルを削除
+        // チャンネルに通知を送り、チャンネルを削除
         const channel = guild.channels.cache.get(chat.channelId);
         if (channel) {
+            try {
+                const embed = new EmbedBuilder()
+                    .setColor('#ff0000')
+                    .setTitle('🔒 プライベートチャットを終了しました')
+                    .setDescription(`このチャットはスタッフ <@${chat.staffId}> によって終了されました。`)
+                    .setTimestamp();
+
+                // 送信を試みる（失敗しても削除は続行）
+                if ('send' in channel && typeof (channel as any).send === 'function') {
+                    await (channel as any).send({ embeds: [embed] }).catch(() => {});
+                }
+            } catch (err) {
+                console.error('deleteChat: failed to send closing message:', err);
+            }
+
             await channel.delete('プライベートチャット終了');
         }
 
@@ -203,6 +226,13 @@ export class PrivateChatManager {
         // データベースから削除
         chats.splice(chatIndex, 1);
         await database.set(PRIVATE_CHATS_KEY, chats);
+
+        // emit event
+        try {
+            emitPrivateChatEvent({ type: 'chatDeleted', chatId: chat.chatId, guildId: guild.id });
+        } catch (err) {
+            console.error('Failed to emit chatDeleted event:', err);
+        }
 
         return true;
     }
@@ -278,6 +308,30 @@ export class PrivateChatManager {
             }
         }
 
+        // チャネル内にメッセージで通知
+        try {
+            if (channel && 'send' in channel && typeof (channel as any).send === 'function') {
+                const member = await guild.members.fetch(userId).catch(() => null);
+                const display = member ? `${member.user.username}` : `<@${userId}>`;
+                const embed = new EmbedBuilder()
+                    .setColor('#00aaff')
+                    .setTitle('➕ メンバーが追加されました')
+                    .setDescription(`${display} がチャットに追加されました。`)
+                    .setTimestamp();
+
+                await (channel as any).send({ embeds: [embed] }).catch(() => {});
+            }
+        } catch (err) {
+            console.error('addMember: failed to send add notification:', err);
+        }
+
+        // emit event
+        try {
+            emitPrivateChatEvent({ type: 'memberAdded', chatId: chat.chatId, guildId: guild.id, userId });
+        } catch (err) {
+            console.error('Failed to emit memberAdded event:', err);
+        }
+
         return true;
     }
 
@@ -290,18 +344,45 @@ export class PrivateChatManager {
             throw new Error('チャットが見つかりません');
         }
 
-        // テキストチャンネルから権限を削除
+        // テキストチャンネルから権限を削除（通知は削除前に送信する）
         const channel = guild.channels.cache.get(chat.channelId);
-        if (channel && 'permissionOverwrites' in channel) {
-            await channel.permissionOverwrites.delete(userId);
+        if (channel) {
+            try {
+                // メンバー情報を取得してメッセージ送信
+                const member = await guild.members.fetch(userId).catch(() => null);
+                const display = member ? `${member.user.username}` : `<@${userId}>`;
+                const embed = new EmbedBuilder()
+                    .setColor('#ff9900')
+                    .setTitle('➖ メンバーが削除されました')
+                    .setDescription(`${display} がチャットから削除されました。`)
+                    .setTimestamp();
+
+                if ('send' in channel && typeof (channel as any).send === 'function') {
+                    await (channel as any).send({ embeds: [embed] }).catch(() => {});
+                }
+            } catch (err) {
+                console.error('removeMember: failed to send removal notification:', err);
+            }
+
+            if ('permissionOverwrites' in channel) {
+                await channel.permissionOverwrites.delete(userId).catch(() => {});
+            }
         }
+
 
         // VCチャンネルから権限を削除
         if (chat.vcId) {
             const vcChannel = guild.channels.cache.get(chat.vcId);
             if (vcChannel && 'permissionOverwrites' in vcChannel) {
-                await vcChannel.permissionOverwrites.delete(userId);
+                await vcChannel.permissionOverwrites.delete(userId).catch(() => {});
             }
+        }
+
+        // emit event
+        try {
+            emitPrivateChatEvent({ type: 'memberRemoved', chatId: chat.chatId, guildId: guild.id, userId });
+        } catch (err) {
+            console.error('Failed to emit memberRemoved event:', err);
         }
 
         return true;

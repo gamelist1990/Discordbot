@@ -71,6 +71,31 @@ export class EventHandler {
                 Logger.error(`❌ コマンドデプロイエラー (${guild.name}):`, error);
             }
         });
+
+        // メンバー退出時: 参加していたプライベートチャットから削除し、通知を行う
+        this.botClient.client.on(Events.GuildMemberRemove, async (member) => {
+            try {
+                // 遅延インポートで PrivateChatManager を取得
+                const { PrivateChatManager } = await import('./PrivateChatManager.js');
+
+                // そのギルドのすべてのチャットを検索し、該当ユーザーがメンバーであれば削除
+                const chats = await PrivateChatManager.getChatsByGuild(member.guild.id);
+                for (const chat of chats) {
+                    try {
+                        const members = await PrivateChatManager.getMembers(member.guild, chat.chatId);
+                        if (members.includes(member.id)) {
+                            await PrivateChatManager.removeMember(member.guild, chat.chatId, member.id);
+                            // removeMember 内で通知を送るように実装済み
+                        }
+                    } catch (err) {
+                        // 個別チャットの削除失敗はログにとどめる
+                        Logger.warn(`Failed to remove member ${member.id} from chat ${chat.chatId}: ${String(err)}`);
+                    }
+                }
+            } catch (error) {
+                Logger.error('Error handling GuildMemberRemove:', error);
+            }
+        });
     }
 
     /**
