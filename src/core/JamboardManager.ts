@@ -180,13 +180,11 @@ export class JamboardManager {
      */
     static async getJamboardByInviteCode(inviteCode: string): Promise<Jamboard | null> {
         // 全ギルドをスキャン（効率的ではないが、小規模なら問題ない）
-        const allData = await this.jamboardsDb.get<any>('_all', '_all');
+        // TODO: 実装を改善 - 招待コードをキーとした別のインデックスを使用
         
-        // 実装の詳細: 全ギルドのデータを検索する必要がある
-        // 現在のJsonDBの実装では_allキーがないため、別の方法が必要
-        // 簡易実装として、招待コードをキーとした別のインデックスを使用
-        
-        return null; // TODO: 実装を改善
+        // 簡易実装として null を返す
+        console.warn('getJamboardByInviteCode is not fully implemented yet:', inviteCode);
+        return null;
     }
 
     /**

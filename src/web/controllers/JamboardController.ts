@@ -11,7 +11,7 @@ export class JamboardController {
      * ユーザーがスタッフかどうかを確認
      * TODO: 実際のスタッフ判定ロジックに置き換える
      */
-    private async isStaff(guildId: string, userId: string): Promise<boolean> {
+    private async isStaff(_guildId: string, _userId: string): Promise<boolean> {
         // 簡易実装: 実際にはギルドの権限をチェックする必要がある
         return true; // 仮実装
     }

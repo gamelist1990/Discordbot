@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { fetchBotStatus } from '../services/api';
-import type { BotStatusResponse } from '../types';
+import { fetchBotStatus } from '../../services/api';
+import type { BotStatusResponse } from '../../types';
 import styles from './DashboardPage.module.css';
 
 const DashboardPage: React.FC = () => {
