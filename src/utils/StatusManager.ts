@@ -1,10 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
-import { fileURLToPath } from 'url';
 import { Logger } from './Logger.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 /**
  * Bot ステータス情報
@@ -28,7 +25,7 @@ export class StatusManager {
     private updateInterval: NodeJS.Timeout | null = null;
 
     constructor(dataDir?: string) {
-        const baseDir = dataDir || path.join(path.dirname(path.dirname(__dirname)), 'Data');
+        const baseDir = dataDir || path.join(process.cwd(), 'Data');
         this.statusFile = path.join(baseDir, 'bot_status.json');
         
         this.status = {

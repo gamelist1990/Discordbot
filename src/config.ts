@@ -14,7 +14,6 @@ export interface AppConfig {
 const configPath = path.resolve(__dirname, '..', 'config.json');
 
 let raw: Partial<AppConfig> = {};
-let rawSource: 'file' | 'missing' = 'missing';
 try {
     let data = fs.readFileSync(configPath, 'utf8');
     // remove UTF-8 BOM if present
@@ -22,7 +21,6 @@ try {
     // also trim whitespace
     const cleaned = data.trim();
     raw = JSON.parse(cleaned) as Partial<AppConfig>;
-    rawSource = 'file';
 } catch (err) {
     // config.json がないか不正な場合は起動を停止する（env からのフォールバックは禁止）
     try {
@@ -44,9 +42,6 @@ export const config: Required<AppConfig> = {
     WEB_BASE_URL: raw.WEB_BASE_URL || raw.BASE_URL || 'http://localhost:3000',
 };
 
-console.log('exporting config:', config);
 
 export default config;
 
-// ログ: BASE_URL と WEB_BASE_URL の供給元を明示
-Logger.info(`[Config] BASE_URL=${config.BASE_URL}, WEB_BASE_URL=${config.WEB_BASE_URL} (source=${rawSource})`);

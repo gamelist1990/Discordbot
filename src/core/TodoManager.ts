@@ -26,6 +26,8 @@ export interface TodoItem {
     sessionId: string;
     text: string;
     completed: boolean;
+    status: 'planned' | 'in_progress' | 'completed'; // 予定/進行中/完了
+    progress: number; // 0-100 の進捗率
     priority: 'low' | 'medium' | 'high';
     dueDate?: number;
     createdBy: string;
@@ -33,7 +35,7 @@ export interface TodoItem {
     updatedAt: number;
     completedAt?: number;
     tags: string[];
-    description?: string;
+    description?: string; // Markdown対応
 }
 
 /**
@@ -190,6 +192,8 @@ export class TodoManager {
             sessionId,
             text,
             completed: false,
+            status: 'planned', // デフォルトは予定
+            progress: 0, // デフォルトは0%
             priority,
             tags,
             description,
@@ -229,8 +233,33 @@ export class TodoManager {
         if (updates.completed !== undefined && updates.completed !== content.todos[todoIndex].completed) {
             if (updates.completed) {
                 updates.completedAt = Date.now();
+                updates.status = 'completed'; // 完了時はステータスも更新
+                updates.progress = 100; // 進捗も100%に
             } else {
                 updates.completedAt = undefined;
+            }
+        }
+
+        // ステータスが完了に変更された場合、completed と progress も更新
+        if (updates.status === 'completed') {
+            updates.completed = true;
+            updates.progress = 100;
+            if (!content.todos[todoIndex].completed) {
+                updates.completedAt = Date.now();
+            }
+        }
+
+        // 進捗が100%になった場合、ステータスを完了に
+        if (updates.progress === 100 && content.todos[todoIndex].status !== 'completed') {
+            updates.status = 'completed';
+            updates.completed = true;
+            updates.completedAt = Date.now();
+        }
+
+        // 進捗が0-99%でステータスが予定の場合、進行中に変更
+        if (updates.progress !== undefined && updates.progress > 0 && updates.progress < 100) {
+            if (content.todos[todoIndex].status === 'planned') {
+                updates.status = 'in_progress';
             }
         }
 

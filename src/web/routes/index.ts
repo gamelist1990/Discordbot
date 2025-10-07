@@ -4,3 +4,5 @@ export * from './settings.js';
 export * from './staff.js';
 export * from './auth.js';
 export * from './todo.js';
+export * from './user.js';
+export * from './mod.js';

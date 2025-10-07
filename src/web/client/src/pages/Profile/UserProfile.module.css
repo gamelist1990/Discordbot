@@ -1,0 +1,353 @@
+.container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 16px;
+}
+
+.loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 200px;
+    gap: 16px;
+}
+
+.loadingSpinner {
+    width: 48px;
+    height: 48px;
+    border: 4px solid var(--md-sys-color-outline-variant);
+    border-top: 4px solid var(--md-sys-color-primary);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+.error {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 300px;
+    text-align: center;
+    gap: 16px;
+    padding: 32px;
+}
+
+.loginButton {
+    background-color: #5865f2;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    padding: 12px 24px;
+    font-size: 16px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.loginButton:hover {
+    background-color: #4752c4;
+}
+
+/* Profile Header */
+.profileHeader {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    padding: 24px;
+    background: var(--md-sys-color-surface-container-low);
+    border-radius: 16px;
+    margin-bottom: 24px;
+    position: relative;
+    overflow: hidden;
+}
+
+.avatarContainer {
+    position: relative;
+}
+
+.avatar {
+    width: 120px;
+    height: 120px;
+    border-radius: 50%;
+    border: 4px solid var(--md-sys-color-outline);
+}
+
+.userInfo {
+    flex: 1;
+}
+
+.username {
+    font-size: 32px;
+    font-weight: 400;
+    margin: 0 0 8px 0;
+    color: var(--md-sys-color-on-surface);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.discriminator {
+    font-size: 24px;
+    color: var(--md-sys-color-on-surface-variant);
+    font-weight: 300;
+}
+
+.userId {
+    font-size: 14px;
+    color: var(--md-sys-color-on-surface-variant);
+    margin: 0;
+}
+
+.bannerContainer {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 80px;
+    overflow: hidden;
+    border-radius: 16px 16px 0 0;
+}
+
+.banner {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+/* Tabs */
+.tabs {
+    display: flex;
+    border-bottom: 1px solid var(--md-sys-color-outline-variant);
+    margin-bottom: 24px;
+}
+
+.tab {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 16px 24px;
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--md-sys-color-on-surface-variant);
+    font-size: 16px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.tab:hover {
+    color: var(--md-sys-color-on-surface);
+}
+
+.tab.active {
+    color: var(--md-sys-color-primary);
+    border-bottom-color: var(--md-sys-color-primary);
+}
+
+/* Tab Content */
+.tabContent {
+    min-height: 400px;
+}
+
+.sectionTitle {
+    font-size: 24px;
+    font-weight: 400;
+    margin: 0 0 24px 0;
+    color: var(--md-sys-color-on-surface);
+}
+
+/* Overview Stats */
+.statsGrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 16px;
+}
+
+.statCard {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 20px;
+    background: var(--md-sys-color-surface-container-high);
+    border-radius: 12px;
+    border: 1px solid var(--md-sys-color-outline-variant);
+}
+
+.statIcon {
+    width: 48px;
+    height: 48px;
+    border-radius: 12px;
+    background: var(--md-sys-color-primary-container);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--md-sys-color-on-primary-container);
+    font-size: 24px;
+}
+
+.statContent h3 {
+    margin: 0 0 4px 0;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--md-sys-color-on-surface-variant);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.statValue {
+    margin: 0;
+    font-size: 32px;
+    font-weight: 700;
+    color: var(--md-sys-color-on-surface);
+}
+
+/* Guilds */
+.guildsGrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 20px;
+}
+
+.guildCard {
+    padding: 20px;
+    background: var(--md-sys-color-surface-container-high);
+    border-radius: 12px;
+    border: 1px solid var(--md-sys-color-outline-variant);
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.guildCard:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.guildHeader {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 16px;
+}
+
+.guildIcon {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    overflow: hidden;
+    flex-shrink: 0;
+}
+
+.guildIcon img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.defaultIcon {
+    width: 100%;
+    height: 100%;
+    background: var(--md-sys-color-secondary-container);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--md-sys-color-on-secondary-container);
+    font-weight: 500;
+    font-size: 24px;
+}
+
+.guildInfo h3 {
+    margin: 0 0 4px 0;
+    font-size: 18px;
+    font-weight: 500;
+    color: var(--md-sys-color-on-surface);
+}
+
+.guildInfo p {
+    margin: 0;
+    font-size: 14px;
+    color: var(--md-sys-color-on-surface-variant);
+}
+
+.guildStats {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 16px;
+}
+
+.guildStat {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    flex: 1;
+}
+
+.guildStat span.material-icons-outlined {
+    font-size: 20px;
+    color: var(--md-sys-color-on-surface-variant);
+}
+
+.guildStat span:not(.material-icons-outlined) {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--md-sys-color-on-surface);
+}
+
+.guildStat label {
+    font-size: 12px;
+    color: var(--md-sys-color-on-surface-variant);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.guildRole {
+    font-size: 14px;
+    color: var(--md-sys-color-secondary);
+    background: var(--md-sys-color-secondary-container);
+    padding: 4px 8px;
+    border-radius: 6px;
+    display: inline-block;
+    margin-bottom: 8px;
+}
+
+.guildJoined {
+    font-size: 14px;
+    color: var(--md-sys-color-on-surface-variant);
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    .profileHeader {
+        flex-direction: column;
+        text-align: center;
+    }
+
+    .avatar {
+        width: 80px;
+        height: 80px;
+    }
+
+    .username {
+        font-size: 24px;
+    }
+
+    .statsGrid {
+        grid-template-columns: 1fr;
+    }
+
+    .guildStats {
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    .guildStat {
+        flex-direction: row;
+        justify-content: space-between;
+    }
+}

@@ -1,9 +1,6 @@
 import fs from 'fs/promises';
 import path from 'path';
-import { fileURLToPath } from 'url';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 /**
  * JSON ベースのデータベースシステム
@@ -14,13 +11,13 @@ export class Database {
     private cache: Map<string, any>;
 
     constructor(dataDir?: string) {
-        // プロジェクトルートの Data フォルダをデフォルトとして使用
-        this.dataDir = dataDir || path.join(path.dirname(path.dirname(__dirname)), 'Data');
+        // プロジェクトルートの Data フォルダをデフォルトとして使用 (src内避け)
+        this.dataDir = dataDir || path.join(process.cwd(), 'Data');
         this.cache = new Map();
     }
 
     /**
-     * データベースを初期化（Data フォルダを作成）
+     * データベースを初期化（data フォルダを作成）
      */
     async initialize(): Promise<void> {
         try {
@@ -39,7 +36,8 @@ export class Database {
      * @param data 保存するデータ（JSON シリアライズ可能）
      */
     async set<T = any>(guildId: string, key: string, data: T): Promise<void> {
-        const fullKey = `${guildId}_${key}`;
+        // if key contains a directory separator, treat it as a relative path under dataDir
+        const fullKey = key.includes('/') || key.includes('\\') ? key : `${guildId}_${key}`;
         try {
             const filePath = this.getFilePath(fullKey);
             const dirPath = path.dirname(filePath);
@@ -65,7 +63,7 @@ export class Database {
      * @returns 保存されているデータまたはデフォルト値
      */
     async get<T = any>(guildId: string, key: string, defaultValue: T | null = null): Promise<T | null> {
-        const fullKey = `${guildId}_${key}`;
+        const fullKey = key.includes('/') || key.includes('\\') ? key : `${guildId}_${key}`;
         try {
             // キャッシュから取得を試みる
             if (this.cache.has(fullKey)) {
@@ -95,7 +93,7 @@ export class Database {
      * @returns 存在する場合 true
      */
     async has(guildId: string, key: string): Promise<boolean> {
-        const fullKey = `${guildId}_${key}`;
+        const fullKey = key.includes('/') || key.includes('\\') ? key : `${guildId}_${key}`;
         try {
             const filePath = this.getFilePath(fullKey);
             await fs.access(filePath);
@@ -111,7 +109,7 @@ export class Database {
      * @param key データのキー
      */
     async delete(guildId: string, key: string): Promise<boolean> {
-        const fullKey = `${guildId}_${key}`;
+        const fullKey = key.includes('/') || key.includes('\\') ? key : `${guildId}_${key}`;
         try {
             const filePath = this.getFilePath(fullKey);
             await fs.unlink(filePath);
@@ -148,12 +146,18 @@ export class Database {
                     if (item.isDirectory()) {
                         await searchDir(itemPath, relativePath);
                     } else if (item.isFile() && item.name.endsWith('.json')) {
-                        const key = item.name.replace('.json', '');
-                        if (key.startsWith(`${guildId}_`)) {
-                            const dataKey = key.replace(`${guildId}_`, '');
-                            const data = await this.get(guildId, dataKey);
-                            if (data !== null) {
-                                result[dataKey] = data;
+                        const rel = relativePath.replace(/\\/g, '/');
+                        // support new layout: Guild/<guildId>/... or old flat files like <guildId>_key.json
+                        if (rel.startsWith(`Guild/${guildId}/`)) {
+                            const dataKey = rel.replace(`Guild/${guildId}/`, '').replace('.json', '');
+                            const data = await this.get(guildId, `Guild/${guildId}/${dataKey}`);
+                            if (data !== null) result[dataKey] = data;
+                        } else {
+                            const key = item.name.replace('.json', '');
+                            if (key.startsWith(`${guildId}_`)) {
+                                const dataKey = key.replace(`${guildId}_`, '');
+                                const data = await this.get(guildId, dataKey);
+                                if (data !== null) result[dataKey] = data;
                             }
                         }
                     }
@@ -170,28 +174,32 @@ export class Database {
 
     /**
      * すべてのキーを取得
-     * @returns 保存されているすべてのキー
+     * @returns 保存されているすべてのキー（相対パス含む）
      */
     async keys(): Promise<string[]> {
         try {
             const result: string[] = [];
-            
+
             // 再帰的にファイルを検索
-            const searchDir = async (dirPath: string): Promise<void> => {
+            const searchDir = async (dirPath: string, prefix: string = ''): Promise<void> => {
                 const items = await fs.readdir(dirPath, { withFileTypes: true });
-                
+
                 for (const item of items) {
                     const itemPath = path.join(dirPath, item.name);
-                    
+
                     if (item.isDirectory()) {
-                        await searchDir(itemPath);
+                        // サブディレクトリ内を再帰的に検索
+                        const newPrefix = prefix ? `${prefix}/${item.name}` : item.name;
+                        await searchDir(itemPath, newPrefix);
                     } else if (item.isFile() && item.name.endsWith('.json')) {
-                        const key = item.name.replace('.json', '');
-                        result.push(key);
+                        const fileName = item.name.replace('.json', '');
+                        // プレフィックス（サブディレクトリパス）がある場合は含める
+                        const fullKey = prefix ? `${prefix}/${fileName}` : fileName;
+                        result.push(fullKey);
                     }
                 }
             };
-            
+
             await searchDir(this.dataDir);
             return result;
         } catch (error) {
