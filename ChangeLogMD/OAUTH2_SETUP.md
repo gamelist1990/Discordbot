@@ -45,6 +45,11 @@ BASE_URL=http://localhost:3000
 NODE_ENV=development
 ```
 
+参考: `env.example` ファイルをコピーして使用できます
+```bash
+cp env.example .env
+```
+
 **注意**: `.env` ファイルは `.gitignore` に追加して、Gitにコミットしないでください！
 
 #### 方法2: 環境変数を直接設定
