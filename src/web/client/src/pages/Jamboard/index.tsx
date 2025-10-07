@@ -1,5 +1,4 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { useParams, useSearchParams } from 'react-router-dom';
 import styles from './JamboardPage.module.css';
 
 interface Jamboard {
@@ -33,14 +32,19 @@ interface JamboardContent {
     todos: TodoItem[];
 }
 
-const JamboardPage: React.FC = () => {
-    const { token } = useParams<{ token: string }>();
-    const [searchParams] = useSearchParams();
-    const type = searchParams.get('type') || 'staff';
+interface UserSession {
+    userId: string;
+    username: string;
+    isStaff: boolean;
+}
 
+const JamboardPage: React.FC = () => {
+    const [session, setSession] = useState<UserSession | null>(null);
+    const [loading, setLoading] = useState(true);
+    const [authError, setAuthError] = useState<string | null>(null);
+    
     const [jamboard, setJamboard] = useState<Jamboard | null>(null);
     const [content, setContent] = useState<JamboardContent | null>(null);
-    const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     
     const [currentTool, setCurrentTool] = useState<'pen' | 'eraser' | 'highlighter'>('pen');
@@ -55,6 +59,11 @@ const JamboardPage: React.FC = () => {
     const [ctx, setCtx] = useState<CanvasRenderingContext2D | null>(null);
 
     useEffect(() => {
+        // Check if user is authenticated
+        checkAuthentication();
+    }, []);
+
+    useEffect(() => {
         if (canvasRef.current) {
             const context = canvasRef.current.getContext('2d');
             setCtx(context);
@@ -62,15 +71,11 @@ const JamboardPage: React.FC = () => {
     }, []);
 
     useEffect(() => {
-        fetchJamboard();
-    }, [token, type]);
-
-    useEffect(() => {
-        if (jamboard) {
+        if (session && jamboard) {
             fetchContent();
             
             // SSEでリアルタイム更新を受信
-            const eventSource = new EventSource(`/api/jamboards/${token}/${jamboard.id}/stream`);
+            const eventSource = new EventSource(`/api/jamboards/stream/${jamboard.id}`);
             
             eventSource.onmessage = (event) => {
                 const data = JSON.parse(event.data);
@@ -86,7 +91,7 @@ const JamboardPage: React.FC = () => {
                 eventSource.close();
             };
         }
-    }, [jamboard]);
+    }, [session, jamboard]);
 
     useEffect(() => {
         if (content) {
@@ -94,18 +99,48 @@ const JamboardPage: React.FC = () => {
         }
     }, [content, ctx]);
 
-    const fetchJamboard = async () => {
+    const checkAuthentication = async () => {
         try {
             setLoading(true);
+            const response = await fetch('/api/auth/session', {
+                credentials: 'include'
+            });
+            
+            if (response.ok) {
+                const data = await response.json();
+                setSession(data.user);
+                // Load appropriate jamboard based on user role
+                await loadJamboard(data.user.isStaff);
+            } else {
+                setSession(null);
+            }
+        } catch (err) {
+            console.error('Authentication check failed:', err);
+            setAuthError('認証の確認に失敗しました');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleDiscordLogin = () => {
+        // Redirect to Discord OAuth2
+        window.location.href = '/api/auth/discord';
+    };
+
+    const loadJamboard = async (isStaff: boolean) => {
+        try {
             let url: string;
             
-            if (type === 'staff') {
-                url = `/api/jamboards/${token}/staff`;
+            if (isStaff) {
+                url = '/api/jamboards/staff';
             } else {
-                url = `/api/jamboards/${token}`;
+                url = '/api/jamboards/personal';
             }
             
-            const response = await fetch(url);
+            const response = await fetch(url, {
+                credentials: 'include'
+            });
+            
             if (!response.ok) {
                 throw new Error('Failed to fetch jamboard');
             }
@@ -115,8 +150,6 @@ const JamboardPage: React.FC = () => {
             setError(null);
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Unknown error');
-        } finally {
-            setLoading(false);
         }
     };
 
@@ -124,7 +157,10 @@ const JamboardPage: React.FC = () => {
         if (!jamboard) return;
         
         try {
-            const response = await fetch(`/api/jamboards/${token}/${jamboard.id}/content`);
+            const response = await fetch(`/api/jamboards/${jamboard.id}/content`, {
+                credentials: 'include'
+            });
+            
             if (!response.ok) {
                 throw new Error('Failed to fetch content');
             }
@@ -217,9 +253,10 @@ const JamboardPage: React.FC = () => {
         
         // ストロークをサーバーに送信
         try {
-            await fetch(`/api/jamboards/${token}/${jamboard?.id}/strokes`, {
+            await fetch(`/api/jamboards/${jamboard?.id}/strokes`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
                 body: JSON.stringify({
                     points: currentStroke,
                     color: currentColor,
@@ -238,9 +275,10 @@ const JamboardPage: React.FC = () => {
         if (!newTodoText.trim() || !jamboard) return;
         
         try {
-            await fetch(`/api/jamboards/${token}/${jamboard.id}/todos`, {
+            await fetch(`/api/jamboards/${jamboard.id}/todos`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
                 body: JSON.stringify({ text: newTodoText })
             });
             
@@ -255,9 +293,10 @@ const JamboardPage: React.FC = () => {
         if (!jamboard) return;
         
         try {
-            await fetch(`/api/jamboards/${token}/${jamboard.id}/todos/${todoId}`, {
+            await fetch(`/api/jamboards/${jamboard.id}/todos/${todoId}`, {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
                 body: JSON.stringify({ completed: !completed })
             });
             
@@ -271,8 +310,9 @@ const JamboardPage: React.FC = () => {
         if (!jamboard) return;
         
         try {
-            await fetch(`/api/jamboards/${token}/${jamboard.id}/todos/${todoId}`, {
-                method: 'DELETE'
+            await fetch(`/api/jamboards/${jamboard.id}/todos/${todoId}`, {
+                method: 'DELETE',
+                credentials: 'include'
             });
             
             fetchContent();
@@ -286,6 +326,45 @@ const JamboardPage: React.FC = () => {
             ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
         }
     };
+
+    // Show login screen if not authenticated
+    if (!session) {
+        return (
+            <div className={styles.loginContainer}>
+                <div className={styles.loginBox}>
+                    <h1>🎨 Jamboard</h1>
+                    <p className={styles.loginDescription}>
+                        コラボレーションワークスペース
+                    </p>
+                    
+                    {authError && (
+                        <div className={styles.errorMessage}>
+                            {authError}
+                        </div>
+                    )}
+                    
+                    {loading ? (
+                        <div className={styles.loginLoading}>読み込み中...</div>
+                    ) : (
+                        <button
+                            className={styles.loginButton}
+                            onClick={handleDiscordLogin}
+                        >
+                            <svg className={styles.discordIcon} viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515a.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0a12.64 12.64 0 0 0-.617-1.25a.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057a19.9 19.9 0 0 0 5.993 3.03a.078.078 0 0 0 .084-.028a14.09 14.09 0 0 0 1.226-1.994a.076.076 0 0 0-.041-.106a13.107 13.107 0 0 1-1.872-.892a.077.077 0 0 1-.008-.128a10.2 10.2 0 0 0 .372-.292a.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127a12.299 12.299 0 0 1-1.873.892a.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028a19.839 19.839 0 0 0 6.002-3.03a.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419c0-1.333.956-2.419 2.157-2.419c1.21 0 2.176 1.096 2.157 2.42c0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419c0-1.333.955-2.419 2.157-2.419c1.21 0 2.176 1.096 2.157 2.42c0 1.333-.946 2.418-2.157 2.418z"/>
+                            </svg>
+                            Discord でログイン
+                        </button>
+                    )}
+                    
+                    <p className={styles.loginFooter}>
+                        Discordアカウントでログインして<br />
+                        コラボレーションを開始しましょう
+                    </p>
+                </div>
+            </div>
+        );
+    }
 
     if (loading) {
         return <div className={styles.loading}>読み込み中...</div>;
