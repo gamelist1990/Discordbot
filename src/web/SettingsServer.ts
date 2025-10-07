@@ -4,10 +4,9 @@ import path from 'path';
 import { Logger } from '../utils/Logger.js';
 import { BotClient } from '../core/BotClient.js';
 import { SessionService } from './services/SessionService.js';
-import { createStatusRoutes, createSessionRoutes, createSettingsRoutes, createStaffRoutes } from './routes/index.js';
+import { createStatusRoutes, createSessionRoutes, createSettingsRoutes, createStaffRoutes, createAuthRoutes, createTodoRoutes } from './routes/index.js';
 
 // 型定義を型として再エクスポート（実行時には存在しないため type を使用）
-export type { SettingsSession, GuildSettings } from './types/index.js';
 
 /**
  * 設定画面用Webサーバー（モジュール構造）
@@ -28,6 +27,8 @@ export class SettingsServer {
 
     constructor(botClient: BotClient, port: number = 3000) {
         this.app = express();
+        // Disable ETag generation for API responses to avoid 304 cached responses
+        this.app.disable('etag');
         this.port = port;
         this.sessionService = new SessionService();
         this.botClient = botClient;
@@ -40,8 +41,57 @@ export class SettingsServer {
      * ミドルウェアの設定
      */
     private setupMiddleware(): void {
-        this.app.use(cors());
+        this.app.use(cors({
+            credentials: true,
+            origin: true
+        }));
         this.app.use(express.json());
+        
+        // Cookie parser (簡易実装)
+        this.app.use((req, res, next) => {
+            req.cookies = {};
+            const cookieHeader = req.headers.cookie;
+            if (cookieHeader) {
+                cookieHeader.split(';').forEach(cookie => {
+                    const [name, value] = cookie.trim().split('=');
+                    req.cookies[name] = value;
+                });
+            }
+            
+            // res.cookie() ヘルパーを追加
+            res.cookie = function(name: string, value: string, options: any = {}) {
+                let cookie = `${name}=${value}`;
+                
+                if (options.maxAge) {
+                    cookie += `; Max-Age=${Math.floor(options.maxAge / 1000)}`;
+                }
+                if (options.httpOnly) {
+                    cookie += '; HttpOnly';
+                }
+                if (options.secure) {
+                    cookie += '; Secure';
+                }
+                if (options.sameSite) {
+                    cookie += `; SameSite=${options.sameSite}`;
+                }
+                if (options.path) {
+                    cookie += `; Path=${options.path}`;
+                } else {
+                    cookie += '; Path=/';
+                }
+                
+                res.setHeader('Set-Cookie', cookie);
+                return res;
+            };
+            
+            // res.clearCookie() ヘルパーを追加
+            res.clearCookie = function(name: string) {
+                res.setHeader('Set-Cookie', `${name}=; Path=/; Max-Age=0`);
+                return res;
+            };
+            
+            next();
+        });
     }
 
     /**
@@ -55,6 +105,8 @@ export class SettingsServer {
         this.app.use('/api', createSessionRoutes(sessions, this.botClient));
         this.app.use('/api', createSettingsRoutes(sessions));
         this.app.use('/api/staff', createStaffRoutes(sessions, this.botClient));
+        this.app.use('/api', createTodoRoutes(sessions, this.botClient));
+        this.app.use('/api/auth', createAuthRoutes(sessions, this.botClient));
 
         // 静的ファイルの配信
         this.app.use(express.static(path.join(__dirname, '..', '..', 'dist', 'web')));
@@ -85,8 +137,10 @@ export class SettingsServer {
      */
     public async start(): Promise<void> {
         return new Promise((resolve) => {
-            this.server = this.app.listen(this.port, () => {
-                Logger.info(`Webサーバーをポート ${this.port} で起動しました`);
+                // 明示的に 0.0.0.0 にバインドして外部からアクセス可能にする
+                this.server = this.app.listen(this.port, '0.0.0.0', () => {
+                    Logger.info(`Webサーバーをポート ${this.port} で起動しました (bound to 0.0.0.0)`);
+                    Logger.info(`BASE_URL: ${process.env.BASE_URL}, WEB_BASE_URL: ${process.env.WEB_BASE_URL}`);
                 resolve();
             });
         });

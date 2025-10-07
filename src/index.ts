@@ -119,7 +119,13 @@ async function main() {
         Logger.success('✅ Bot が正常に起動しました！');
         Logger.info('💡 新しいサーバーに追加すると、自動的にコマンドがデプロイされます。');
         Logger.info(`⚠️ サーバー上限: ${botClient.getMaxGuilds()} (現在: ${botClient.getGuildCount()})`);
-        Logger.info(`🌐 Web ダッシュボード: http://localhost:3000`);
+        try {
+            // Prefer WEB_BASE_URL from config if available
+            const cfg = await import('./config.js');
+            Logger.info(`🌐 Web ダッシュボード: ${cfg.default.WEB_BASE_URL || cfg.default.BASE_URL}`);
+        } catch {
+            Logger.info(`🌐 Web ダッシュボード: http://localhost:3000`);
+        }
     } catch (error) {
         Logger.error('起動エラー:', error);
         process.exit(1);
@@ -150,7 +156,15 @@ process.on('SIGINT', async () => {
         await settingsServer.stop();
     }
     if (botClient) {
-        await botClient.destroy();
+                // Web ダッシュボードの URL は config の BASE_URL を表示する
+                try {
+                    // ...existing code...
+                } catch (e) { /* noop */ }
+                import('./config.js').then((cfg) => {
+                    Logger.info(`🌐 Web ダッシュボード: ${cfg.default.BASE_URL}`);
+                }).catch(() => {
+                    Logger.info(`🌐 Web ダッシュボード: http://localhost:3000`);
+                });
     }
     process.exit(0);
 });

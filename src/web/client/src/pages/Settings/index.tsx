@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import Layout from '../components/Layout/Layout';
-import PermissionsTab from '../components/Tabs/PermissionsTab';
-import { validateToken, fetchGuildInfo, fetchSettings, saveSettings } from '../services/api';
-import type { GuildInfo, GuildSettings } from '../types';
+import Layout from '../../components/Layout/Layout';
+import PermissionsTab from '../../components/Tabs/PermissionsTab';
+import { validateToken, fetchGuildInfo, fetchSettings, saveSettings } from '../../services/api';
+import type { GuildInfo, GuildSettings } from '../../types';
 import styles from './SettingsPage.module.css';
 
 const SettingsPage: React.FC = () => {

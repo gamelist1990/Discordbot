@@ -13,8 +13,8 @@ import {
     type PrivateChat,
     type PrivateChatStats,
     type ChatMember
-} from '../services/api';
-import { useAppToast } from '../AppToastProvider';
+} from '../../services/api';
+import { useAppToast } from '../../AppToastProvider';
 import styles from './PrivateChatPage.module.css';
 
 type TabType = 'overview' | 'rooms' | 'stats';

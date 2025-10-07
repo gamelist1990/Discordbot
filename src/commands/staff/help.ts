@@ -102,3 +102,5 @@ export async function handleHelpSubcommand(interaction: ChatInputCommandInteract
 
     await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
 }
+
+export default null;

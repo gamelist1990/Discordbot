@@ -157,6 +157,7 @@ export class BotClient {
     /**
      * すべてのギルドにコマンドをデプロイ（自動）
      * 登録されていない古いコマンドを自動的にクリア
+     * 既に同じコマンドが存在する場合はスキップ
      */
     async deployCommandsToAllGuilds(): Promise<void> {
         try {
@@ -169,10 +170,25 @@ export class BotClient {
 
             let successCount = 0;
             let failCount = 0;
+            let skippedCount = 0;
 
             // ギルド固有のコマンドをデプロイ
             for (const [guildId, guild] of guilds) {
                 try {
+                    // 既存のコマンドを取得
+                    const existingCommands = await this.rest.get(
+                        Routes.applicationGuildCommands(clientId, guildId)
+                    ) as DiscordCommand[];
+
+                    // コマンドが同じかチェック
+                    const isSame = this.compareCommands(existingCommands, commandData);
+
+                    if (isSame) {
+                        skippedCount++;
+                        Logger.info(`  ⏭️ スキップ (変更なし): ${guild.name} (${guildId})`);
+                        continue;
+                    }
+
                     // 古いコマンドをクリアして新しいコマンドをデプロイ
                     await this.rest.put(
                         Routes.applicationGuildCommands(clientId, guildId),
@@ -198,11 +214,35 @@ export class BotClient {
                 Logger.error('❌ グローバルコマンドのクリアに失敗:', error);
             }
 
-            Logger.success(`✅ デプロイ完了: 成功 ${successCount} / 失敗 ${failCount}`);
+            Logger.success(`✅ デプロイ完了: 成功 ${successCount} / スキップ ${skippedCount} / 失敗 ${failCount}`);
         } catch (error) {
             Logger.error('❌ コマンドデプロイエラー:', error);
             throw error;
         }
+    }
+
+    /**
+     * コマンドの内容を比較（名前と説明）
+     */
+    private compareCommands(existing: DiscordCommand[], newCommands: any[]): boolean {
+        if (existing.length !== newCommands.length) {
+            return false;
+        }
+
+        const existingMap = new Map(existing.map(cmd => [cmd.name, cmd.description]));
+        const newMap = new Map(newCommands.map(cmd => [cmd.name, cmd.description]));
+
+        if (existingMap.size !== newMap.size) {
+            return false;
+        }
+
+        for (const [name, description] of existingMap) {
+            if (newMap.get(name) !== description) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**

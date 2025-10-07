@@ -1,0 +1,425 @@
+import { Request, Response } from 'express';
+import { TodoManager } from '../../core/TodoManager.js';
+import { SettingsSession } from '../types/index.js';
+
+/**
+ * Todo コントローラー
+ */
+export class TodoController {
+    /**
+     * ユーザーのTodoセッション一覧を取得
+     */
+    async getSessions(req: Request, res: Response): Promise<void> {
+        const session = (req as any).session as SettingsSession;
+
+        try {
+            const sessions = await TodoManager.getUserSessions(session.guildId, session.userId);
+            res.json({ sessions });
+        } catch (error) {
+            console.error('Todoセッション一覧取得エラー:', error);
+            res.status(500).json({ error: 'Failed to fetch todo sessions' });
+        }
+    }
+
+    /**
+     * Todoセッションを作成
+     */
+    async createSession(req: Request, res: Response): Promise<void> {
+        const session = (req as any).session as SettingsSession;
+        const { name } = req.body;
+
+        if (!name || typeof name !== 'string' || name.trim().length === 0) {
+            res.status(400).json({ error: 'Session name is required' });
+            return;
+        }
+
+        if (name.length > 100) {
+            res.status(400).json({ error: 'Session name is too long (max 100 characters)' });
+            return;
+        }
+
+        try {
+            const todoSession = await TodoManager.createSession(
+                session.guildId,
+                session.userId,
+                name.trim()
+            );
+
+            res.json({ session: todoSession });
+        } catch (error) {
+            console.error('Todoセッション作成エラー:', error);
+            const errorMessage = error instanceof Error ? error.message : 'Failed to create todo session';
+            res.status(500).json({ error: errorMessage });
+        }
+    }
+
+    /**
+     * Todoセッションを取得
+     */
+    async getSession(req: Request, res: Response): Promise<void> {
+        const session = (req as any).session as SettingsSession;
+        const { sessionId } = req.params;
+
+        try {
+            const todoSession = await TodoManager.getSession(session.guildId, sessionId);
+            if (!todoSession) {
+                res.status(404).json({ error: 'Session not found' });
+                return;
+            }
+
+            // アクセス権限を確認
+            const accessLevel = await TodoManager.canAccess(session.guildId, sessionId, session.userId);
+            if (!accessLevel) {
+                res.status(403).json({ error: 'Access denied' });
+                return;
+            }
+
+            res.json({ session: todoSession, accessLevel });
+        } catch (error) {
+            console.error('Todoセッション取得エラー:', error);
+            res.status(500).json({ error: 'Failed to fetch todo session' });
+        }
+    }
+
+    /**
+     * Todoセッションを削除
+     */
+    async deleteSession(req: Request, res: Response): Promise<void> {
+        const session = (req as any).session as SettingsSession;
+        const { sessionId } = req.params;
+
+        try {
+            const todoSession = await TodoManager.getSession(session.guildId, sessionId);
+            if (!todoSession) {
+                res.status(404).json({ error: 'Session not found' });
+                return;
+            }
+
+            // オーナーのみ削除可能
+            if (todoSession.ownerId !== session.userId) {
+                res.status(403).json({ error: 'Only owner can delete the session' });
+                return;
+            }
+
+            await TodoManager.deleteSession(session.guildId, sessionId);
+            res.json({ success: true });
+        } catch (error) {
+            console.error('Todoセッション削除エラー:', error);
+            res.status(500).json({ error: 'Failed to delete todo session' });
+        }
+    }
+
+    /**
+     * Todoセッションのコンテンツを取得
+     */
+    async getContent(req: Request, res: Response): Promise<void> {
+        const session = (req as any).session as SettingsSession;
+        const { sessionId } = req.params;
+
+        try {
+            // アクセス権限を確認
+            const accessLevel = await TodoManager.canAccess(session.guildId, sessionId, session.userId);
+            if (!accessLevel) {
+                res.status(403).json({ error: 'Access denied' });
+                return;
+            }
+
+            const content = await TodoManager.getContent(session.guildId, sessionId);
+            if (!content) {
+                res.status(404).json({ error: 'Content not found' });
+                return;
+            }
+
+            res.json({ content, accessLevel });
+        } catch (error) {
+            console.error('Todoコンテンツ取得エラー:', error);
+            res.status(500).json({ error: 'Failed to fetch todo content' });
+        }
+    }
+
+    /**
+     * Todoアイテムを追加
+     */
+    async addTodo(req: Request, res: Response): Promise<void> {
+        const session = (req as any).session as SettingsSession;
+        const { sessionId } = req.params;
+        const { text, priority, tags, description, dueDate } = req.body;
+
+        if (!text || typeof text !== 'string' || text.trim().length === 0) {
+            res.status(400).json({ error: 'Todo text is required' });
+            return;
+        }
+
+        try {
+            // 編集権限を確認（オーナーまたはエディター）
+            const accessLevel = await TodoManager.canAccess(session.guildId, sessionId, session.userId);
+            if (accessLevel !== 'owner' && accessLevel !== 'editor') {
+                res.status(403).json({ error: 'Edit permission required' });
+                return;
+            }
+
+            const todo = await TodoManager.addTodo(
+                session.guildId,
+                sessionId,
+                text.trim(),
+                session.userId,
+                priority || 'medium',
+                tags || [],
+                description,
+                dueDate
+            );
+
+            res.json({ success: true, todo });
+        } catch (error) {
+            console.error('Todo追加エラー:', error);
+            const errorMessage = error instanceof Error ? error.message : 'Failed to add todo';
+            res.status(500).json({ error: errorMessage });
+        }
+    }
+
+    /**
+     * Todoアイテムを更新
+     */
+    async updateTodo(req: Request, res: Response): Promise<void> {
+        const session = (req as any).session as SettingsSession;
+        const { sessionId, todoId } = req.params;
+        const updates = req.body;
+
+        try {
+            // 編集権限を確認（オーナーまたはエディター）
+            const accessLevel = await TodoManager.canAccess(session.guildId, sessionId, session.userId);
+            if (accessLevel !== 'owner' && accessLevel !== 'editor') {
+                res.status(403).json({ error: 'Edit permission required' });
+                return;
+            }
+
+            await TodoManager.updateTodo(session.guildId, sessionId, todoId, updates);
+            res.json({ success: true });
+        } catch (error) {
+            console.error('Todo更新エラー:', error);
+            const errorMessage = error instanceof Error ? error.message : 'Failed to update todo';
+            res.status(500).json({ error: errorMessage });
+        }
+    }
+
+    /**
+     * Todoアイテムを削除
+     */
+    async deleteTodo(req: Request, res: Response): Promise<void> {
+        const session = (req as any).session as SettingsSession;
+        const { sessionId, todoId } = req.params;
+
+        try {
+            // 編集権限を確認（オーナーまたはエディター）
+            const accessLevel = await TodoManager.canAccess(session.guildId, sessionId, session.userId);
+            if (accessLevel !== 'owner' && accessLevel !== 'editor') {
+                res.status(403).json({ error: 'Edit permission required' });
+                return;
+            }
+
+            await TodoManager.deleteTodo(session.guildId, sessionId, todoId);
+            res.json({ success: true });
+        } catch (error) {
+            console.error('Todo削除エラー:', error);
+            const errorMessage = error instanceof Error ? error.message : 'Failed to delete todo';
+            res.status(500).json({ error: errorMessage });
+        }
+    }
+
+    /**
+     * メンバーを追加（ビューワーまたはエディター）
+     */
+    async addMember(_req: Request, res: Response): Promise<void> {
+        // Deprecated: member addition via API is removed in favor of URL-based sharing.
+        res.status(410).json({ error: 'Member addition via API is deprecated. Use share links instead.' });
+    }
+
+    /**
+     * メンバーを削除
+     */
+    async removeMember(req: Request, res: Response): Promise<void> {
+        const session = (req as any).session as SettingsSession;
+        const { sessionId, userId } = req.params;
+
+        try {
+            const todoSession = await TodoManager.getSession(session.guildId, sessionId);
+            if (!todoSession) {
+                res.status(404).json({ error: 'Session not found' });
+                return;
+            }
+
+            // オーナーのみメンバーを削除できる
+            if (todoSession.ownerId !== session.userId) {
+                res.status(403).json({ error: 'Only owner can remove members' });
+                return;
+            }
+
+            await TodoManager.removeMember(session.guildId, sessionId, userId);
+            res.json({ success: true });
+        } catch (error) {
+            console.error('メンバー削除エラー:', error);
+            const errorMessage = error instanceof Error ? error.message : 'Failed to remove member';
+            res.status(500).json({ error: errorMessage });
+        }
+    }
+
+    /**
+     * お気に入りのトグル
+     */
+    async toggleFavorite(req: Request, res: Response): Promise<void> {
+        const session = (req as any).session as SettingsSession;
+        const { sessionId } = req.params;
+
+        try {
+            // アクセス権限を確認
+            const accessLevel = await TodoManager.canAccess(session.guildId, sessionId, session.userId);
+            if (!accessLevel) {
+                res.status(403).json({ error: 'Access denied' });
+                return;
+            }
+
+            const isFavorited = await TodoManager.toggleFavorite(session.guildId, sessionId, session.userId);
+            res.json({ success: true, isFavorited });
+        } catch (error) {
+            console.error('お気に入りトグルエラー:', error);
+            const errorMessage = error instanceof Error ? error.message : 'Failed to toggle favorite';
+            res.status(500).json({ error: errorMessage });
+        }
+    }
+
+    /**
+     * 共有リンクを作成
+     */
+    async createShare(req: Request, res: Response): Promise<void> {
+        const session = (req as any).session as SettingsSession;
+        const { sessionId } = req.params;
+        const { mode, expiresInSeconds } = req.body; // mode: 'view' | 'edit'
+
+        if (mode !== 'view' && mode !== 'edit') {
+            res.status(400).json({ error: 'mode must be "view" or "edit"' });
+            return;
+        }
+
+        try {
+            const todoSession = await TodoManager.getSession(session.guildId, sessionId);
+            if (!todoSession) {
+                res.status(404).json({ error: 'Session not found' });
+                return;
+            }
+
+            // オーナーのみ共有リンク作成可能
+            if (todoSession.ownerId !== session.userId) {
+                res.status(403).json({ error: 'Only owner can create share links' });
+                return;
+            }
+
+            const token = await TodoManager.createShareLink(session.guildId, sessionId, mode, typeof expiresInSeconds === 'number' ? expiresInSeconds : null);
+            res.json({ token, expiresInSeconds: expiresInSeconds || null });
+        } catch (error) {
+            console.error('共有リンク作成エラー:', error);
+            res.status(500).json({ error: 'Failed to create share link' });
+        }
+    }
+
+    /**
+     * 共有リンク一覧を取得
+     */
+    async getShareLinks(req: Request, res: Response): Promise<void> {
+        const session = (req as any).session as SettingsSession;
+        const { sessionId } = req.params;
+
+        try {
+            const todoSession = await TodoManager.getSession(session.guildId, sessionId);
+            if (!todoSession) {
+                res.status(404).json({ error: 'Session not found' });
+                return;
+            }
+
+            // オーナーのみ共有リンク一覧取得可能
+            if (todoSession.ownerId !== session.userId) {
+                res.status(403).json({ error: 'Only owner can view share links' });
+                return;
+            }
+
+            // 共有リンクを取得（guildIdでフィルタ）
+            const allShares = await TodoManager.getAllShareLinks(session.guildId);
+            const sessionShares = allShares.filter(share => share.sessionId === sessionId);
+
+            res.json({ shareLinks: sessionShares });
+        } catch (error) {
+            console.error('共有リンク一覧取得エラー:', error);
+            res.status(500).json({ error: 'Failed to get share links' });
+        }
+    }
+    async revokeShare(req: Request, res: Response): Promise<void> {
+        const session = (req as any).session as SettingsSession;
+        const { sessionId, token } = req.params;
+
+        try {
+            const todoSession = await TodoManager.getSession(session.guildId, sessionId);
+            if (!todoSession) {
+                res.status(404).json({ error: 'Session not found' });
+                return;
+            }
+
+            // オーナーのみ取り消し可能
+            if (todoSession.ownerId !== session.userId) {
+                res.status(403).json({ error: 'Only owner can revoke share links' });
+                return;
+            }
+
+            const ok = await TodoManager.revokeShareLink(session.guildId, token);
+            res.json({ success: ok });
+        } catch (error) {
+            console.error('共有リンク取り消しエラー:', error);
+            res.status(500).json({ error: 'Failed to revoke share link' });
+        }
+    }
+
+    /**
+     * 共有トークン経由でセッションを取得
+     */
+    async getSessionByToken(req: Request, res: Response): Promise<void> {
+        const { token } = req.params;
+        // Todo を共通にしたので、guildId は常に 'default' を使用
+        const guildId = 'default';
+
+        try {
+            const result = await TodoManager.getSessionByShareToken(guildId, token);
+            if (!result) {
+                res.status(404).json({ error: 'Shared session not found or token expired' });
+                return;
+            }
+
+            let addedAsEditor = false;
+
+            // 自動追加を削除 - URLだけでアクセス可能にする
+            // If token mode is edit, and request has an authenticated session cookie for the same guild,
+            // auto-add that user as editor to the target todo session (so they get persistent edit rights)
+            // if (result.mode === 'edit') {
+            //     try {
+            //         const authSession = (req as any).session as SettingsSession | undefined;
+            //         // Also allow sessionId cookie based lookup as a fallback
+            //         if (authSession && authSession.guildId === guildId && authSession.userId && result.session) {
+            //             await TodoManager.addEditorIfNotExists(guildId, result.session.id, authSession.userId);
+            //             addedAsEditor = true;
+            //         }
+            //     } catch (e) {
+            //         console.error('Failed to auto-add editor from share token access:', e);
+            //     }
+            // }
+
+            // 返却するのはセッションメタとアクセスモード。編集権限がある場合は編集可能
+            const content = await TodoManager.getSessionContent(guildId, result.session!.id);
+            res.json({ 
+                session: result.session, 
+                accessLevel: result.mode === 'edit' ? 'editor' : 'viewer', 
+                addedAsEditor,
+                content 
+            });
+        } catch (error) {
+            console.error('共有トークン取得エラー:', error);
+            res.status(500).json({ error: 'Failed to fetch shared session' });
+        }
+    }
+}
