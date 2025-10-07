@@ -3,3 +3,4 @@ export * from './session.js';
 export * from './settings.js';
 export * from './staff.js';
 export * from './jamboard.js';
+export * from './auth.js';

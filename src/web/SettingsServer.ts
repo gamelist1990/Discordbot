@@ -4,7 +4,7 @@ import path from 'path';
 import { Logger } from '../utils/Logger.js';
 import { BotClient } from '../core/BotClient.js';
 import { SessionService } from './services/SessionService.js';
-import { createStatusRoutes, createSessionRoutes, createSettingsRoutes, createStaffRoutes, createJamboardRoutes } from './routes/index.js';
+import { createStatusRoutes, createSessionRoutes, createSettingsRoutes, createStaffRoutes, createJamboardRoutes, createAuthRoutes } from './routes/index.js';
 
 // 型定義を型として再エクスポート（実行時には存在しないため type を使用）
 export type { SettingsSession, GuildSettings } from './types/index.js';
@@ -40,8 +40,24 @@ export class SettingsServer {
      * ミドルウェアの設定
      */
     private setupMiddleware(): void {
-        this.app.use(cors());
+        this.app.use(cors({
+            credentials: true,
+            origin: true
+        }));
         this.app.use(express.json());
+        
+        // Cookie parser (簡易実装)
+        this.app.use((req, res, next) => {
+            req.cookies = {};
+            const cookieHeader = req.headers.cookie;
+            if (cookieHeader) {
+                cookieHeader.split(';').forEach(cookie => {
+                    const [name, value] = cookie.trim().split('=');
+                    req.cookies[name] = value;
+                });
+            }
+            next();
+        });
     }
 
     /**
@@ -56,6 +72,7 @@ export class SettingsServer {
         this.app.use('/api', createSettingsRoutes(sessions));
         this.app.use('/api/staff', createStaffRoutes(sessions, this.botClient));
         this.app.use('/api', createJamboardRoutes(sessions));
+        this.app.use('/api/auth', createAuthRoutes(sessions));
 
         // 静的ファイルの配信
         this.app.use(express.static(path.join(__dirname, '..', '..', 'dist', 'web')));

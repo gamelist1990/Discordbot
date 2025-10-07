@@ -1,0 +1,185 @@
+/* Google Material Design inspired styles */
+
+.loginContainer {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    font-family: 'Roboto', 'Google Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+.loginCard {
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1),
+                0 8px 16px rgba(0, 0, 0, 0.1),
+                0 16px 32px rgba(0, 0, 0, 0.1);
+    max-width: 450px;
+    width: 90%;
+    overflow: hidden;
+    animation: slideUp 0.3s ease-out;
+}
+
+@keyframes slideUp {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.loginHeader {
+    text-align: center;
+    padding: 48px 32px 32px;
+    background: linear-gradient(180deg, #f8f9fa 0%, #ffffff 100%);
+}
+
+.loginHeader i {
+    margin-bottom: 16px;
+}
+
+.title {
+    margin: 0 0 8px 0;
+    font-size: 28px;
+    font-weight: 400;
+    color: #202124;
+    letter-spacing: -0.5px;
+}
+
+.subtitle {
+    margin: 0;
+    font-size: 16px;
+    color: #5f6368;
+    font-weight: 400;
+}
+
+.loginBody {
+    padding: 32px;
+}
+
+.errorAlert {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+    background: #fce8e6;
+    border-left: 4px solid #d93025;
+    border-radius: 4px;
+    margin-bottom: 24px;
+    color: #d93025;
+    font-size: 14px;
+}
+
+.errorAlert i {
+    font-size: 20px;
+}
+
+.loadingSpinner {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+    padding: 24px;
+    color: #5f6368;
+}
+
+.spinner {
+    width: 40px;
+    height: 40px;
+    border: 3px solid #e8eaed;
+    border-top-color: #1a73e8;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.discordButton {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 14px 24px;
+    background: #5865F2;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    font-size: 16px;
+    font-weight: 500;
+    font-family: inherit;
+    cursor: pointer;
+    transition: all 0.2s;
+    box-shadow: 0 1px 2px rgba(60, 64, 67, 0.3),
+                0 1px 3px 1px rgba(60, 64, 67, 0.15);
+}
+
+.discordButton:hover:not(:disabled) {
+    background: #4752C4;
+    box-shadow: 0 1px 3px rgba(60, 64, 67, 0.3),
+                0 4px 8px 3px rgba(60, 64, 67, 0.15);
+}
+
+.discordButton:active:not(:disabled) {
+    background: #3c45a5;
+    box-shadow: 0 1px 2px rgba(60, 64, 67, 0.3);
+}
+
+.discordButton:disabled {
+    background: #e8eaed;
+    color: #80868b;
+    cursor: not-allowed;
+}
+
+.discordIcon {
+    width: 24px;
+    height: 24px;
+    flex-shrink: 0;
+}
+
+.loginFooter {
+    padding: 24px 32px 32px;
+    background: #f8f9fa;
+    border-top: 1px solid #e8eaed;
+}
+
+.footerText {
+    margin: 0;
+    font-size: 13px;
+    color: #5f6368;
+    line-height: 1.6;
+    text-align: center;
+}
+
+/* Responsive */
+@media (max-width: 600px) {
+    .loginCard {
+        width: 95%;
+        margin: 16px;
+    }
+
+    .loginHeader {
+        padding: 32px 24px 24px;
+    }
+
+    .loginBody {
+        padding: 24px;
+    }
+
+    .title {
+        font-size: 24px;
+    }
+
+    .discordButton {
+        padding: 12px 20px;
+        font-size: 15px;
+    }
+}

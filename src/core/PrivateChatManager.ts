@@ -81,7 +81,7 @@ export class PrivateChatManager {
 
         // base name を整形（部屋名をそのまま使用）
         let baseName = roomName.toLowerCase().replace(/[^a-z0-9-_]/g, '-');
-        const channelName = baseName;
+        const channelName = `${baseName}-room`;
         const vcChannelName = `${baseName}-vc`;
 
         // 権限オーバーライドを作成
