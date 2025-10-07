@@ -2,6 +2,7 @@ export interface SettingsSession {
     guildId: string;
     userId: string;
     username?: string;
+    avatar?: string | null;
     permission?: number;
     expiresAt: number;
     token?: string;

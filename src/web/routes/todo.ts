@@ -9,7 +9,7 @@ import { SettingsSession } from '../SettingsServer.js';
  */
 export function createTodoRoutes(
     sessions: Map<string, SettingsSession>,
-    botClient: BotClient
+    _botClient: BotClient
 ): Router {
     const router = Router();
     const controller = new TodoController();
@@ -47,6 +47,15 @@ export function createTodoRoutes(
 
     // お気に入りのトグル
     router.post('/todos/sessions/:sessionId/favorite', auth.validateToken, controller.toggleFavorite.bind(controller));
+
+    // 共有リンク作成 (認可: オーナーのみ)
+    router.post('/todos/sessions/:sessionId/share', auth.validateToken, controller.createShare.bind(controller));
+
+    // 共有リンク取り消し (認可: オーナーのみ)
+    router.delete('/todos/sessions/:sessionId/share/:token', auth.validateToken, controller.revokeShare.bind(controller));
+
+    // 共有トークン経由でセッションを取得 (公開エンドポイント - トークンにより検証)
+    router.get('/todos/shared/:token', controller.getSessionByToken.bind(controller));
 
     return router;
 }

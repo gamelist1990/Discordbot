@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { TodoManager, TodoSession, TodoItem } from '../../core/TodoManager.js';
+import { TodoManager } from '../../core/TodoManager.js';
 import { SettingsSession } from '../SettingsServer.js';
 
 /**
@@ -316,6 +316,96 @@ export class TodoController {
             console.error('お気に入りトグルエラー:', error);
             const errorMessage = error instanceof Error ? error.message : 'Failed to toggle favorite';
             res.status(500).json({ error: errorMessage });
+        }
+    }
+
+    /**
+     * 共有リンクを作成
+     */
+    async createShare(req: Request, res: Response): Promise<void> {
+        const session = (req as any).session as SettingsSession;
+        const { sessionId } = req.params;
+        const { mode, expiresInSeconds } = req.body; // mode: 'view' | 'edit'
+
+        if (mode !== 'view' && mode !== 'edit') {
+            res.status(400).json({ error: 'mode must be "view" or "edit"' });
+            return;
+        }
+
+        try {
+            const todoSession = await TodoManager.getSession(session.guildId, sessionId);
+            if (!todoSession) {
+                res.status(404).json({ error: 'Session not found' });
+                return;
+            }
+
+            // オーナーのみ共有リンク作成可能
+            if (todoSession.ownerId !== session.userId) {
+                res.status(403).json({ error: 'Only owner can create share links' });
+                return;
+            }
+
+            const token = await TodoManager.createShareLink(session.guildId, sessionId, mode, typeof expiresInSeconds === 'number' ? expiresInSeconds : null);
+            res.json({ token, expiresInSeconds: expiresInSeconds || null });
+        } catch (error) {
+            console.error('共有リンク作成エラー:', error);
+            res.status(500).json({ error: 'Failed to create share link' });
+        }
+    }
+
+    /**
+     * 共有リンク取り消し
+     */
+    async revokeShare(req: Request, res: Response): Promise<void> {
+        const session = (req as any).session as SettingsSession;
+        const { sessionId, token } = req.params;
+
+        try {
+            const todoSession = await TodoManager.getSession(session.guildId, sessionId);
+            if (!todoSession) {
+                res.status(404).json({ error: 'Session not found' });
+                return;
+            }
+
+            // オーナーのみ取り消し可能
+            if (todoSession.ownerId !== session.userId) {
+                res.status(403).json({ error: 'Only owner can revoke share links' });
+                return;
+            }
+
+            const ok = await TodoManager.revokeShareLink(session.guildId, token);
+            res.json({ success: ok });
+        } catch (error) {
+            console.error('共有リンク取り消しエラー:', error);
+            res.status(500).json({ error: 'Failed to revoke share link' });
+        }
+    }
+
+    /**
+     * 共有トークン経由でセッションを取得
+     */
+    async getSessionByToken(req: Request, res: Response): Promise<void> {
+        const { token } = req.params;
+        // guildId は今回はURLに含めていないので、クエリまたはヘッダから受け取ることを期待する
+        const guildId = req.query.guildId as string || req.header('X-Guild-Id');
+
+        if (!guildId) {
+            res.status(400).json({ error: 'guildId is required (query param or X-Guild-Id header)' });
+            return;
+        }
+
+        try {
+            const result = await TodoManager.getSessionByShareToken(guildId, token);
+            if (!result) {
+                res.status(404).json({ error: 'Shared session not found or token expired' });
+                return;
+            }
+
+            // 返却するのはセッションメタとアクセスモード。編集権限がある場合は編集可能
+            res.json({ session: result.session, accessLevel: result.mode === 'edit' ? 'editor' : 'viewer' });
+        } catch (error) {
+            console.error('共有トークン取得エラー:', error);
+            res.status(500).json({ error: 'Failed to fetch shared session' });
         }
     }
 }

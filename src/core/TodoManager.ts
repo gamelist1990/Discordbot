@@ -54,8 +54,10 @@ const MAX_SESSIONS_PER_USER = 3;
  * Todo マネージャー
  */
 export class TodoManager {
-    private static sessionsDb = new JsonDB('todo_sessions', './database');
-    private static contentsDb = new JsonDB('todo_contents', './database');
+    private static sessionsDb = new JsonDB('todo_sessions', './Data');
+    private static contentsDb = new JsonDB('todo_contents', './Data');
+    // 共有リンクを保存するDB（guildIdごとに token -> metadata を保存）
+    private static sharesDb = new JsonDB('todo_shares', './Data');
 
     /**
      * ユーザーのTodoセッションを取得（所有 + 共有されたもの）
@@ -358,5 +360,66 @@ export class TodoManager {
         }
 
         return null;
+    }
+
+    /**
+     * 共有リンクを作成する
+     * mode: 'view' | 'edit'
+     * expiresInSeconds: null = 永続, number = 有効期限(秒)
+     */
+    static async createShareLink(
+        guildId: string,
+        sessionId: string,
+        mode: 'view' | 'edit',
+        expiresInSeconds: number | null = null
+    ): Promise<string> {
+        const session = await this.getSession(guildId, sessionId);
+        if (!session) throw new Error('Session not found');
+
+        const token = crypto.randomBytes(16).toString('hex');
+        const meta: any = {
+            sessionId,
+            mode,
+            createdAt: Date.now()
+        };
+
+        if (expiresInSeconds && expiresInSeconds > 0) {
+            meta.expiresAt = Date.now() + expiresInSeconds * 1000;
+        }
+
+        // 保存
+        await this.sharesDb.set(guildId, token, meta);
+        return token;
+    }
+
+    /**
+     * 共有トークンを検証してセッション情報を返す
+     */
+    static async getSessionByShareToken(guildId: string, token: string): Promise<{ session: TodoSession | null; mode: 'view' | 'edit' } | null> {
+        try {
+            const meta = await this.sharesDb.get<any>(guildId, token);
+            if (!meta) return null;
+
+            if (meta.expiresAt && Date.now() > meta.expiresAt) {
+                // 期限切れなら削除してnullを返す
+                await this.sharesDb.delete(guildId, token);
+                return null;
+            }
+
+            const session = await this.getSession(guildId, meta.sessionId);
+            if (!session) return null;
+
+            return { session, mode: meta.mode };
+        } catch (error) {
+            console.error('Error validating share token:', error);
+            return null;
+        }
+    }
+
+    /**
+     * 共有リンクを取り消す
+     */
+    static async revokeShareLink(guildId: string, token: string): Promise<boolean> {
+        return await this.sharesDb.delete(guildId, token);
     }
 }

@@ -1,9 +1,9 @@
 import { Router, Request, Response } from 'express';
-import { SettingsSession } from '../types/index.js';
 import { BotClient } from '../../core/BotClient.js';
 import crypto from 'crypto';
 import config from '../../config.js';
 import { Logger } from '../../utils/Logger.js';
+import { SettingsSession } from '../SettingsServer.js';
 
 /**
  * OAuth2 state情報
@@ -71,6 +71,7 @@ export function createAuthRoutes(
                     userId: session.userId,
                     guildId: session.guildId,
                     username: session.username || session.userId,
+                    avatar: (session as any).avatar || null,
                     // permission: 0=any,1=staff,2=admin,3=owner
                     permission: typeof session.permission === 'number' ? session.permission : 0
                 }
@@ -230,23 +231,14 @@ export function createAuthRoutes(
                 userId: userData.id,
                 guildId: stateData.guildId,
                 username,
+                // store avatar hash/raw string if available so frontend can build CDN url
+                ...(userData.avatar ? { avatar: userData.avatar } : {}),
                 permission: defaultPermission,
                 createdAt: Date.now(),
                 expiresAt: Date.now() + (24 * 60 * 60 * 1000) // 24時間
             };
 
-            // Try to determine permission using JamboardController logic (if BotClient available)
-            try {
-                const { JamboardController } = await import('../controllers/JamboardController.js');
-                const controller = new JamboardController(botClient);
-                // permissionLevel is an instance method; call it to compute permission
-                const computed = await (controller as any).permissionLevel(session.guildId, session.userId);
-                if (typeof computed === 'number') {
-                    session.permission = computed;
-                }
-            } catch (err) {
-                console.error('Failed to compute permission on callback:', err);
-            }
+            // Permission computation is intentionally omitted here; keep default permission
 
             sessions.set(sessionId, session);
 

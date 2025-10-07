@@ -8,6 +8,7 @@ interface UserSession {
     username: string;
     guildId: string;
     permission: number;
+    avatar?: string | null;
 }
 
 interface TodoSession {
@@ -33,6 +34,8 @@ const TodoDashboard: React.FC = () => {
     const [sessions, setSessions] = useState<TodoSession[]>([]);
     const [filter, setFilter] = useState<'all' | 'favorites' | 'owned' | 'shared'>('all');
     const [showCreateModal, setShowCreateModal] = useState(false);
+    const [showShareModal, setShowShareModal] = useState(false);
+    const [shareInfo, setShareInfo] = useState<{ mode: 'view' | 'edit'; token: string | null; expiresInSeconds: number | null } | null>(null);
     const [newSessionName, setNewSessionName] = useState('');
     const [creating, setCreating] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -199,8 +202,12 @@ const TodoDashboard: React.FC = () => {
                 <div className={styles.headerRight}>
                     {session && (
                         <div className={styles.userMenu}>
-                            <img 
-                                src={`https://cdn.discordapp.com/avatars/${session.userId}/avatar.png`}
+                            <img
+                                src={
+                                    session.avatar
+                                    ? `https://cdn.discordapp.com/avatars/${session.userId}/${session.avatar}.png`
+                                    : `https://cdn.discordapp.com/embed/avatars/0.png`
+                                }
                                 alt="Avatar"
                                 className={styles.avatar}
                                 onError={(e) => { e.currentTarget.src = 'https://cdn.discordapp.com/embed/avatars/0.png'; }}
@@ -319,6 +326,50 @@ const TodoDashboard: React.FC = () => {
                                             <i className="material-icons">arrow_forward</i>
                                             開く
                                         </button>
+                                                    {accessLevel === 'owner' && (
+                                                        <div className={styles.shareActions}>
+                                                            <button
+                                                                className={styles.shareBtn}
+                                                                onClick={async () => {
+                                                                    // create temporary edit link (3 minutes)
+                                                                    try {
+                                                                        const res = await fetch(`/api/todos/sessions/${todoSession.id}/share`, {
+                                                                            method: 'POST',
+                                                                            credentials: 'include',
+                                                                            headers: { 'Content-Type': 'application/json' },
+                                                                            body: JSON.stringify({ mode: 'edit', expiresInSeconds: 180 })
+                                                                        });
+                                                                        if (res.ok) {
+                                                                            const data = await res.json();
+                                                                            setShareInfo({ mode: 'edit', token: data.token, expiresInSeconds: data.expiresInSeconds });
+                                                                            setShowShareModal(true);
+                                                                        } else {
+                                                                            const d = await res.json();
+                                                                            setError(d.error || 'Failed to create share link');
+                                                                        }
+                                                                    } catch (err) {
+                                                                        console.error('Failed to create share link', err);
+                                                                        setError('Failed to create share link');
+                                                                    }
+                                                                }}
+                                                            >
+                                                                <i className="material-icons">edit</i>
+                                                                編集用リンク(3分)
+                                                            </button>
+                                                            <button
+                                                                className={styles.shareBtn}
+                                                                onClick={() => {
+                                                                    // show view URL (permalink without token creation)
+                                                                    // For now build view URL that frontends can use with token query
+                                                                    setShareInfo({ mode: 'view', token: null, expiresInSeconds: null });
+                                                                    setShowShareModal(true);
+                                                                }}
+                                                            >
+                                                                <i className="material-icons">link</i>
+                                                                閲覧用URL
+                                                            </button>
+                                                        </div>
+                                                    )}
                                     </div>
                                 </div>
                             );
@@ -360,6 +411,41 @@ const TodoDashboard: React.FC = () => {
                             >
                                 {creating ? '作成中...' : '作成'}
                             </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Share Modal */}
+            {showShareModal && (
+                <div className={styles.modalOverlay} onClick={() => { setShowShareModal(false); setShareInfo(null); }}>
+                    <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
+                        <div className={styles.modalHeader}>
+                            <h2>共有リンク</h2>
+                            <button className={styles.closeBtn} onClick={() => { setShowShareModal(false); setShareInfo(null); }}>
+                                <i className="material-icons">close</i>
+                            </button>
+                        </div>
+                        <div className={styles.modalBody}>
+                            {shareInfo && shareInfo.mode === 'edit' && shareInfo.token ? (
+                                <>
+                                    <p>編集用リンク（有効期限: {shareInfo.expiresInSeconds} 秒）</p>
+                                    <input type="text" readOnly value={`${window.location.origin}/api/todos/shared/${shareInfo.token}?guildId=${guildId}`} className={styles.input} />
+                                    <div style={{ marginTop: '8px' }}>
+                                        <button onClick={() => { navigator.clipboard?.writeText(`${window.location.origin}/api/todos/shared/${shareInfo.token}?guildId=${guildId}`); }}>コピー</button>
+                                    </div>
+                                </>
+                            ) : shareInfo && shareInfo.mode === 'view' ? (
+                                <>
+                                    <p>閲覧用URLの生成にはオーナーが個別にトークンを発行するか、ユーザー追加で閲覧者として登録してください。</p>
+                                    <p>代替: オーナーに編集用リンク(短時間)を発行してもらってください。</p>
+                                </>
+                            ) : (
+                                <p>共有リンクがありません。</p>
+                            )}
+                        </div>
+                        <div className={styles.modalFooter}>
+                            <button className={styles.cancelBtn} onClick={() => { setShowShareModal(false); setShareInfo(null); }}>閉じる</button>
                         </div>
                     </div>
                 </div>
