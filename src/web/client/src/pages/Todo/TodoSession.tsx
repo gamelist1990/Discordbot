@@ -14,6 +14,8 @@ interface TodoItem {
     id: string;
     text: string;
     completed: boolean;
+    status: 'planned' | 'in_progress' | 'completed';
+    progress: number;
     priority: 'low' | 'medium' | 'high';
     tags: string[];
     description?: string;
@@ -34,7 +36,10 @@ const TodoSessionPage: React.FC = () => {
     const [loading, setLoading] = useState(true);
     const [newTodoText, setNewTodoText] = useState('');
     const [filter, setFilter] = useState<'all' | 'active' | 'completed'>('all');
+    const [statusFilter, setStatusFilter] = useState<'all' | 'planned' | 'in_progress' | 'completed'>('all');
     const [showShareModal, setShowShareModal] = useState(false);
+    const [editingTodo, setEditingTodo] = useState<TodoItem | null>(null);
+    const [showEditModal, setShowEditModal] = useState(false);
 
     useEffect(() => {
         loadData();
@@ -129,6 +134,29 @@ const TodoSessionPage: React.FC = () => {
         }
     };
 
+    const openEditModal = (todo: TodoItem) => {
+        setEditingTodo(todo);
+        setShowEditModal(true);
+    };
+
+    const updateTodoDetails = async (updates: Partial<TodoItem>) => {
+        if (!editingTodo || accessLevel === 'viewer') return;
+
+        try {
+            await fetch(`/api/todos/sessions/${sessionId}/items/${editingTodo.id}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify(updates)
+            });
+            await loadData();
+            setShowEditModal(false);
+            setEditingTodo(null);
+        } catch (err) {
+            console.error('Failed to update todo:', err);
+        }
+    };
+
     const deleteSession = async () => {
         if (accessLevel !== 'owner') return;
         if (!window.confirm('このセッションを削除しますか？')) return;
@@ -148,8 +176,18 @@ const TodoSessionPage: React.FC = () => {
     };
 
     const filteredTodos = todos.filter(todo => {
-        if (filter === 'active') return !todo.completed;
-        if (filter === 'completed') return todo.completed;
+        // Filter by completion status
+        if (filter === 'active') {
+            if (todo.completed) return false;
+        } else if (filter === 'completed') {
+            if (!todo.completed) return false;
+        }
+        
+        // Filter by status
+        if (statusFilter !== 'all' && todo.status !== statusFilter) {
+            return false;
+        }
+        
         return true;
     });
 
@@ -220,6 +258,21 @@ const TodoSessionPage: React.FC = () => {
                     </button>
                 </div>
 
+                <div className={styles.statusFilters}>
+                    <button className={`${styles.statusFilterBtn} ${statusFilter === 'all' ? styles.active : ''}`} onClick={() => setStatusFilter('all')}>
+                        全ステータス
+                    </button>
+                    <button className={`${styles.statusFilterBtn} ${statusFilter === 'planned' ? styles.active : ''}`} onClick={() => setStatusFilter('planned')}>
+                        📋 予定
+                    </button>
+                    <button className={`${styles.statusFilterBtn} ${statusFilter === 'in_progress' ? styles.active : ''}`} onClick={() => setStatusFilter('in_progress')}>
+                        🔄 進行中
+                    </button>
+                    <button className={`${styles.statusFilterBtn} ${statusFilter === 'completed' ? styles.active : ''}`} onClick={() => setStatusFilter('completed')}>
+                        ✅ 完了
+                    </button>
+                </div>
+
                 <div className={styles.todoList}>
                     {filteredTodos.length === 0 ? (
                         <div className={styles.empty}>
@@ -237,7 +290,28 @@ const TodoSessionPage: React.FC = () => {
                                     className={styles.checkbox}
                                 />
                                 <div className={styles.todoContent}>
-                                    <span className={styles.todoText}>{todo.text}</span>
+                                    <div className={styles.todoHeader}>
+                                        <span className={styles.todoText}>{todo.text}</span>
+                                        <span className={styles.statusBadge} data-status={todo.status}>
+                                            {todo.status === 'planned' ? '📋 予定' : 
+                                             todo.status === 'in_progress' ? '🔄 進行中' : 
+                                             '✅ 完了'}
+                                        </span>
+                                    </div>
+                                    {todo.description && (
+                                        <div className={styles.todoDescription}>
+                                            {todo.description.substring(0, 100)}
+                                            {todo.description.length > 100 ? '...' : ''}
+                                        </div>
+                                    )}
+                                    <div className={styles.progressBar}>
+                                        <div 
+                                            className={styles.progressFill} 
+                                            style={{ width: `${todo.progress}%` }}
+                                            data-status={todo.status}
+                                        ></div>
+                                        <span className={styles.progressText}>{todo.progress}%</span>
+                                    </div>
                                     {todo.tags.length > 0 && (
                                         <div className={styles.tags}>
                                             {todo.tags.map((tag, i) => (
@@ -250,9 +324,14 @@ const TodoSessionPage: React.FC = () => {
                                     {todo.priority === 'high' ? '高' : todo.priority === 'medium' ? '中' : '低'}
                                 </span>
                                 {canEdit && (
-                                    <button className={styles.deleteItemBtn} onClick={() => deleteTodo(todo.id)}>
-                                        <i className="material-icons">delete</i>
-                                    </button>
+                                    <>
+                                        <button className={styles.editItemBtn} onClick={() => openEditModal(todo)}>
+                                            <i className="material-icons">edit</i>
+                                        </button>
+                                        <button className={styles.deleteItemBtn} onClick={() => deleteTodo(todo.id)}>
+                                            <i className="material-icons">delete</i>
+                                        </button>
+                                    </>
                                 )}
                             </div>
                         ))
@@ -266,6 +345,177 @@ const TodoSessionPage: React.FC = () => {
                     onClose={() => setShowShareModal(false)}
                 />
             )}
+
+            {showEditModal && editingTodo && canEdit && (
+                <EditTodoModal
+                    todo={editingTodo}
+                    onSave={updateTodoDetails}
+                    onClose={() => {
+                        setShowEditModal(false);
+                        setEditingTodo(null);
+                    }}
+                />
+            )}
+        </div>
+    );
+};
+
+const EditTodoModal: React.FC<{
+    todo: TodoItem;
+    onSave: (updates: Partial<TodoItem>) => void;
+    onClose: () => void;
+}> = ({ todo, onSave, onClose }) => {
+    const [text, setText] = useState(todo.text);
+    const [description, setDescription] = useState(todo.description || '');
+    const [status, setStatus] = useState<'planned' | 'in_progress' | 'completed'>(todo.status);
+    const [progress, setProgress] = useState(todo.progress);
+    const [priority, setPriority] = useState<'low' | 'medium' | 'high'>(todo.priority);
+    const [tags, setTags] = useState(todo.tags.join(', '));
+    const [showPreview, setShowPreview] = useState(false);
+
+    const handleSave = () => {
+        const tagsArray = tags.split(',').map(t => t.trim()).filter(t => t.length > 0);
+        onSave({
+            text: text.trim(),
+            description: description.trim() || undefined,
+            status,
+            progress,
+            priority,
+            tags: tagsArray
+        });
+    };
+
+    // Simple markdown preview (basic support)
+    const renderMarkdown = (md: string) => {
+        return md
+            .replace(/### (.*)/g, '<h3>$1</h3>')
+            .replace(/## (.*)/g, '<h2>$1</h2>')
+            .replace(/# (.*)/g, '<h1>$1</h1>')
+            .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+            .replace(/\*(.*?)\*/g, '<em>$1</em>')
+            .replace(/`(.*?)`/g, '<code>$1</code>')
+            .replace(/\n/g, '<br/>');
+    };
+
+    return (
+        <div className={styles.modalOverlay} onClick={onClose}>
+            <div className={styles.editModal} onClick={(e) => e.stopPropagation()}>
+                <div className={styles.modalHeader}>
+                    <h2>Todoを編集</h2>
+                    <button onClick={onClose}><i className="material-icons">close</i></button>
+                </div>
+                <div className={styles.modalBody}>
+                    <div className={styles.formGroup}>
+                        <label>タイトル *</label>
+                        <input
+                            type="text"
+                            value={text}
+                            onChange={(e) => setText(e.target.value)}
+                            className={styles.input}
+                        />
+                    </div>
+
+                    <div className={styles.formGroup}>
+                        <label>説明 (Markdown対応)</label>
+                        <div className={styles.descriptionTabs}>
+                            <button
+                                className={!showPreview ? styles.active : ''}
+                                onClick={() => setShowPreview(false)}
+                            >
+                                編集
+                            </button>
+                            <button
+                                className={showPreview ? styles.active : ''}
+                                onClick={() => setShowPreview(true)}
+                            >
+                                プレビュー
+                            </button>
+                        </div>
+                        {!showPreview ? (
+                            <textarea
+                                value={description}
+                                onChange={(e) => setDescription(e.target.value)}
+                                placeholder="# 見出し&#10;**太字** *斜体* `コード`"
+                                className={styles.textarea}
+                                rows={6}
+                            />
+                        ) : (
+                            <div
+                                className={styles.markdownPreview}
+                                dangerouslySetInnerHTML={{ __html: renderMarkdown(description) }}
+                            />
+                        )}
+                    </div>
+
+                    <div className={styles.formGroup}>
+                        <label>ステータス</label>
+                        <select
+                            value={status}
+                            onChange={(e) => setStatus(e.target.value as any)}
+                            className={styles.select}
+                        >
+                            <option value="planned">📋 予定</option>
+                            <option value="in_progress">🔄 進行中</option>
+                            <option value="completed">✅ 完了</option>
+                        </select>
+                    </div>
+
+                    <div className={styles.formGroup}>
+                        <label>進捗率: {progress}%</label>
+                        <input
+                            type="range"
+                            min="0"
+                            max="100"
+                            value={progress}
+                            onChange={(e) => setProgress(Number(e.target.value))}
+                            className={styles.progressSlider}
+                        />
+                        <div className={styles.progressBar}>
+                            <div
+                                className={styles.progressFill}
+                                style={{ width: `${progress}%` }}
+                                data-status={status}
+                            ></div>
+                        </div>
+                    </div>
+
+                    <div className={styles.formGroup}>
+                        <label>優先度</label>
+                        <select
+                            value={priority}
+                            onChange={(e) => setPriority(e.target.value as any)}
+                            className={styles.select}
+                        >
+                            <option value="low">低</option>
+                            <option value="medium">中</option>
+                            <option value="high">高</option>
+                        </select>
+                    </div>
+
+                    <div className={styles.formGroup}>
+                        <label>タグ (カンマ区切り)</label>
+                        <input
+                            type="text"
+                            value={tags}
+                            onChange={(e) => setTags(e.target.value)}
+                            placeholder="bug, feature, urgent"
+                            className={styles.input}
+                        />
+                    </div>
+                </div>
+                <div className={styles.modalFooter}>
+                    <button className={styles.cancelBtn} onClick={onClose}>
+                        キャンセル
+                    </button>
+                    <button
+                        className={styles.saveBtn}
+                        onClick={handleSave}
+                        disabled={!text.trim()}
+                    >
+                        保存
+                    </button>
+                </div>
+            </div>
         </div>
     );
 };
