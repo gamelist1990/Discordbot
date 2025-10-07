@@ -4,7 +4,8 @@ import path from 'path';
 import { Logger } from '../utils/Logger.js';
 import { BotClient } from '../core/BotClient.js';
 import { SessionService } from './services/SessionService.js';
-import { createStatusRoutes, createSessionRoutes, createSettingsRoutes, createStaffRoutes, createAuthRoutes, createTodoRoutes, createUserRoutes } from './routes/index.js';
+import { createStatusRoutes, createSessionRoutes, createSettingsRoutes, createStaffRoutes, createAuthRoutes, createTodoRoutes, createUserRoutes, createModRoutes } from './routes/index.js';
+import { statsManagerSingleton } from '../core/StatsManager.js';
 
 // 型定義を型として再エクスポート（実行時には存在しないため type を使用）
 
@@ -35,6 +36,12 @@ export class SettingsServer {
 
         this.setupMiddleware();
         this.setupRoutes();
+        // Initialize StatsManager if bot client is available
+        try {
+            statsManagerSingleton.init(this.botClient.client);
+        } catch (e) {
+            Logger.warn('Failed to init StatsManager:', e);
+        }
     }
 
     /**
@@ -46,7 +53,7 @@ export class SettingsServer {
             origin: true
         }));
         this.app.use(express.json());
-        
+
         // Cookie parser (簡易実装)
         this.app.use((req, res, next) => {
             req.cookies = {};
@@ -57,11 +64,11 @@ export class SettingsServer {
                     req.cookies[name] = value;
                 });
             }
-            
+
             // res.cookie() ヘルパーを追加
-            res.cookie = function(name: string, value: string, options: any = {}) {
+            res.cookie = function (name: string, value: string, options: any = {}) {
                 let cookie = `${name}=${value}`;
-                
+
                 if (options.maxAge) {
                     cookie += `; Max-Age=${Math.floor(options.maxAge / 1000)}`;
                 }
@@ -79,17 +86,17 @@ export class SettingsServer {
                 } else {
                     cookie += '; Path=/';
                 }
-                
+
                 res.setHeader('Set-Cookie', cookie);
                 return res;
             };
-            
+
             // res.clearCookie() ヘルパーを追加
-            res.clearCookie = function(name: string) {
+            res.clearCookie = function (name: string) {
                 res.setHeader('Set-Cookie', `${name}=; Path=/; Max-Age=0`);
                 return res;
             };
-            
+
             next();
         });
     }
@@ -107,7 +114,26 @@ export class SettingsServer {
         this.app.use('/api/staff', createStaffRoutes(sessions, this.botClient));
         this.app.use('/api', createTodoRoutes(sessions, this.botClient));
         this.app.use('/api/auth', createAuthRoutes(sessions, this.botClient));
-        this.app.use('/api/user', createUserRoutes(this.botClient));
+        this.app.use('/api/user', createUserRoutes(sessions, this.botClient));
+        this.app.use('/api/guilds', createModRoutes(sessions, this.botClient));
+
+        // Temporary debug route to inspect StatsManager buffer
+        this.app.get('/__debug/stats-buffer', (_req, res) => {
+            try {
+                const s = statsManagerSingleton.instance as any;
+                if (!s) return res.status(200).json({ buffer: null });
+                const buf: Record<string, Record<string, any>> = {};
+                for (const [g, m] of s['buffer'].entries()) {
+                    buf[g] = {};
+                    for (const [u, c] of m.entries()) {
+                        buf[g][u] = c;
+                    }
+                }
+                res.json({ buffer: buf });
+            } catch (e) {
+                res.status(500).json({ error: 'debug failed' });
+            }
+        });
 
         // 静的ファイルの配信
         this.app.use(express.static(path.join(__dirname, '..', '..', 'dist', 'web')));
@@ -138,9 +164,9 @@ export class SettingsServer {
      */
     public async start(): Promise<void> {
         return new Promise((resolve) => {
-                // 明示的に 0.0.0.0 にバインドして外部からアクセス可能にする
-                this.server = this.app.listen(this.port, '0.0.0.0', () => {
-                    Logger.info(`Webサーバーをポート ${this.port} で起動しました (bound to 0.0.0.0)`);
+            // 明示的に 0.0.0.0 にバインドして外部からアクセス可能にする
+            this.server = this.app.listen(this.port, '0.0.0.0', () => {
+                Logger.info(`Webサーバーをポート ${this.port} で起動しました (bound to 0.0.0.0)`);
                 resolve();
             });
         });

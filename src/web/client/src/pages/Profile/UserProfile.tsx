@@ -39,8 +39,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ user, onLoginClick }) => {
     const [profileData, setProfileData] = useState<UserProfile | null>(user || null);
     const [activeTab, setActiveTab] = useState<'overview' | 'servers'>('overview');
 
-    const [searchParams] = useSearchParams();
-    const guildId = searchParams.get('guildId') || '';
+    const [] = useSearchParams();
 
     useEffect(() => {
         if (!user) {
@@ -76,6 +75,43 @@ const UserProfile: React.FC<UserProfileProps> = ({ user, onLoginClick }) => {
             if (response.ok) {
                 const data = await response.json();
                 setProfileData(data);
+
+                // For each guild, try to fetch authoritative mod stats and merge
+                try {
+                    const guilds = data.guilds || [];
+                    const updatedGuilds = await Promise.all(guilds.map(async (g: GuildStats) => {
+                        try {
+                            const r = await fetch(`/api/guilds/${g.id}/modinfo`, { credentials: 'include' });
+                            if (!r.ok) return g;
+                            const mod = await r.json();
+                            // if mod returns aggregates, use them
+                            if (mod && mod.guildAggregates) {
+                                return {
+                                    ...g,
+                                    totalMessages: mod.guildAggregates.totalMessages || g.totalMessages,
+                                    linkMessages: mod.guildAggregates.totalLinks || g.linkMessages,
+                                    mediaMessages: mod.guildAggregates.totalMedia || g.mediaMessages,
+                                    memberCount: mod.memberCount || g.memberCount,
+                                } as GuildStats;
+                            }
+                            return g;
+                        } catch (e) {
+                            return g;
+                        }
+                    }));
+
+                    // compute totals from updatedGuilds
+                    const totals = updatedGuilds.reduce((acc, cur) => {
+                        acc.totalMessages += cur.totalMessages || 0;
+                        acc.totalLinks += cur.linkMessages || 0;
+                        acc.totalMedia += cur.mediaMessages || 0;
+                        return acc;
+                    }, { totalMessages: 0, totalLinks: 0, totalMedia: 0 });
+
+                    setProfileData({ ...data, guilds: updatedGuilds, totalStats: { ...data.totalStats, totalMessages: totals.totalMessages, totalLinks: totals.totalLinks, totalMedia: totals.totalMedia } });
+                } catch (e) {
+                    // ignore per-guild merge failures
+                }
             }
         } catch (error) {
             console.error('Failed to load user profile:', error);
@@ -173,7 +209,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ user, onLoginClick }) => {
                                 <div className={styles.statContent}>
                                     <h3>総メッセージ数</h3>
                                     <p className={styles.statValue}>
-                                        {profileData.totalStats.totalMessages.toLocaleString()}
+                                        {(profileData.totalStats.totalMessages || 0).toLocaleString()}
                                     </p>
                                 </div>
                             </div>
@@ -184,7 +220,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ user, onLoginClick }) => {
                                 <div className={styles.statContent}>
                                     <h3>リンク送信数</h3>
                                     <p className={styles.statValue}>
-                                        {profileData.totalStats.totalLinks.toLocaleString()}
+                                        {(profileData.totalStats.totalLinks || 0).toLocaleString()}
                                     </p>
                                 </div>
                             </div>
@@ -195,7 +231,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ user, onLoginClick }) => {
                                 <div className={styles.statContent}>
                                     <h3>メディア送信数</h3>
                                     <p className={styles.statValue}>
-                                        {profileData.totalStats.totalMedia.toLocaleString()}
+                                        {(profileData.totalStats.totalMedia || 0).toLocaleString()}
                                     </p>
                                 </div>
                             </div>
@@ -206,7 +242,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ user, onLoginClick }) => {
                                 <div className={styles.statContent}>
                                     <h3>参加サーバー数</h3>
                                     <p className={styles.statValue}>
-                                        {profileData.totalStats.totalServers.toLocaleString()}
+                                        {(profileData.totalStats.totalServers || 0).toLocaleString()}
                                     </p>
                                 </div>
                             </div>
@@ -244,17 +280,17 @@ const UserProfile: React.FC<UserProfileProps> = ({ user, onLoginClick }) => {
                                     <div className={styles.guildStats}>
                                         <div className={styles.guildStat}>
                                             <span className="material-icons-outlined">message</span>
-                                            <span>{guild.totalMessages.toLocaleString()}</span>
+                                            <span>{(guild.totalMessages || 0).toLocaleString()}</span>
                                             <label>メッセージ</label>
                                         </div>
                                         <div className={styles.guildStat}>
                                             <span className="material-icons-outlined">link</span>
-                                            <span>{guild.linkMessages.toLocaleString()}</span>
+                                            <span>{(guild.linkMessages || 0).toLocaleString()}</span>
                                             <label>リンク</label>
                                         </div>
                                         <div className={styles.guildStat}>
                                             <span className="material-icons-outlined">image</span>
-                                            <span>{guild.mediaMessages.toLocaleString()}</span>
+                                            <span>{(guild.mediaMessages || 0).toLocaleString()}</span>
                                             <label>メディア</label>
                                         </div>
                                     </div>
@@ -262,6 +298,18 @@ const UserProfile: React.FC<UserProfileProps> = ({ user, onLoginClick }) => {
                                     {guild.role && (
                                         <div className={styles.guildRole}>
                                             ロール: {guild.role}
+                                        </div>
+                                    )}
+
+                                    {/* display full roles array if present (some servers provide `roles` array) */}
+                                    {(guild as any).roles && (guild as any).roles.length > 0 && (
+                                        <div className={styles.guildRolesList}>
+                                            <strong>所有ロール:</strong>
+                                            <ul>
+                                                {((guild as any).roles as string[]).map(r => (
+                                                    <li key={r}>{r}</li>
+                                                ))}
+                                            </ul>
                                         </div>
                                     )}
 

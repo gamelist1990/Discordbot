@@ -36,7 +36,8 @@ export class Database {
      * @param data 保存するデータ（JSON シリアライズ可能）
      */
     async set<T = any>(guildId: string, key: string, data: T): Promise<void> {
-        const fullKey = `${guildId}_${key}`;
+        // if key contains a directory separator, treat it as a relative path under dataDir
+        const fullKey = key.includes('/') || key.includes('\\') ? key : `${guildId}_${key}`;
         try {
             const filePath = this.getFilePath(fullKey);
             const dirPath = path.dirname(filePath);
@@ -62,7 +63,7 @@ export class Database {
      * @returns 保存されているデータまたはデフォルト値
      */
     async get<T = any>(guildId: string, key: string, defaultValue: T | null = null): Promise<T | null> {
-        const fullKey = `${guildId}_${key}`;
+        const fullKey = key.includes('/') || key.includes('\\') ? key : `${guildId}_${key}`;
         try {
             // キャッシュから取得を試みる
             if (this.cache.has(fullKey)) {
@@ -92,7 +93,7 @@ export class Database {
      * @returns 存在する場合 true
      */
     async has(guildId: string, key: string): Promise<boolean> {
-        const fullKey = `${guildId}_${key}`;
+        const fullKey = key.includes('/') || key.includes('\\') ? key : `${guildId}_${key}`;
         try {
             const filePath = this.getFilePath(fullKey);
             await fs.access(filePath);
@@ -108,7 +109,7 @@ export class Database {
      * @param key データのキー
      */
     async delete(guildId: string, key: string): Promise<boolean> {
-        const fullKey = `${guildId}_${key}`;
+        const fullKey = key.includes('/') || key.includes('\\') ? key : `${guildId}_${key}`;
         try {
             const filePath = this.getFilePath(fullKey);
             await fs.unlink(filePath);
@@ -145,12 +146,18 @@ export class Database {
                     if (item.isDirectory()) {
                         await searchDir(itemPath, relativePath);
                     } else if (item.isFile() && item.name.endsWith('.json')) {
-                        const key = item.name.replace('.json', '');
-                        if (key.startsWith(`${guildId}_`)) {
-                            const dataKey = key.replace(`${guildId}_`, '');
-                            const data = await this.get(guildId, dataKey);
-                            if (data !== null) {
-                                result[dataKey] = data;
+                        const rel = relativePath.replace(/\\/g, '/');
+                        // support new layout: Guild/<guildId>/... or old flat files like <guildId>_key.json
+                        if (rel.startsWith(`Guild/${guildId}/`)) {
+                            const dataKey = rel.replace(`Guild/${guildId}/`, '').replace('.json', '');
+                            const data = await this.get(guildId, `Guild/${guildId}/${dataKey}`);
+                            if (data !== null) result[dataKey] = data;
+                        } else {
+                            const key = item.name.replace('.json', '');
+                            if (key.startsWith(`${guildId}_`)) {
+                                const dataKey = key.replace(`${guildId}_`, '');
+                                const data = await this.get(guildId, dataKey);
+                                if (data !== null) result[dataKey] = data;
                             }
                         }
                     }
