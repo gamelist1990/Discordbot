@@ -196,9 +196,6 @@ const TodoDashboard: React.FC = () => {
         <div className={styles.page}>
             <AppHeader user={session} />
             <div className={styles.dashboard}>
-            <div className={styles.dashboard}>
-            {/* Header removed - using AppHeader component */}
-            
             {/* Main Content */}
             <main className={styles.main}>
                 {/* Actions Bar */}
