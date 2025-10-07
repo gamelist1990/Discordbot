@@ -1,8 +1,8 @@
 import { Request, Response } from 'express';
-import { SettingsSession, GuildSettings } from '../types/index.js';
 import { JamboardManager, DrawingStroke, TodoItem } from '../../core/JamboardManager.js';
 import crypto from 'crypto';
 import { BotClient } from '../../core/BotClient.js';
+import { GuildSettings, SettingsSession } from '../SettingsServer.js';
 
 // In-memory guild settings store (simple). In production, this should be persisted.
 const guildSettingsStore = new Map<string, GuildSettings>();
@@ -144,7 +144,14 @@ export class JamboardController {
         const { jamboardId } = req.params;
 
         try {
-            const jamboard = await JamboardManager.getJamboard(session.guildId, jamboardId);
+            let actualJamboardId = jamboardId;
+            
+            // もし jamboardId が数字のみ（ギルドID形式）の場合、staff jamboard を指している可能性がある
+            if (/^\d+$/.test(jamboardId)) {
+                actualJamboardId = `staff_${jamboardId}`;
+            }
+
+            const jamboard = await JamboardManager.getJamboard(session.guildId, actualJamboardId);
             if (!jamboard) {
                 res.status(404).json({ error: 'Jamboard not found' });
                 return;
@@ -153,7 +160,7 @@ export class JamboardController {
             const perm = await this.permissionLevel(session.guildId, session.userId);
             const canAccess = await JamboardManager.canAccess(
                 session.guildId,
-                jamboardId,
+                actualJamboardId,
                 session.userId,
                 perm >= 1
             );

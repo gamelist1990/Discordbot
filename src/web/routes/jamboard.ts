@@ -1,12 +1,12 @@
 import { Router } from 'express';
 import { JamboardController } from '../controllers/JamboardController.js';
-import { SettingsSession } from '../types/index.js';
 import { AuthMiddleware } from '../middleware/auth.js';
 
 /**
  * Jamboard ルート
  */
 import { BotClient } from '../../core/BotClient.js';
+import { SettingsSession } from '../SettingsServer.js';
 
 export function createJamboardRoutes(
     sessions: Map<string, SettingsSession>,
@@ -16,11 +16,7 @@ export function createJamboardRoutes(
     const controller = new JamboardController(botClient);
     const auth = new AuthMiddleware(sessions);
 
-    // Jamboard一覧の取得
-    router.get('/jamboards/:token', auth.validateToken, controller.getJamboards.bind(controller));
-    // Convenience: cookie-based client calls (no token param)
-    router.get('/jamboards', auth.validateToken, controller.getJamboards.bind(controller));
-
+    // Specific routes first: staff and personal convenience endpoints
     // スタッフJamboardの取得または作成
     router.get('/jamboards/:token/staff', auth.validateToken, controller.getOrCreateStaffJamboard.bind(controller));
     router.get('/jamboards/staff', auth.validateToken, controller.getOrCreateStaffJamboard.bind(controller));
@@ -28,6 +24,11 @@ export function createJamboardRoutes(
     // 個人用Jamboardの作成
     router.post('/jamboards/:token/personal', auth.validateToken, controller.createPersonalJamboard.bind(controller));
     router.post('/jamboards/personal', auth.validateToken, controller.createPersonalJamboard.bind(controller));
+
+    // Jamboard一覧の取得 (generic)
+    router.get('/jamboards/:token', auth.validateToken, controller.getJamboards.bind(controller));
+    // Convenience: cookie-based client calls (no token param)
+    router.get('/jamboards', auth.validateToken, controller.getJamboards.bind(controller));
 
     // 特定のJamboardを取得
     router.get('/jamboards/:token/:jamboardId', auth.validateToken, controller.getJamboard.bind(controller));

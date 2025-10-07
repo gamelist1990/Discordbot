@@ -5,6 +5,7 @@ import SettingsPage from './pages/Settings';
 import PrivateChatPage from './pages/PrivateChat';
 import NotFoundPage from './pages/NotFound';
 import JamboardPage from './pages/Jamboard';
+import WorkspacesPage from './pages/Workspaces';
 
 const App: React.FC = () => {
   return (
@@ -12,7 +13,8 @@ const App: React.FC = () => {
       <Route path="/" element={<DashboardPage />} />
       <Route path="/settings/:token" element={<SettingsPage />} />
       <Route path="/staff/privatechat/:token" element={<PrivateChatPage />} />
-      <Route path="/jamboard" element={<JamboardPage />} />
+  <Route path="/jamboard" element={<WorkspacesPage />} />
+      <Route path="/jamboard/:jamboardId" element={<JamboardPage />} />
       <Route path="/404" element={<NotFoundPage />} />
       <Route path="*" element={<Navigate to="/404" replace />} />
     </Routes>

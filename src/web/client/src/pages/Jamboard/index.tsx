@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
+import { useParams } from 'react-router-dom';
 import styles from './JamboardPage.module.css';
 
 interface Jamboard {
@@ -39,6 +40,7 @@ interface UserSession {
 }
 
 const JamboardPage: React.FC = () => {
+    const { jamboardId } = useParams<{ jamboardId?: string }>();
     const [session, setSession] = useState<UserSession | null>(null);
     const [loading, setLoading] = useState(true);
     const [authError, setAuthError] = useState<string | null>(null);
@@ -111,6 +113,11 @@ const JamboardPage: React.FC = () => {
                 const data = await response.json();
                 setSession(data.user);
                 // permission >=1 => staff
+                // If there's no jamboardId in path, go to workspaces selection
+                if (!jamboardId) {
+                    window.location.href = '/jamboard';
+                    return;
+                }
                 await loadJamboard((data.user.permission || 0) >= 1);
             } else {
                 setSession(null);
@@ -146,7 +153,17 @@ const JamboardPage: React.FC = () => {
         try {
             let url: string;
             
-            if (isStaff) {
+            if (jamboardId) {
+                // If the path param looks like a guild ID (numeric), the client route
+                // uses /jamboard/<guildId> for convenience. In that case call the
+                // staff endpoint so server-side logic maps to the staff jamboard.
+                if (/^\d+$/.test(jamboardId)) {
+                    url = '/api/jamboards/staff';
+                } else {
+                    // Otherwise treat it as a jamboard id
+                    url = `/api/jamboards/${jamboardId}`;
+                }
+            } else if (isStaff) {
                 url = '/api/jamboards/staff';
             } else {
                 url = '/api/jamboards/personal';

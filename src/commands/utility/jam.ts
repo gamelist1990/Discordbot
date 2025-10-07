@@ -1,7 +1,7 @@
 import { ChatInputCommandInteraction, MessageFlags, EmbedBuilder } from 'discord.js';
+import config from '../../config';
 // lazy import config to avoid circular deps at runtime
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const config = require('../../../config').default;
 
 /**
  * Jam コマンドハンドラー
@@ -17,6 +17,7 @@ export const commandHandler = {
     },
 
     async execute(interaction: ChatInputCommandInteraction): Promise<void> {
+        console.log('config in jam:', config);
         if (!interaction.guild) {
             await interaction.reply({
                 content: '❌ このコマンドはサーバー内でのみ使用できます。',
