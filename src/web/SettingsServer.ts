@@ -4,7 +4,7 @@ import path from 'path';
 import { Logger } from '../utils/Logger.js';
 import { BotClient } from '../core/BotClient.js';
 import { SessionService } from './services/SessionService.js';
-import { createStatusRoutes, createSessionRoutes, createSettingsRoutes, createStaffRoutes, createJamboardRoutes, createAuthRoutes } from './routes/index.js';
+import { createStatusRoutes, createSessionRoutes, createSettingsRoutes, createStaffRoutes, createAuthRoutes, createTodoRoutes } from './routes/index.js';
 
 // 型定義を型として再エクスポート（実行時には存在しないため type を使用）
 export type { SettingsSession, GuildSettings } from './types/index.js';
@@ -106,7 +106,7 @@ export class SettingsServer {
         this.app.use('/api', createSessionRoutes(sessions, this.botClient));
         this.app.use('/api', createSettingsRoutes(sessions));
         this.app.use('/api/staff', createStaffRoutes(sessions, this.botClient));
-    this.app.use('/api', createJamboardRoutes(sessions, this.botClient));
+        this.app.use('/api', createTodoRoutes(sessions, this.botClient));
         this.app.use('/api/auth', createAuthRoutes(sessions, this.botClient));
 
         // 静的ファイルの配信
