@@ -6,11 +6,14 @@ import { AuthMiddleware } from '../middleware/auth.js';
 /**
  * Jamboard ルート
  */
+import { BotClient } from '../../core/BotClient.js';
+
 export function createJamboardRoutes(
-    sessions: Map<string, SettingsSession>
+    sessions: Map<string, SettingsSession>,
+    botClient: BotClient
 ): Router {
     const router = Router();
-    const controller = new JamboardController();
+    const controller = new JamboardController(botClient);
     const auth = new AuthMiddleware(sessions);
 
     // Jamboard一覧の取得

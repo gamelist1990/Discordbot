@@ -106,7 +106,7 @@ export class SettingsServer {
         this.app.use('/api', createSessionRoutes(sessions, this.botClient));
         this.app.use('/api', createSettingsRoutes(sessions));
         this.app.use('/api/staff', createStaffRoutes(sessions, this.botClient));
-        this.app.use('/api', createJamboardRoutes(sessions));
+    this.app.use('/api', createJamboardRoutes(sessions, this.botClient));
         this.app.use('/api/auth', createAuthRoutes(sessions, this.botClient));
 
         // 静的ファイルの配信

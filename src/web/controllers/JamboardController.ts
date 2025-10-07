@@ -1,21 +1,74 @@
 import { Request, Response } from 'express';
-import { SettingsSession } from '../types/index.js';
+import { SettingsSession, GuildSettings } from '../types/index.js';
 import { JamboardManager, DrawingStroke, TodoItem } from '../../core/JamboardManager.js';
 import crypto from 'crypto';
+import { BotClient } from '../../core/BotClient.js';
+
+// In-memory guild settings store (simple). In production, this should be persisted.
+const guildSettingsStore = new Map<string, GuildSettings>();
 
 /**
  * Jamboard コントローラー
  */
 export class JamboardController {
+    private botClient?: BotClient;
+
+    constructor(botClient?: BotClient) {
+        this.botClient = botClient;
+    }
     /**
      * ユーザーがスタッフかどうかを確認
      * TODO: 実際のスタッフ判定ロジックに置き換える
      */
     // permission levels: 0=any,1=staff,2=admin,3=owner
-    private async permissionLevel(_guildId: string, _userId: string): Promise<number> {
-        // TODO: 本来は Discord API で guild のメンバー情報を確認して権限を決定する
-        // 現在はデフォルトで 0 を返す（一般ユーザー）
-        return 0;
+    private async permissionLevel(guildId: string, userId: string): Promise<number> {
+        // Default permission
+        let level = 0;
+
+        // If we don't have a bot client, return default
+        if (!this.botClient || !this.botClient.client) {
+            return level;
+        }
+
+        try {
+            // Try to use guild settings if available
+            const settings = guildSettingsStore.get(guildId);
+
+            // Fetch guild member via discord.js cache or API
+            const guild = this.botClient.client.guilds.cache.get(guildId);
+            let member = guild ? guild.members.cache.get(userId) : undefined;
+
+            if (!member && guild) {
+                // Try fetching from API
+                member = await guild.members.fetch(userId).catch(() => undefined as any);
+            }
+
+            // Owner check
+            if (guild && guild.ownerId === userId) {
+                return 3;
+            }
+
+            if (member) {
+                // Admin role if member has MANAGE_GUILD or ADMINISTRATOR
+                if (member.permissions.has('Administrator') || member.permissions.has('ManageGuild')) {
+                    return 2;
+                }
+
+                // Role-based staff/admin check using guild settings
+                if (settings) {
+                    if (settings.adminRoleId && member.roles.cache.has(settings.adminRoleId)) {
+                        return 2;
+                    }
+                    if (settings.staffRoleId && member.roles.cache.has(settings.staffRoleId)) {
+                        return 1;
+                    }
+                }
+            }
+        } catch (err) {
+            console.error('permissionLevel check failed:', err);
+        }
+
+        return level;
     }
 
     /**

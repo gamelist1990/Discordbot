@@ -215,6 +215,19 @@ export function createAuthRoutes(
                 expiresAt: Date.now() + (24 * 60 * 60 * 1000) // 24時間
             };
 
+            // Try to determine permission using JamboardController logic (if BotClient available)
+            try {
+                const { JamboardController } = await import('../controllers/JamboardController.js');
+                const controller = new JamboardController(botClient);
+                // permissionLevel is an instance method; call it to compute permission
+                const computed = await (controller as any).permissionLevel(session.guildId, session.userId);
+                if (typeof computed === 'number') {
+                    session.permission = computed;
+                }
+            } catch (err) {
+                console.error('Failed to compute permission on callback:', err);
+            }
+
             sessions.set(sessionId, session);
 
             // クッキーを設定してリダイレクト
