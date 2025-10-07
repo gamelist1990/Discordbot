@@ -130,7 +130,7 @@ export class CommandRegistry {
         }
 
         // ギルド設定を取得
-        const guildSettings = await database.get<any>(`guild_settings_${guildId}`, {
+        const guildSettings = await database.get<any>(guildId, 'guild_settings', {
             adminRoleId: null,
             staffRoleId: null,
         });

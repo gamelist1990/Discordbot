@@ -36,7 +36,7 @@ export class PrivateChatManager {
      * すべてのプライベートチャットを取得
      */
     static async getAllChats(): Promise<PrivateChatInfo[]> {
-        const allChats = await database.get<PrivateChatInfo[]>(PRIVATE_CHATS_KEY, []);
+        const allChats = await database.get<PrivateChatInfo[]>('', PRIVATE_CHATS_KEY, []);
         return allChats || [];
     }
 
@@ -138,7 +138,7 @@ export class PrivateChatManager {
 
         const chats = await this.getAllChats();
         chats.push(chatInfo);
-        await database.set(PRIVATE_CHATS_KEY, chats);
+        await database.set('', PRIVATE_CHATS_KEY, chats);
 
         // emit event
         try {
@@ -225,7 +225,7 @@ export class PrivateChatManager {
 
         // データベースから削除
         chats.splice(chatIndex, 1);
-        await database.set(PRIVATE_CHATS_KEY, chats);
+        await database.set('', PRIVATE_CHATS_KEY, chats);
 
         // emit event
         try {

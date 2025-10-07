@@ -7,7 +7,6 @@ import { SessionService } from './services/SessionService.js';
 import { createStatusRoutes, createSessionRoutes, createSettingsRoutes, createStaffRoutes, createAuthRoutes, createTodoRoutes } from './routes/index.js';
 
 // 型定義を型として再エクスポート（実行時には存在しないため type を使用）
-export type { SettingsSession, GuildSettings } from './types/index.js';
 
 /**
  * 設定画面用Webサーバー（モジュール構造）

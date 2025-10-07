@@ -24,9 +24,9 @@ export const commandHandler = {
         }
 
         try {
-            // TodoのURLを生成（guildId を含める）
+            // TodoのURLを生成（guildId を共通の 'default' に固定）
             const baseUrl = config.WEB_BASE_URL;
-            const guildId = interaction.guild.id;
+            const guildId = 'default'; // ギルド関係なく共通にするため 'default' を使用
             const todoUrl = `${baseUrl}/todo/${guildId}`;
 
             // 埋め込みメッセージを作成

@@ -3,7 +3,7 @@ import { BotClient } from '../../core/BotClient.js';
 import crypto from 'crypto';
 import config from '../../config.js';
 import { Logger } from '../../utils/Logger.js';
-import { SettingsSession } from '../SettingsServer.js';
+import { SettingsSession } from '../types';
 
 /**
  * OAuth2 state情報

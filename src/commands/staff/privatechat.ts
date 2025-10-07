@@ -85,3 +85,5 @@ async function openManagementUI(interaction: ChatInputCommandInteraction): Promi
         }
     }
 }
+
+export default null;

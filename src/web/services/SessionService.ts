@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import { SettingsSession } from '../SettingsServer';
+import { SettingsSession } from '../types';
 import fs from 'fs';
 import path from 'path';
 

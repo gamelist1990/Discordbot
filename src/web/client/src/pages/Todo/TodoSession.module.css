@@ -487,3 +487,110 @@
 @keyframes spin {
     to { transform: rotate(360deg); }
 }
+
+.shareSection {
+    margin-bottom: 24px;
+}
+
+.shareSection h3 {
+    margin: 0 0 12px;
+    font-size: 16px;
+    font-weight: 500;
+    color: var(--grey-900);
+}
+
+.shareLink {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px;
+    margin-bottom: 8px;
+    background: var(--grey-50);
+    border-radius: 4px;
+    border: 1px solid var(--grey-200);
+}
+
+.shareMode {
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 500;
+    background: var(--google-green);
+    color: white;
+}
+
+.shareMode[data-mode="edit"] {
+    background: var(--google-blue);
+}
+
+.shareUrl {
+    flex: 1;
+    padding: 8px 12px;
+    border: 1px solid var(--grey-300);
+    border-radius: 4px;
+    font-size: 14px;
+    background: white;
+}
+
+.copyBtn, .revokeBtn {
+    padding: 8px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.copyBtn {
+    background: var(--google-blue);
+    color: white;
+}
+
+.copyBtn:hover {
+    background: #3367D6;
+}
+
+.revokeBtn {
+    background: var(--google-red);
+    color: white;
+}
+
+.revokeBtn:hover {
+    background: #D33B2C;
+}
+
+.createShare {
+    display: flex;
+    gap: 8px;
+    padding: 16px;
+    background: var(--grey-50);
+    border-radius: 4px;
+}
+
+.createShare select {
+    padding: 8px 12px;
+    border: 1px solid var(--grey-300);
+    border-radius: 4px;
+    font-size: 14px;
+    cursor: pointer;
+}
+
+.createShare button {
+    padding: 8px 16px;
+    border: none;
+    border-radius: 4px;
+    background: var(--google-blue);
+    color: white;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: box-shadow 0.2s;
+}
+
+.createShare button:hover:not(:disabled) {
+    box-shadow: 0 1px 3px 1px rgba(60,64,67,0.15);
+}
+
+.createShare button:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}

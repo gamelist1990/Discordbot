@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { TodoController } from '../controllers/TodoController.js';
 import { AuthMiddleware } from '../middleware/auth.js';
 import { BotClient } from '../../core/BotClient.js';
-import { SettingsSession } from '../SettingsServer.js';
+import { SettingsSession } from '../types';
 
 /**
  * Todo ルート
@@ -50,6 +50,9 @@ export function createTodoRoutes(
 
     // 共有リンク作成 (認可: オーナーのみ)
     router.post('/todos/sessions/:sessionId/share', auth.validateToken, controller.createShare.bind(controller));
+
+    // 共有リンク一覧取得 (認可: オーナーのみ)
+    router.get('/todos/sessions/:sessionId/share', auth.validateToken, controller.getShareLinks.bind(controller));
 
     // 共有リンク取り消し (認可: オーナーのみ)
     router.delete('/todos/sessions/:sessionId/share/:token', auth.validateToken, controller.revokeShare.bind(controller));

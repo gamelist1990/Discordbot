@@ -15,6 +15,7 @@ const App: React.FC = () => {
       <Route path="/staff/privatechat/:token" element={<PrivateChatPage />} />
       <Route path="/todo/:guildId" element={<TodoDashboard />} />
       <Route path="/todo/:guildId/session/:sessionId" element={<TodoSession />} />
+      <Route path="/todo/shared/:token" element={<TodoSession />} />
       <Route path="/404" element={<NotFoundPage />} />
       <Route path="*" element={<Navigate to="/404" replace />} />
     </Routes>

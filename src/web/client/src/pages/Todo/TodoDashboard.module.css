@@ -328,6 +328,37 @@
     color: white;
 }
 
+.shareActions {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.shareBtn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 12px;
+    border-radius: 6px;
+    border: 1px solid var(--grey-300);
+    background: white;
+    color: var(--grey-800);
+    cursor: pointer;
+    font-size: 13px;
+}
+
+.shareBtn:hover {
+    background: var(--grey-100);
+}
+
+.linkInput {
+    width: 100%;
+    padding: 10px;
+    border: 1px solid var(--grey-300);
+    border-radius: 6px;
+    font-size: 13px;
+}
+
 /* Modal */
 .modalOverlay {
     position: fixed;

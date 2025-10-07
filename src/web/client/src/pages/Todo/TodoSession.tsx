@@ -1,12 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import styles from './TodoSession.module.css';
-
-interface UserSession {
-    userId: string;
-    username: string;
-    guildId: string;
-}
 
 interface TodoSession {
     id: string;
@@ -30,9 +24,10 @@ interface TodoItem {
 type AccessLevel = 'owner' | 'editor' | 'viewer';
 
 const TodoSessionPage: React.FC = () => {
-    const { guildId, sessionId } = useParams<{ guildId: string; sessionId: string }>();
+    const { guildId: routeGuildId, sessionId, token } = useParams<{ guildId?: string; sessionId?: string; token?: string }>();
+    const [searchParams] = useSearchParams();
     const navigate = useNavigate();
-    const [session, setSession] = useState<UserSession | null>(null);
+    const guildId = routeGuildId || searchParams.get('guildId') || '';
     const [todoSession, setTodoSession] = useState<TodoSession | null>(null);
     const [todos, setTodos] = useState<TodoItem[]>([]);
     const [accessLevel, setAccessLevel] = useState<AccessLevel>('viewer');
@@ -40,31 +35,45 @@ const TodoSessionPage: React.FC = () => {
     const [newTodoText, setNewTodoText] = useState('');
     const [filter, setFilter] = useState<'all' | 'active' | 'completed'>('all');
     const [showShareModal, setShowShareModal] = useState(false);
-    const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
         loadData();
-    }, [sessionId]);
+    }, [sessionId, token]);
 
     const loadData = async () => {
         try {
             setLoading(true);
-            const [sessionRes, contentRes] = await Promise.all([
-                fetch(`/api/todos/sessions/${sessionId}`, { credentials: 'include' }),
-                fetch(`/api/todos/sessions/${sessionId}/content`, { credentials: 'include' })
-            ]);
+            let sessionData, contentData;
 
-            if (sessionRes.ok && contentRes.ok) {
-                const sessionData = await sessionRes.json();
-                const contentData = await contentRes.json();
-                
+            if (token) {
+                // 共有トークン経由（guildId は共通の 'default' を使用）
+                const sharedGuildId = guildId || 'default';
+                const sessionRes = await fetch(`/api/todos/shared/${token}?guildId=${sharedGuildId}`, { credentials: 'include' });
+                if (!sessionRes.ok) throw new Error('Shared session not found');
+                sessionData = await sessionRes.json();
+                contentData = sessionData; // 同じレスポンスに含まれる
                 setTodoSession(sessionData.session);
-                setAccessLevel(contentData.accessLevel);
-                setTodos(contentData.content.todos || []);
+                setAccessLevel(sessionData.accessLevel);
+                setTodos(sessionData.content?.todos || []);
+            } else {
+                // 通常アクセス
+                const [sessionRes, contentRes] = await Promise.all([
+                    fetch(`/api/todos/sessions/${sessionId}`, { credentials: 'include' }),
+                    fetch(`/api/todos/sessions/${sessionId}/content`, { credentials: 'include' })
+                ]);
+
+                if (sessionRes.ok && contentRes.ok) {
+                    sessionData = await sessionRes.json();
+                    contentData = await contentRes.json();
+                    
+                    setTodoSession(sessionData.session);
+                    setAccessLevel(contentData.accessLevel);
+                    setTodos(contentData.content.todos || []);
+                }
             }
         } catch (err) {
             console.error('Failed to load data:', err);
-            setError('Failed to load session');
+            // setError('Failed to load session');
         } finally {
             setLoading(false);
         }
@@ -158,7 +167,7 @@ const TodoSessionPage: React.FC = () => {
     return (
         <div className={styles.container}>
             <header className={styles.header}>
-                <button className={styles.backBtn} onClick={() => navigate(`/todo/${guildId}`)}>
+                <button className={styles.backBtn} onClick={() => navigate(`/todo/${guildId || 'default'}`)}>
                     <i className="material-icons">arrow_back</i>
                     戻る
                 </button>
@@ -254,54 +263,82 @@ const TodoSessionPage: React.FC = () => {
             {showShareModal && accessLevel === 'owner' && (
                 <ShareModal
                     sessionId={sessionId!}
-                    todoSession={todoSession!}
                     onClose={() => setShowShareModal(false)}
-                    onUpdate={loadData}
                 />
             )}
         </div>
     );
 };
 
-const ShareModal: React.FC<{ sessionId: string; todoSession: TodoSession; onClose: () => void; onUpdate: () => void; }> = 
-    ({ sessionId, todoSession, onClose, onUpdate }) => {
-    const [userId, setUserId] = useState('');
-    const [role, setRole] = useState<'viewer' | 'editor'>('viewer');
-    const [adding, setAdding] = useState(false);
+const ShareModal: React.FC<{ sessionId: string; onClose: () => void; }> = 
+    ({ sessionId, onClose }) => {
+    const [shareLinks, setShareLinks] = useState<{ token: string; mode: 'view' | 'edit'; url: string }[]>([]);
+    const [creating, setCreating] = useState(false);
+    const [mode, setMode] = useState<'view' | 'edit'>('view');
 
-    const addMember = async () => {
-        if (!userId.trim()) return;
+    useEffect(() => {
+        loadShareLinks();
+    }, []);
 
-        setAdding(true);
+    const loadShareLinks = async () => {
         try {
-            const response = await fetch(`/api/todos/sessions/${sessionId}/members`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify({ userId: userId.trim(), role })
+            const response = await fetch(`/api/todos/sessions/${sessionId}/share`, {
+                credentials: 'include'
             });
-
             if (response.ok) {
-                setUserId('');
-                await onUpdate();
+                const data = await response.json();
+                const links = data.shareLinks.map((link: any) => ({
+                    token: link.token,
+                    mode: link.mode,
+                    url: `${window.location.origin}/todo/shared/${link.token}`
+                }));
+                setShareLinks(links);
             }
         } catch (err) {
-            console.error('Failed to add member:', err);
-        } finally {
-            setAdding(false);
+            console.error('Failed to load share links:', err);
         }
     };
 
-    const removeMember = async (uid: string) => {
+    const createShareLink = async () => {
+        if (shareLinks.length >= 4) {
+            return; // 最大4つまで
+        }
+        setCreating(true);
         try {
-            await fetch(`/api/todos/sessions/${sessionId}/members/${uid}`, {
+            const response = await fetch(`/api/todos/sessions/${sessionId}/share`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({ mode })
+            });
+
+            if (response.ok) {
+                const { token } = await response.json();
+                const url = `${window.location.origin}/todo/shared/${token}`;
+                setShareLinks(prev => [...prev, { token, mode, url }]);
+            }
+        } catch (err) {
+            console.error('Failed to create share link:', err);
+        } finally {
+            setCreating(false);
+        }
+    };
+
+    const revokeShareLink = async (token: string) => {
+        try {
+            await fetch(`/api/todos/sessions/${sessionId}/share/${token}`, {
                 method: 'DELETE',
                 credentials: 'include'
             });
-            await onUpdate();
+            setShareLinks(prev => prev.filter(link => link.token !== token));
         } catch (err) {
-            console.error('Failed to remove member:', err);
+            console.error('Failed to revoke share link:', err);
         }
+    };
+
+    const copyToClipboard = (url: string) => {
+        navigator.clipboard.writeText(url);
+        // TODO: コピー成功の通知を表示
     };
 
     return (
@@ -312,36 +349,29 @@ const ShareModal: React.FC<{ sessionId: string; todoSession: TodoSession; onClos
                     <button onClick={onClose}><i className="material-icons">close</i></button>
                 </div>
                 <div className={styles.modalBody}>
-                    <div className={styles.memberSection}>
-                        <h3>編集者</h3>
-                        {todoSession.editors.length === 0 ? <p>なし</p> : todoSession.editors.map(uid => (
-                            <div key={uid} className={styles.member}>
-                                <span>{uid}</span>
-                                <button onClick={() => removeMember(uid)}><i className="material-icons">delete</i></button>
+                    <div className={styles.shareSection}>
+                        <h3>共有リンク</h3>
+                        {shareLinks.length === 0 ? <p>共有リンクがありません</p> : shareLinks.map(link => (
+                            <div key={link.token} className={styles.shareLink}>
+                                <span className={styles.shareMode}>{link.mode === 'view' ? '閲覧' : '編集'}</span>
+                                <input type="text" value={link.url} readOnly className={styles.shareUrl} />
+                                <button onClick={() => copyToClipboard(link.url)} className={styles.copyBtn}>
+                                    <i className="material-icons">content_copy</i>
+                                </button>
+                                <button onClick={() => revokeShareLink(link.token)} className={styles.revokeBtn}>
+                                    <i className="material-icons">delete</i>
+                                </button>
                             </div>
                         ))}
                     </div>
-                    <div className={styles.memberSection}>
-                        <h3>閲覧者</h3>
-                        {todoSession.viewers.length === 0 ? <p>なし</p> : todoSession.viewers.map(uid => (
-                            <div key={uid} className={styles.member}>
-                                <span>{uid}</span>
-                                <button onClick={() => removeMember(uid)}><i className="material-icons">delete</i></button>
-                            </div>
-                        ))}
-                    </div>
-                    <div className={styles.addMember}>
-                        <input
-                            type="text"
-                            placeholder="ユーザーID"
-                            value={userId}
-                            onChange={(e) => setUserId(e.target.value)}
-                        />
-                        <select value={role} onChange={(e) => setRole(e.target.value as any)}>
-                            <option value="viewer">閲覧者</option>
-                            <option value="editor">編集者</option>
+                    <div className={styles.createShare}>
+                        <select value={mode} onChange={(e) => setMode(e.target.value as 'view' | 'edit')}>
+                            <option value="view">閲覧専用</option>
+                            <option value="edit">編集可能</option>
                         </select>
-                        <button onClick={addMember} disabled={adding || !userId.trim()}>追加</button>
+                        <button onClick={createShareLink} disabled={creating || shareLinks.length >= 4}>
+                            {creating ? '作成中...' : shareLinks.length >= 4 ? '最大4つまで' : 'リンク作成'}
+                        </button>
                     </div>
                 </div>
             </div>

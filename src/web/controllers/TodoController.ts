@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { TodoManager } from '../../core/TodoManager.js';
-import { SettingsSession } from '../SettingsServer.js';
+import { SettingsSession } from '../types/index.js';
 
 /**
  * Todo コントローラー
@@ -229,41 +229,9 @@ export class TodoController {
     /**
      * メンバーを追加（ビューワーまたはエディター）
      */
-    async addMember(req: Request, res: Response): Promise<void> {
-        const session = (req as any).session as SettingsSession;
-        const { sessionId } = req.params;
-        const { userId, role } = req.body;
-
-        if (!userId || !role) {
-            res.status(400).json({ error: 'userId and role are required' });
-            return;
-        }
-
-        if (role !== 'viewer' && role !== 'editor') {
-            res.status(400).json({ error: 'role must be "viewer" or "editor"' });
-            return;
-        }
-
-        try {
-            const todoSession = await TodoManager.getSession(session.guildId, sessionId);
-            if (!todoSession) {
-                res.status(404).json({ error: 'Session not found' });
-                return;
-            }
-
-            // オーナーのみメンバーを追加できる
-            if (todoSession.ownerId !== session.userId) {
-                res.status(403).json({ error: 'Only owner can add members' });
-                return;
-            }
-
-            await TodoManager.addMember(session.guildId, sessionId, userId, role);
-            res.json({ success: true });
-        } catch (error) {
-            console.error('メンバー追加エラー:', error);
-            const errorMessage = error instanceof Error ? error.message : 'Failed to add member';
-            res.status(500).json({ error: errorMessage });
-        }
+    async addMember(_req: Request, res: Response): Promise<void> {
+        // Deprecated: member addition via API is removed in favor of URL-based sharing.
+        res.status(410).json({ error: 'Member addition via API is deprecated. Use share links instead.' });
     }
 
     /**
@@ -354,8 +322,35 @@ export class TodoController {
     }
 
     /**
-     * 共有リンク取り消し
+     * 共有リンク一覧を取得
      */
+    async getShareLinks(req: Request, res: Response): Promise<void> {
+        const session = (req as any).session as SettingsSession;
+        const { sessionId } = req.params;
+
+        try {
+            const todoSession = await TodoManager.getSession(session.guildId, sessionId);
+            if (!todoSession) {
+                res.status(404).json({ error: 'Session not found' });
+                return;
+            }
+
+            // オーナーのみ共有リンク一覧取得可能
+            if (todoSession.ownerId !== session.userId) {
+                res.status(403).json({ error: 'Only owner can view share links' });
+                return;
+            }
+
+            // 共有リンクを取得（guildIdでフィルタ）
+            const allShares = await TodoManager.getAllShareLinks(session.guildId);
+            const sessionShares = allShares.filter(share => share.sessionId === sessionId);
+
+            res.json({ shareLinks: sessionShares });
+        } catch (error) {
+            console.error('共有リンク一覧取得エラー:', error);
+            res.status(500).json({ error: 'Failed to get share links' });
+        }
+    }
     async revokeShare(req: Request, res: Response): Promise<void> {
         const session = (req as any).session as SettingsSession;
         const { sessionId, token } = req.params;
@@ -386,13 +381,8 @@ export class TodoController {
      */
     async getSessionByToken(req: Request, res: Response): Promise<void> {
         const { token } = req.params;
-        // guildId は今回はURLに含めていないので、クエリまたはヘッダから受け取ることを期待する
-        const guildId = req.query.guildId as string || req.header('X-Guild-Id');
-
-        if (!guildId) {
-            res.status(400).json({ error: 'guildId is required (query param or X-Guild-Id header)' });
-            return;
-        }
+        // Todo を共通にしたので、guildId は常に 'default' を使用
+        const guildId = 'default';
 
         try {
             const result = await TodoManager.getSessionByShareToken(guildId, token);
@@ -401,8 +391,32 @@ export class TodoController {
                 return;
             }
 
+            let addedAsEditor = false;
+
+            // 自動追加を削除 - URLだけでアクセス可能にする
+            // If token mode is edit, and request has an authenticated session cookie for the same guild,
+            // auto-add that user as editor to the target todo session (so they get persistent edit rights)
+            // if (result.mode === 'edit') {
+            //     try {
+            //         const authSession = (req as any).session as SettingsSession | undefined;
+            //         // Also allow sessionId cookie based lookup as a fallback
+            //         if (authSession && authSession.guildId === guildId && authSession.userId && result.session) {
+            //             await TodoManager.addEditorIfNotExists(guildId, result.session.id, authSession.userId);
+            //             addedAsEditor = true;
+            //         }
+            //     } catch (e) {
+            //         console.error('Failed to auto-add editor from share token access:', e);
+            //     }
+            // }
+
             // 返却するのはセッションメタとアクセスモード。編集権限がある場合は編集可能
-            res.json({ session: result.session, accessLevel: result.mode === 'edit' ? 'editor' : 'viewer' });
+            const content = await TodoManager.getSessionContent(guildId, result.session!.id);
+            res.json({ 
+                session: result.session, 
+                accessLevel: result.mode === 'edit' ? 'editor' : 'viewer', 
+                addedAsEditor,
+                content 
+            });
         } catch (error) {
             console.error('共有トークン取得エラー:', error);
             res.status(500).json({ error: 'Failed to fetch shared session' });

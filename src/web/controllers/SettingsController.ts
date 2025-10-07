@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { SettingsSession, GuildSettings } from '../types/index.js';
+import { SettingsSession, GuildSettings } from '../types';
 import { database } from '../../core/Database.js';
 
 /**
@@ -13,7 +13,7 @@ export class SettingsController {
         const session = (req as any).session as SettingsSession;
 
         try {
-            const settings = await database.get<GuildSettings>(`guild_settings_${session.guildId}`);
+            const settings = await database.get<GuildSettings>(session.guildId, 'guild_settings');
 
             res.json(settings || {
                 guildId: session.guildId,
@@ -42,7 +42,7 @@ export class SettingsController {
                 updatedAt: Date.now(),
             };
 
-            await database.set(`guild_settings_${session.guildId}`, settings);
+            await database.set(session.guildId, 'guild_settings', settings);
 
             console.log(`設定を保存しました: Guild=${session.guildId}, Staff=${staffRoleId}, Admin=${adminRoleId}`);
             res.json({ success: true });

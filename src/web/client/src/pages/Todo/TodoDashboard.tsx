@@ -326,50 +326,6 @@ const TodoDashboard: React.FC = () => {
                                             <i className="material-icons">arrow_forward</i>
                                             開く
                                         </button>
-                                                    {accessLevel === 'owner' && (
-                                                        <div className={styles.shareActions}>
-                                                            <button
-                                                                className={styles.shareBtn}
-                                                                onClick={async () => {
-                                                                    // create temporary edit link (3 minutes)
-                                                                    try {
-                                                                        const res = await fetch(`/api/todos/sessions/${todoSession.id}/share`, {
-                                                                            method: 'POST',
-                                                                            credentials: 'include',
-                                                                            headers: { 'Content-Type': 'application/json' },
-                                                                            body: JSON.stringify({ mode: 'edit', expiresInSeconds: 180 })
-                                                                        });
-                                                                        if (res.ok) {
-                                                                            const data = await res.json();
-                                                                            setShareInfo({ mode: 'edit', token: data.token, expiresInSeconds: data.expiresInSeconds });
-                                                                            setShowShareModal(true);
-                                                                        } else {
-                                                                            const d = await res.json();
-                                                                            setError(d.error || 'Failed to create share link');
-                                                                        }
-                                                                    } catch (err) {
-                                                                        console.error('Failed to create share link', err);
-                                                                        setError('Failed to create share link');
-                                                                    }
-                                                                }}
-                                                            >
-                                                                <i className="material-icons">edit</i>
-                                                                編集用リンク(3分)
-                                                            </button>
-                                                            <button
-                                                                className={styles.shareBtn}
-                                                                onClick={() => {
-                                                                    // show view URL (permalink without token creation)
-                                                                    // For now build view URL that frontends can use with token query
-                                                                    setShareInfo({ mode: 'view', token: null, expiresInSeconds: null });
-                                                                    setShowShareModal(true);
-                                                                }}
-                                                            >
-                                                                <i className="material-icons">link</i>
-                                                                閲覧用URL
-                                                            </button>
-                                                        </div>
-                                                    )}
                                     </div>
                                 </div>
                             );
@@ -430,9 +386,9 @@ const TodoDashboard: React.FC = () => {
                             {shareInfo && shareInfo.mode === 'edit' && shareInfo.token ? (
                                 <>
                                     <p>編集用リンク（有効期限: {shareInfo.expiresInSeconds} 秒）</p>
-                                    <input type="text" readOnly value={`${window.location.origin}/api/todos/shared/${shareInfo.token}?guildId=${guildId}`} className={styles.input} />
+                                    <input type="text" readOnly value={`${window.location.origin}/todo/shared/${shareInfo.token}?guildId=${guildId}`} className={styles.input} />
                                     <div style={{ marginTop: '8px' }}>
-                                        <button onClick={() => { navigator.clipboard?.writeText(`${window.location.origin}/api/todos/shared/${shareInfo.token}?guildId=${guildId}`); }}>コピー</button>
+                                        <button onClick={() => { navigator.clipboard?.writeText(`${window.location.origin}/todo/shared/${shareInfo.token}?guildId=${guildId}`); }}>コピー</button>
                                     </div>
                                 </>
                             ) : shareInfo && shareInfo.mode === 'view' ? (
