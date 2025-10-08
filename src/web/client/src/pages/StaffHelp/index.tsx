@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { validateToken, fetchStaffCommands, type StaffCommandData } from '../../services/api';
+import { validateToken, fetchStaffCommands, type StaffCommandData, ApiError } from '../../services/api';
 import AppHeader from '../../components/Common/AppHeader';
 import styles from './StaffHelpPage.module.css';
 
@@ -15,7 +15,7 @@ type TabType = 'help' | 'services';
 const StaffHelpPage: React.FC = () => {
     const { token } = useParams<{ token: string }>();
     const navigate = useNavigate();
-    
+
     const [user, setUser] = useState<UserSession | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -24,19 +24,40 @@ const StaffHelpPage: React.FC = () => {
 
     // トークン検証とデータ読み込み
     useEffect(() => {
-        if (!token) {
-            setError('トークンが指定されていません');
-            setLoading(false);
-            return;
-        }
-
         const loadData = async () => {
             try {
-                // トークン検証
-                await validateToken(token);
+                // トークンベースアクセス（従来の動作）をサポートしつつ、
+                // /staff からのアクセス時はセッションベースでデータを取得する
+                let finalToken = token;
+                let useSessionBased = false;
 
-                // スタッフコマンドデータ取得
-                const data = await fetchStaffCommands(token);
+                if (!token) {
+                    // /staff からアクセスされた場合、セッションベースを使用
+                    useSessionBased = true;
+                }
+
+                let commandResponse;
+                if (useSessionBased) {
+                    // セッションベース: /api/staff/commands を使用
+                    commandResponse = await fetch('/api/staff/commands', {
+                        credentials: 'include'
+                    });
+                } else {
+                    // 従来のトークンベースアクセス
+                    await validateToken(token);
+                    commandResponse = await fetch(`/api/staff/commands/${token}`, {
+                        credentials: 'include'
+                    });
+                }
+
+                if (!commandResponse.ok) {
+                    throw new ApiError(
+                        `Failed to fetch commands: ${commandResponse.status}`,
+                        commandResponse.status
+                    );
+                }
+
+                const data = await commandResponse.json();
                 setCommandData(data);
                 setLoading(false);
             } catch (err) {
@@ -269,7 +290,7 @@ const StaffHelpPage: React.FC = () => {
                                         </p>
                                         <button
                                             className={styles.serviceButton}
-                                            onClick={() => navigate(`/staff/privatechat/${token}`)}
+                                            onClick={() => navigate(token ? `/staff/privatechat/${token}` : '/')}
                                         >
                                             開く
                                         </button>

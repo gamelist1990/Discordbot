@@ -10,6 +10,32 @@ import NotFoundPage from './pages/NotFound';
 import TodoDashboard from './pages/Todo/TodoDashboard';
 import TodoSession from './pages/Todo/TodoSession';
 import UserProfile from './pages/Profile';
+import { useAuthGuard } from './hooks/useAuthGuard';
+
+// Protected route component for staff access
+const StaffGuard: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { user, loading, redirect } = useAuthGuard({ requireStaff: true });
+
+  if (loading) {
+    return (
+      <div style={{
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+        height: '100vh',
+        fontSize: '1.2em'
+      }}>
+        読み込み中...
+      </div>
+    );
+  }
+
+  if (redirect) {
+    return <Navigate to={redirect} replace />;
+  }
+
+  return <>{children}</>;
+};
 
 const App: React.FC = () => {
   return (
@@ -19,8 +45,8 @@ const App: React.FC = () => {
       <Route path="/profile" element={<UserProfile />} />
       <Route path="/settings" element={<SettingsListPage />} />
       <Route path="/settings/:guildId" element={<SettingsPage />} />
-      <Route path="/staff/help/:token" element={<StaffHelpPage />} />
-      <Route path="/staff/privatechat/:token" element={<PrivateChatPage />} />
+      <Route path="/staff" element={<StaffGuard><StaffHelpPage /></StaffGuard>} />
+      <Route path="/staff/privatechat/:token" element={<StaffGuard><PrivateChatPage /></StaffGuard>} />
       <Route path="/todo/:guildId" element={<TodoDashboard />} />
       <Route path="/todo/:guildId/session/:sessionId" element={<TodoSession />} />
       <Route path="/todo/shared/:token" element={<TodoSession />} />

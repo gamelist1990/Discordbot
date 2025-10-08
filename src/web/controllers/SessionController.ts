@@ -32,7 +32,7 @@ export class SessionController {
             return;
         }
 
-        res.json({ valid: true, guildId: session.guildId, userId: session.userId });
+        res.json({ valid: true, guildIds: session.guildIds || [session.guildId], userId: session.userId });
     }
 
     /**
@@ -42,12 +42,18 @@ export class SessionController {
         const session = (req as any).session as SettingsSession;
 
         try {
-            if (!session.guildId) {
+            // guildId が直接ない場合は guildIds 配列の最初の要素を使用（後方互換性）
+            let targetGuildId = session.guildId;
+            if (!targetGuildId && session.guildIds && session.guildIds.length > 0) {
+                targetGuildId = session.guildIds[0];
+            }
+
+            if (!targetGuildId) {
                 res.status(400).json({ error: 'Invalid session: missing guild ID' });
                 return;
             }
 
-            const guild = this.botClient.client.guilds.cache.get(session.guildId);
+            const guild = this.botClient.client.guilds.cache.get(targetGuildId);
 
             if (!guild) {
                 res.status(404).json({ error: 'Guild not found' });

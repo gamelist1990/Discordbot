@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { StaffController } from '../controllers/StaffController.js';
 import { SettingsSession } from '../types/index.js';
 import { BotClient } from '../../core/BotClient.js';
-import { AuthMiddleware } from '../middleware/auth.js';
+import { AuthMiddleware, verifyAuth } from '../middleware/auth.js';
 
 /**
  * スタッフルート
@@ -40,6 +40,9 @@ export function createStaffRoutes(
 
     // スタッフコマンド情報の取得
     router.get('/commands/:token', auth.validateToken, controller.getStaffCommands.bind(controller));
+
+    // セッションベースのスタッフコマンド情報取得（ログインユーザー向け）
+    router.get('/commands', verifyAuth(sessions), controller.getStaffCommands.bind(controller));
 
     return router;
 }

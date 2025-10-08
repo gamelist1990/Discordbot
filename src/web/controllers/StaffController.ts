@@ -539,7 +539,13 @@ export class StaffController {
         const session = (req as any).session as SettingsSession;
 
         try {
-            if (!session.guildId) {
+            // guildId が直接ない場合は guildIds 配列の最初の要素を使用（後方互換性）
+            let targetGuildId = session.guildId;
+            if (!targetGuildId && session.guildIds && session.guildIds.length > 0) {
+                targetGuildId = session.guildIds[0];
+            }
+
+            if (!targetGuildId) {
                 res.status(400).json({ error: 'Invalid session: missing guild ID' });
                 return;
             }
