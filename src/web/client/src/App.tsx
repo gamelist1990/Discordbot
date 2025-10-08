@@ -5,6 +5,7 @@ import DashboardPage from './pages/Dashboard';
 import SettingsPage from './pages/Settings';
 import SettingsListPage from './pages/SettingsList';
 import PrivateChatPage from './pages/PrivateChat';
+import StaffHelpPage from './pages/StaffHelp';
 import NotFoundPage from './pages/NotFound';
 import TodoDashboard from './pages/Todo/TodoDashboard';
 import TodoSession from './pages/Todo/TodoSession';
@@ -18,6 +19,7 @@ const App: React.FC = () => {
       <Route path="/profile" element={<UserProfile />} />
       <Route path="/settings" element={<SettingsListPage />} />
       <Route path="/settings/:guildId" element={<SettingsPage />} />
+      <Route path="/staff/help/:token" element={<StaffHelpPage />} />
       <Route path="/staff/privatechat/:token" element={<PrivateChatPage />} />
       <Route path="/todo/:guildId" element={<TodoDashboard />} />
       <Route path="/todo/:guildId/session/:sessionId" element={<TodoSession />} />

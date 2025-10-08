@@ -38,5 +38,8 @@ export function createStaffRoutes(
     // ユーザー検索
     router.get('/searchusers/:token', auth.validateToken, controller.searchUsers.bind(controller));
 
+    // スタッフコマンド情報の取得
+    router.get('/commands/:token', auth.validateToken, controller.getStaffCommands.bind(controller));
+
     return router;
 }

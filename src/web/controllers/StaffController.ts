@@ -531,4 +531,73 @@ export class StaffController {
             res.status(500).json({ error: 'Failed to search users' });
         }
     }
+
+    /**
+     * スタッフコマンドの情報を取得
+     */
+    async getStaffCommands(req: Request, res: Response): Promise<void> {
+        const session = (req as any).session as SettingsSession;
+
+        try {
+            if (!session.guildId) {
+                res.status(400).json({ error: 'Invalid session: missing guild ID' });
+                return;
+            }
+
+            // staff コマンドの情報を取得
+            const staffCommand = this.botClient.commands.get('staff');
+            
+            if (!staffCommand || !staffCommand.data) {
+                res.status(404).json({ error: 'Staff command not found' });
+                return;
+            }
+
+            // SlashCommandBuilder から情報を抽出
+            const commandData = staffCommand.data.toJSON();
+            
+            // サブコマンドの情報を整形
+            const subcommands = commandData.options?.map((option: any) => {
+                if (option.type === 1) { // SUB_COMMAND type
+                    return {
+                        name: option.name,
+                        description: option.description,
+                        options: option.options?.map((opt: any) => ({
+                            name: opt.name,
+                            description: opt.description,
+                            type: this.getOptionTypeName(opt.type),
+                            required: opt.required || false,
+                            choices: opt.choices || []
+                        })) || []
+                    };
+                }
+                return null;
+            }).filter(Boolean) || [];
+
+            res.json({
+                name: commandData.name,
+                description: commandData.description,
+                subcommands
+            });
+        } catch (error) {
+            console.error('スタッフコマンド情報取得エラー:', error);
+            res.status(500).json({ error: 'Failed to fetch staff commands' });
+        }
+    }
+
+    /**
+     * オプションのタイプ番号を名前に変換
+     */
+    private getOptionTypeName(type: number): string {
+        const typeMap: Record<number, string> = {
+            3: 'STRING',
+            4: 'INTEGER',
+            5: 'BOOLEAN',
+            6: 'USER',
+            7: 'CHANNEL',
+            8: 'ROLE',
+            9: 'MENTIONABLE',
+            10: 'NUMBER'
+        };
+        return typeMap[type] || 'UNKNOWN';
+    }
 }
