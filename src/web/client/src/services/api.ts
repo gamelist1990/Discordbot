@@ -121,8 +121,9 @@ export interface PrivateChatsResponse {
 /**
  * プライベートチャット一覧の取得
  */
-export async function fetchPrivateChats(token: string): Promise<PrivateChatsResponse> {
-  return apiRequest<PrivateChatsResponse>(`${API_BASE}/staff/privatechats/${token}`);
+export async function fetchPrivateChats(guildId?: string): Promise<PrivateChatsResponse> {
+  const url = guildId ? `${API_BASE}/staff/privatechats?guildId=${encodeURIComponent(guildId)}` : `${API_BASE}/staff/privatechats`;
+  return apiRequest<PrivateChatsResponse>(url);
 }
 
 /**
@@ -131,9 +132,10 @@ export async function fetchPrivateChats(token: string): Promise<PrivateChatsResp
 // createPrivateChat supports two payload shapes:
 //  - { userId }
 //  - { roomName, members?: string[] }
-export async function createPrivateChat(token: string, payload: string | { roomName: string; members?: string[] } ): Promise<{ success: boolean; chat: PrivateChat }> {
+export async function createPrivateChat(payload: string | { roomName: string; members?: string[] }, guildId?: string ): Promise<{ success: boolean; chat: PrivateChat }> {
   const body = typeof payload === 'string' ? { userId: payload } : payload;
-  return apiRequest(`${API_BASE}/staff/privatechats/${token}`, {
+  const url = guildId ? `${API_BASE}/staff/privatechats?guildId=${encodeURIComponent(guildId)}` : `${API_BASE}/staff/privatechats`;
+  return apiRequest(`${url}`, {
     method: 'POST',
     body: JSON.stringify(body),
   });
@@ -142,8 +144,9 @@ export async function createPrivateChat(token: string, payload: string | { roomN
 /**
  * プライベートチャットの削除
  */
-export async function deletePrivateChat(token: string, chatId: string): Promise<{ success: boolean }> {
-  return apiRequest(`${API_BASE}/staff/privatechats/${token}/${chatId}`, {
+export async function deletePrivateChat(chatId: string, guildId?: string): Promise<{ success: boolean }> {
+  const url = guildId ? `${API_BASE}/staff/privatechats/${chatId}?guildId=${encodeURIComponent(guildId)}` : `${API_BASE}/staff/privatechats/${chatId}`;
+  return apiRequest(`${url}`, {
     method: 'DELETE',
   });
 }
@@ -151,8 +154,9 @@ export async function deletePrivateChat(token: string, chatId: string): Promise<
 /**
  * プライベートチャット統計の取得
  */
-export async function fetchPrivateChatStats(token: string): Promise<PrivateChatStats> {
-  return apiRequest<PrivateChatStats>(`${API_BASE}/staff/stats/${token}`);
+export async function fetchPrivateChatStats(guildId?: string): Promise<PrivateChatStats> {
+  const url = guildId ? `${API_BASE}/staff/stats?guildId=${encodeURIComponent(guildId)}` : `${API_BASE}/staff/stats`;
+  return apiRequest<PrivateChatStats>(url);
 }
 
 /**
@@ -171,15 +175,17 @@ export interface ChatMembersResponse {
 /**
  * チャットのメンバーリストを取得
  */
-export async function fetchChatMembers(token: string, chatId: string): Promise<ChatMembersResponse> {
-  return apiRequest<ChatMembersResponse>(`${API_BASE}/staff/privatechats/${token}/${chatId}/members`);
+export async function fetchChatMembers(chatId: string, guildId?: string): Promise<ChatMembersResponse> {
+  const url = guildId ? `${API_BASE}/staff/privatechats/${chatId}/members?guildId=${encodeURIComponent(guildId)}` : `${API_BASE}/staff/privatechats/${chatId}/members`;
+  return apiRequest<ChatMembersResponse>(url);
 }
 
 /**
  * チャットにメンバーを追加
  */
-export async function addChatMember(token: string, chatId: string, userName: string): Promise<{ success: boolean }> {
-  return apiRequest(`${API_BASE}/staff/privatechats/${token}/${chatId}/members`, {
+export async function addChatMember(chatId: string, userName: string, guildId?: string): Promise<{ success: boolean }> {
+  const url = guildId ? `${API_BASE}/staff/privatechats/${chatId}/members?guildId=${encodeURIComponent(guildId)}` : `${API_BASE}/staff/privatechats/${chatId}/members`;
+  return apiRequest(`${url}`, {
     method: 'POST',
     body: JSON.stringify({ userName }),
   });
@@ -188,8 +194,9 @@ export async function addChatMember(token: string, chatId: string, userName: str
 /**
  * チャットからメンバーを削除
  */
-export async function removeChatMember(token: string, chatId: string, userId: string): Promise<{ success: boolean }> {
-  return apiRequest(`${API_BASE}/staff/privatechats/${token}/${chatId}/members/${userId}`, {
+export async function removeChatMember(chatId: string, userId: string, guildId?: string): Promise<{ success: boolean }> {
+  const url = guildId ? `${API_BASE}/staff/privatechats/${chatId}/members/${userId}?guildId=${encodeURIComponent(guildId)}` : `${API_BASE}/staff/privatechats/${chatId}/members/${userId}`;
+  return apiRequest(`${url}`, {
     method: 'DELETE',
   });
 }
@@ -197,10 +204,10 @@ export async function removeChatMember(token: string, chatId: string, userId: st
 /**
  * ユーザー検索
  */
-export async function searchUsers(token: string, query: string, chatId?: string): Promise<{ users: Array<{ id: string; username: string; displayName: string | null; avatar: string | null }> }> {
-  const url = chatId 
-    ? `${API_BASE}/staff/searchusers/${token}?query=${encodeURIComponent(query)}&chatId=${encodeURIComponent(chatId)}`
-    : `${API_BASE}/staff/searchusers/${token}?query=${encodeURIComponent(query)}`;
+export async function searchUsers(query: string, chatId?: string, guildId?: string): Promise<{ users: Array<{ id: string; username: string; displayName: string | null; avatar: string | null }> }> {
+  let url = `${API_BASE}/staff/searchusers?query=${encodeURIComponent(query)}`;
+  if (chatId) url += `&chatId=${encodeURIComponent(chatId)}`;
+  if (guildId) url += `&guildId=${encodeURIComponent(guildId)}`;
   return apiRequest(url);
 }
 
@@ -230,6 +237,6 @@ export interface StaffCommandData {
 /**
  * スタッフコマンド情報の取得
  */
-export async function fetchStaffCommands(token: string): Promise<StaffCommandData> {
-  return apiRequest<StaffCommandData>(`${API_BASE}/staff/commands/${token}`);
+export async function fetchStaffCommands(): Promise<StaffCommandData> {
+  return apiRequest<StaffCommandData>(`${API_BASE}/staff/commands`);
 }

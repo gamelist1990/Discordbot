@@ -1,8 +1,10 @@
 // SSE client to receive private chat events and call window.web.notify
 
-export function startPrivateChatSSE(token: string) {
+export function startPrivateChatSSE(guildId?: string) {
   try {
-    const url = `/api/staff/privatechats/${encodeURIComponent(token)}/stream`;
+    const url = guildId
+      ? `/api/staff/privatechats/stream?guildId=${encodeURIComponent(guildId)}`
+      : `/api/staff/privatechats/stream`;
     const es = new EventSource(url);
 
     es.onmessage = (ev) => {
@@ -61,7 +63,7 @@ export function startPrivateChatSSE(token: string) {
       console.warn('SSE connection error', err);
       // simple reconnect strategy
       es.close();
-      setTimeout(() => startPrivateChatSSE(token), 5000);
+      setTimeout(() => startPrivateChatSSE(guildId), 5000);
     };
 
     return es;

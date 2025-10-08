@@ -7,7 +7,6 @@ import { SettingsSession } from '../types';
 import { database } from '../../core/Database.js';
 import fs from 'fs';
 import path from 'path';
-import { PermissionLevel } from '../types/permission.js';
 
 /**
  * OAuth2 state情報

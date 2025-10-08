@@ -249,10 +249,78 @@ export class BotClient {
                 return false;
             }
 
-            // オプション（サブコマンド等）の比較（JSON 文字列化で簡易比較）
-            const existingOptions = JSON.stringify((existingCmd as any).options || []);
-            const newOptions = JSON.stringify(newCmd.options || []);
-            if (existingOptions !== newOptions) {
+            // オプション（サブコマンド等）の詳細比較
+            if (!this.compareCommandOptions((existingCmd as any).options || [], newCmd.options || [])) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * コマンドオプションを再帰的に比較（サブコマンド対応）
+     */
+    private compareCommandOptions(existingOptions: any[], newOptions: any[]): boolean {
+        if (existingOptions.length !== newOptions.length) {
+            return false;
+        }
+
+        // オプションを名前でソートして比較（順序非依存）
+        const sortOptions = (opts: any[]) => opts.slice().sort((a, b) => a.name.localeCompare(b.name));
+        const sortedExisting = sortOptions(existingOptions);
+        const sortedNew = sortOptions(newOptions);
+
+        for (let i = 0; i < sortedExisting.length; i++) {
+            const existingOpt = sortedExisting[i];
+            const newOpt = sortedNew[i];
+
+            // 基本プロパティの比較
+            if (existingOpt.name !== newOpt.name ||
+                existingOpt.description !== newOpt.description ||
+                existingOpt.type !== newOpt.type ||
+                existingOpt.required !== newOpt.required) {
+                return false;
+            }
+
+            // choices の比較（順序非依存）
+            if (!this.compareChoices(existingOpt.choices || [], newOpt.choices || [])) {
+                return false;
+            }
+
+            // サブコマンド/サブコマンドグループのネストオプションを再帰的に比較
+            if (existingOpt.options && newOpt.options) {
+                if (!this.compareCommandOptions(existingOpt.options, newOpt.options)) {
+                    return false;
+                }
+            } else if (existingOpt.options || newOpt.options) {
+                // 一方だけオプションがある場合
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * コマンドのchoicesを比較
+     */
+    private compareChoices(existingChoices: any[], newChoices: any[]): boolean {
+        if (existingChoices.length !== newChoices.length) {
+            return false;
+        }
+
+        // choicesを名前でソート
+        const sortChoices = (choices: any[]) => choices.slice().sort((a, b) => a.name.localeCompare(b.name));
+        const sortedExisting = sortChoices(existingChoices);
+        const sortedNew = sortChoices(newChoices);
+
+        for (let i = 0; i < sortedExisting.length; i++) {
+            const existingChoice = sortedExisting[i];
+            const newChoice = sortedNew[i];
+
+            if (existingChoice.name !== newChoice.name ||
+                existingChoice.value !== newChoice.value) {
                 return false;
             }
         }

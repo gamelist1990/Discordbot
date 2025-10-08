@@ -14,7 +14,7 @@ import { useAuthGuard } from './hooks/useAuthGuard';
 
 // Protected route component for staff access
 const StaffGuard: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { user, loading, redirect } = useAuthGuard({ requireStaff: true });
+  const { loading, redirect } = useAuthGuard({ requireStaff: true });
 
   if (loading) {
     return (
@@ -45,8 +45,10 @@ const App: React.FC = () => {
       <Route path="/profile" element={<UserProfile />} />
       <Route path="/settings" element={<SettingsListPage />} />
       <Route path="/settings/:guildId" element={<SettingsPage />} />
-      <Route path="/staff" element={<StaffGuard><StaffHelpPage /></StaffGuard>} />
-      <Route path="/staff/privatechat/:token" element={<StaffGuard><PrivateChatPage /></StaffGuard>} />
+  <Route path="/staff" element={<StaffGuard><StaffHelpPage /></StaffGuard>} />
+  <Route path="/staff/privatechat" element={<StaffGuard><PrivateChatPage /></StaffGuard>} />
+  {/* Legacy/typo alias: accept /staff/privateChat (capital C) and redirect to canonical path */}
+  <Route path="/staff/privateChat" element={<Navigate to="/staff/privatechat" replace />} />
       <Route path="/todo/:guildId" element={<TodoDashboard />} />
       <Route path="/todo/:guildId/session/:sessionId" element={<TodoSession />} />
       <Route path="/todo/shared/:token" element={<TodoSession />} />

@@ -8,6 +8,7 @@ import { randomUUID } from 'crypto';
 import { Event, EventHandler, EventListener, EventPayloads } from '../types/events.js';
 import { Logger } from '../utils/Logger.js';
 
+
 export class EventManager {
     private client: Client;
     private listeners: Map<Event, Map<string, EventListener>>;

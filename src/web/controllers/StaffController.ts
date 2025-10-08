@@ -13,22 +13,96 @@ export class StaffController {
     }
 
     /**
+     * セッションユーザーがアクセス可能なギルド一覧を返す
+     */
+    async getAccessibleGuilds(req: Request, res: Response): Promise<void> {
+        const session = (req as any).session as SettingsSession;
+
+        try {
+            if (!session) {
+                res.status(401).json({ error: 'Unauthorized' });
+                return;
+            }
+
+            const botGuilds = this.botClient.getGuildList();
+
+            // Try to read persisted OAuth sessions to get user's access token
+            const fs = await import('fs');
+            const path = await import('path');
+            const authPersistPath = path.join(process.cwd(), 'Data', 'Auth', 'sessions.json');
+            let userOauth: any = null;
+            try {
+                if (fs.existsSync(authPersistPath)) {
+                    const raw = fs.readFileSync(authPersistPath, 'utf8') || '{}';
+                    const obj = JSON.parse(raw) as Record<string, any>;
+                    userOauth = obj[session.userId];
+                }
+            } catch (e) {
+                console.warn('[StaffController.getAccessibleGuilds] Failed to read OAuth sessions from disk:', e);
+            }
+
+            let userGuilds: any[] = [];
+            if (userOauth && userOauth.accessToken) {
+                try {
+                    const resp = await fetch('https://discord.com/api/users/@me/guilds', {
+                        headers: {
+                            Authorization: `Bearer ${userOauth.accessToken}`
+                        }
+                    });
+                    if (resp.ok) {
+                        const guilds = await resp.json() as Array<any>;
+                        userGuilds = guilds.filter(g => (g.permissions & 0x8) || (g.owner === true));
+                    }
+                } catch (e) {
+                    console.warn('[StaffController.getAccessibleGuilds] Error fetching user guilds:', e);
+                }
+            }
+
+            const botGuildIds = new Set(botGuilds.map(g => g.id));
+            const filtered = userGuilds.filter(g => botGuildIds.has(g.id));
+
+            res.json({ guilds: filtered });
+        } catch (error) {
+            console.error('getAccessibleGuilds failed:', error);
+            res.status(500).json({ error: 'Internal server error' });
+        }
+    }
+
+    /**
      * プライベートチャット一覧の取得
      */
     async getPrivateChats(req: Request, res: Response): Promise<void> {
         const session = (req as any).session as SettingsSession;
+        // allow optional guildId query to fetch a specific guild (only if session has access)
+        const queryGuildId = (req.query && (req.query as any).guildId) as string | undefined;
+        let targetGuildId = queryGuildId;
 
         try {
-            if (!session.guildId) {
+            // Determine target guild from query or session (support guildIds array)
+            if (!targetGuildId) {
+                targetGuildId = session.guildId;
+                if (!targetGuildId && session.guildIds && session.guildIds.length > 0) {
+                    targetGuildId = session.guildIds[0];
+                }
+            } else {
+                // if provided, ensure the session has access to this guild
+                const allowed = (session.guildIds || []).length === 0 ? (session.guildId === targetGuildId) : (session.guildIds || []).includes(targetGuildId);
+                if (!allowed) {
+                    res.status(403).json({ error: 'Forbidden: session does not have access to this guild' });
+                    return;
+                }
+            }
+
+            if (!targetGuildId) {
                 res.status(400).json({ error: 'Invalid session: missing guild ID' });
                 return;
             }
 
             const { PrivateChatManager } = await import('../../core/PrivateChatManager.js');
-            const chats = await PrivateChatManager.getChatsByGuild(session.guildId);
+            const chats = await PrivateChatManager.getChatsByGuild(targetGuildId);
 
             // ユーザー情報を付加
-            const guild = this.botClient.client.guilds.cache.get(session.guildId);
+            const guild = this.botClient.client.guilds.cache.get(targetGuildId);
             const enrichedChats = await Promise.all(
                 chats.map(async (chat) => {
                     console.log('GET Processing chat:', chat.chatId, 'roomName:', chat.roomName, 'userId:', chat.userId);
@@ -81,12 +155,23 @@ export class StaffController {
         }
 
         try {
-            if (!session.guildId) {
+            // allow optional guildId query to target a specific guild (if session has access)
+            const queryGuildId = (req.query && (req.query as any).guildId) as string | undefined;
+            let targetGuildId = queryGuildId || session.guildId;
+            if (!targetGuildId && session.guildIds && session.guildIds.length > 0) {
+                targetGuildId = session.guildIds[0];
+            }
+            if (!targetGuildId) {
                 res.status(400).json({ error: 'Invalid session: missing guild ID' });
                 return;
             }
+            const allowed = (session.guildIds || []).length === 0 ? (session.guildId === targetGuildId) : (session.guildIds || []).includes(targetGuildId);
+            if (!allowed) {
+                res.status(403).json({ error: 'Forbidden: session does not have access to this guild' });
+                return;
+            }
 
-            const guild = this.botClient.client.guilds.cache.get(session.guildId);
+            const guild = this.botClient.client.guilds.cache.get(targetGuildId);
             if (!guild) {
                 res.status(404).json({ error: 'Guild not found' });
                 return;
@@ -119,12 +204,22 @@ export class StaffController {
         const { chatId } = req.params;
 
         try {
-            if (!session.guildId) {
+            const queryGuildId = (req.query && (req.query as any).guildId) as string | undefined;
+            let targetGuildId = queryGuildId || session.guildId;
+            if (!targetGuildId && session.guildIds && session.guildIds.length > 0) {
+                targetGuildId = session.guildIds[0];
+            }
+            if (!targetGuildId) {
                 res.status(400).json({ error: 'Invalid session: missing guild ID' });
                 return;
             }
+            const allowed = (session.guildIds || []).length === 0 ? (session.guildId === targetGuildId) : (session.guildIds || []).includes(targetGuildId);
+            if (!allowed) {
+                res.status(403).json({ error: 'Forbidden: session does not have access to this guild' });
+                return;
+            }
 
-            const guild = this.botClient.client.guilds.cache.get(session.guildId);
+            const guild = this.botClient.client.guilds.cache.get(targetGuildId);
             if (!guild) {
                 res.status(404).json({ error: 'Guild not found' });
                 return;
@@ -152,13 +247,23 @@ export class StaffController {
         const session = (req as any).session as SettingsSession;
 
         try {
-            if (!session.guildId) {
+            const queryGuildId = (req.query && (req.query as any).guildId) as string | undefined;
+            let targetGuildId = queryGuildId || session.guildId;
+            if (!targetGuildId && session.guildIds && session.guildIds.length > 0) {
+                targetGuildId = session.guildIds[0];
+            }
+            if (!targetGuildId) {
                 res.status(400).json({ error: 'Invalid session: missing guild ID' });
+                return;
+            }
+            const allowed = (session.guildIds || []).length === 0 ? (session.guildId === targetGuildId) : (session.guildIds || []).includes(targetGuildId);
+            if (!allowed) {
+                res.status(403).json({ error: 'Forbidden: session does not have access to this guild' });
                 return;
             }
 
             const { PrivateChatManager } = await import('../../core/PrivateChatManager.js');
-            const stats = await PrivateChatManager.getStats(session.guildId);
+            const stats = await PrivateChatManager.getStats(targetGuildId);
 
             res.json(stats);
         } catch (error) {
@@ -183,14 +288,29 @@ export class StaffController {
         let isFirstUpdate = true;
 
         try {
-            if (!session.guildId) {
-                res.write(`data: ${JSON.stringify({ error: 'Invalid session: missing guild ID' })}\n\n`);
-                res.end();
-                return;
-            }
+                // Determine target guild: query param overrides session defaults
+                const queryGuildId = (req.query && (req.query as any).guildId) as string | undefined;
+                let targetGuildId = queryGuildId || session.guildId;
+                if (!targetGuildId && session.guildIds && session.guildIds.length > 0) {
+                    targetGuildId = session.guildIds[0];
+                }
+
+                if (!targetGuildId) {
+                    res.write(`data: ${JSON.stringify({ error: 'Invalid session: missing guild ID' })}\n\n`);
+                    res.end();
+                    return;
+                }
+
+                // ensure session has access to the target guild
+                const allowed = (session.guildIds || []).length === 0 ? (session.guildId === targetGuildId) : (session.guildIds || []).includes(targetGuildId);
+                if (!allowed) {
+                    res.write(`data: ${JSON.stringify({ error: 'Forbidden: session does not have access to this guild' })}\n\n`);
+                    res.end();
+                    return;
+                }
 
             const { PrivateChatManager } = await import('../../core/PrivateChatManager.js');
-            const guild = this.botClient.client.guilds.cache.get(session.guildId);
+                const guild = this.botClient.client.guilds.cache.get(targetGuildId as string);
 
             if (!guild) {
                 res.write(`data: ${JSON.stringify({ error: 'Guild not found' })}\n\n`);
@@ -201,8 +321,8 @@ export class StaffController {
             // 初期データを送信
             const sendUpdate = async () => {
                 try {
-                    const chats = await PrivateChatManager.getChatsByGuild(session.guildId!);
-                    const stats = await PrivateChatManager.getStats(session.guildId!);
+                        const chats = await PrivateChatManager.getChatsByGuild(targetGuildId!);
+                        const stats = await PrivateChatManager.getStats(targetGuildId!);
 
                     // チャット情報を強化
                     const enrichedChats = await Promise.all(
@@ -331,12 +451,22 @@ export class StaffController {
         const { chatId } = req.params;
 
         try {
-            if (!session.guildId) {
+            const queryGuildId = (req.query && (req.query as any).guildId) as string | undefined;
+            let targetGuildId = queryGuildId || session.guildId;
+            if (!targetGuildId && session.guildIds && session.guildIds.length > 0) {
+                targetGuildId = session.guildIds[0];
+            }
+            if (!targetGuildId) {
                 res.status(400).json({ error: 'Invalid session: missing guild ID' });
                 return;
             }
+            const allowed = (session.guildIds || []).length === 0 ? (session.guildId === targetGuildId) : (session.guildIds || []).includes(targetGuildId);
+            if (!allowed) {
+                res.status(403).json({ error: 'Forbidden: session does not have access to this guild' });
+                return;
+            }
 
-            const guild = this.botClient.client.guilds.cache.get(session.guildId);
+            const guild = this.botClient.client.guilds.cache.get(targetGuildId);
             if (!guild) {
                 res.status(404).json({ error: 'Guild not found' });
                 return;
@@ -378,12 +508,22 @@ export class StaffController {
         }
 
         try {
-            if (!session.guildId) {
+            const queryGuildId = (req.query && (req.query as any).guildId) as string | undefined;
+            let targetGuildId = queryGuildId || session.guildId;
+            if (!targetGuildId && session.guildIds && session.guildIds.length > 0) {
+                targetGuildId = session.guildIds[0];
+            }
+            if (!targetGuildId) {
                 res.status(400).json({ error: 'Invalid session: missing guild ID' });
                 return;
             }
+            const allowed = (session.guildIds || []).length === 0 ? (session.guildId === targetGuildId) : (session.guildIds || []).includes(targetGuildId);
+            if (!allowed) {
+                res.status(403).json({ error: 'Forbidden: session does not have access to this guild' });
+                return;
+            }
 
-            const guild = this.botClient.client.guilds.cache.get(session.guildId);
+            const guild = this.botClient.client.guilds.cache.get(targetGuildId);
             if (!guild) {
                 res.status(404).json({ error: 'Guild not found' });
                 return;
@@ -436,12 +576,22 @@ export class StaffController {
         const { chatId, userId } = req.params;
 
         try {
-            if (!session.guildId) {
+            const queryGuildId = (req.query && (req.query as any).guildId) as string | undefined;
+            let targetGuildId = queryGuildId || session.guildId;
+            if (!targetGuildId && session.guildIds && session.guildIds.length > 0) {
+                targetGuildId = session.guildIds[0];
+            }
+            if (!targetGuildId) {
                 res.status(400).json({ error: 'Invalid session: missing guild ID' });
                 return;
             }
+            const allowed = (session.guildIds || []).length === 0 ? (session.guildId === targetGuildId) : (session.guildIds || []).includes(targetGuildId);
+            if (!allowed) {
+                res.status(403).json({ error: 'Forbidden: session does not have access to this guild' });
+                return;
+            }
 
-            const guild = this.botClient.client.guilds.cache.get(session.guildId);
+            const guild = this.botClient.client.guilds.cache.get(targetGuildId);
             if (!guild) {
                 res.status(404).json({ error: 'Guild not found' });
                 return;
@@ -472,12 +622,22 @@ export class StaffController {
         }
 
         try {
-            if (!session.guildId) {
+            const queryGuildId = (req.query && (req.query as any).guildId) as string | undefined;
+            let targetGuildId = queryGuildId || session.guildId;
+            if (!targetGuildId && session.guildIds && session.guildIds.length > 0) {
+                targetGuildId = session.guildIds[0];
+            }
+            if (!targetGuildId) {
                 res.status(400).json({ error: 'Invalid session: missing guild ID' });
                 return;
             }
+            const allowed = (session.guildIds || []).length === 0 ? (session.guildId === targetGuildId) : (session.guildIds || []).includes(targetGuildId);
+            if (!allowed) {
+                res.status(403).json({ error: 'Forbidden: session does not have access to this guild' });
+                return;
+            }
 
-            const guild = this.botClient.client.guilds.cache.get(session.guildId);
+            const guild = this.botClient.client.guilds.cache.get(targetGuildId);
             if (!guild) {
                 res.status(404).json({ error: 'Guild not found' });
                 return;

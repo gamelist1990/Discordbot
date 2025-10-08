@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { validateToken, fetchStaffCommands, type StaffCommandData, ApiError } from '../../services/api';
+import { useNavigate } from 'react-router-dom';
+import { fetchStaffCommands, type StaffCommandData } from '../../services/api';
 import AppHeader from '../../components/Common/AppHeader';
 import styles from './StaffHelpPage.module.css';
 
@@ -13,7 +13,7 @@ interface UserSession {
 type TabType = 'help' | 'services';
 
 const StaffHelpPage: React.FC = () => {
-    const { token } = useParams<{ token: string }>();
+    // no token-based access any more; use session-based APIs
     const navigate = useNavigate();
 
     const [user, setUser] = useState<UserSession | null>(null);
@@ -21,43 +21,14 @@ const StaffHelpPage: React.FC = () => {
     const [error, setError] = useState<string | null>(null);
     const [activeTab, setActiveTab] = useState<TabType>('help');
     const [commandData, setCommandData] = useState<StaffCommandData | null>(null);
+    const [pendingAnchor, setPendingAnchor] = useState<string | null>(null);
 
     // トークン検証とデータ読み込み
     useEffect(() => {
         const loadData = async () => {
             try {
-                // トークンベースアクセス（従来の動作）をサポートしつつ、
-                // /staff からのアクセス時はセッションベースでデータを取得する
-                let finalToken = token;
-                let useSessionBased = false;
-
-                if (!token) {
-                    // /staff からアクセスされた場合、セッションベースを使用
-                    useSessionBased = true;
-                }
-
-                let commandResponse;
-                if (useSessionBased) {
-                    // セッションベース: /api/staff/commands を使用
-                    commandResponse = await fetch('/api/staff/commands', {
-                        credentials: 'include'
-                    });
-                } else {
-                    // 従来のトークンベースアクセス
-                    await validateToken(token);
-                    commandResponse = await fetch(`/api/staff/commands/${token}`, {
-                        credentials: 'include'
-                    });
-                }
-
-                if (!commandResponse.ok) {
-                    throw new ApiError(
-                        `Failed to fetch commands: ${commandResponse.status}`,
-                        commandResponse.status
-                    );
-                }
-
-                const data = await commandResponse.json();
+                // セッションベース: /api/staff/commands を使用
+                const data = await fetchStaffCommands();
                 setCommandData(data);
                 setLoading(false);
             } catch (err) {
@@ -68,7 +39,7 @@ const StaffHelpPage: React.FC = () => {
         };
 
         loadData();
-    }, [token]);
+    }, []);
 
     // ユーザーセッション確認
     useEffect(() => {
@@ -89,6 +60,26 @@ const StaffHelpPage: React.FC = () => {
 
         checkAuth();
     }, []);
+
+    // When activeTab becomes 'help' and there's a pending anchor, scroll to it
+    useEffect(() => {
+        if (activeTab === 'help' && pendingAnchor) {
+            // allow DOM to update
+            requestAnimationFrame(() => {
+                const el = document.getElementById(pendingAnchor!);
+                if (el) {
+                    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    // update the hash so copying the URL preserves location
+                    try {
+                        history.replaceState(undefined, '', `#${pendingAnchor}`);
+                    } catch (e) {
+                        // ignore
+                    }
+                }
+                setPendingAnchor(null);
+            });
+        }
+    }, [activeTab, pendingAnchor]);
 
     const getOptionTypeIcon = (type: string): string => {
         const iconMap: Record<string, string> = {
@@ -174,16 +165,23 @@ const StaffHelpPage: React.FC = () => {
                         <div className={styles.sidebarSection}>
                             <h3 className={styles.sidebarTitle}>クイックリンク</h3>
                             <nav className={styles.sidebarNav}>
-                                {commandData.subcommands.map((cmd) => (
-                                    <a
-                                        key={cmd.name}
-                                        href={`#cmd-${cmd.name}`}
-                                        className={styles.sidebarLink}
-                                    >
-                                        {cmd.name}
-                                    </a>
-                                ))}
-                            </nav>
+                                    {commandData.subcommands.map((cmd) => (
+                                        <a
+                                            key={cmd.name}
+                                            href={`#cmd-${cmd.name}`}
+                                            className={styles.sidebarLink}
+                                            onClick={(e) => {
+                                                // when clicked, ensure we switch to help tab and scroll to command
+                                                e.preventDefault();
+                                                // set pending anchor, switch to help
+                                                setPendingAnchor(`cmd-${cmd.name}`);
+                                                setActiveTab('help');
+                                            }}
+                                        >
+                                            {cmd.name}
+                                        </a>
+                                    ))}
+                                </nav>
                         </div>
                     </aside>
 
@@ -290,7 +288,7 @@ const StaffHelpPage: React.FC = () => {
                                         </p>
                                         <button
                                             className={styles.serviceButton}
-                                            onClick={() => navigate(token ? `/staff/privatechat/${token}` : '/')}
+                                            onClick={() => navigate('/staff/privatechat')}
                                         >
                                             開く
                                         </button>

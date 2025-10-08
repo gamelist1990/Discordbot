@@ -14,6 +14,7 @@ import { createGuildRoutes } from './routes/guild.js';
 // 開発時に Vite dev server へプロキシするためのミドルウェア（optional）
 import { createProxyMiddleware } from 'http-proxy-middleware';
 import { statsManagerSingleton } from '../core/StatsManager.js';
+import { TodoManager } from '../core/TodoManager.js';
 // config.json を読み込む
 import config from '../../config.json' assert { type: 'json' };
 
@@ -52,6 +53,13 @@ export class SettingsServer {
         } catch (e) {
             Logger.warn('Failed to init StatsManager:', e);
         }
+
+        // 定期的に期限切れの共有エディターをクリーンアップ
+        setInterval(() => {
+            TodoManager.cleanupExpiredSharedEditors().catch(err => {
+                console.error('Failed to cleanup expired shared editors:', err);
+            });
+        }, 60 * 1000); // 1分ごとにチェック
     }
 
     /**

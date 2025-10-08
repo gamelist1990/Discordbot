@@ -8,9 +8,10 @@
 }
 
 .container {
-    max-width: 1400px;
-    margin: 0 auto;
-    padding: 24px;
+    /* allow the page to use full available width while keeping internal padding */
+    width: 100%;
+    box-sizing: border-box;
+    padding: 24px 40px; /* slightly larger horizontal padding for visual spacing */
     flex: 1;
 }
 
@@ -101,11 +102,12 @@
 /* コンテンツエリア */
 .content {
     display: grid;
-    grid-template-columns: 250px 1fr;
+    grid-template-columns: 260px 1fr; /* give a bit more space for sidebar */
     gap: 24px;
     background: white;
     min-height: 600px;
     box-shadow: 0 1px 2px 0 rgba(60,64,67,0.3);
+    width: 100%;
 }
 
 /* サイドバー */
@@ -153,6 +155,8 @@
 .main {
     background: white;
     padding: 32px;
+    /* ensure main uses remaining width cleanly */
+    min-width: 0;
 }
 
 .helpContent,

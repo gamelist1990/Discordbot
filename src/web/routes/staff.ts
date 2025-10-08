@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { StaffController } from '../controllers/StaffController.js';
 import { SettingsSession } from '../types/index.js';
 import { BotClient } from '../../core/BotClient.js';
-import { AuthMiddleware, verifyAuth } from '../middleware/auth.js';
+import { verifyAuth } from '../middleware/auth.js';
 
 /**
  * スタッフルート
@@ -13,35 +13,35 @@ export function createStaffRoutes(
 ): Router {
     const router = Router();
     const controller = new StaffController(botClient);
-    const auth = new AuthMiddleware(sessions);
 
-    // プライベートチャット一覧の取得
-    router.get('/privatechats/:token', auth.validateToken, controller.getPrivateChats.bind(controller));
 
-    // プライベートチャットの作成
-    router.post('/privatechats/:token', auth.validateToken, controller.createPrivateChat.bind(controller));
+    // プライベートチャット一覧の取得 (session-based)
+    router.get('/privatechats', verifyAuth(sessions), controller.getPrivateChats.bind(controller));
 
-    // プライベートチャットの削除
-    router.delete('/privatechats/:token/:chatId', auth.validateToken, controller.deletePrivateChat.bind(controller));
+    // プライベートチャットの作成 (session-based)
+    router.post('/privatechats', verifyAuth(sessions), controller.createPrivateChat.bind(controller));
 
-    // プライベートチャット統計の取得
-    router.get('/stats/:token', auth.validateToken, controller.getPrivateChatStats.bind(controller));
+    // プライベートチャットの削除 (session-based)
+    router.delete('/privatechats/:chatId', verifyAuth(sessions), controller.deletePrivateChat.bind(controller));
 
-    // プライベートチャットのリアルタイム更新（SSE）
-    router.get('/privatechats/:token/stream', auth.validateToken, controller.streamPrivateChatUpdates.bind(controller));
+    // プライベートチャット統計の取得 (session-based)
+    router.get('/stats', verifyAuth(sessions), controller.getPrivateChatStats.bind(controller));
 
-    // メンバー管理エンドポイント
-    router.get('/privatechats/:token/:chatId/members', auth.validateToken, controller.getChatMembers.bind(controller));
-    router.post('/privatechats/:token/:chatId/members', auth.validateToken, controller.addChatMember.bind(controller));
-    router.delete('/privatechats/:token/:chatId/members/:userId', auth.validateToken, controller.removeChatMember.bind(controller));
+    // プライベートチャットのリアルタイム更新（SSE） (session-based)
+    router.get('/privatechats/stream', verifyAuth(sessions), controller.streamPrivateChatUpdates.bind(controller));
 
-    // ユーザー検索
-    router.get('/searchusers/:token', auth.validateToken, controller.searchUsers.bind(controller));
+    // セッションベースでアクセス可能なギルド一覧取得
+    router.get('/guilds', verifyAuth(sessions), controller.getAccessibleGuilds.bind(controller));
 
-    // スタッフコマンド情報の取得
-    router.get('/commands/:token', auth.validateToken, controller.getStaffCommands.bind(controller));
+    // メンバー管理エンドポイント (session-based)
+    router.get('/privatechats/:chatId/members', verifyAuth(sessions), controller.getChatMembers.bind(controller));
+    router.post('/privatechats/:chatId/members', verifyAuth(sessions), controller.addChatMember.bind(controller));
+    router.delete('/privatechats/:chatId/members/:userId', verifyAuth(sessions), controller.removeChatMember.bind(controller));
 
-    // セッションベースのスタッフコマンド情報取得（ログインユーザー向け）
+    // ユーザー検索 (session-based)
+    router.get('/searchusers', verifyAuth(sessions), controller.searchUsers.bind(controller));
+
+    // スタッフコマンド情報の取得 (session-based)
     router.get('/commands', verifyAuth(sessions), controller.getStaffCommands.bind(controller));
 
     return router;
