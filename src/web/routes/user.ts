@@ -148,9 +148,11 @@ export function createUserRoutes(
                     // 1) Try runtime StatsManager
                     if (statsMgr) {
                         const s = await statsMgr.getUserStats(g.id, user.userId);
-                        totalMessages = s.totalMessages || 0;
-                        linkMessages = s.linkMessages || 0;
-                        mediaMessages = s.mediaMessages || 0;
+                        if (s) {
+                            totalMessages = s.totalMessages || 0;
+                            linkMessages = s.linkMessages || 0;
+                            mediaMessages = s.mediaMessages || 0;
+                        }
                     }
 
                     // 2) If still zeros, try persisted per-guild per-user file
@@ -163,7 +165,11 @@ export function createUserRoutes(
                                 mediaMessages = perUser.mediaMessages || 0;
                             } else {
                                 // 3) Try global per-user file Data/User/<userId>.json
-                                const userFile = await persisted.get(g.id, `User/${user.userId}`, null) as any;
+                                // global per-user file is stored at the root namespace (""),
+                                // not under the guild id. Using the guild id here could return
+                                // unexpected values and cause the same stats to appear for
+                                // multiple guilds. Read from the global namespace instead.
+                                const userFile = await persisted.get('', `User/${user.userId}`, null) as any;
                                 if (userFile) {
                                     totalMessages = userFile.totalMessages || 0;
                                     linkMessages = userFile.linkMessages || 0;

@@ -130,7 +130,7 @@ const AppHeader: React.FC<AppHeaderProps> = ({ user: userProp, onLogout }) => {
                             <button 
                                 className={styles.appMenuBtn}
                                 onClick={() => setShowAppMenu(!showAppMenu)}
-                                title="Google アプリ"
+                                title="アプリ"
                             >
                                 <span className="material-icons">apps</span>
                             </button>
@@ -172,7 +172,7 @@ const AppHeader: React.FC<AppHeaderProps> = ({ user: userProp, onLogout }) => {
                                             className={styles.appItem}
                                             onClick={() => {
                                                 setShowAppMenu(false);
-                                                navigate('/todo');
+                                                navigate('/todo/default');
                                             }}
                                         >
                                             <span className="material-icons">checklist</span>
