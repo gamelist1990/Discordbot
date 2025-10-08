@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { validateToken } from '../../services/api';
+import { validateToken, fetchStaffCommands, type StaffCommandData } from '../../services/api';
 import AppHeader from '../../components/Common/AppHeader';
 import styles from './StaffHelpPage.module.css';
 
@@ -8,26 +8,6 @@ interface UserSession {
     userId: string;
     username: string;
     avatar?: string | null;
-}
-
-interface CommandOption {
-    name: string;
-    description: string;
-    type: string;
-    required: boolean;
-    choices: Array<{ name: string; value: string | number }>;
-}
-
-interface StaffSubcommand {
-    name: string;
-    description: string;
-    options: CommandOption[];
-}
-
-interface StaffCommandData {
-    name: string;
-    description: string;
-    subcommands: StaffSubcommand[];
 }
 
 type TabType = 'help' | 'services';
@@ -56,15 +36,7 @@ const StaffHelpPage: React.FC = () => {
                 await validateToken(token);
 
                 // スタッフコマンドデータ取得
-                const response = await fetch(`/api/staff/commands/${token}`, {
-                    credentials: 'include'
-                });
-
-                if (!response.ok) {
-                    throw new Error('コマンドデータの取得に失敗しました');
-                }
-
-                const data = await response.json();
+                const data = await fetchStaffCommands(token);
                 setCommandData(data);
                 setLoading(false);
             } catch (err) {

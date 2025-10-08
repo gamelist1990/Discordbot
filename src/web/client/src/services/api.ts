@@ -203,3 +203,33 @@ export async function searchUsers(token: string, query: string, chatId?: string)
     : `${API_BASE}/staff/searchusers/${token}?query=${encodeURIComponent(query)}`;
   return apiRequest(url);
 }
+
+/**
+ * スタッフコマンド情報の型定義
+ */
+export interface CommandOption {
+  name: string;
+  description: string;
+  type: string;
+  required: boolean;
+  choices: Array<{ name: string; value: string | number }>;
+}
+
+export interface StaffSubcommand {
+  name: string;
+  description: string;
+  options: CommandOption[];
+}
+
+export interface StaffCommandData {
+  name: string;
+  description: string;
+  subcommands: StaffSubcommand[];
+}
+
+/**
+ * スタッフコマンド情報の取得
+ */
+export async function fetchStaffCommands(token: string): Promise<StaffCommandData> {
+  return apiRequest<StaffCommandData>(`${API_BASE}/staff/commands/${token}`);
+}
