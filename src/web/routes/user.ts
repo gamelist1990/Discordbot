@@ -261,6 +261,59 @@ export function createUserRoutes(
     });
 
     /**
+     * Get user activity data with timestamps
+     */
+    router.get('/activity', verifyAuth(sessions), async (req: Request, res: Response) => {
+        try {
+            const user = getCurrentUser(req);
+            if (!user) {
+                res.status(401).json({ error: 'Unauthorized' });
+                return;
+            }
+
+            // Get bot guilds
+            const botGuilds = botClient.getGuildList();
+            const guildIds = botGuilds.map(g => g.id as string);
+
+            // Get stats manager
+            const statsMgr = (await import('../../core/StatsManager.js')).statsManagerSingleton.instance;
+            
+            if (!statsMgr) {
+                res.status(503).json({ error: 'Stats manager not available' });
+                return;
+            }
+
+            // Get aggregated activity data
+            const activityData = await statsMgr.getUserAggregatedActivity(user.userId, guildIds);
+
+            // Calculate averages and frequency
+            const weeklyAverage = activityData.weeklyMessages / 7;
+            const monthlyAverage = activityData.monthlyMessages / 30;
+
+            let chatFrequency: 'very_high' | 'high' | 'moderate' | 'low' | 'very_low' = 'low';
+            if (weeklyAverage >= 50) chatFrequency = 'very_high';
+            else if (weeklyAverage >= 20) chatFrequency = 'high';
+            else if (weeklyAverage >= 10) chatFrequency = 'moderate';
+            else if (weeklyAverage >= 3) chatFrequency = 'low';
+            else chatFrequency = 'very_low';
+
+            res.json({
+                weeklyMessages: activityData.weeklyMessages,
+                monthlyMessages: activityData.monthlyMessages,
+                yearlyMessages: activityData.yearlyMessages,
+                weeklyAverage,
+                monthlyAverage,
+                chatFrequency,
+                recentActivity: activityData.recentActivity,
+                hasTimestampData: activityData.allTimestamps.length > 0
+            });
+        } catch (error) {
+            console.error('Failed to get user activity:', error);
+            res.status(500).json({ error: 'Internal server error' });
+        }
+    });
+
+    /**
      * 管理者権限のあるサーバー一覧を返す
      */
     router.get('/guilds', verifyAuth(sessions), async (req: Request, res: Response) => {
