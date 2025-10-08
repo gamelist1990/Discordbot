@@ -102,7 +102,18 @@ export class CommandLoader {
 
             // 旧形式（SlashCommand）をチェック
             if (this.isSlashCommand(commandExport)) {
-                this.botClient.registerCommand(commandExport);
+                // permissionLevelがある場合は新形式として扱う
+                if (commandExport.permissionLevel !== undefined) {
+                    const dynamicCommand: DynamicCommandOptions = {
+                        name: commandExport.data.name,
+                        description: this.getCommandDescription(commandExport.data),
+                        permissionLevel: commandExport.permissionLevel,
+                        execute: commandExport.execute,
+                    };
+                    this.registry.registerCommand(dynamicCommand);
+                } else {
+                    this.botClient.registerCommand(commandExport);
+                }
                 return;
             }
 
@@ -124,6 +135,13 @@ export class CommandLoader {
      */
     private isSlashCommand(obj: any): obj is SlashCommand {
         return obj.data && typeof obj.execute === 'function';
+    }
+
+    /**
+     * SlashCommandBuilder から説明を取得
+     */
+    private getCommandDescription(builder: any): string {
+        return builder.description || 'No description';
     }
 
     /**

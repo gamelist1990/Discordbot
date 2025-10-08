@@ -23,21 +23,38 @@ export function createGuildRoutes(sessions: Map<string, SettingsSession>, botCli
     // /api/guild/:guildId
     router.get('/guild/:guildId', verifyAuth, async (req: Request, res: Response) => {
         const guildId = req.params.guildId;
+        const session = (req as any).session as SettingsSession;
+
         if (!guildId) {
             res.status(400).json({ error: 'guildId is required' });
             return;
         }
+
         // Botが参加しているかチェック
         const guild = botClient.client.guilds.cache.get(guildId);
         if (!guild) {
             res.status(404).json({ error: 'Guild not found' });
             return;
         }
+
+        // ユーザーがこのギルドのメンバーであることを確認
+        try {
+            const member = await guild.members.fetch(session.userId);
+            if (!member) {
+                res.status(403).json({ error: 'You are not a member of this guild' });
+                return;
+            }
+        } catch (error) {
+            res.status(403).json({ error: 'You are not a member of this guild' });
+            return;
+        }
+
         // サーバー設定取得
         let settings = null;
         try {
             settings = await database.get(guildId, 'guild_settings');
         } catch {}
+
         res.json({
             id: guild.id,
             name: guild.name,

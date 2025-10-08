@@ -37,7 +37,6 @@ export interface BotStatusResponse {
   guildCount: number;
   maxGuilds: number;
   uptime: number;
-  uptimeFormatted: string;
-  version: string;
-  ready: boolean;
 }
+
+export * from './permission.ts';

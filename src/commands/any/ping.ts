@@ -1,5 +1,6 @@
 import { SlashCommandBuilder, ChatInputCommandInteraction, EmbedBuilder } from 'discord.js';
 import { SlashCommand } from '../../types/command.js';
+import { PermissionLevel } from '../../web/types/permission.js';
 
 /**
  * /ping コマンド
@@ -9,6 +10,7 @@ const pingCommand: SlashCommand = {
     data: new SlashCommandBuilder()
         .setName('ping')
         .setDescription('Bot の応答速度を確認します'),
+    permissionLevel: PermissionLevel.ANY,
     
     async execute(interaction: ChatInputCommandInteraction): Promise<void> {
         await interaction.reply({ content: '計測中...' });

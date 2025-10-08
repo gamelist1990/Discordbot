@@ -135,7 +135,7 @@ export class EventHandler {
                             commandName: interaction.commandName,
                             user: interaction.user,
                             guild: interaction.guild!,
-                            requiredPermission: command.permissionLevel,
+                            requiredPermission: command.permissionLevel.toString(),
                         });
 
                         await interaction.reply({ 

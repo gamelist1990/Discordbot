@@ -1,18 +1,9 @@
-import { 
-    ChatInputCommandInteraction, 
+import {
+    ChatInputCommandInteraction,
     SlashCommandBuilder,
-    SlashCommandOptionsOnlyBuilder 
+    SlashCommandOptionsOnlyBuilder
 } from 'discord.js';
-
-/**
- * 権限レベル
- */
-export enum PermissionLevel {
-    ANY = 'any',           // 誰でも実行可能
-    STAFF = 'staff',       // スタッフロール（サーバー設定で指定）
-    ADMIN = 'admin',       // 管理者ロール（サーバー設定で指定）
-    OP = 'op',             // サーバー管理者権限を持つユーザー
-}
+import { PermissionLevel } from '../web/types/permission';
 
 /**
  * コマンドビルダーのコールバック型

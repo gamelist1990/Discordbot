@@ -1,5 +1,6 @@
 import { SlashCommandBuilder, ChatInputCommandInteraction, PermissionFlagsBits, MessageFlags } from 'discord.js';
 import { SlashCommand } from '../../types/command.js';
+import { PermissionLevel } from '../../web/types/permission.js';
 
 /**
  * /settings コマンド
@@ -11,6 +12,7 @@ const settingsCommand: SlashCommand = {
         .setDescription('サーバー設定用の一時URLを生成します')
         .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
         .setDMPermission(false),
+    permissionLevel: PermissionLevel.ADMIN,
     
     async execute(interaction: ChatInputCommandInteraction) {
         try {

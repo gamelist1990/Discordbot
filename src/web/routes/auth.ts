@@ -7,6 +7,7 @@ import { SettingsSession } from '../types';
 import { database } from '../../core/Database.js';
 import fs from 'fs';
 import path from 'path';
+import { PermissionLevel } from '../types/permission.js';
 
 /**
  * OAuth2 state情報
@@ -104,8 +105,7 @@ export function createAuthRoutes(
                     guildId: session.guildId,
                     username: session.username || session.userId,
                     avatar: (session as any).avatar || null,
-                    // permission: 0=any,1=staff,2=admin,3=owner
-                    permission: typeof session.permission === 'number' ? session.permission : 0
+                    permission: typeof session.permission === 'number' ? session.permission : PermissionLevel.ANY
                 }
             });
         } catch (error) {

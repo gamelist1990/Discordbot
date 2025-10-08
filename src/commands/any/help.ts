@@ -1,6 +1,7 @@
 import { SlashCommandBuilder, ChatInputCommandInteraction, EmbedBuilder, MessageFlags } from 'discord.js';
 import { CommandRegistry } from '../../core/CommandRegistry.js';
 import { SlashCommand } from '../../types/command.js';
+import { PermissionLevel } from '../../web/types/permission.js';
 
 const COMMANDS_PER_PAGE = 5;
 
@@ -19,6 +20,7 @@ const helpCommand: SlashCommand = {
                 .setRequired(false)
                 .setMinValue(1)
         ) as SlashCommandBuilder,
+    permissionLevel: PermissionLevel.ANY,
     
     async execute(interaction: ChatInputCommandInteraction): Promise<void> {
         const requestedPage = interaction.options.getInteger('page') ?? 1;
