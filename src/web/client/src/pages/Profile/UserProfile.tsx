@@ -166,9 +166,6 @@ const UserProfile: React.FC<UserProfileProps> = ({ user, onLoginClick }) => {
         // 週間・月間・年間の推定値（実際のデータがないため、総メッセージ数から推定）
         // 実装では、過去のメッセージタイムスタンプがあれば正確に計算可能
         const now = new Date();
-        const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-        const oneMonthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-        const oneYearAgo = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
 
         // 簡易的な推定（実際のタイムスタンプデータがある場合は正確に計算）
         // ここでは総メッセージ数から比例配分

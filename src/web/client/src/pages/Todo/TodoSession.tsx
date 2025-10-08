@@ -553,8 +553,13 @@ const ShareModal: React.FC<{ sessionId: string; onClose: () => void; }> =
             });
             if (response.ok) {
                 const data = await response.json();
-                console.log('[ShareModal] Loaded share links:', data);
-                const links = data.shareLinks.map((link: any) => ({
+                let shareLinksRaw = data.shareLinks;
+                // 型安全: 配列でなければ空配列に
+                if (!Array.isArray(shareLinksRaw)) {
+                    console.warn('[ShareModal] shareLinks is not array:', shareLinksRaw);
+                    shareLinksRaw = [];
+                }
+                const links = shareLinksRaw.map((link: any) => ({
                     token: link.token,
                     mode: link.mode,
                     url: `${window.location.origin}/todo/shared/${link.token}`

@@ -61,9 +61,9 @@ export class TodoManager {
     /**
      * ユーザーのTodoセッションを取得（所有 + 共有されたもの）
      */
-    static async getUserSessions(guildId: string, userId: string): Promise<TodoSession[]> {
+    static async getUserSessions(userId: string): Promise<TodoSession[]> {
         try {
-            const allSessions = await this.db.get(guildId, 'todo/sessions') || {};
+            const allSessions = await this.db.get('', 'todo/sessions') || {};
             const sessions: TodoSession[] = [];
 
             for (const sessionId in allSessions) {
@@ -88,13 +88,9 @@ export class TodoManager {
     /**
      * Todoセッションを作成
      */
-    static async createSession(
-        guildId: string,
-        userId: string,
-        name: string
-    ): Promise<TodoSession> {
+    static async createSession(userId: string, name: string): Promise<TodoSession> {
         // ユーザーが所有するセッション数を確認
-        const allSessions = await this.db.get(guildId, 'todo/sessions') || {};
+        const allSessions = await this.db.get('', 'todo/sessions') || {};
         const ownedSessions = Object.values(allSessions).filter(
             (s: any) => s.ownerId === userId
         );
@@ -106,7 +102,7 @@ export class TodoManager {
         const sessionId = crypto.randomBytes(16).toString('hex');
         const session: TodoSession = {
             id: sessionId,
-            guildId,
+            guildId: '',
             name,
             ownerId: userId,
             createdAt: Date.now(),
@@ -117,8 +113,8 @@ export class TodoManager {
         };
 
         // セッションを保存
-        allSessions[sessionId] = session;
-        await this.db.set(guildId, 'todo/sessions', allSessions);
+    allSessions[sessionId] = session;
+    await this.db.set('', 'todo/sessions', allSessions);
 
         // 初期コンテンツを作成
         const content: TodoSessionContent = {
@@ -126,7 +122,7 @@ export class TodoManager {
             todos: [],
             updatedAt: Date.now()
         };
-        await this.db.set(guildId, `todo/content/${sessionId}`, content);
+    await this.db.set('', `todo/content/${sessionId}`, content);
 
         return session;
     }
@@ -134,9 +130,9 @@ export class TodoManager {
     /**
      * Todoセッションを取得
      */
-    static async getSession(guildId: string, sessionId: string): Promise<TodoSession | null> {
+    static async getSession(sessionId: string): Promise<TodoSession | null> {
         try {
-            const allSessions = await this.db.get(guildId, 'todo/sessions') || {};
+            const allSessions = await this.db.get('', 'todo/sessions') || {};
             return allSessions[sessionId] || null;
         } catch (error) {
             console.error('Error fetching session:', error);
@@ -147,21 +143,21 @@ export class TodoManager {
     /**
      * Todoセッションを削除
      */
-    static async deleteSession(guildId: string, sessionId: string): Promise<void> {
-        const allSessions = await this.db.get(guildId, 'todo/sessions') || {};
+    static async deleteSession(sessionId: string): Promise<void> {
+        const allSessions = await this.db.get('', 'todo/sessions') || {};
         delete allSessions[sessionId];
-        await this.db.set(guildId, 'todo/sessions', allSessions);
+        await this.db.set('', 'todo/sessions', allSessions);
 
         // コンテンツも削除
-        await this.db.delete(guildId, `todo/content/${sessionId}`);
+        await this.db.delete('', `todo/content/${sessionId}`);
     }
 
     /**
      * Todoセッションのコンテンツを取得
      */
-    static async getContent(guildId: string, sessionId: string): Promise<TodoSessionContent | null> {
+    static async getContent(sessionId: string): Promise<TodoSessionContent | null> {
         try {
-            const content = await this.db.get(guildId, `todo/content/${sessionId}`);
+            const content = await this.db.get('', `todo/content/${sessionId}`);
             return content || null;
         } catch (error) {
             console.error('Error fetching content:', error);
@@ -173,7 +169,6 @@ export class TodoManager {
      * Todoアイテムを追加
      */
     static async addTodo(
-        guildId: string,
         sessionId: string,
         text: string,
         createdBy: string,
@@ -182,7 +177,7 @@ export class TodoManager {
         description?: string,
         dueDate?: number
     ): Promise<TodoItem> {
-        const content = await this.getContent(guildId, sessionId);
+        const content = await this.getContent(sessionId);
         if (!content) {
             throw new Error('Session not found');
         }
@@ -205,7 +200,7 @@ export class TodoManager {
 
         content.todos.push(todo);
         content.updatedAt = Date.now();
-        await this.db.set(guildId, `todo/content/${sessionId}`, content);
+    await this.db.set('', `todo/content/${sessionId}`, content);
 
         return todo;
     }
@@ -214,12 +209,11 @@ export class TodoManager {
      * Todoアイテムを更新
      */
     static async updateTodo(
-        guildId: string,
         sessionId: string,
         todoId: string,
         updates: Partial<TodoItem>
     ): Promise<void> {
-        const content = await this.getContent(guildId, sessionId);
+        const content = await this.getContent(sessionId);
         if (!content) {
             throw new Error('Session not found');
         }
@@ -270,14 +264,14 @@ export class TodoManager {
         };
         content.updatedAt = Date.now();
 
-        await this.db.set(guildId, `todo/content/${sessionId}`, content);
+        await this.db.set('', `todo/content/${sessionId}`, content);
     }
 
     /**
      * Todoアイテムを削除
      */
-    static async deleteTodo(guildId: string, sessionId: string, todoId: string): Promise<void> {
-        const content = await this.getContent(guildId, sessionId);
+    static async deleteTodo(sessionId: string, todoId: string): Promise<void> {
+        const content = await this.getContent(sessionId);
         if (!content) {
             throw new Error('Session not found');
         }
@@ -285,19 +279,18 @@ export class TodoManager {
         content.todos = content.todos.filter(t => t.id !== todoId);
         content.updatedAt = Date.now();
 
-        await this.db.set(guildId, `todo/content/${sessionId}`, content);
+        await this.db.set('', `todo/content/${sessionId}`, content);
     }
 
     /**
      * 共有メンバーを追加（ビューワーまたはエディター）
      */
     static async addMember(
-        guildId: string,
         sessionId: string,
         userId: string,
         role: 'viewer' | 'editor'
     ): Promise<void> {
-        const allSessions = await this.db.get(guildId, 'todo/sessions') || {};
+        const allSessions = await this.db.get('', 'todo/sessions') || {};
         const session = allSessions[sessionId];
 
         if (!session) {
@@ -320,14 +313,14 @@ export class TodoManager {
         }
 
         session.updatedAt = Date.now();
-        await this.db.set(guildId, 'todo/sessions', allSessions);
+        await this.db.set('', 'todo/sessions', allSessions);
     }
 
     /**
      * 共有メンバーを削除
      */
-    static async removeMember(guildId: string, sessionId: string, userId: string): Promise<void> {
-        const allSessions = await this.db.get(guildId, 'todo/sessions') || {};
+    static async removeMember(sessionId: string, userId: string): Promise<void> {
+        const allSessions = await this.db.get('', 'todo/sessions') || {};
         const session = allSessions[sessionId];
 
         if (!session) {
@@ -338,14 +331,14 @@ export class TodoManager {
         session.editors = session.editors.filter((id: string) => id !== userId);
         session.updatedAt = Date.now();
 
-        await this.db.set(guildId, 'todo/sessions', allSessions);
+        await this.db.set('', 'todo/sessions', allSessions);
     }
 
     /**
      * お気に入りに追加/削除
      */
-    static async toggleFavorite(guildId: string, sessionId: string, userId: string): Promise<boolean> {
-        const allSessions = await this.db.get(guildId, 'todo/sessions') || {};
+    static async toggleFavorite(sessionId: string, userId: string): Promise<boolean> {
+        const allSessions = await this.db.get('', 'todo/sessions') || {};
         const session = allSessions[sessionId];
 
         if (!session) {
@@ -356,12 +349,12 @@ export class TodoManager {
         if (index === -1) {
             session.favoritedBy.push(userId);
             session.updatedAt = Date.now();
-            await this.db.set(guildId, 'todo_sessions', allSessions);
+            await this.db.set('', 'todo_sessions', allSessions);
             return true; // お気に入りに追加
         } else {
             session.favoritedBy.splice(index, 1);
             session.updatedAt = Date.now();
-            await this.db.set(guildId, 'todo_sessions', allSessions);
+            await this.db.set('', 'todo_sessions', allSessions);
             return false; // お気に入りから削除
         }
     }
@@ -369,8 +362,8 @@ export class TodoManager {
     /**
      * アクセス権限を確認
      */
-    static async canAccess(guildId: string, sessionId: string, userId: string): Promise<'owner' | 'editor' | 'viewer' | null> {
-        const session = await this.getSession(guildId, sessionId);
+    static async canAccess(sessionId: string, userId: string): Promise<'owner' | 'editor' | 'viewer' | null> {
+        const session = await this.getSession(sessionId);
         if (!session) {
             return null;
         }
@@ -394,12 +387,11 @@ export class TodoManager {
      * expiresInSeconds: null = 永続, number = 有効期限(秒)
      */
     static async createShareLink(
-        guildId: string,
         sessionId: string,
         mode: 'view' | 'edit',
         expiresInSeconds: number | null = null
     ): Promise<string> {
-        const session = await this.getSession(guildId, sessionId);
+        const session = await this.getSession(sessionId);
         if (!session) throw new Error('Session not found');
 
         const token = crypto.randomUUID(); // UUIDv4を使用
@@ -414,25 +406,25 @@ export class TodoManager {
         }
 
         // 保存
-        await this.db.set(guildId, `todo/shares/${token}`, meta);
+        await this.db.set('', `todo/shares/${token}`, meta);
         return token;
     }
 
     /**
      * 共有トークンを検証してセッション情報を返す
      */
-    static async getSessionByShareToken(guildId: string, token: string): Promise<{ session: TodoSession | null; mode: 'view' | 'edit' } | null> {
+    static async getSessionByShareToken(token: string): Promise<{ session: TodoSession | null; mode: 'view' | 'edit' } | null> {
         try {
-            const meta = await this.db.get<any>(guildId, `todo/shares/${token}`);
+            const meta = await this.db.get<any>('', `todo/shares/${token}`);
             if (!meta) return null;
 
             if (meta.expiresAt && Date.now() > meta.expiresAt) {
                 // 期限切れなら削除してnullを返す
-                await this.db.delete(guildId, `todo/shares/${token}`);
+                await this.db.delete('', `todo/shares/${token}`);
                 return null;
             }
 
-            const session = await this.getSession(guildId, meta.sessionId);
+            const session = await this.getSession(meta.sessionId);
             if (!session) return null;
 
             return { session, mode: meta.mode };
@@ -445,22 +437,25 @@ export class TodoManager {
     /**
      * 共有リンクを取り消す
      */
-    static async revokeShareLink(guildId: string, token: string): Promise<boolean> {
-        return await this.db.delete(guildId, `todo/shares/${token}`);
+    static async revokeShareLink(token: string): Promise<boolean> {
+        return await this.db.delete('', `todo/shares/${token}`);
     }
 
     /**
      * ギルドの全共有リンクを取得
      */
-    static async getAllShareLinks(guildId: string): Promise<{ token: string; sessionId: string; mode: 'view' | 'edit'; createdAt: number; expiresAt?: number }[]> {
+    static async getAllShareLinks(): Promise<{ token: string; sessionId: string; mode: 'view' | 'edit'; createdAt: number; expiresAt?: number }[]> {
         try {
             const allKeys = await this.db.keys();
-            const shareKeys = allKeys.filter(key => key.startsWith(`${guildId}_todo/shares/`));
+            // Support both legacy prefixed keys like '<guild>_todo/shares/<token>'
+            // and new layout 'todo/shares/<token>' (no guild prefix). Match any key that contains 'todo/shares/'.
+            const shareKeys = allKeys.filter(key => key.includes('todo/shares/'));
             const result: { token: string; sessionId: string; mode: 'view' | 'edit'; createdAt: number; expiresAt?: number }[] = [];
 
             for (const key of shareKeys) {
-                const token = key.replace(`${guildId}_todo/shares/`, '');
-                const meta = await this.db.get<any>(guildId, `todo/shares/${token}`);
+                // Extract token after 'todo/shares/' (works for both prefixed and non-prefixed keys)
+                const token = key.split('todo/shares/')[1];
+                const meta = await this.db.get<any>('', `todo/shares/${token}`);
                 if (meta) {
                     result.push({
                         token,
@@ -475,6 +470,21 @@ export class TodoManager {
             return result;
         } catch (error) {
             console.error('Error getting all share links:', error);
+            return [];
+        }
+    }
+
+    /**
+     * 指定のセッションIDに紐づく共有リンクを取得
+     * guildId は保持しているDBキーのプレフィックス確認用に渡すが、実際のフィルタは sessionId で行う
+     */
+    static async getSharesForSession(sessionId: string): Promise<{ token: string; sessionId: string; mode: 'view' | 'edit'; createdAt: number; expiresAt?: number }[]> {
+        try {
+            const all = await this.getAllShareLinks();
+            // sessionIdでフィルタ
+            return all.filter(s => s.sessionId === sessionId);
+        } catch (error) {
+            console.error('Error getting shares for session:', error);
             return [];
         }
     }
