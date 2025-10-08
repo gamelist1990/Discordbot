@@ -102,12 +102,23 @@ export class CommandLoader {
 
             // 旧形式（SlashCommand）をチェック
             if (this.isSlashCommand(commandExport)) {
-                // permissionLevelがある場合は新形式として扱う
+                // permissionLevelがある場合は新形式として扱うが、元の builder を保持して
+                // サブコマンド等が失われないようにする
                 if (commandExport.permissionLevel !== undefined) {
+                    // SlashCommandBuilder から名前/説明を安全に取得
+                    const dataAny: any = commandExport.data;
+                    const json = typeof dataAny.toJSON === 'function' ? dataAny.toJSON() : {};
+                    const name = dataAny.name ?? json.name;
+                    const description = dataAny.description ?? json.description ?? this.getCommandDescription(commandExport.data);
+
                     const dynamicCommand: DynamicCommandOptions = {
-                        name: commandExport.data.name,
-                        description: this.getCommandDescription(commandExport.data),
+                        name: name,
+                        description: description,
                         permissionLevel: commandExport.permissionLevel,
+                        cooldown: (commandExport as any).cooldown,
+                        guildOnly: (commandExport as any).guildOnly,
+                        // 元の builder を返すことでサブコマンド定義を保持
+                        builder: (_) => dataAny as any,
                         execute: commandExport.execute,
                     };
                     this.registry.registerCommand(dynamicCommand);

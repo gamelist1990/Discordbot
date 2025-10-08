@@ -225,19 +225,31 @@ export class BotClient {
      * コマンドの内容を比較（名前と説明）
      */
     private compareCommands(existing: DiscordCommand[], newCommands: any[]): boolean {
+        // 数と内容（説明 + オプション）を比較して差分があれば false を返す
         if (existing.length !== newCommands.length) {
             return false;
         }
 
-        const existingMap = new Map(existing.map(cmd => [cmd.name, cmd.description]));
-        const newMap = new Map(newCommands.map(cmd => [cmd.name, cmd.description]));
+        const existingMap = new Map(existing.map(cmd => [cmd.name, cmd]));
+        const newMap = new Map(newCommands.map(cmd => [cmd.name, cmd]));
 
         if (existingMap.size !== newMap.size) {
             return false;
         }
 
-        for (const [name, description] of existingMap) {
-            if (newMap.get(name) !== description) {
+        for (const [name, newCmd] of newMap) {
+            const existingCmd = existingMap.get(name);
+            if (!existingCmd) return false;
+
+            // 名前・説明の比較
+            if (existingCmd.description !== newCmd.description) {
+                return false;
+            }
+
+            // オプション（サブコマンド等）の比較（JSON 文字列化で簡易比較）
+            const existingOptions = JSON.stringify((existingCmd as any).options || []);
+            const newOptions = JSON.stringify(newCmd.options || []);
+            if (existingOptions !== newOptions) {
                 return false;
             }
         }

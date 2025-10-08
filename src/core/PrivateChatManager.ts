@@ -1,4 +1,4 @@
-import { 
+import {
     Guild,
     CategoryChannel,
     ChannelType,
@@ -80,9 +80,19 @@ export class PrivateChatManager {
         }
 
         // base name を整形（部屋名をそのまま使用）
-        let baseName = roomName.toLowerCase().replace(/[^a-z0-9-_]/g, '-');
-        const channelName = `${baseName}-room`;
-        const vcChannelName = `${baseName}-vc`;
+        // 日本語などのユニコード文字を残しつつ、空白をハイフンにし、許可されない記号は除去する
+        let baseName = roomName.trim().toLowerCase();
+        // 空白類をハイフンに置換
+        baseName = baseName.replace(/\s+/g, '-');
+        // Unicode の文字（letters/numbers）とハイフン/アンダースコアのみ許可。それ以外は削除
+        baseName = baseName.replace(/[^^\p{L}\p{N}\-_]/gu, '');
+        // もし無効な名前になってしまった場合はフォールバック名を使う
+        if (!baseName || baseName.length === 0) {
+            baseName = `room-${Date.now().toString(36).slice(-4)}`;
+        }
+        // より分かりやすい命名にする: サフィックスを "-text" と "-voice" に変更
+        const channelName = `${baseName}-text`;
+        const vcChannelName = `${baseName}-voice`;
 
         // 権限オーバーライドを作成
         const overwrites: any[] = [
@@ -206,7 +216,7 @@ export class PrivateChatManager {
 
                 // 送信を試みる（失敗しても削除は続行）
                 if ('send' in channel && typeof (channel as any).send === 'function') {
-                    await (channel as any).send({ embeds: [embed] }).catch(() => {});
+                    await (channel as any).send({ embeds: [embed] }).catch(() => { });
                 }
             } catch (err) {
                 console.error('deleteChat: failed to send closing message:', err);
@@ -312,14 +322,15 @@ export class PrivateChatManager {
         try {
             if (channel && 'send' in channel && typeof (channel as any).send === 'function') {
                 const member = await guild.members.fetch(userId).catch(() => null);
-                const display = member ? `${member.user.username}` : `<@${userId}>`;
+                const mention = `<@${userId}>`;
+                const display = member ? `${member.user.username}` : null;
                 const embed = new EmbedBuilder()
                     .setColor('#00aaff')
                     .setTitle('➕ メンバーが追加されました')
-                    .setDescription(`${display} がチャットに追加されました。`)
+                    .setDescription(`${mention}${display ? ` (${display})` : ''} がチャットに追加されました。`)
                     .setTimestamp();
 
-                await (channel as any).send({ embeds: [embed] }).catch(() => {});
+                await (channel as any).send({ embeds: [embed] }).catch(() => { });
             }
         } catch (err) {
             console.error('addMember: failed to send add notification:', err);
@@ -350,22 +361,23 @@ export class PrivateChatManager {
             try {
                 // メンバー情報を取得してメッセージ送信
                 const member = await guild.members.fetch(userId).catch(() => null);
-                const display = member ? `${member.user.username}` : `<@${userId}>`;
+                const mention = `<@${userId}>`;
+                const display = member ? `${member.user.username}` : null;
                 const embed = new EmbedBuilder()
                     .setColor('#ff9900')
                     .setTitle('➖ メンバーが削除されました')
-                    .setDescription(`${display} がチャットから削除されました。`)
+                    .setDescription(`${mention}${display ? ` (${display})` : ''} がチャットから削除されました。`)
                     .setTimestamp();
 
                 if ('send' in channel && typeof (channel as any).send === 'function') {
-                    await (channel as any).send({ embeds: [embed] }).catch(() => {});
+                    await (channel as any).send({ embeds: [embed] }).catch(() => { });
                 }
             } catch (err) {
                 console.error('removeMember: failed to send removal notification:', err);
             }
 
             if ('permissionOverwrites' in channel) {
-                await channel.permissionOverwrites.delete(userId).catch(() => {});
+                await channel.permissionOverwrites.delete(userId).catch(() => { });
             }
         }
 
@@ -374,7 +386,7 @@ export class PrivateChatManager {
         if (chat.vcId) {
             const vcChannel = guild.channels.cache.get(chat.vcId);
             if (vcChannel && 'permissionOverwrites' in vcChannel) {
-                await vcChannel.permissionOverwrites.delete(userId).catch(() => {});
+                await vcChannel.permissionOverwrites.delete(userId).catch(() => { });
             }
         }
 

@@ -135,12 +135,14 @@ const PrivateChatPage: React.FC = () => {
 
         setCreatingChat(true);
         try {
+            const roomToCreate = newRoomName.trim();
             await createPrivateChat(token, {
-                roomName: newRoomName.trim(),
+                roomName: roomToCreate,
                 members: []
             });
             setNewRoomName('');
-            // データは SSE で更新される
+            // 即時通知（SSE による更新も来るが、ユーザフィードバックを即座に出す）
+            try { (window as any).web?.notify?.(`部屋 "${roomToCreate}" を作成しました`, 'success', 'プライベートチャット作成', 5000); } catch {}
         } catch (err) {
             console.error('チャット作成エラー:', err);
             alert('チャットの作成に失敗しました');
@@ -158,6 +160,7 @@ const PrivateChatPage: React.FC = () => {
             if (selectedRoomId === chatId) {
                 setSelectedRoomId(null);
             }
+            try { (window as any).web?.notify?.('チャットを削除しました', 'info', 'プライベートチャット削除', 4000); } catch {}
         } catch (err) {
             console.error('チャット削除エラー:', err);
             alert('チャットの削除に失敗しました');
@@ -179,6 +182,7 @@ const PrivateChatPage: React.FC = () => {
             setRoomMembers(data.members);
             // トースト通知
             try { addToast && addToast('メンバーを追加しました', 'success'); } catch {}
+            try { (window as any).web?.notify?.('メンバーを追加しました', 'success', 'メンバー追加', 4000); } catch {}
         } catch (err) {
             console.error('メンバー追加エラー:', err);
             try { addToast && addToast('メンバーの追加に失敗しました', 'error'); } catch {}
@@ -223,6 +227,7 @@ const PrivateChatPage: React.FC = () => {
             const data = await fetchChatMembers(token, selectedRoomId);
             setRoomMembers(data.members);
             try { addToast && addToast('メンバーを削除しました', 'info'); } catch {}
+            try { (window as any).web?.notify?.('メンバーを削除しました', 'info', 'メンバー削除', 4000); } catch {}
         } catch (err) {
             console.error('メンバー削除エラー:', err);
             try { addToast && addToast('メンバーの削除に失敗しました', 'error'); } catch {}

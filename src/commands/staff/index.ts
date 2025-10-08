@@ -114,11 +114,18 @@ async function buildStaffCommand(): Promise<SlashCommand> {
         data: builder as SlashCommandBuilder,
         permissionLevel: PermissionLevel.STAFF,
         async execute(interaction: ChatInputCommandInteraction): Promise<void> {
-            const subcommand = interaction.options.getSubcommand();
-            
-            try {
-                // デフォルトのサブコマンド処理
-                if (subcommand === 'help') {
+            const subcommand = interaction.options.getSubcommand(false);
+
+                try {
+                    // サブコマンドが指定されていない場合はヘルプを表示
+                    if (!subcommand) {
+                        const { handleHelpSubcommand } = await import('./help.js');
+                        await handleHelpSubcommand(interaction);
+                        return;
+                    }
+
+                    // デフォルトのサブコマンド処理
+                    if (subcommand === 'help') {
                     const { handleHelpSubcommand } = await import('./help.js');
                     await handleHelpSubcommand(interaction);
                     return;

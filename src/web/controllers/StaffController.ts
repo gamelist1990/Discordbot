@@ -268,11 +268,22 @@ export class StaffController {
                 const emitter = getPrivateChatEmitter();
                 eventListener = (payload: any) => {
                     try {
-                        // SSE で送るイベント
+                        // まずは簡易イベント通知を送る（互換性維持）
                         const ev = { type: 'privateChatEvent', timestamp: Date.now(), payload };
                         res.write(`data: ${JSON.stringify(ev)}\n\n`);
                     } catch (err) {
                         console.error('SSE event push failed:', err);
+                    }
+
+                    // 直ちに全体更新も送信してクライアント側の一覧を最新化する
+                    try {
+                        // sendUpdate は外側で定義されているため呼び出す
+                        // NOTE: sendUpdate は非同期関数
+                        sendUpdate().catch((err) => {
+                            console.error('SSE sendUpdate after event failed:', err);
+                        });
+                    } catch (err) {
+                        console.error('Failed to trigger sendUpdate on event:', err);
                     }
                 };
                 emitter.on('privateChatEvent', eventListener);
