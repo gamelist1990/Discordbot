@@ -212,5 +212,60 @@ export function createUserRoutes(
         }
     });
 
+    /**
+     * 管理者権限のあるサーバー一覧を返す
+     */
+    router.get('/guilds', verifyAuth(sessions), async (req: Request, res: Response) => {
+        try {
+            const user = getCurrentUser(req);
+            if (!user) {
+                res.status(401).json({ error: 'Unauthorized' });
+                return;
+            }
+
+            // Botが参加しているギルド一覧
+            const botGuilds = botClient.getGuildList();
+
+            // OAuthセッションからユーザーのアクセストークン取得
+            const authPersistPath = path.join(process.cwd(), 'Data', 'Auth', 'sessions.json');
+            let userOauth: any = null;
+            try {
+                if (fs.existsSync(authPersistPath)) {
+                    const raw = fs.readFileSync(authPersistPath, 'utf8') || '{}';
+                    const obj = JSON.parse(raw) as Record<string, any>;
+                    userOauth = obj[user.userId];
+                }
+            } catch (e) {
+                console.warn('[UserGuilds] Failed to read OAuth sessions from disk:', e);
+            }
+
+            let userGuilds: any[] = [];
+            if (userOauth && userOauth.accessToken) {
+                try {
+                    const resp = await fetch('https://discord.com/api/users/@me/guilds', {
+                        headers: {
+                            Authorization: `Bearer ${userOauth.accessToken}`
+                        }
+                    });
+                    if (resp.ok) {
+                        const guilds = await resp.json() as Array<any>;
+                        // 管理者権限(0x8)または管理権限(0x20)を持つサーバーのみ抽出
+                        userGuilds = guilds.filter(g => (g.permissions & 0x8) || (g.owner === true));
+                    }
+                } catch (e) {
+                    console.warn('[UserGuilds] Error fetching user guilds:', e);
+                }
+            }
+
+            // Botが参加しているサーバーのみ返す
+            const botGuildIds = new Set(botGuilds.map(g => g.id));
+            const filtered = userGuilds.filter(g => botGuildIds.has(g.id));
+
+            res.json({ guilds: filtered });
+        } catch (error) {
+            console.error('Failed to get user guilds:', error);
+            res.status(500).json({ error: 'Internal server error' });
+        }
+    });
     return router;
 }

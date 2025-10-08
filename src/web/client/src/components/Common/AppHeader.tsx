@@ -13,10 +13,39 @@ interface AppHeaderProps {
     onLogout?: () => void;
 }
 
-const AppHeader: React.FC<AppHeaderProps> = ({ user, onLogout }) => {
+const AppHeader: React.FC<AppHeaderProps> = ({ user: userProp, onLogout }) => {
     const navigate = useNavigate();
     const [showUserMenu, setShowUserMenu] = useState(false);
     const menuRef = useRef<HTMLDivElement>(null);
+    const [user, setUser] = useState<UserInfo | null | undefined>(userProp);
+    const [loading, setLoading] = useState(userProp === undefined);
+
+    useEffect(() => {
+        // 親からuserが渡された場合はそれを優先
+        if (userProp !== undefined) {
+            setUser(userProp);
+            setLoading(false);
+            return;
+        }
+        // 自分でセッション取得
+        const fetchSession = async () => {
+            setLoading(true);
+            try {
+                const res = await fetch('/api/auth/session', { credentials: 'include' });
+                if (res.ok) {
+                    const data = await res.json();
+                    setUser(data.user || null);
+                } else {
+                    setUser(null);
+                }
+            } catch {
+                setUser(null);
+            } finally {
+                setLoading(false);
+            }
+        };
+        fetchSession();
+    }, [userProp]);
 
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
@@ -24,7 +53,6 @@ const AppHeader: React.FC<AppHeaderProps> = ({ user, onLogout }) => {
                 setShowUserMenu(false);
             }
         };
-
         document.addEventListener('mousedown', handleClickOutside);
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, []);
@@ -44,18 +72,36 @@ const AppHeader: React.FC<AppHeaderProps> = ({ user, onLogout }) => {
         }
     };
 
+    if (loading) {
+        return (
+            <header className={styles.header}>
+                <div className={styles.container}>
+                    <div className={styles.left}>
+                        <button className={styles.logoBtn} onClick={() => navigate('/')}> 
+                            <span className="material-icons">home</span>
+                            <span className={styles.logoText}>Discord Bot</span>
+                        </button>
+                    </div>
+                    <div className={styles.right}>
+                        <span className={styles.loadingText}>ログイン状態を確認中...</span>
+                    </div>
+                </div>
+            </header>
+        );
+    }
+
     return (
         <header className={styles.header}>
             <div className={styles.container}>
                 <div className={styles.left}>
-                    <button className={styles.logoBtn} onClick={() => navigate('/')}>
+                    <button className={styles.logoBtn} onClick={() => navigate('/')}> 
                         <span className="material-icons">home</span>
                         <span className={styles.logoText}>Discord Bot</span>
                     </button>
                 </div>
 
                 <nav className={styles.nav}>
-                    <button className={styles.navBtn} onClick={() => navigate('/')}>
+                    <button className={styles.navBtn} onClick={() => navigate('/')}> 
                         <span className="material-icons">dashboard</span>
                         <span>ダッシュボード</span>
                     </button>

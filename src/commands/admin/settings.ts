@@ -32,27 +32,13 @@ const settingsCommand: SlashCommand = {
                 return;
             }
 
-            // SettingsServer インスタンスを取得
-            const settingsServer = (interaction.client as any).settingsServer;
-
-            if (!settingsServer) {
-                await interaction.reply({
-                    content: '❌ 設定サーバーが起動していません。',
-                    flags: MessageFlags.Ephemeral,
-                });
-                return;
-            }
-
-            // セッションを作成
-            const token = settingsServer.createSession(interaction.guildId, interaction.user.id);
-            const settingsUrl = `http://localhost:3000/settings/${token}`;
-
+            // Webの/settingsページURLを返す
+            const settingsUrl = `http://localhost:3000/settings`;
             await interaction.reply({
-                content: `🔧 **サーバー設定URL**\n\n` +
-                         `以下のURLから設定画面にアクセスできます：\n` +
+                content: `🔧 **サーバー設定画面**\n\n` +
+                         `以下のURLから管理サーバー一覧・設定画面にアクセスできます：\n` +
                          `${settingsUrl}\n\n` +
-                         `⚠️ このURLは30分間有効です。\n` +
-                         `⚠️ このURLは他の人と共有しないでください。`,
+                         `※このURLは常時有効です。Discordアカウントで認証後、管理権限のあるサーバーのみ設定できます。`,
                 flags: MessageFlags.Ephemeral,
             });
         } catch (error) {
