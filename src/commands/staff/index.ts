@@ -152,6 +152,7 @@ async function buildStaffCommand(): Promise<SlashCommand> {
             } catch (error) {
                 console.error(`Staff command error (${subcommand}):`, error);
                 
+                
                 const errorMessage = error instanceof Error ? error.message : '不明なエラー';
                 
                 if (interaction.replied || interaction.deferred) {

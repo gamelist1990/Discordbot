@@ -103,40 +103,7 @@ export class EventHandler {
      */
     private registerInteractionCreateEvent(): void {
         this.botClient.client.on(Events.InteractionCreate, async (interaction: Interaction) => {
-            if (interaction.isModalSubmit() && typeof (interaction as any).isModalSubmit === 'function' && (interaction as any).isModalSubmit()) {
-                const modal = interaction as import('discord.js').ModalSubmitInteraction;
-                if (modal.customId === 'staff_issue_modal') {
-                    try {
-                        // 入力値を取得
-                        const title = modal.fields.getTextInputValue('issue_title') || '';
-                        const body = modal.fields.getTextInputValue('issue_body') || '';
-
-                        // GitHub の新規 Issue プレフィル用 URL を作成
-                        const base = 'https://github.com/gamelist1990/Discordbot/issues/new';
-                        const params = new URLSearchParams();
-                        if (title) params.set('title', title);
-                        if (body) params.set('body', body + '\n\n---\nSubmitted via Discord staff issue modal');
-                        const url = `${base}?${params.toString()}`;
-
-                        // ボタンで URL を提示
-                        const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = await import('discord.js');
-                        const row = new ActionRowBuilder().addComponents(
-                            new ButtonBuilder()
-                                .setLabel('GitHub で Issue を作成')
-                                .setStyle(ButtonStyle.Link)
-                                .setURL(url)
-                        );
-
-                        await modal.reply({ content: '以下のリンクを開き、内容を確認のうえ Issue を作成してください。', components: [row as any], ephemeral: true });
-                    } catch (err) {
-                        Logger.error('Error handling staff_issue_modal submit:', err);
-                        await (interaction as any).reply({ content: 'モーダルの処理中にエラーが発生しました。', flags: MessageFlags.Ephemeral }).catch(() => {});
-                    }
-
-                    return;
-                }
-            }
-
+            // ...existing code...
             if (!interaction.isChatInputCommand()) return;
 
             const command = this.botClient.commands.get(interaction.commandName) as EnhancedSlashCommand;

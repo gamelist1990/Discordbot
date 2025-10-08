@@ -13,6 +13,8 @@ import {
     ModalSubmitInteraction,
     AutocompleteInteraction
 } from 'discord.js';
+import type { EventManager } from '../core/EventManager.js';
+import type { SettingsServer } from '../web/SettingsServer.js';
 
 /**
  * Discord.js の型定義を再エクスポート
@@ -38,6 +40,9 @@ export type {
  */
 export interface ExtendedClient extends Client {
     commands: Collection<string, any>;
+    // optional runtime-injected references
+    eventManager?: EventManager;
+    settingsServer?: SettingsServer;
 }
 
 /**

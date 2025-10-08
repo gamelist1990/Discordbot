@@ -46,6 +46,9 @@ export class BotClient {
         // EventManager を初期化
         this.eventManager = new EventManager(this.client);
 
+    // client オブジェクトにも参照を保持しておく（コマンドなどから参照可能にする）
+    (this.client as any).eventManager = this.eventManager;
+
         // サーバー参加イベント
         this.setupGuildLimitHandler();
     }

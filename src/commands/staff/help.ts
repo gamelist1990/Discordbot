@@ -27,14 +27,6 @@ const STAFF_COMMANDS: StaffCommandInfo[] = [
         examples: [
             '/staff privatechat'
         ]
-    },
-    {
-        name: 'stats',
-        description: 'プライベートチャットの統計情報を表示します（動的ロード）',
-        usage: '/staff stats',
-        examples: [
-            '/staff stats'
-        ]
     }
 ];
 
