@@ -126,16 +126,27 @@ const AppHeader: React.FC<AppHeaderProps> = ({ user: userProp, onLogout }) => {
                                 className={styles.userButton}
                                 onClick={() => setShowUserMenu(!showUserMenu)}
                             >
-                                <img
-                                    src={
-                                        user.avatar
-                                            ? `https://cdn.discordapp.com/avatars/${user.userId}/${user.avatar}.png`
-                                            : `https://cdn.discordapp.com/embed/avatars/0.png`
+                                {(() => {
+                                    const avatar = user?.avatar;
+                                    let src = 'https://cdn.discordapp.com/embed/avatars/0.png';
+                                    if (avatar) {
+                                        if (/^https?:\/\//.test(avatar)) {
+                                            src = avatar;
+                                        } else {
+                                            const isAnimated = avatar.startsWith('a_');
+                                            const ext = isAnimated ? 'gif' : 'png';
+                                            src = `https://cdn.discordapp.com/avatars/${user.userId}/${avatar}.${ext}?size=128`;
+                                        }
                                     }
-                                    alt="Avatar"
-                                    className={styles.avatar}
-                                    onError={(e) => { e.currentTarget.src = 'https://cdn.discordapp.com/embed/avatars/0.png'; }}
-                                />
+                                    return (
+                                        <img
+                                            src={src}
+                                            alt="Avatar"
+                                            className={styles.avatar}
+                                            onError={(e) => { e.currentTarget.src = 'https://cdn.discordapp.com/embed/avatars/0.png'; }}
+                                        />
+                                    );
+                                })()}
                                 <div className={styles.userInfo}>
                                     <span className={styles.username}>{user.username}</span>
                                     <span className={styles.userId}>ID: {user.userId}</span>

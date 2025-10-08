@@ -143,19 +143,43 @@ export function createUserRoutes(
                 let mediaMessages = 0;
                 try {
                     const statsMgr = (await import('../../core/StatsManager.js')).statsManagerSingleton.instance;
+                    const persisted = (await import('../../core/Database.js')).database;
+
+                    // 1) Try runtime StatsManager
                     if (statsMgr) {
                         const s = await statsMgr.getUserStats(g.id, user.userId);
                         totalMessages = s.totalMessages || 0;
                         linkMessages = s.linkMessages || 0;
                         mediaMessages = s.mediaMessages || 0;
-                    } else {
-                        // fallback: attempt to read persisted DB directly
-                        const persisted = (await import('../../core/Database.js')).database;
-                        const rec = await persisted.get(g.id, 'user_stats', {} as any) as Record<string, any> || {};
-                        const u = rec[user.userId] || { totalMessages: 0, linkMessages: 0, mediaMessages: 0 };
-                        totalMessages = u.totalMessages || 0;
-                        linkMessages = u.linkMessages || 0;
-                        mediaMessages = u.mediaMessages || 0;
+                    }
+
+                    // 2) If still zeros, try persisted per-guild per-user file
+                    if (totalMessages === 0 && linkMessages === 0 && mediaMessages === 0) {
+                        try {
+                            const perUser = await persisted.get(g.id, `Guild/${g.id}/User/${user.userId}`, null) as any;
+                            if (perUser) {
+                                totalMessages = perUser.totalMessages || 0;
+                                linkMessages = perUser.linkMessages || 0;
+                                mediaMessages = perUser.mediaMessages || 0;
+                            } else {
+                                // 3) Try global per-user file Data/User/<userId>.json
+                                const userFile = await persisted.get(g.id, `User/${user.userId}`, null) as any;
+                                if (userFile) {
+                                    totalMessages = userFile.totalMessages || 0;
+                                    linkMessages = userFile.linkMessages || 0;
+                                    mediaMessages = userFile.mediaMessages || 0;
+                                } else {
+                                    // 4) Fallback to legacy aggregated mapping: <guildId>_user_stats.json
+                                    const rec = await persisted.get(g.id, 'user_stats', {} as any) as Record<string, any> || {};
+                                    const u = rec[user.userId] || { totalMessages: 0, linkMessages: 0, mediaMessages: 0 };
+                                    totalMessages = u.totalMessages || 0;
+                                    linkMessages = u.linkMessages || 0;
+                                    mediaMessages = u.mediaMessages || 0;
+                                }
+                            }
+                        } catch (e) {
+                            // ignore and keep zeros
+                        }
                     }
                 } catch (e) {
                     // ignore and keep zeros
@@ -187,12 +211,30 @@ export function createUserRoutes(
                 });
             }
             // 総統計を計算
-            const totalStats = {
-                totalMessages: userGuilds.reduce((sum, guild) => sum + guild.userStats.totalMessages, 0),
-                totalLinks: userGuilds.reduce((sum, guild) => sum + guild.userStats.linkMessages, 0),
-                totalMedia: userGuilds.reduce((sum, guild) => sum + guild.userStats.mediaMessages, 0),
-                totalServers: userGuilds.length,
-            };
+                let totalMessagesAll = userGuilds.reduce((sum, guild) => sum + guild.userStats.totalMessages, 0);
+                let totalLinksAll = userGuilds.reduce((sum, guild) => sum + guild.userStats.linkMessages, 0);
+                let totalMediaAll = userGuilds.reduce((sum, guild) => sum + guild.userStats.mediaMessages, 0);
+                // If no guild-specific stats were found, try global per-user file Data/User/<id>.json
+                if (totalMessagesAll === 0 && totalLinksAll === 0 && totalMediaAll === 0) {
+                    try {
+                        const persisted = (await import('../../core/Database.js')).database;
+                        const globalUser = await persisted.get('', `User/${user.userId}`, null) as any;
+                        if (globalUser) {
+                            totalMessagesAll = globalUser.totalMessages || 0;
+                            totalLinksAll = globalUser.linkMessages || 0;
+                            totalMediaAll = globalUser.mediaMessages || 0;
+                        }
+                    } catch (e) {
+                        // ignore
+                    }
+                }
+
+                const totalStats = {
+                    totalMessages: totalMessagesAll,
+                    totalLinks: totalLinksAll,
+                    totalMedia: totalMediaAll,
+                    totalServers: userGuilds.length,
+                };
 
             // Discordユーザー情報（実際の実装ではOAuthトークンを使って取得）
             const userProfile: UserProfile = {

@@ -127,6 +127,17 @@ const UserProfile: React.FC<UserProfileProps> = ({ user, onLoginClick }) => {
         window.location.href = oauthUrl;
     };
 
+    const handleLogout = async () => {
+        try {
+            await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
+            // リロードしてセッションを反映
+            window.location.reload();
+        } catch (e) {
+            console.error('Logout failed', e);
+        }
+    };
+
+
     if (loading) {
         return (
             <div>
@@ -164,28 +175,55 @@ const UserProfile: React.FC<UserProfileProps> = ({ user, onLoginClick }) => {
         <div className={styles.page}>
             <AppHeader user={{ userId: profileData.id, username: profileData.username, avatar: profileData.avatar }} />
             <div className={styles.container}>
-            {/* User Header */}
-            <div className={styles.profileHeader}>
-                <div className={styles.avatarContainer}>
-                    <img
-                        src={profileData.avatar || `https://cdn.discordapp.com/embed/avatars/${parseInt(profileData.discriminator) % 5}.png`}
-                        alt={`${profileData.username}のプロフィール画像`}
-                        className={styles.avatar}
-                    />
-                </div>
-                <div className={styles.userInfo}>
-                    <h1 className={styles.username}>
-                        {profileData.username}
-                        <span className={styles.discriminator}>#{profileData.discriminator}</span>
-                    </h1>
-                    <p className={styles.userId}>ユーザーID: {profileData.id}</p>
-                </div>
-                {profileData.banner && (
-                    <div className={styles.bannerContainer}>
-                        <img src={profileData.banner} alt="バナー画像" className={styles.banner} />
+                {/* User Header */}
+                <header className={styles.profileHeader} role="banner">
+                    <div className={styles.headerInner}>
+                        <div className={styles.avatarContainer}>
+                            {(() => {
+                                const avatar = profileData.avatar;
+                                let src = `https://cdn.discordapp.com/embed/avatars/${parseInt(profileData.discriminator) % 5}.png`;
+                                if (avatar) {
+                                    // if avatar looks like an absolute URL, use it directly
+                                    if (/^https?:\/\//.test(avatar)) {
+                                        src = avatar;
+                                    } else {
+                                        // avatar is likely a Discord hash; construct CDN URL
+                                        const isAnimated = avatar.startsWith('a_');
+                                        const ext = isAnimated ? 'gif' : 'png';
+                                        src = `https://cdn.discordapp.com/avatars/${profileData.id}/${avatar}.${ext}?size=256`;
+                                    }
+                                }
+
+                                return (
+                                    <img
+                                        src={src}
+                                        alt={`${profileData.username}のプロフィール画像`}
+                                        className={styles.avatar}
+                                    />
+                                );
+                            })()}
+                        </div>
+                        <div className={styles.userInfo}>
+                            <h1 className={styles.username}>
+                                {profileData.username}
+                                <span className={styles.discriminator}>#{profileData.discriminator}</span>
+                            </h1>
+                            <p className={styles.userId}>ユーザーID: {profileData.id}</p>
+                            <p className={styles.smallText}>{profileData.totalStats.totalMessages?.toLocaleString() || 0} メッセージ • {profileData.guilds.length} サーバー</p>
+                        </div>
+                        <div className={styles.headerActions}>
+                            <button className={styles.primaryButton} onClick={handleLogout} aria-label="ログアウト">
+                                <span className="material-icons-outlined">logout</span>
+                                ログアウト
+                            </button>
+                        </div>
                     </div>
-                )}
-            </div>
+                    {profileData.banner && (
+                        <div className={styles.bannerContainer}>
+                            <img src={profileData.banner} alt="バナー画像" className={styles.banner} />
+                        </div>
+                    )}
+                </header>
 
             {/* Navigation Tabs */}
             <div className={styles.tabs}>

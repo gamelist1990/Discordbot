@@ -136,17 +136,7 @@ const TodoDashboard: React.FC = () => {
         }
     };
 
-    const handleLogout = async () => {
-        try {
-            await fetch('/api/auth/logout', {
-                method: 'POST',
-                credentials: 'include'
-            });
-            window.location.href = '/';
-        } catch (err) {
-            console.error('Logout failed:', err);
-        }
-    };
+    // logout is handled by AppHeader; no local handler needed here
 
     const getAccessLevel = (todoSession: TodoSession): 'owner' | 'editor' | 'viewer' => {
         if (!session) return 'viewer';

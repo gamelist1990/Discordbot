@@ -1,5 +1,4 @@
 import React, { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import AppHeader from '../../components/Common/AppHeader';
 import { fetchBotStatus } from '../../services/api';
 import type { BotStatusResponse } from '../../types';
@@ -12,7 +11,6 @@ interface UserSession {
 }
 
 const DashboardPage: React.FC = () => {
-  const navigate = useNavigate();
   const [user, setUser] = useState<UserSession | null>(null);
   const [status, setStatus] = useState<BotStatusResponse | null>(null);
   const [loading, setLoading] = useState(true);

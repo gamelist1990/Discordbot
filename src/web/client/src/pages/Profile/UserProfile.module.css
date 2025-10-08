@@ -1,13 +1,13 @@
 /* Google Material Design inspired profile page */
 .page {
     min-height: 100vh;
-    background: #F8F9FA;
+    background: #F1F3F4;
     display: flex;
     flex-direction: column;
 }
 
 .container {
-    max-width: 1200px;
+    max-width: 1100px;
     margin: 0 auto;
     padding: 24px;
     flex: 1;
@@ -61,36 +61,42 @@
 }
 
 .loginButton {
-    display: flex;
+    display: inline-flex;
     align-items: center;
     gap: 8px;
-    padding: 10px 24px;
+    padding: 10px 20px;
     border: none;
-    border-radius: 4px;
-    background: #4285F4;
+    border-radius: 20px;
+    background: #1A73E8;
     color: white;
     font-size: 14px;
-    font-weight: 500;
+    font-weight: 600;
     cursor: pointer;
-    transition: background 0.2s;
+    transition: box-shadow 0.12s, transform 0.08s;
 }
 
 .loginButton:hover {
-    background: #1A73E8;
+    box-shadow: 0 6px 14px rgba(26,115,232,0.18);
+    transform: translateY(-1px);
 }
 
 /* Profile Header */
+
 .profileHeader {
-    background: linear-gradient(90deg, #4285F4 0%, #6EC6FF 100%);
-    border-radius: 16px;
-    padding: 40px 32px 32px 32px;
-    box-shadow: 0 4px 16px 0 rgba(60,64,67,0.10);
-    margin-bottom: 32px;
-    display: flex;
-    align-items: center;
-    gap: 32px;
+    background: #ffffff;
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: 0 6px 18px rgba(60,64,67,0.08);
+    margin-bottom: 20px;
+    display: block;
     position: relative;
     overflow: visible;
+}
+
+.headerInner {
+    display: flex;
+    align-items: center;
+    gap: 20px;
 }
 
 .avatarContainer {
@@ -98,12 +104,13 @@
 }
 
 .avatar {
-    width: 112px;
-    height: 112px;
+    width: 96px;
+    height: 96px;
     border-radius: 50%;
-    box-shadow: 0 4px 16px rgba(60,64,67,0.18);
+    box-shadow: 0 8px 18px rgba(60,64,67,0.12);
     border: 4px solid #fff;
     background: #fff;
+    object-fit: cover;
 }
 
 .userInfo {
@@ -111,26 +118,64 @@
 }
 
 .username {
-    font-size: 32px;
-    font-weight: 600;
-    color: #fff;
+    font-size: 22px;
+    font-weight: 700;
+    color: #202124;
     margin: 0 0 4px 0;
-    letter-spacing: 0.5px;
-    text-shadow: 0 2px 8px rgba(60,64,67,0.10);
+    letter-spacing: 0.2px;
 }
 
 .discriminator {
-    color: #E3F2FD;
-    font-weight: 400;
+    color: #5F6368;
+    font-weight: 500;
     margin-left: 8px;
-    font-size: 18px;
+    font-size: 14px;
 }
 
 .userId {
-    font-size: 15px;
-    color: #E3F2FD;
-    margin: 0;
+    font-size: 13px;
+    color: #5F6368;
+    margin: 6px 0 0 0;
     font-weight: 400;
+}
+
+.smallText {
+    margin: 6px 0 0 0;
+    color: #70757A;
+    font-size: 13px;
+}
+
+.headerActions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.primaryButton {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px;
+    border-radius: 20px;
+    background: #1A73E8;
+    color: #fff;
+    border: none;
+    font-weight: 600;
+    cursor: pointer;
+    box-shadow: 0 6px 14px rgba(26,115,232,0.16);
+}
+
+.ghostButton {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-radius: 20px;
+    background: transparent;
+    color: #202124;
+    border: 1px solid #E0E0E0;
+    font-weight: 600;
+    cursor: pointer;
 }
 
 .bannerContainer {
@@ -138,104 +183,88 @@
     height: 120px;
     border-radius: 8px;
     overflow: hidden;
-    margin-top: 16px;
+    margin-top: 12px;
 }
 
 .banner {
-    background: linear-gradient(135deg, #fff 60%, #E3F2FD 100%);
-    border-radius: 12px;
-    padding: 28px 24px;
-    box-shadow: 0 4px 16px 2px rgba(60,64,67,0.13);
+    width: 100%;
+    height: 120px;
+    object-fit: cover;
+}
+
+.tabs {
     display: flex;
-    gap: 18px;
-    align-items: center;
-    transition: box-shadow 0.2s, transform 0.2s;
-    border: 1.5px solid #E3F2FD;
-    transform: translateY(-2px) scale(1.02);
+    gap: 8px;
+    margin: 12px 0 20px 0;
 }
 
 .tab {
-    display: flex;
-    width: 54px;
-    height: 54px;
-    background: linear-gradient(135deg, #90CAF9 0%, #42A5F5 100%);
-    border-radius: 50%;
+    display: inline-flex;
     align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-    box-shadow: 0 2px 8px 0 rgba(66,165,245,0.10);
-    font-weight: 500;
+    gap: 8px;
+    padding: 8px 12px;
+    border-radius: 16px;
+    background: #F1F3F4;
+    color: #202124;
+    font-weight: 600;
     cursor: pointer;
-    transition: all 0.2s;
-    font-size: 28px;
-    color: #fff;
+    border: none;
 }
 
-.tab:hover {
-    background: #F8F9FA;
-    font-size: 15px;
-    font-weight: 500;
-    color: #1976D2;
-    margin: 0 0 8px 0;
-    letter-spacing: 0.2px;
+.tab.active {
+    background: linear-gradient(90deg,#1A73E8,#4285F4);
+    color: white;
+    box-shadow: 0 6px 14px rgba(66,133,244,0.18);
 }
 
 /* Tab Content */
 .tabContent {
-    min-height: 400px;
+    min-height: 320px;
     background: #fff;
     border-radius: 12px;
-    padding: 24px 20px 20px 20px;
-    box-shadow: 0 2px 8px 0 rgba(60,64,67,0.10);
+    padding: 20px;
+    box-shadow: 0 4px 12px rgba(60,64,67,0.06);
     transition: box-shadow 0.2s, transform 0.2s;
-    border: 1.5px solid #E3F2FD;
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 12px;
 }
 
 .sectionTitle {
-    font-size: 24px;
+    font-size: 18px;
     color: #202124;
-    margin: 0 0 24px 0;
-    box-shadow: 0 4px 16px 2px rgba(60,64,67,0.13);
-    transform: translateY(-2px) scale(1.01);
+    margin: 0 0 12px 0;
 }
 
 .statsGrid {
-    display: flex;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
     gap: 16px;
     margin-bottom: 12px;
-    align-items: center;
-    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-    gap: 24px;
+    align-items: stretch;
 }
 
 .statCard {
     background: white;
-    border-radius: 8px;
-    padding: 24px;
-    box-shadow: 0 1px 2px 0 rgba(60,64,67,0.3);
+    border-radius: 10px;
+    padding: 16px;
+    box-shadow: 0 6px 12px rgba(60,64,67,0.06);
     display: flex;
-    gap: 16px;
-    transition: box-shadow 0.2s;
-}
-
-.statCard:hover {
-    box-shadow: 0 1px 3px 1px rgba(60,64,67,0.15);
+    gap: 12px;
+    align-items: center;
 }
 
 .statIcon {
-    width: 100%;
-    height: 100%;
-    background: #90CAF9;
+    width: 56px;
+    height: 56px;
+    background: #E8F0FE;
     display: flex;
     align-items: center;
     justify-content: center;
-    color: #fff;
-    font-size: 26px;
+    color: #1A73E8;
+    font-size: 22px;
     font-weight: 600;
-    border-radius: 50%;
+    border-radius: 12px;
 }
 
 .statIcon .material-icons-outlined {
@@ -250,53 +279,41 @@
 }
 
 .statContent h3 {
-    font-size: 14px;
-    font-weight: 500;
+    font-size: 13px;
+    font-weight: 600;
     color: #202124;
-    margin: 0;
-    display: flex;
-    gap: 16px;
-    padding: 12px 0 8px 0;
-    border-top: 1px solid #E3F2FD;
-    border-bottom: 1px solid #E3F2FD;
-    background: #F8F9FA;
-    border-radius: 8px;
-    margin-bottom: 4px;
+    margin: 0 0 4px 0;
 }
 
 /* Servers */
 .servers {
-    padding: 24px 0;
+    padding: 8px 0;
 }
 
 .guildsGrid {
     display: grid;
-    font-size: 20px;
-    color: #1976D2;
+    gap: 12px;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
 }
 
 .guildCard {
-    font-size: 18px;
-    font-weight: 600;
-    color: #202124;
-    box-shadow: 0 1px 2px 0 rgba(60,64,67,0.3);
-    transition: box-shadow 0.2s;
-}
-
-.guildCard:hover {
-    box-shadow: 0 1px 3px 1px rgba(60,64,67,0.15);
+    background: white;
+    padding: 12px;
+    border-radius: 10px;
+    box-shadow: 0 6px 14px rgba(60,64,67,0.06);
 }
 
 .guildHeader {
     display: flex;
-    gap: 16px;
-    margin-bottom: 16px;
+    gap: 12px;
+    margin-bottom: 12px;
+    align-items: center;
 }
 
 .guildIcon {
-    width: 56px;
-    height: 56px;
-    border-radius: 50%;
+    width: 48px;
+    height: 48px;
+    border-radius: 10px;
     overflow: hidden;
     flex-shrink: 0;
 }
@@ -310,13 +327,13 @@
 .defaultIcon {
     width: 100%;
     height: 100%;
-    background: #4285F4;
+    background: #1A73E8;
     display: flex;
     align-items: center;
     justify-content: center;
     color: white;
-    font-size: 24px;
-    font-weight: 500;
+    font-size: 18px;
+    font-weight: 700;
 }
 
 .guildInfo {
@@ -338,28 +355,27 @@
 
 .guildStats {
     display: flex;
-    gap: 16px;
-    padding: 16px 0;
-    border-top: 1px solid #E8EAED;
-    border-bottom: 1px solid #E8EAED;
+    gap: 12px;
+    padding: 12px 0;
+    border-top: 1px solid #F1F3F4;
 }
 
 .guildStat {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 4px;
+    gap: 6px;
     flex: 1;
 }
 
 .guildStat .material-icons-outlined {
-    font-size: 20px;
+    font-size: 18px;
     color: #5F6368;
 }
 
 .guildStat span:nth-child(2) {
-    font-size: 18px;
-    font-weight: 500;
+    font-size: 16px;
+    font-weight: 700;
     color: #202124;
 }
 
@@ -369,8 +385,8 @@
 }
 
 .guildRole {
-    padding-top: 12px;
-    font-size: 14px;
+    padding-top: 8px;
+    font-size: 13px;
     color: #5F6368;
 }
 
@@ -406,46 +422,45 @@
 }
 
 /* Mobile Responsive */
-@media (max-width: 768px) {
+
+@media (max-width: 900px) {
     .container {
         padding: 16px;
     }
 
-    .profileHeader {
-        flex-direction: column;
-        text-align: center;
-        padding: 24px 16px;
+    .headerInner {
+        flex-direction: row;
+        gap: 12px;
     }
 
-    .username {
-        font-size: 24px;
+    .headerActions {
+        margin-left: auto;
+    }
+
+    .avatar {
+        width: 80px;
+        height: 80px;
+    }
+}
+
+@media (max-width: 520px) {
+    .headerInner {
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+    }
+
+    .headerActions {
+        width: 100%;
+        justify-content: center;
+        margin-top: 8px;
     }
 
     .tabs {
-        flex-direction: column;
-    }
-
-    .tab {
-        justify-content: center;
+        flex-wrap: wrap;
     }
 
     .statsGrid {
         grid-template-columns: 1fr;
-    }
-
-    .guildsGrid {
-        grid-template-columns: 1fr;
-    }
-
-    .guildStats {
-        flex-wrap: wrap;
-    }
-}
-
-@media (max-width: 480px) {
-    .guildHeader {
-        flex-direction: column;
-        align-items: center;
-        text-align: center;
     }
 }
