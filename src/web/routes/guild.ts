@@ -31,10 +31,17 @@ export function createGuildRoutes(sessions: Map<string, SettingsSession>, botCli
         }
 
         // Botが参加しているかチェック
-        const guild = botClient.client.guilds.cache.get(guildId);
+        // まずキャッシュを確認し、無ければ API 経由で取得を試みる（キャッシュミス対策）
+        let guild = botClient.client.guilds.cache.get(guildId as string) as any;
         if (!guild) {
-            res.status(404).json({ error: 'Guild not found' });
-            return;
+            try {
+                // fetch は Promise を返し、Bot がギルドに参加していれば取得できる
+                guild = await botClient.client.guilds.fetch(guildId as string);
+            } catch (e) {
+                // フェッチ失敗（ボット未参加など）は従来通り 404 を返す
+                res.status(404).json({ error: 'Guild not found' });
+                return;
+            }
         }
 
         // ユーザーがこのギルドのメンバーであることを確認
