@@ -3,7 +3,8 @@
     "allow": [
       "Bash(bun run:*)",
       "Bash(npm install @material/web)",
-      "Bash(npm run dev:web)"
+      "Bash(npm run dev:web)",
+      "Bash(npm install)"
     ],
     "deny": [],
     "ask": []

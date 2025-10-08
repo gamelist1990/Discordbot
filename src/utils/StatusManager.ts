@@ -46,19 +46,19 @@ export class StatusManager {
             // ディレクトリを作成
             await fs.mkdir(path.dirname(this.statusFile), { recursive: true });
 
-            // 既存のステータスファイルを読み込み（起動時間は保持）
+            // 既存のステータスファイルを読み込み（ログ等を参照するため）
             try {
                 const data = await fs.readFile(this.statusFile, 'utf-8');
                 const existing = JSON.parse(data) as BotStatus;
-                
-                // 前回の起動時間がある場合は保持、それ以外は更新
-                if (existing.startTime) {
-                    this.status.startTime = existing.startTime;
-                }
+                // ログ用に既存情報を表示
+                Logger.info(`既存のステータスファイルを読み込みました: startTime=${existing.startTime}, lastUpdate=${existing.lastUpdate}`);
             } catch {
                 // ファイルがない場合は新規作成
                 Logger.info('新しいステータスファイルを作成します');
             }
+
+            // 起動時に現在時刻を startTime に設定して永続化（常に現在の起動時刻を使用）
+            this.status.startTime = Date.now();
 
             // 現在の状態を保存
             await this.save();

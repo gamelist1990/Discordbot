@@ -71,6 +71,35 @@ export class StatsManager {
                         mediaMessages: existing.mediaMessages + counts.mediaMessages,
                     };
                     await database.set(guildId, `Guild/${guildId}/User/${userId}`, merged);
+                    
+                        // Also update a global per-user file that contains per-guild breakdowns
+                        // This makes Data/User/<userId>.json contain a `guilds` mapping for easier profile aggregation.
+                        try {
+                            // read existing global user file (supports both old flat and new structure)
+                            const globalUserAny = await database.get(guildId, `User/${userId}`, null) as any;
+                            const newGlobal = globalUserAny && typeof globalUserAny === 'object' ? { ...globalUserAny } : {};
+                            if (!newGlobal.guilds || typeof newGlobal.guilds !== 'object') newGlobal.guilds = {};
+                            newGlobal.guilds[guildId] = merged;
+                            // Optionally keep backward-compatible top-level totals (sum across guilds)
+                            try {
+                                // recompute totals across guilds
+                                const totals: { totalMessages: number; linkMessages: number; mediaMessages: number } = Object.values(newGlobal.guilds).reduce((acc: { totalMessages: number; linkMessages: number; mediaMessages: number }, g: any) => {
+                                    acc.totalMessages += (g.totalMessages || 0);
+                                    acc.linkMessages += (g.linkMessages || 0);
+                                    acc.mediaMessages += (g.mediaMessages || 0);
+                                    return acc;
+                                }, { totalMessages: 0, linkMessages: 0, mediaMessages: 0 });
+                                (newGlobal as any).totalMessages = totals.totalMessages;
+                                (newGlobal as any).linkMessages = totals.linkMessages;
+                                (newGlobal as any).mediaMessages = totals.mediaMessages;
+                            } catch (_) {
+                                // ignore
+                            }
+                            await database.set(guildId, `User/${userId}`, newGlobal);
+                        } catch (e) {
+                            // ignore errors updating global user file
+                        }
+
                     persistedCount++;
                 }
                 if (persistedCount > 0) console.log(`StatsManager: persisted ${persistedCount} user(s) for guild ${guildId}`);

@@ -4,7 +4,6 @@ import { BrowserRouter } from 'react-router-dom';
 import App from './App';
 import './styles/global.css';
 import { AppToastProvider } from './AppToastProvider';
-import { setGlobalNotifier } from './utils/globalNotifier';
 import { startPrivateChatSSE } from './services/sse';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(

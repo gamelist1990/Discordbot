@@ -10,7 +10,6 @@ interface PermissionsTabProps {
 
 const PermissionsTab: React.FC<PermissionsTabProps> = ({ settings, roles, onSave }) => {
   const [staffRoleId, setStaffRoleId] = useState(settings.staffRoleId || '');
-  const [adminRoleId, setAdminRoleId] = useState(settings.adminRoleId || '');
   const [isSaving, setIsSaving] = useState(false);
 
   const handleSave = async () => {
@@ -18,21 +17,20 @@ const PermissionsTab: React.FC<PermissionsTabProps> = ({ settings, roles, onSave
     try {
       await onSave({
         staffRoleId: staffRoleId || undefined,
-        adminRoleId: adminRoleId || undefined,
       });
     } finally {
       setIsSaving(false);
     }
   };
 
-  // ロールを position で降順ソート
-  const sortedRoles = [...roles].sort((a, b) => b.position - a.position);
+  // ロールを position で降順ソート（roles が配列であることを保証）
+  const sortedRoles = Array.isArray(roles) ? [...roles].sort((a, b) => b.position - a.position) : [];
 
   return (
     <div className={styles.container}>
       <h2 className={styles.title}>権限設定</h2>
       <p className={styles.description}>
-        サーバーの権限ロールを設定します。スタッフロールと管理者ロールを選択してください。
+        サーバーの権限ロールを設定します。管理者ロールはシステム側で管理されているため、ここではスタッフロールのみ設定できます。
       </p>
 
       <div className={styles.section}>
@@ -56,26 +54,7 @@ const PermissionsTab: React.FC<PermissionsTabProps> = ({ settings, roles, onSave
         </select>
       </div>
 
-      <div className={styles.section}>
-        <label className={styles.label}>
-          <span className={styles.labelText}>管理者ロール</span>
-          <span className={styles.labelDescription}>
-            すべての設定変更権限を持つロール
-          </span>
-        </label>
-        <select
-          className={styles.select}
-          value={adminRoleId}
-          onChange={(e) => setAdminRoleId(e.target.value)}
-        >
-          <option value="">-- 選択なし --</option>
-          {sortedRoles.map((role) => (
-            <option key={role.id} value={role.id}>
-              {role.name}
-            </option>
-          ))}
-        </select>
-      </div>
+      {/* 管理者ロールの選択は廃止（サーバ側で管理） */}
 
       <div className={styles.actions}>
         <button

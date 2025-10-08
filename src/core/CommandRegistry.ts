@@ -1,13 +1,13 @@
-import { SlashCommandBuilder, ChatInputCommandInteraction, PermissionFlagsBits, Collection } from 'discord.js';
+import { SlashCommandBuilder, ChatInputCommandInteraction, Collection } from 'discord.js';
 import { BotClient } from './BotClient.js';
-import { 
-    DynamicCommandOptions, 
-    EnhancedSlashCommand, 
-    PermissionLevel 
+import {
+    DynamicCommandOptions,
+    EnhancedSlashCommand
 } from '../types/enhanced-command.js';
 import { SlashCommand } from '../types/command.js';
 import { database } from './Database.js';
 import { Logger } from '../utils/Logger.js';
+import { PermissionLevel } from '../web/types/permission.js';
 
 /**
  * コマンドレジストリ
@@ -124,28 +124,28 @@ export class CommandRegistry {
 
         if (!member) return false;
 
-        // OP レベル: サーバー管理者権限を持つ
-        if (requiredLevel === PermissionLevel.OP) {
-            return member.permissions.has(PermissionFlagsBits.Administrator);
+        // OWNER レベル: サーバーオーナー
+        if (requiredLevel === PermissionLevel.OWNER) {
+            return interaction.guild.ownerId === userId;
         }
 
         // ギルド設定を取得
-        const guildSettings = await database.get<any>(guildId, 'guild_settings', {
+    const guildSettings = await database.get<any>(guildId, `Guild/${guildId}/settings`, {
             adminRoleId: null,
             staffRoleId: null,
         });
 
-        // ADMIN レベル: 管理者ロールまたは OP
+        // ADMIN レベル: 管理者ロールまたは OWNER
         if (requiredLevel === PermissionLevel.ADMIN) {
             if (guildSettings.adminRoleId) {
                 const hasAdminRole = member.roles.cache.has(guildSettings.adminRoleId);
                 if (hasAdminRole) return true;
             }
-            const isOp = member.permissions.has(PermissionFlagsBits.Administrator);
-            return isOp;
+            const isOwner = interaction.guild.ownerId === userId;
+            return isOwner;
         }
 
-        // STAFF レベル: スタッフロール、管理者ロール、または OP
+        // STAFF レベル: スタッフロール、管理者ロール、または OWNER
         if (requiredLevel === PermissionLevel.STAFF) {
             if (guildSettings.staffRoleId) {
                 const hasStaffRole = member.roles.cache.has(guildSettings.staffRoleId);
@@ -155,8 +155,8 @@ export class CommandRegistry {
                 const hasAdminRole = member.roles.cache.has(guildSettings.adminRoleId);
                 if (hasAdminRole) return true;
             }
-            const isOp = member.permissions.has(PermissionFlagsBits.Administrator);
-            return isOp;
+            const isOwner = interaction.guild.ownerId === userId;
+            return isOwner;
         }
 
         return false;

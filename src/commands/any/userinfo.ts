@@ -1,5 +1,6 @@
 import { SlashCommandBuilder, ChatInputCommandInteraction, EmbedBuilder, MessageFlags } from 'discord.js';
 import { SlashCommand } from '../../types/command.js';
+import { PermissionLevel } from '../../web/types/permission.js';
 
 /**
  * /userinfo コマンド
@@ -16,6 +17,7 @@ const userinfoCommand: SlashCommand = {
                 .setDescription('情報を表示するユーザー')
                 .setRequired(false)
         ) as SlashCommandBuilder,
+    permissionLevel: PermissionLevel.ANY,
     
     async execute(interaction: ChatInputCommandInteraction): Promise<void> {
         if (!interaction.guild) {

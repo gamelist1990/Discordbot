@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import AppHeader from '../../components/Common/AppHeader';
 import styles from './UserProfile.module.css';
 
 interface GuildStats {
@@ -78,7 +79,8 @@ const UserProfile: React.FC<UserProfileProps> = ({ user, onLoginClick }) => {
 
                 // For each guild, try to fetch authoritative mod stats and merge
                 try {
-                    const guilds = data.guilds || [];
+                    // Normalize guilds to an array in case server returns unexpected type
+                    const guilds = Array.isArray(data.guilds) ? data.guilds : [];
                     const updatedGuilds = await Promise.all(guilds.map(async (g: GuildStats) => {
                         try {
                             const r = await fetch(`/api/guilds/${g.id}/modinfo`, { credentials: 'include' });
@@ -101,10 +103,10 @@ const UserProfile: React.FC<UserProfileProps> = ({ user, onLoginClick }) => {
                     }));
 
                     // compute totals from updatedGuilds
-                    const totals = updatedGuilds.reduce((acc, cur) => {
-                        acc.totalMessages += cur.totalMessages || 0;
-                        acc.totalLinks += cur.linkMessages || 0;
-                        acc.totalMedia += cur.mediaMessages || 0;
+                    const totals = (Array.isArray(updatedGuilds) ? updatedGuilds : []).reduce((acc, cur) => {
+                        acc.totalMessages += (cur && cur.totalMessages) ? cur.totalMessages : 0;
+                        acc.totalLinks += (cur && cur.linkMessages) ? cur.linkMessages : 0;
+                        acc.totalMedia += (cur && cur.mediaMessages) ? cur.mediaMessages : 0;
                         return acc;
                     }, { totalMessages: 0, totalLinks: 0, totalMedia: 0 });
 
@@ -126,57 +128,103 @@ const UserProfile: React.FC<UserProfileProps> = ({ user, onLoginClick }) => {
         window.location.href = oauthUrl;
     };
 
+    const handleLogout = async () => {
+        try {
+            await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
+            // リロードしてセッションを反映
+            window.location.reload();
+        } catch (e) {
+            console.error('Logout failed', e);
+        }
+    };
+
+
     if (loading) {
         return (
-            <div className={styles.loading}>
-                <div className={styles.loadingSpinner}></div>
-                <p>プロフィールを読み込み中...</p>
+            <div>
+                <AppHeader user={profileData ? { userId: profileData.id, username: profileData.username, avatar: profileData.avatar } : null} />
+                <div className={styles.loading}>
+                    <div className={styles.loadingSpinner}></div>
+                    <p>プロフィールを読み込み中...</p>
+                </div>
             </div>
         );
     }
 
     if (!profileData) {
         return (
-            <div className={styles.error}>
-                <h2>ログインが必要です</h2>
-                <p>Discord でログインして、あなたのプロフィールを表示しましょう。</p>
-                {onLoginClick ? (
-                    <button onClick={onLoginClick} className={styles.loginButton}>
-                        Discord でログイン
-                    </button>
-                ) : (
-                    <button onClick={handleLoginClick} className={styles.loginButton}>
-                        Discord でログイン
-                    </button>
-                )}
+            <div>
+                <AppHeader user={null} />
+                <div className={styles.error}>
+                    <h2>ログインが必要です</h2>
+                    <p>Discord でログインして、あなたのプロフィールを表示しましょう。</p>
+                    {onLoginClick ? (
+                        <button onClick={onLoginClick} className={styles.loginButton}>
+                            Discord でログイン
+                        </button>
+                    ) : (
+                        <button onClick={handleLoginClick} className={styles.loginButton}>
+                            Discord でログイン
+                        </button>
+                    )}
+                </div>
             </div>
         );
     }
 
     return (
-        <div className={styles.container}>
-            {/* User Header */}
-            <div className={styles.profileHeader}>
-                <div className={styles.avatarContainer}>
-                    <img
-                        src={profileData.avatar || `https://cdn.discordapp.com/embed/avatars/${parseInt(profileData.discriminator) % 5}.png`}
-                        alt={`${profileData.username}のプロフィール画像`}
-                        className={styles.avatar}
-                    />
-                </div>
-                <div className={styles.userInfo}>
-                    <h1 className={styles.username}>
-                        {profileData.username}
-                        <span className={styles.discriminator}>#{profileData.discriminator}</span>
-                    </h1>
-                    <p className={styles.userId}>ユーザーID: {profileData.id}</p>
-                </div>
-                {profileData.banner && (
-                    <div className={styles.bannerContainer}>
-                        <img src={profileData.banner} alt="バナー画像" className={styles.banner} />
+        <div className={styles.page}>
+            <AppHeader user={{ userId: profileData.id, username: profileData.username, avatar: profileData.avatar }} />
+            <div className={styles.container}>
+                {/* User Header */}
+                <header className={styles.profileHeader} role="banner">
+                    <div className={styles.headerInner}>
+                        <div className={styles.avatarContainer}>
+                            {(() => {
+                                const avatar = profileData.avatar;
+                                let src = `https://cdn.discordapp.com/embed/avatars/${parseInt(profileData.discriminator) % 5}.png`;
+                                if (avatar) {
+                                    // if avatar looks like an absolute URL, use it directly
+                                    if (/^https?:\/\//.test(avatar)) {
+                                        src = avatar;
+                                    } else {
+                                        // avatar is likely a Discord hash; construct CDN URL
+                                        const isAnimated = avatar.startsWith('a_');
+                                        const ext = isAnimated ? 'gif' : 'png';
+                                        src = `https://cdn.discordapp.com/avatars/${profileData.id}/${avatar}.${ext}?size=256`;
+                                    }
+                                }
+
+                                return (
+                                    <img
+                                        src={src}
+                                        alt={`${profileData.username}のプロフィール画像`}
+                                        className={styles.avatar}
+                                    />
+                                );
+                            })()}
+                        </div>
+                        <div className={styles.userInfo}>
+                            <h1 className={styles.username}>
+                                {profileData.username}
+                                <span className={styles.discriminator}>#{profileData.discriminator}</span>
+                            </h1>
+                            <p className={styles.userId}>ユーザーID: {profileData.id}</p>
+                            <p className={styles.smallText}>{profileData.totalStats.totalMessages?.toLocaleString() || 0} メッセージ • {profileData.guilds.length} サーバー</p>
+                        </div>
+                        <div className={styles.headerActions}>
+                            <button className={styles.primaryButton} onClick={handleLogout} aria-label="ログアウト">
+                                <span className="material-icons-outlined">logout</span>
+                                ログアウト
+                            </button>
+                        </div>
                     </div>
-                )}
-            </div>
+                    {profileData.banner && (
+                        <div className={styles.bannerContainer}>
+                            <img src={profileData.banner} alt="バナー画像" className={styles.banner} />
+                        </div>
+                    )}
+                </header>
 
             {/* Navigation Tabs */}
             <div className={styles.tabs}>
@@ -323,6 +371,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ user, onLoginClick }) => {
                         </div>
                     </div>
                 )}
+            </div>
             </div>
         </div>
     );

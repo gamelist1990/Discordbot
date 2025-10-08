@@ -1,5 +1,6 @@
 import { ChatInputCommandInteraction, MessageFlags, EmbedBuilder } from 'discord.js';
 import config from '../../config';
+import { PermissionLevel } from '../../web/types/permission.js';
 
 /**
  * Todo コマンドハンドラー
@@ -7,6 +8,7 @@ import config from '../../config';
 export const commandHandler = {
     name: 'todo',
     description: 'Todo管理ツールを開く',
+    permissionLevel: PermissionLevel.ANY,
 
     builder: (command: any) => {
         return command

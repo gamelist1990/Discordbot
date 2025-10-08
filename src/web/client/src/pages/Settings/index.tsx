@@ -2,12 +2,13 @@ import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import Layout from '../../components/Layout/Layout';
 import PermissionsTab from '../../components/Tabs/PermissionsTab';
-import { validateToken, fetchGuildInfo, fetchSettings, saveSettings } from '../../services/api';
+import { fetchGuildInfo, fetchSettings, saveSettings } from '../../services/api';
 import type { GuildInfo, GuildSettings } from '../../types';
 import styles from './SettingsPage.module.css';
 
+
 const SettingsPage: React.FC = () => {
-  const { token } = useParams<{ token: string }>();
+  const { guildId } = useParams<{ guildId: string }>();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -16,25 +17,19 @@ const SettingsPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState('permissions');
 
   useEffect(() => {
-    if (!token) {
+    if (!guildId) {
       navigate('/404');
       return;
     }
 
     const initialize = async () => {
       try {
-        // トークン検証
-        const validation = await validateToken(token);
-        if (!validation.valid) {
-          throw new Error('無効なセッションです');
-        }
-
         // ギルド情報取得
-        const guild = await fetchGuildInfo(token);
+        const guild = await fetchGuildInfo(guildId);
         setGuildInfo(guild);
 
         // 設定取得
-        const currentSettings = await fetchSettings(token);
+        const currentSettings = await fetchSettings(guildId);
         setSettings(currentSettings);
 
         setLoading(false);
@@ -45,14 +40,14 @@ const SettingsPage: React.FC = () => {
     };
 
     initialize();
-  }, [token, navigate]);
+  }, [guildId, navigate]);
 
   const handleSaveSettings = async (newSettings: Partial<GuildSettings>) => {
-    if (!token || !settings) return;
+    if (!guildId || !settings) return;
 
     try {
       const updated = { ...settings, ...newSettings };
-      await saveSettings(token, updated);
+      await saveSettings(guildId, updated);
       setSettings(updated);
       alert('設定を保存しました');
     } catch (err) {

@@ -13,10 +13,16 @@
     --grey-900: #202124;
 }
 
-.dashboard {
+.page {
     min-height: 100vh;
     background-color: var(--grey-50);
+    display: flex;
+    flex-direction: column;
+}
+
+.dashboard {
     font-family: 'Roboto', 'Arial', sans-serif;
+    flex: 1;
 }
 
 /* Header */
@@ -513,4 +519,54 @@
 
 @keyframes spin {
     to { transform: rotate(360deg); }
+}
+
+/* Mobile Responsive - Enhanced */
+@media (max-width: 768px) {
+    .actionsBar {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .filters {
+        width: 100%;
+        overflow-x: auto;
+        padding-bottom: 8px;
+    }
+
+    .filterBtn {
+        white-space: nowrap;
+    }
+
+    .sessionsGrid {
+        grid-template-columns: 1fr;
+    }
+
+    .modal {
+        width: 95%;
+        max-height: 85vh;
+    }
+
+    .modalHeader, .modalBody, .modalFooter {
+        padding: 16px;
+    }
+}
+
+@media (max-width: 480px) {
+    .main {
+        padding: 16px;
+    }
+
+    .createBtn, .filterBtn {
+        font-size: 13px;
+        padding: 8px 12px;
+    }
+
+    .sessionCard {
+        padding: 12px;
+    }
+
+    .sessionName {
+        font-size: 16px;
+    }
 }

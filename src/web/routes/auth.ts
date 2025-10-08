@@ -4,8 +4,10 @@ import crypto from 'crypto';
 import config from '../../config.js';
 import { Logger } from '../../utils/Logger.js';
 import { SettingsSession } from '../types';
+import { database } from '../../core/Database.js';
 import fs from 'fs';
 import path from 'path';
+import { PermissionLevel } from '../types/permission.js';
 
 /**
  * OAuth2 state情報
@@ -25,7 +27,7 @@ export function createAuthRoutes(
     botClient: BotClient
 ): Router {
     const router = Router();
-    
+
     // OAuth2 state管理
     const states = new Map<string, OAuth2State>();
 
@@ -57,7 +59,7 @@ export function createAuthRoutes(
     };
 
     loadOauthFromDisk();
-    
+
     // 期限切れstateのクリーンアップ（10分ごと）
     setInterval(() => {
         const now = Date.now();
@@ -79,15 +81,25 @@ export function createAuthRoutes(
             res.setHeader('Pragma', 'no-cache');
             res.setHeader('Expires', '0');
             res.setHeader('Surrogate-Control', 'no-store');
+
             const sessionId = req.cookies?.sessionId;
-            
+
+            // DEBUG: log incoming cookies and session table keys to help diagnose "Session not found" issues
+            try {
+                console.info('[DEBUG][/api/auth/session] incoming Cookie header:', req.headers['cookie']);
+                console.info('[DEBUG][/api/auth/session] parsed sessionId cookie:', sessionId);
+                console.info('[DEBUG][/api/auth/session] sessions keys:', Array.from(sessions.keys()).slice(0,50));
+            } catch (dbgErr) {
+                console.warn('[DEBUG][/api/auth/session] failed to log debug info', dbgErr);
+            }
+
             if (!sessionId) {
                 res.status(401).json({ authenticated: false });
                 return;
             }
 
             const session = sessions.get(sessionId);
-            
+
             if (!session || Date.now() > session.expiresAt) {
                 if (session) {
                     sessions.delete(sessionId);
@@ -103,8 +115,7 @@ export function createAuthRoutes(
                     guildId: session.guildId,
                     username: session.username || session.userId,
                     avatar: (session as any).avatar || null,
-                    // permission: 0=any,1=staff,2=admin,3=owner
-                    permission: typeof session.permission === 'number' ? session.permission : 0
+                    permission: typeof session.permission === 'number' ? session.permission : PermissionLevel.ANY
                 }
             });
         } catch (error) {
@@ -118,35 +129,17 @@ export function createAuthRoutes(
      */
     router.get('/discord', async (req: Request, res: Response) => {
         try {
-            let redirectPath = req.query.redirect as string || '/jamboard';
-            // Prefer explicit guildId query param
+            let redirectPath = req.query.redirect as string || '/';
+            // Prefer explicit guildId query param（今後の拡張用に残すが、Refererパースは削除）
             let guildId = req.query.guildId as string || '';
-
-            // If no guildId provided, try to extract from Referer header (client page)
-            if (!guildId) {
-                const referer = req.headers.referer || req.headers.referrer;
-                if (typeof referer === 'string') {
-                    try {
-                        const url = new URL(referer);
-                        const parts = url.pathname.split('/').filter(Boolean);
-                        if (parts.length >= 2 && parts[0] === 'jamboard') {
-                            guildId = parts[1];
-                            redirectPath = `/jamboard/${guildId}`;
-                        }
-                    } catch (e) {
-                        // ignore
-                    }
-                }
-            }
-
             if (!guildId) guildId = 'default';
-            
+
             // 環境変数または設定からOAuth2情報を取得
             const clientId = botClient.getClientId();
             const baseUrl = config.BASE_URL;
             const redirectUri = `${baseUrl}/api/auth/callback`;
             Logger.info(`[OAuth] initiating Discord auth - baseUrl=${baseUrl} redirect_uri=${redirectUri}`);
-            
+
             // stateを生成
             const state = crypto.randomBytes(16).toString('hex');
             states.set(state, {
@@ -165,7 +158,7 @@ export function createAuthRoutes(
             });
 
             const authUrl = `https://discord.com/api/oauth2/authorize?${params.toString()}`;
-            
+
             // リダイレクト
             res.redirect(authUrl);
         } catch (error) {
@@ -181,7 +174,7 @@ export function createAuthRoutes(
         try {
             const code = req.query.code as string;
             const state = req.query.state as string;
-            
+
             if (!code || !state) {
                 res.status(400).send('Invalid callback parameters');
                 return;
@@ -193,7 +186,7 @@ export function createAuthRoutes(
                 res.status(400).send('Invalid or expired state');
                 return;
             }
-            
+
             // stateを削除（使い捨て）
             states.delete(state);
 
@@ -203,7 +196,7 @@ export function createAuthRoutes(
             const baseUrl = config.BASE_URL;
             const redirectUri = `${baseUrl}/api/auth/callback`;
             Logger.info(`[OAuth] callback received - expected redirect_uri=${redirectUri}`);
-            
+
             if (!clientSecret) {
                 console.error('DISCORD_CLIENT_SECRET not configured');
                 res.status(500).send('Server configuration error');
@@ -253,19 +246,71 @@ export function createAuthRoutes(
             const username = userData.username && userData.discriminator ? `${userData.username}#${userData.discriminator}` : userData.username || userData.id;
 
             // TODO: determine permission level properly using guild roles/members; default to 0
-            const defaultPermission = 0;
 
-            // セッションを作成（有効期限を長めに設定: 30日）
+            // Discord APIからユーザーの所属ギルド一覧・権限を取得
+            let guilds: any[] = [];
+            try {
+                const resp = await fetch('https://discord.com/api/users/@me/guilds', {
+                    headers: { Authorization: `Bearer ${tokenData.access_token}` }
+                });
+                if (resp.ok) {
+                    guilds = await resp.json();
+                }
+            } catch { }
+            // Botが参加しているサーバーID一覧を取得
+            const botGuilds = botClient.getGuildList().map(g => g.id);
+            // 共通部分のみ抽出
+            const filteredGuilds = guilds.filter(g => botGuilds.includes(g.id));
+            // guildIds配列
+            const guildIds = filteredGuilds.map(g => g.id);
+            // permissions配列（0:any, 1:staff, 2:admin, 3:管理者）
+            // 各guildIdごとにadminRoleId/staffRoleIdを参照し、ユーザーがそのロールを持っていればlevel:2(admin)またはlevel:1(staff)を付与
+            const permissions: { guildId: string; level: number }[] = [];
+            for (const g of filteredGuilds) {
+                let level = 0;
+                try {
+                    // サーバー設定取得
+                    const settings = await database.get(g.id, `Guild/${g.id}/settings`);
+                    // メンバー情報取得
+                    const memberResp = await fetch(`https://discord.com/api/guilds/${g.id}/members/${userData.id}`, {
+                        headers: { Authorization: `Bot ${botClient.token}` }
+                    });
+                    if (memberResp.ok) {
+                        const member = await memberResp.json();
+                        const roles = member.roles || [];
+                        if (settings && settings.adminRoleId && roles.includes(settings.adminRoleId)) {
+                            level = 2;
+                        } else if (settings && settings.staffRoleId && roles.includes(settings.staffRoleId)) {
+                            level = 1;
+                        } else if (g.owner) {
+                            level = 2;
+                        } else if (g.permissions & 0x20) {
+                            level = 3;
+                        } else if (g.permissions & 0x8) {
+                            level = 1;
+                        }
+                    }
+                } catch (e) {
+                    // fallback: owner/権限フラグ
+                    if (g.owner) {
+                        level = 2;
+                    } else if (g.permissions & 0x20) {
+                        level = 3;
+                    } else if (g.permissions & 0x8) {
+                        level = 1;
+                    }
+                }
+                permissions.push({ guildId: g.id, level });
+            }
             const sessionId = crypto.randomBytes(32).toString('hex');
             const sessionTTL = 30 * 24 * 60 * 60 * 1000; // 30日
             const session: SettingsSession = {
                 token: sessionId,
                 userId: userData.id,
-                guildId: stateData.guildId,
+                guildIds,
                 username,
-                // store avatar hash/raw string if available so frontend can build CDN url
                 ...(userData.avatar ? { avatar: userData.avatar } : {}),
-                permission: defaultPermission,
+                permissions,
                 createdAt: Date.now(),
                 expiresAt: Date.now() + sessionTTL
             };
@@ -311,7 +356,7 @@ export function createAuthRoutes(
     router.post('/logout', async (req: Request, res: Response) => {
         try {
             const sessionId = req.cookies?.sessionId;
-            
+
             if (sessionId) {
                 sessions.delete(sessionId);
             }

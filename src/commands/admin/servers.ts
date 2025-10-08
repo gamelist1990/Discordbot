@@ -1,5 +1,6 @@
 import { SlashCommandBuilder, ChatInputCommandInteraction, EmbedBuilder, Client, Guild, MessageFlags, PermissionFlagsBits } from 'discord.js';
 import { SlashCommand } from '../../types/command.js';
+import { PermissionLevel } from '../../web/types/permission.js';
 
 const MAX_GUILDS = 50;
 
@@ -13,6 +14,7 @@ const serversCommand: SlashCommand = {
         .setDescription('Bot が参加しているサーバー一覧を表示します')
         .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
         .setDMPermission(false),
+    permissionLevel: PermissionLevel.ADMIN,
     
     async execute(interaction: ChatInputCommandInteraction): Promise<void> {
         const client: Client = interaction.client;

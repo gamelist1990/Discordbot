@@ -8,6 +8,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { SlashCommand } from '../../types/command.js';
+import { PermissionLevel } from '../../web/types/permission.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -111,6 +112,7 @@ async function buildStaffCommand(): Promise<SlashCommand> {
     
     return {
         data: builder as SlashCommandBuilder,
+        permissionLevel: PermissionLevel.STAFF,
         async execute(interaction: ChatInputCommandInteraction): Promise<void> {
             const subcommand = interaction.options.getSubcommand();
             
