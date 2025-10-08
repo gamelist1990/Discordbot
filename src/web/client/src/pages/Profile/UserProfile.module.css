@@ -1,15 +1,32 @@
-/* Google Material Design inspired profile page */
-.page {
-    min-height: 100vh;
+.mainLayout {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+}
+
+/* Main Content Container - Sidebarを内包するコンテナ */
+.content {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+    position: relative; /* Sidebarの位置調整用 */
+}
+
+/* Profile Content - メインのプロフィール領域 */
+.profileContent {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
     background: #F1F3F4;
     display: flex;
     flex-direction: column;
 }
 
-.mainLayout {
-    display: flex;
-    flex: 1;
-    overflow: hidden;
+@media (max-width: 768px) {
+    .profileContent {
+        margin-left: 0;
+        width: 100%;
+    }
 }
 
 /* Sidebar Styles */
@@ -18,10 +35,11 @@
     border-right: 1px solid #E8EAED;
     display: flex;
     flex-direction: column;
-    transition: width 0.3s ease;
+    transition: transform 0.3s ease, width 0.3s ease;
     position: sticky;
-    top: 64px;
-    height: calc(100vh - 64px);
+    top: 0;
+    height: 100vh;
+    z-index: 1000;
 }
 
 .sidebarOpen {
@@ -32,12 +50,79 @@
     width: 72px;
 }
 
+/* Mobile (Tablet and below) */
+@media (max-width: 768px) {
+    .sidebar {
+        position: fixed;
+        left: 0;
+        top: 0;
+        height: 100vh;
+        z-index: 1000;
+        box-shadow: 2px 0 8px rgba(0, 0, 0, 0.1);
+        transform: translateX(-100%);
+    }
+
+    .sidebar.sidebarOpen {
+        transform: translateX(0);
+    }
+
+    .sidebar.sidebarClosed {
+        transform: translateX(-100%);
+    }
+
+    /* Open Sidebar 時のオーバーレイ */
+    .sidebarOpen {
+        width: 280px; /* Mobile時は少し広めに */
+    }
+
+    .sidebarClosed {
+        width: 280px; /* Mobile時は閉じた状態でもフル幅設定 */
+    }
+}
+
 .sidebarHeader {
     display: flex;
     align-items: center;
     justify-content: space-between;
     padding: 16px;
     border-bottom: 1px solid #E8EAED;
+}
+
+.sidebarTitle {
+    font-size: 20px;
+    font-weight: 500;
+    color: #202124;
+    margin: 0;
+    white-space: nowrap;
+}
+
+/* Profile Card Header - Mobile Menu Button */
+.profileCardHeader {
+    display: flex;
+    gap: 16px;
+    align-items: flex-start;
+}
+
+.mobileMenuButton {
+    display: none;
+    background: white;
+    border: 1px solid #E8EAED;
+    border-radius: 8px;
+    padding: 12px;
+    cursor: pointer;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    transition: all 0.2s ease;
+}
+
+.mobileMenuButton:hover {
+    background: #F1F3F4;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+}
+
+@media (max-width: 768px) {
+    .mobileMenuButton {
+        display: block;
+    }
 }
 
 .sidebarTitle {
@@ -308,9 +393,19 @@
     margin: 0;
 }
 
+.chatFrequency {
+    font-size: 18px;
+    font-weight: 600;
+    margin: 0;
+    color: #202124;
+}
+
 /* Servers Section */
 .servers {
     padding: 0;
+    background: #fff;
+    border-radius: 12px;
+    min-height: 320px;
 }
 
 .guildsGrid {
@@ -447,6 +542,9 @@
 .activity,
 .settings {
     padding: 0;
+    background: #fff;
+    border-radius: 12px;
+    min-height: 320px;
 }
 
 .activityContent,

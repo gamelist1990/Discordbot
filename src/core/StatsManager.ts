@@ -132,11 +132,21 @@ export class StatsManager {
                             // read existing global user file (supports both old flat and new structure)
                             const globalUserAny = await database.get(guildId, `User/${userId}`, null) as any;
                             const newGlobal = globalUserAny && typeof globalUserAny === 'object' ? { ...globalUserAny } : {};
+
+                            // Always read the current merged counts from the per-guild file to ensure data consistency
+                            const currentCounts = {
+                                totalMessages: (await database.get<UserCounts>(guildId, `Guild/${guildId}/User/${userId}`, { totalMessages: 0, linkMessages: 0, mediaMessages: 0 })).totalMessages,
+                                linkMessages: (await database.get<UserCounts>(guildId, `Guild/${guildId}/User/${userId}`, { totalMessages: 0, linkMessages: 0, mediaMessages: 0 })).linkMessages,
+                                mediaMessages: (await database.get<UserCounts>(guildId, `Guild/${guildId}/User/${userId}`, { totalMessages: 0, linkMessages: 0, mediaMessages: 0 })).mediaMessages,
+                            };
+
+                            // Update the guilds breakdown with fresh data
                             if (!newGlobal.guilds || typeof newGlobal.guilds !== 'object') newGlobal.guilds = {};
-                            newGlobal.guilds[guildId] = merged;
-                            // Optionally keep backward-compatible top-level totals (sum across guilds)
+                            newGlobal.guilds[guildId] = currentCounts;
+
+                            // Recompute totals across all guilds to ensure accuracy
                             try {
-                                // recompute totals across guilds
+                                // Accumulate totals across all guilds in the guilds object
                                 const totals: { totalMessages: number; linkMessages: number; mediaMessages: number } = Object.values(newGlobal.guilds).reduce((acc: { totalMessages: number; linkMessages: number; mediaMessages: number }, g: any) => {
                                     acc.totalMessages += (g.totalMessages || 0);
                                     acc.linkMessages += (g.linkMessages || 0);

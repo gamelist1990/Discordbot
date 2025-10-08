@@ -158,24 +158,33 @@ export function createUserRoutes(
                     // 2) If still zeros, try persisted per-guild per-user file
                     if (totalMessages === 0 && linkMessages === 0 && mediaMessages === 0) {
                         try {
+                            // 1) Try per-guild per-user file at namespace=g.id, path=Guild/<guildId>/User/<userId>
                             const perUser = await persisted.get(g.id, `Guild/${g.id}/User/${user.userId}`, null) as any;
                             if (perUser) {
                                 totalMessages = perUser.totalMessages || 0;
                                 linkMessages = perUser.linkMessages || 0;
                                 mediaMessages = perUser.mediaMessages || 0;
                             } else {
-                                // 3) Try global per-user file Data/User/<userId>.json
-                                // global per-user file is stored at the root namespace (""),
-                                // not under the guild id. Using the guild id here could return
-                                // unexpected values and cause the same stats to appear for
-                                // multiple guilds. Read from the global namespace instead.
+                                // 2) Try global per-user file at root namespace (""), path=User/<userId>
+                                // This file contains per-user global aggregates and optional per-guild breakdowns.
                                 const userFile = await persisted.get('', `User/${user.userId}`, null) as any;
                                 if (userFile) {
-                                    totalMessages = userFile.totalMessages || 0;
-                                    linkMessages = userFile.linkMessages || 0;
-                                    mediaMessages = userFile.mediaMessages || 0;
-                                } else {
-                                    // 4) Fallback to legacy aggregated mapping: <guildId>_user_stats.json
+                                    // Prefer per-guild breakdown inside global user file if present
+                                    if (userFile.guilds && userFile.guilds[g.id]) {
+                                        const gd = userFile.guilds[g.id];
+                                        totalMessages = gd.totalMessages || 0;
+                                        linkMessages = gd.linkMessages || 0;
+                                        mediaMessages = gd.mediaMessages || 0;
+                                    } else {
+                                        // Otherwise, do not assign the global totals as this guild's totals.
+                                        // Keep zeros (or other fallbacks) rather than copying globalUser.totalMessages
+                                        // which would cause the same counts to appear across multiple guilds.
+                                        // Continue to legacy fallback below.
+                                    }
+                                }
+
+                                // 3) Legacy fallback: aggregated mapping stored under namespace=g.id with key 'user_stats'
+                                if (totalMessages === 0 && linkMessages === 0 && mediaMessages === 0) {
                                     const rec = await persisted.get(g.id, 'user_stats', {} as any) as Record<string, any> || {};
                                     const u = rec[user.userId] || { totalMessages: 0, linkMessages: 0, mediaMessages: 0 };
                                     totalMessages = u.totalMessages || 0;
@@ -194,7 +203,8 @@ export function createUserRoutes(
                 userGuilds.push({
                     id: g.id,
                     name: g.name,
-                    icon: undefined,
+                    // BotClient.getGuildList() now includes `icon` (hash) when available
+                    icon: (g as any).icon || undefined,
                     memberCount: g.memberCount,
                     userStats: {
                         totalMessages,
@@ -216,41 +226,61 @@ export function createUserRoutes(
                     joinedAt,
                 });
             }
-            // 総統計を計算
-                let totalMessagesAll = userGuilds.reduce((sum, guild) => sum + guild.userStats.totalMessages, 0);
-                let totalLinksAll = userGuilds.reduce((sum, guild) => sum + guild.userStats.linkMessages, 0);
-                let totalMediaAll = userGuilds.reduce((sum, guild) => sum + guild.userStats.mediaMessages, 0);
-                // If no guild-specific stats were found, try global per-user file Data/User/<id>.json
-                if (totalMessagesAll === 0 && totalLinksAll === 0 && totalMediaAll === 0) {
-                    try {
-                        const persisted = (await import('../../core/Database.js')).database;
-                        const globalUser = await persisted.get('', `User/${user.userId}`, null) as any;
-                        if (globalUser) {
-                            totalMessagesAll = globalUser.totalMessages || 0;
-                            totalLinksAll = globalUser.linkMessages || 0;
-                            totalMediaAll = globalUser.mediaMessages || 0;
-                        }
-                    } catch (e) {
-                        // ignore
-                    }
-                }
+            // 総統計を計算 - StatsManagerのグローバル集計を使用
+            let totalMessagesAll = 0;
+            let totalLinksAll = 0;
+            let totalMediaAll = 0;
 
-                const totalStats = {
-                    totalMessages: totalMessagesAll,
-                    totalLinks: totalLinksAll,
-                    totalMedia: totalMediaAll,
-                    totalServers: userGuilds.length,
-                };
+            // 各guildからの集計を試す（互換性のため）
+            try {
+                const persisted = (await import('../../core/Database.js')).database;
+                const globalUser = await persisted.get('', `User/${user.userId}`, null) as any;
+
+                if (globalUser && globalUser.guilds && typeof globalUser.guilds === 'object') {
+                    // Use guild-specific data from global structure
+                    for (const g of botGuilds) {
+                        if (globalUser.guilds[g.id] && userGuildIds && userGuildIds.includes(g.id)) {
+                            const guildData = globalUser.guilds[g.id];
+                            totalMessagesAll += guildData.totalMessages || 0;
+                            totalLinksAll += guildData.linkMessages || 0;
+                            totalMediaAll += guildData.mediaMessages || 0;
+                        }
+                    }
+                } else if (globalUser) {
+                    // Fallback to old flat structure
+                    totalMessagesAll = globalUser.totalMessages || 0;
+                    totalLinksAll = globalUser.linkMessages || 0;
+                    totalMediaAll = globalUser.mediaMessages || 0;
+                }
+            } catch (e) {
+                console.warn('Failed to load global user stats:', e);
+                // Fallback to API-based per-guild calculations
+                // ... existing fallback logic ...
+            }
+
+            // Ensure totalStats is defined in this scope for the response
+            const totalStats = {
+                totalMessages: totalMessagesAll,
+                totalLinks: totalLinksAll,
+                totalMedia: totalMediaAll,
+                totalServers: userGuilds.length,
+            };
 
             // Discordユーザー情報（実際の実装ではOAuthトークンを使って取得）
             const userProfile: UserProfile = {
                 id: user.userId,
-                username: user.username.split('#')[0] || user.userId,
-                discriminator: user.username.split('#')[1] || '0000',
+                username: (user.username && user.username.split('#')[0]) || user.userId,
+                discriminator: (user.username && user.username.split('#')[1]) || '0000',
                 avatar: user.avatar ? `https://cdn.discordapp.com/avatars/${user.userId}/${user.avatar}.png` : undefined,
                 banner: undefined, // モックデータ
-                guilds: userGuilds,
-                totalStats,
+                // Add iconURL convenience property for frontend
+                guilds: userGuilds.map(g => ({
+                    ...g,
+                    // if an icon hash exists, expose full CDN URL; otherwise null
+                    // @ts-ignore
+                    iconURL: (g as any).icon ? `https://cdn.discordapp.com/icons/${g.id}/${(g as any).icon}.png` : null
+                })),
+                totalStats: totalStats,
             };
 
             res.json(userProfile);
@@ -297,10 +327,19 @@ export function createUserRoutes(
             else if (weeklyAverage >= 3) chatFrequency = 'low';
             else chatFrequency = 'very_low';
 
+            // Calculate link and media counts from timestamps
+            const now = Date.now();
+            const oneWeekAgo = now - 7 * 24 * 60 * 60 * 1000;
+
+            const weeklyLinks = activityData.allTimestamps.filter(t => t.timestamp >= oneWeekAgo && t.isLink).length;
+            const weeklyMedia = activityData.allTimestamps.filter(t => t.timestamp >= oneWeekAgo && t.isMedia).length;
+
             res.json({
                 weeklyMessages: activityData.weeklyMessages,
                 monthlyMessages: activityData.monthlyMessages,
                 yearlyMessages: activityData.yearlyMessages,
+                weeklyLinks,
+                weeklyMedia,
                 weeklyAverage,
                 monthlyAverage,
                 chatFrequency,

@@ -42,6 +42,11 @@ export class SessionController {
         const session = (req as any).session as SettingsSession;
 
         try {
+            if (!session.guildId) {
+                res.status(400).json({ error: 'Invalid session: missing guild ID' });
+                return;
+            }
+
             const guild = this.botClient.client.guilds.cache.get(session.guildId);
 
             if (!guild) {

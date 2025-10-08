@@ -7,6 +7,7 @@ interface GuildStats {
     id: string;
     name: string;
     icon?: string;
+    iconURL?: string | null;
     totalMessages: number;
     linkMessages: number;
     mediaMessages: number;
@@ -19,6 +20,8 @@ interface ActivityData {
     weeklyMessages: number;
     monthlyMessages: number;
     yearlyMessages: number;
+    weeklyLinks: number;
+    weeklyMedia: number;
     weeklyAverage: number;
     monthlyAverage: number;
     chatFrequency: 'very_high' | 'high' | 'moderate' | 'low' | 'very_low';
@@ -58,7 +61,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ user, onLoginClick }) => {
     const [loading, setLoading] = useState(true);
     const [profileData, setProfileData] = useState<UserProfile | null>(user || null);
     const [activeTab, setActiveTab] = useState<'overview' | 'servers' | 'activity' | 'settings'>('overview');
-    const [sidebarOpen, setSidebarOpen] = useState(true);
+    const [sidebarOpen, setSidebarOpen] = useState(false);
     const [activityData, setActivityData] = useState<ActivityData | null>(null);
 
     const [] = useSearchParams();
@@ -174,6 +177,12 @@ const UserProfile: React.FC<UserProfileProps> = ({ user, onLoginClick }) => {
         const estimatedMonthlyMessages = Math.floor(totalMessages / 12);
         const estimatedWeeklyMessages = Math.floor(totalMessages / 52);
 
+        // リンクとメディアの推定値
+        const totalLinks = guilds.reduce((sum, guild) => sum + (guild.linkMessages || 0), 0);
+        const totalMedia = guilds.reduce((sum, guild) => sum + (guild.mediaMessages || 0), 0);
+        const weeklyLinks = Math.floor(totalLinks / 52);
+        const weeklyMedia = Math.floor(totalMedia / 52);
+
         // 1日あたりの平均
         const weeklyAverage = estimatedWeeklyMessages / 7;
         const monthlyAverage = estimatedMonthlyMessages / 30;
@@ -206,6 +215,8 @@ const UserProfile: React.FC<UserProfileProps> = ({ user, onLoginClick }) => {
             weeklyMessages: estimatedWeeklyMessages,
             monthlyMessages: estimatedMonthlyMessages,
             yearlyMessages: estimatedYearlyMessages,
+            weeklyLinks,
+            weeklyMedia,
             weeklyAverage,
             monthlyAverage,
             chatFrequency,
@@ -237,8 +248,10 @@ const UserProfile: React.FC<UserProfileProps> = ({ user, onLoginClick }) => {
                     return (current.totalMessages > (prev?.totalMessages || 0)) ? current : prev;
                 }, guilds[0] || null);
 
-                setActivityData({
+                                setActivityData({
                     ...data,
+                    weeklyLinks: data.weeklyLinks || 0,
+                    weeklyMedia: data.weeklyMedia || 0,
                     mostActiveGuild: mostActiveGuild ? {
                         id: mostActiveGuild.id,
                         name: mostActiveGuild.name,
@@ -295,13 +308,13 @@ const UserProfile: React.FC<UserProfileProps> = ({ user, onLoginClick }) => {
     return (
         <div className={styles.page}>
             <AppHeader user={{ userId: profileData.id, username: profileData.username, avatar: profileData.avatar }} />
-            
-            <div className={styles.mainLayout}>
-                {/* Sidebar */}
+
+            <main className={styles.content}>
+                {/* Sidebar - MainContent内に内包 */}
                 <aside className={`${styles.sidebar} ${sidebarOpen ? styles.sidebarOpen : styles.sidebarClosed}`}>
                     <div className={styles.sidebarHeader}>
                         <h2 className={styles.sidebarTitle}>プロフィール</h2>
-                        <button 
+                        <button
                             className={styles.sidebarToggle}
                             onClick={() => setSidebarOpen(!sidebarOpen)}
                             aria-label="サイドバーを切り替え"
@@ -311,7 +324,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ user, onLoginClick }) => {
                             </span>
                         </button>
                     </div>
-                    
+
                     <nav className={styles.sidebarNav}>
                         <button
                             className={`${styles.sidebarItem} ${activeTab === 'overview' ? styles.sidebarItemActive : ''}`}
@@ -342,7 +355,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ user, onLoginClick }) => {
                             {sidebarOpen && <span>設定</span>}
                         </button>
                     </nav>
-                    
+
                     <div className={styles.sidebarFooter}>
                         <button className={styles.logoutBtn} onClick={handleLogout}>
                             <span className="material-icons">logout</span>
@@ -351,11 +364,20 @@ const UserProfile: React.FC<UserProfileProps> = ({ user, onLoginClick }) => {
                     </div>
                 </aside>
 
-                {/* Main Content */}
-                <main className={styles.content}>
+                {/* Profile Content - Sidebarと共に同じ行 */}
+                <div className={styles.profileContent}>
                     {/* User Header */}
                     <div className={styles.profileCard}>
                         <div className={styles.profileCardHeader}>
+                            {/* Mobile Menu Button */}
+                            <button
+                                className={styles.mobileMenuButton}
+                                onClick={() => setSidebarOpen(true)}
+                                aria-label="メニューを開く"
+                            >
+                                <span className="material-icons">menu</span>
+                            </button>
+
                             <div className={styles.avatarWrapper}>
                                 {(() => {
                                     const avatar = profileData.avatar;
@@ -460,9 +482,9 @@ const UserProfile: React.FC<UserProfileProps> = ({ user, onLoginClick }) => {
                                 <div key={guild.id} className={styles.guildCard}>
                                     <div className={styles.guildHeader}>
                                         <div className={styles.guildIcon}>
-                                            {guild.icon ? (
+                                            {guild.iconURL || guild.icon ? (
                                                 <img
-                                                    src={`https://cdn.discordapp.com/icons/${guild.id}/${guild.icon}.png`}
+                                                    src={guild.iconURL ? guild.iconURL : `https://cdn.discordapp.com/icons/${guild.id}/${guild.icon}.png`}
                                                     alt={`${guild.name}のアイコン`}
                                                 />
                                             ) : (
@@ -531,27 +553,56 @@ const UserProfile: React.FC<UserProfileProps> = ({ user, onLoginClick }) => {
                         <h2 className={styles.sectionTitle}>アクティビティ</h2>
                         {activityData ? (
                             <div className={styles.activityContent}>
-                                {/* チャット頻度サマリー */}
-                                <div className={styles.frequencyCard}>
-                                    <div className={styles.frequencyHeader}>
-                                        <span className="material-icons">timeline</span>
-                                        <h3>チャット頻度</h3>
+                                {/* 今週の詳細統計 */}
+                                <div className={styles.statsGrid}>
+                                    <div className={styles.statCard}>
+                                        <div className={styles.statIcon}>
+                                            <span className="material-icons-outlined">message</span>
+                                        </div>
+                                        <div className={styles.statContent}>
+                                            <h3>今週のメッセージ</h3>
+                                            <p className={styles.statValue}>
+                                                {(activityData.weeklyMessages || 0).toLocaleString()}
+                                            </p>
+                                        </div>
                                     </div>
-                                    <div className={styles.frequencyBadge} data-frequency={activityData.chatFrequency}>
-                                        {activityData.chatFrequency === 'very_high' && '🔥 非常に高い'}
-                                        {activityData.chatFrequency === 'high' && '⚡ 高い'}
-                                        {activityData.chatFrequency === 'moderate' && '📊 普通'}
-                                        {activityData.chatFrequency === 'low' && '📉 低い'}
-                                        {activityData.chatFrequency === 'very_low' && '💤 とても低い'}
+                                    <div className={styles.statCard}>
+                                        <div className={styles.statIcon}>
+                                            <span className="material-icons-outlined">link</span>
+                                        </div>
+                                        <div className={styles.statContent}>
+                                            <h3>今週のリンク</h3>
+                                            <p className={styles.statValue}>
+                                                {(activityData.weeklyLinks || 0).toLocaleString()}
+                                            </p>
+                                        </div>
                                     </div>
-                                    <p className={styles.frequencyDesc}>
-                                        1日平均 <strong>{activityData.weeklyAverage.toFixed(1)}</strong> メッセージ
-                                        {activityData.hasTimestampData && (
-                                            <span className={styles.timestampBadge} title="実際のメッセージタイムスタンプに基づいた正確なデータ">
-                                                ✓ リアルタイムデータ
-                                            </span>
-                                        )}
-                                    </p>
+                                    <div className={styles.statCard}>
+                                        <div className={styles.statIcon}>
+                                            <span className="material-icons-outlined">image</span>
+                                        </div>
+                                        <div className={styles.statContent}>
+                                            <h3>今週のメディア</h3>
+                                            <p className={styles.statValue}>
+                                                {(activityData.weeklyMedia || 0).toLocaleString()}
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <div className={styles.statCard}>
+                                        <div className={styles.statIcon}>
+                                            <span className="material-icons-outlined">speed</span>
+                                        </div>
+                                        <div className={styles.statContent}>
+                                            <h3>チャット頻度</h3>
+                                            <p className={styles.chatFrequency}>
+                                                {activityData.chatFrequency === 'very_high' && '🔥 非常に高い'}
+                                                {activityData.chatFrequency === 'high' && '⚡ 高い'}
+                                                {activityData.chatFrequency === 'moderate' && '📊 普通'}
+                                                {activityData.chatFrequency === 'low' && '📉 低い'}
+                                                {activityData.chatFrequency === 'very_low' && '💤 とても低い'}
+                                            </p>
+                                        </div>
+                                    </div>
                                 </div>
 
                                 {/* 集計データ */}
@@ -665,10 +716,10 @@ const UserProfile: React.FC<UserProfileProps> = ({ user, onLoginClick }) => {
                         </div>
                     </div>
                 )}
+                </div>
             </div>
-                </main>
-            </div>
-        </div>
+        </main>
+    </div>
     );
 };
 

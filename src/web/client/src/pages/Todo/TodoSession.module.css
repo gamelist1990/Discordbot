@@ -20,7 +20,8 @@
 
 .header {
     background: white;
-    padding: 16px 24px;
+    /* iOS safe area support: use env() fallback for older browsers */
+    padding: calc(16px + env(safe-area-inset-top, 0px)) 24px 16px 24px;
     display: flex;
     align-items: center;
     gap: 16px;
@@ -329,8 +330,8 @@
     bottom: 0;
     background: rgba(0, 0, 0, 0.5);
     display: flex;
-    align-items: center;
-    justify-content: center;
+    align-items: center; /* vertical center */
+    justify-content: center; /* horizontal center */
     z-index: 1000;
 }
 
@@ -350,6 +351,15 @@
     align-items: center;
     padding: 20px 24px;
     border-bottom: 1px solid var(--grey-200);
+}
+
+/* Draggable header cursor */
+.modalHeader.draggable {
+    cursor: grab;
+}
+
+.modalHeader.draggable:active {
+    cursor: grabbing;
 }
 
 .modalHeader h2 {
@@ -780,7 +790,6 @@
     height: 6px;
     border-radius: 3px;
     outline: none;
-    -webkit-appearance: none;
     background: var(--grey-200);
     margin-bottom: 8px;
 }
@@ -956,4 +965,34 @@
 
 .notificationClose:hover {
     background: rgba(255, 255, 255, 0.2);
+}
+
+/* Responsive tweaks for small screens (iOS) */
+@media (max-width: 520px) {
+    .header {
+        padding: calc(12px + env(safe-area-inset-top, 0px)) 12px 12px 12px;
+        gap: 8px;
+    }
+
+    .title {
+        font-size: 18px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .backBtn {
+        padding: 6px 8px;
+        font-size: 13px;
+    }
+
+    .actionBtn, .deleteBtn {
+        padding: 6px 10px;
+        font-size: 13px;
+    }
+
+    .badge {
+        padding: 4px 8px;
+        font-size: 11px;
+    }
 }
