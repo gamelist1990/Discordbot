@@ -6,11 +6,542 @@
     flex-direction: column;
 }
 
-.container {
-    max-width: 1100px;
-    margin: 0 auto;
-    padding: 24px;
+.mainLayout {
+    display: flex;
     flex: 1;
+    overflow: hidden;
+}
+
+/* Sidebar Styles */
+.sidebar {
+    background: white;
+    border-right: 1px solid #E8EAED;
+    display: flex;
+    flex-direction: column;
+    transition: width 0.3s ease;
+    position: sticky;
+    top: 64px;
+    height: calc(100vh - 64px);
+}
+
+.sidebarOpen {
+    width: 256px;
+}
+
+.sidebarClosed {
+    width: 72px;
+}
+
+.sidebarHeader {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px;
+    border-bottom: 1px solid #E8EAED;
+}
+
+.sidebarTitle {
+    font-size: 20px;
+    font-weight: 500;
+    color: #202124;
+    margin: 0;
+    white-space: nowrap;
+}
+
+.sidebarClosed .sidebarTitle {
+    display: none;
+}
+
+.sidebarToggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    border: none;
+    background: transparent;
+    border-radius: 50%;
+    cursor: pointer;
+    transition: background 0.2s;
+    color: #5F6368;
+}
+
+.sidebarToggle:hover {
+    background: #F8F9FA;
+}
+
+.sidebarNav {
+    flex: 1;
+    padding: 8px 0;
+    overflow-y: auto;
+}
+
+.sidebarItem {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    width: 100%;
+    padding: 12px 16px;
+    border: none;
+    background: transparent;
+    color: #5F6368;
+    font-size: 14px;
+    font-weight: 500;
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.sidebarItem:hover {
+    background: #F8F9FA;
+}
+
+.sidebarItem .material-icons {
+    font-size: 24px;
+    min-width: 24px;
+}
+
+.sidebarClosed .sidebarItem {
+    justify-content: center;
+    padding: 12px;
+}
+
+.sidebarClosed .sidebarItem span:last-child {
+    display: none;
+}
+
+.sidebarItemActive {
+    background: #E8F0FE !important;
+    color: #1A73E8 !important;
+}
+
+.sidebarItemActive .material-icons {
+    color: #1A73E8;
+}
+
+.sidebarFooter {
+    padding: 8px;
+    border-top: 1px solid #E8EAED;
+}
+
+.logoutBtn {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    width: 100%;
+    padding: 12px 16px;
+    border: none;
+    background: transparent;
+    color: #EA4335;
+    font-size: 14px;
+    font-weight: 500;
+    text-align: left;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: background 0.2s;
+}
+
+.logoutBtn:hover {
+    background: #FCE8E6;
+}
+
+.logoutBtn .material-icons {
+    font-size: 24px;
+    min-width: 24px;
+}
+
+.sidebarClosed .logoutBtn {
+    justify-content: center;
+    padding: 12px;
+}
+
+.sidebarClosed .logoutBtn span:last-child {
+    display: none;
+}
+
+/* Content Area */
+.content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 24px;
+}
+
+.profileCard {
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 1px 2px 0 rgba(60,64,67,0.3);
+    margin-bottom: 24px;
+    overflow: hidden;
+}
+
+.profileCardHeader {
+    padding: 24px;
+    display: flex;
+    align-items: center;
+    gap: 24px;
+}
+
+.avatarWrapper {
+    flex-shrink: 0;
+}
+
+.profileAvatar {
+    width: 96px;
+    height: 96px;
+    border-radius: 50%;
+    object-fit: cover;
+}
+
+.profileInfo {
+    flex: 1;
+    min-width: 0;
+}
+
+.profileName {
+    font-size: 28px;
+    font-weight: 400;
+    color: #202124;
+    margin: 0 0 8px 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.profileDiscriminator {
+    font-size: 20px;
+    color: #5F6368;
+    font-weight: 300;
+}
+
+.profileId {
+    font-size: 14px;
+    color: #5F6368;
+    margin: 0 0 12px 0;
+}
+
+.profileStats {
+    display: flex;
+    gap: 24px;
+    flex-wrap: wrap;
+}
+
+.profileStat {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    color: #5F6368;
+}
+
+.profileStat .material-icons {
+    font-size: 18px;
+}
+
+/* Tab Content */
+.tabContent {
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 1px 2px 0 rgba(60,64,67,0.3);
+    padding: 24px;
+}
+
+.sectionTitle {
+    font-size: 20px;
+    font-weight: 500;
+    color: #202124;
+    margin: 0 0 20px 0;
+}
+
+/* Overview Section */
+.overview {
+    padding: 0;
+}
+
+.statsGrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 16px;
+}
+
+.statCard {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 20px;
+    background: #F8F9FA;
+    border-radius: 8px;
+    transition: box-shadow 0.2s;
+}
+
+.statCard:hover {
+    box-shadow: 0 2px 8px rgba(60,64,67,0.15);
+}
+
+.statIcon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 48px;
+    height: 48px;
+    background: white;
+    border-radius: 50%;
+    color: #1A73E8;
+}
+
+.statIcon .material-icons-outlined {
+    font-size: 28px;
+}
+
+.statContent h3 {
+    font-size: 14px;
+    font-weight: 400;
+    color: #5F6368;
+    margin: 0 0 4px 0;
+}
+
+.statValue {
+    font-size: 24px;
+    font-weight: 500;
+    color: #202124;
+    margin: 0;
+}
+
+/* Servers Section */
+.servers {
+    padding: 0;
+}
+
+.guildsGrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 16px;
+}
+
+.guildCard {
+    padding: 20px;
+    background: #F8F9FA;
+    border-radius: 8px;
+    transition: box-shadow 0.2s;
+}
+
+.guildCard:hover {
+    box-shadow: 0 2px 8px rgba(60,64,67,0.15);
+}
+
+.guildHeader {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.guildIcon {
+    flex-shrink: 0;
+}
+
+.guildIcon img {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    object-fit: cover;
+}
+
+.defaultIcon {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: #4285F4;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-size: 20px;
+    font-weight: 500;
+}
+
+.guildInfo {
+    flex: 1;
+    min-width: 0;
+}
+
+.guildInfo h3 {
+    font-size: 16px;
+    font-weight: 500;
+    color: #202124;
+    margin: 0 0 4px 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.guildInfo p {
+    font-size: 13px;
+    color: #5F6368;
+    margin: 0;
+}
+
+.guildStats {
+    display: flex;
+    gap: 16px;
+    margin-top: 12px;
+}
+
+.guildStat {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    flex: 1;
+}
+
+.guildStat .material-icons-outlined {
+    font-size: 20px;
+    color: #5F6368;
+}
+
+.guildStat span:nth-child(2) {
+    font-size: 16px;
+    font-weight: 500;
+    color: #202124;
+}
+
+.guildStat label {
+    font-size: 12px;
+    color: #5F6368;
+}
+
+.guildRole {
+    margin-top: 12px;
+    padding: 8px 12px;
+    background: #E8F0FE;
+    border-radius: 4px;
+    font-size: 13px;
+    color: #1A73E8;
+}
+
+.guildRolesList {
+    margin-top: 12px;
+    font-size: 13px;
+    color: #5F6368;
+}
+
+.guildRolesList ul {
+    margin: 4px 0 0 0;
+    padding-left: 20px;
+}
+
+.guildRolesList li {
+    margin: 2px 0;
+}
+
+.guildJoined {
+    margin-top: 8px;
+    font-size: 12px;
+    color: #5F6368;
+}
+
+/* Activity and Settings Sections */
+.activity,
+.settings {
+    padding: 0;
+}
+
+.activityContent,
+.settingsContent {
+    padding: 20px 0;
+}
+
+.infoCard {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 20px;
+    background: #F8F9FA;
+    border-radius: 8px;
+    color: #5F6368;
+}
+
+.infoCard .material-icons {
+    font-size: 32px;
+}
+
+.infoCard p {
+    margin: 0;
+    font-size: 14px;
+}
+
+/* Mobile Responsive */
+@media (max-width: 1024px) {
+    .sidebarOpen {
+        width: 200px;
+    }
+    
+    .content {
+        padding: 16px;
+    }
+}
+
+@media (max-width: 768px) {
+    .mainLayout {
+        flex-direction: column;
+    }
+    
+    .sidebar {
+        position: fixed;
+        top: 64px;
+        left: 0;
+        z-index: 50;
+        transform: translateX(-100%);
+        transition: transform 0.3s ease;
+        height: calc(100vh - 64px);
+    }
+    
+    .sidebarOpen {
+        transform: translateX(0);
+        width: 256px;
+        box-shadow: 2px 0 8px rgba(0,0,0,0.1);
+    }
+    
+    .content {
+        width: 100%;
+    }
+    
+    .profileCardHeader {
+        flex-direction: column;
+        text-align: center;
+    }
+    
+    .profileStats {
+        justify-content: center;
+    }
+    
+    .statsGrid {
+        grid-template-columns: 1fr;
+    }
+    
+    .guildsGrid {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 480px) {
+    .content {
+        padding: 12px;
+    }
+    
+    .profileAvatar {
+        width: 72px;
+        height: 72px;
+    }
+    
+    .profileName {
+        font-size: 20px;
+    }
+    
+    .tabContent {
+        padding: 16px;
+    }
 }
 
 .loading {

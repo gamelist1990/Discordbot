@@ -16,7 +16,9 @@ interface AppHeaderProps {
 const AppHeader: React.FC<AppHeaderProps> = ({ user: userProp, onLogout }) => {
     const navigate = useNavigate();
     const [showUserMenu, setShowUserMenu] = useState(false);
+    const [showAppMenu, setShowAppMenu] = useState(false);
     const menuRef = useRef<HTMLDivElement>(null);
+    const appMenuRef = useRef<HTMLDivElement>(null);
     const [user, setUser] = useState<UserInfo | null | undefined>(userProp);
     const [loading, setLoading] = useState(userProp === undefined);
 
@@ -51,6 +53,9 @@ const AppHeader: React.FC<AppHeaderProps> = ({ user: userProp, onLogout }) => {
         const handleClickOutside = (event: MouseEvent) => {
             if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
                 setShowUserMenu(false);
+            }
+            if (appMenuRef.current && !appMenuRef.current.contains(event.target as Node)) {
+                setShowAppMenu(false);
             }
         };
         document.addEventListener('mousedown', handleClickOutside);
@@ -120,6 +125,65 @@ const AppHeader: React.FC<AppHeaderProps> = ({ user: userProp, onLogout }) => {
                 </nav>
 
                 <div className={styles.right}>
+                    {user && (
+                        <div className={styles.appMenuSection} ref={appMenuRef}>
+                            <button 
+                                className={styles.appMenuBtn}
+                                onClick={() => setShowAppMenu(!showAppMenu)}
+                                title="Google アプリ"
+                            >
+                                <span className="material-icons">apps</span>
+                            </button>
+
+                            {showAppMenu && (
+                                <div className={styles.appMenu}>
+                                    <div className={styles.appGrid}>
+                                        <button 
+                                            className={styles.appItem}
+                                            onClick={() => {
+                                                setShowAppMenu(false);
+                                                navigate('/dashboard');
+                                            }}
+                                        >
+                                            <span className="material-icons">dashboard</span>
+                                            <span>ダッシュボード</span>
+                                        </button>
+                                        <button 
+                                            className={styles.appItem}
+                                            onClick={() => {
+                                                setShowAppMenu(false);
+                                                navigate('/settings');
+                                            }}
+                                        >
+                                            <span className="material-icons">settings</span>
+                                            <span>設定</span>
+                                        </button>
+                                        <button 
+                                            className={styles.appItem}
+                                            onClick={() => {
+                                                setShowAppMenu(false);
+                                                navigate('/profile');
+                                            }}
+                                        >
+                                            <span className="material-icons">person</span>
+                                            <span>プロフィール</span>
+                                        </button>
+                                        <button 
+                                            className={styles.appItem}
+                                            onClick={() => {
+                                                setShowAppMenu(false);
+                                                navigate('/todo');
+                                            }}
+                                        >
+                                            <span className="material-icons">checklist</span>
+                                            <span>TODO</span>
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    )}
+                    
                     {user ? (
                         <div className={styles.userSection} ref={menuRef}>
                             <button 

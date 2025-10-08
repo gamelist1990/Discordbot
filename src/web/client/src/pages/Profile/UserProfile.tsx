@@ -38,7 +38,8 @@ interface UserProfileProps {
 const UserProfile: React.FC<UserProfileProps> = ({ user, onLoginClick }) => {
     const [loading, setLoading] = useState(true);
     const [profileData, setProfileData] = useState<UserProfile | null>(user || null);
-    const [activeTab, setActiveTab] = useState<'overview' | 'servers'>('overview');
+    const [activeTab, setActiveTab] = useState<'overview' | 'servers' | 'activity' | 'settings'>('overview');
+    const [sidebarOpen, setSidebarOpen] = useState(true);
 
     const [] = useSearchParams();
 
@@ -175,77 +176,111 @@ const UserProfile: React.FC<UserProfileProps> = ({ user, onLoginClick }) => {
     return (
         <div className={styles.page}>
             <AppHeader user={{ userId: profileData.id, username: profileData.username, avatar: profileData.avatar }} />
-            <div className={styles.container}>
-                {/* User Header */}
-                <header className={styles.profileHeader} role="banner">
-                    <div className={styles.headerInner}>
-                        <div className={styles.avatarContainer}>
-                            {(() => {
-                                const avatar = profileData.avatar;
-                                let src = `https://cdn.discordapp.com/embed/avatars/${parseInt(profileData.discriminator) % 5}.png`;
-                                if (avatar) {
-                                    // if avatar looks like an absolute URL, use it directly
-                                    if (/^https?:\/\//.test(avatar)) {
-                                        src = avatar;
-                                    } else {
-                                        // avatar is likely a Discord hash; construct CDN URL
-                                        const isAnimated = avatar.startsWith('a_');
-                                        const ext = isAnimated ? 'gif' : 'png';
-                                        src = `https://cdn.discordapp.com/avatars/${profileData.id}/${avatar}.${ext}?size=256`;
-                                    }
-                                }
+            
+            <div className={styles.mainLayout}>
+                {/* Sidebar */}
+                <aside className={`${styles.sidebar} ${sidebarOpen ? styles.sidebarOpen : styles.sidebarClosed}`}>
+                    <div className={styles.sidebarHeader}>
+                        <h2 className={styles.sidebarTitle}>プロフィール</h2>
+                        <button 
+                            className={styles.sidebarToggle}
+                            onClick={() => setSidebarOpen(!sidebarOpen)}
+                            aria-label="サイドバーを切り替え"
+                        >
+                            <span className="material-icons">
+                                {sidebarOpen ? 'menu_open' : 'menu'}
+                            </span>
+                        </button>
+                    </div>
+                    
+                    <nav className={styles.sidebarNav}>
+                        <button
+                            className={`${styles.sidebarItem} ${activeTab === 'overview' ? styles.sidebarItemActive : ''}`}
+                            onClick={() => setActiveTab('overview')}
+                        >
+                            <span className="material-icons">dashboard</span>
+                            {sidebarOpen && <span>概要</span>}
+                        </button>
+                        <button
+                            className={`${styles.sidebarItem} ${activeTab === 'servers' ? styles.sidebarItemActive : ''}`}
+                            onClick={() => setActiveTab('servers')}
+                        >
+                            <span className="material-icons">dns</span>
+                            {sidebarOpen && <span>サーバー</span>}
+                        </button>
+                        <button
+                            className={`${styles.sidebarItem} ${activeTab === 'activity' ? styles.sidebarItemActive : ''}`}
+                            onClick={() => setActiveTab('activity')}
+                        >
+                            <span className="material-icons">timeline</span>
+                            {sidebarOpen && <span>アクティビティ</span>}
+                        </button>
+                        <button
+                            className={`${styles.sidebarItem} ${activeTab === 'settings' ? styles.sidebarItemActive : ''}`}
+                            onClick={() => setActiveTab('settings')}
+                        >
+                            <span className="material-icons">settings</span>
+                            {sidebarOpen && <span>設定</span>}
+                        </button>
+                    </nav>
+                    
+                    <div className={styles.sidebarFooter}>
+                        <button className={styles.logoutBtn} onClick={handleLogout}>
+                            <span className="material-icons">logout</span>
+                            {sidebarOpen && <span>ログアウト</span>}
+                        </button>
+                    </div>
+                </aside>
 
-                                return (
-                                    <img
-                                        src={src}
-                                        alt={`${profileData.username}のプロフィール画像`}
-                                        className={styles.avatar}
-                                    />
-                                );
-                            })()}
-                        </div>
-                        <div className={styles.userInfo}>
-                            <h1 className={styles.username}>
-                                {profileData.username}
-                                <span className={styles.discriminator}>#{profileData.discriminator}</span>
-                            </h1>
-                            <p className={styles.userId}>ユーザーID: {profileData.id}</p>
-                            <p className={styles.smallText}>{profileData.totalStats.totalMessages?.toLocaleString() || 0} メッセージ • {profileData.guilds.length} サーバー</p>
-                        </div>
-                        <div className={styles.headerActions}>
-                            <button className={styles.primaryButton} onClick={handleLogout} aria-label="ログアウト">
-                                <span className="material-icons-outlined">logout</span>
-                                ログアウト
-                            </button>
+                {/* Main Content */}
+                <main className={styles.content}>
+                    {/* User Header */}
+                    <div className={styles.profileCard}>
+                        <div className={styles.profileCardHeader}>
+                            <div className={styles.avatarWrapper}>
+                                {(() => {
+                                    const avatar = profileData.avatar;
+                                    let src = `https://cdn.discordapp.com/embed/avatars/${parseInt(profileData.discriminator) % 5}.png`;
+                                    if (avatar) {
+                                        if (/^https?:\/\//.test(avatar)) {
+                                            src = avatar;
+                                        } else {
+                                            const isAnimated = avatar.startsWith('a_');
+                                            const ext = isAnimated ? 'gif' : 'png';
+                                            src = `https://cdn.discordapp.com/avatars/${profileData.id}/${avatar}.${ext}?size=256`;
+                                        }
+                                    }
+                                    return (
+                                        <img
+                                            src={src}
+                                            alt={`${profileData.username}のプロフィール画像`}
+                                            className={styles.profileAvatar}
+                                        />
+                                    );
+                                })()}
+                            </div>
+                            <div className={styles.profileInfo}>
+                                <h1 className={styles.profileName}>
+                                    {profileData.username}
+                                    <span className={styles.profileDiscriminator}>#{profileData.discriminator}</span>
+                                </h1>
+                                <p className={styles.profileId}>ID: {profileData.id}</p>
+                                <div className={styles.profileStats}>
+                                    <span className={styles.profileStat}>
+                                        <span className="material-icons">message</span>
+                                        {profileData.totalStats.totalMessages?.toLocaleString() || 0} メッセージ
+                                    </span>
+                                    <span className={styles.profileStat}>
+                                        <span className="material-icons">dns</span>
+                                        {profileData.guilds.length} サーバー
+                                    </span>
+                                </div>
+                            </div>
                         </div>
                     </div>
-                    {profileData.banner && (
-                        <div className={styles.bannerContainer}>
-                            <img src={profileData.banner} alt="バナー画像" className={styles.banner} />
-                        </div>
-                    )}
-                </header>
 
-            {/* Navigation Tabs */}
-            <div className={styles.tabs}>
-                <button
-                    className={`${styles.tab} ${activeTab === 'overview' ? styles.active : ''}`}
-                    onClick={() => setActiveTab('overview')}
-                >
-                    <span className="material-icons-outlined">analytics</span>
-                    概要
-                </button>
-                <button
-                    className={`${styles.tab} ${activeTab === 'servers' ? styles.active : ''}`}
-                    onClick={() => setActiveTab('servers')}
-                >
-                    <span className="material-icons-outlined">groups</span>
-                    参加中のサーバー ({profileData.guilds.length})
-                </button>
-            </div>
-
-            {/* Tab Content */}
-            <div className={styles.tabContent}>
+                    {/* Tab Content */}
+                    <div className={styles.tabContent}>
                 {activeTab === 'overview' && (
                     <div className={styles.overview}>
                         <h2 className={styles.sectionTitle}>活動統計</h2>
@@ -371,7 +406,32 @@ const UserProfile: React.FC<UserProfileProps> = ({ user, onLoginClick }) => {
                         </div>
                     </div>
                 )}
+
+                {activeTab === 'activity' && (
+                    <div className={styles.activity}>
+                        <h2 className={styles.sectionTitle}>アクティビティ</h2>
+                        <div className={styles.activityContent}>
+                            <div className={styles.infoCard}>
+                                <span className="material-icons">info</span>
+                                <p>アクティビティ情報は今後のアップデートで追加されます。</p>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {activeTab === 'settings' && (
+                    <div className={styles.settings}>
+                        <h2 className={styles.sectionTitle}>設定</h2>
+                        <div className={styles.settingsContent}>
+                            <div className={styles.infoCard}>
+                                <span className="material-icons">settings</span>
+                                <p>プロフィール設定は今後のアップデートで追加されます。</p>
+                            </div>
+                        </div>
+                    </div>
+                )}
             </div>
+                </main>
             </div>
         </div>
     );
