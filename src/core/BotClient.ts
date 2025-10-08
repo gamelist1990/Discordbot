@@ -333,12 +333,14 @@ export class BotClient {
 
     /**
      * サーバーリストを取得
+     * ここではギルドのアイコンハッシュも返す（フロントエンドがアイコン表示に使用する）
      */
-    getGuildList(): Array<{ id: string; name: string; memberCount: number }> {
+    getGuildList(): Array<{ id: string; name: string; memberCount: number; icon?: string | null }> {
         return Array.from(this.client.guilds.cache.values()).map(guild => ({
             id: guild.id,
             name: guild.name,
             memberCount: guild.memberCount,
+            icon: (guild.icon !== null && guild.icon !== undefined) ? guild.icon : undefined,
         }));
     }
 }

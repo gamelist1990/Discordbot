@@ -5,7 +5,7 @@
     SlashCommandBuilder,
     SlashCommandSubcommandsOnlyBuilder
 } from 'discord.js';
-import { PermissionLevel } from './enhanced-command.js';
+import { PermissionLevel } from '../web/types/permission';
 
 /**
  * レガシーメッセージコマンドの型定義（後方互換性のため残す）

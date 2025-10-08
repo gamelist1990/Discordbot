@@ -13,7 +13,7 @@ export class TodoController {
         const session = (req as any).session as SettingsSession;
 
         try {
-            const sessions = await TodoManager.getUserSessions(session.guildId, session.userId);
+            const sessions = await TodoManager.getUserSessions(session.userId);
             res.json({ sessions });
         } catch (error) {
             console.error('Todoセッション一覧取得エラー:', error);
@@ -39,11 +39,7 @@ export class TodoController {
         }
 
         try {
-            const todoSession = await TodoManager.createSession(
-                session.guildId,
-                session.userId,
-                name.trim()
-            );
+            const todoSession = await TodoManager.createSession(session.userId, name.trim());
 
             res.json({ session: todoSession });
         } catch (error) {
@@ -61,14 +57,14 @@ export class TodoController {
         const { sessionId } = req.params;
 
         try {
-            const todoSession = await TodoManager.getSession(session.guildId, sessionId);
+            const todoSession = await TodoManager.getSession(sessionId);
             if (!todoSession) {
                 res.status(404).json({ error: 'Session not found' });
                 return;
             }
 
             // アクセス権限を確認
-            const accessLevel = await TodoManager.canAccess(session.guildId, sessionId, session.userId);
+            const accessLevel = await TodoManager.canAccess(sessionId, session.userId);
             if (!accessLevel) {
                 res.status(403).json({ error: 'Access denied' });
                 return;
@@ -89,7 +85,7 @@ export class TodoController {
         const { sessionId } = req.params;
 
         try {
-            const todoSession = await TodoManager.getSession(session.guildId, sessionId);
+            const todoSession = await TodoManager.getSession(sessionId);
             if (!todoSession) {
                 res.status(404).json({ error: 'Session not found' });
                 return;
@@ -101,7 +97,7 @@ export class TodoController {
                 return;
             }
 
-            await TodoManager.deleteSession(session.guildId, sessionId);
+            await TodoManager.deleteSession(sessionId);
             res.json({ success: true });
         } catch (error) {
             console.error('Todoセッション削除エラー:', error);
@@ -118,13 +114,13 @@ export class TodoController {
 
         try {
             // アクセス権限を確認
-            const accessLevel = await TodoManager.canAccess(session.guildId, sessionId, session.userId);
+            const accessLevel = await TodoManager.canAccess(sessionId, session.userId);
             if (!accessLevel) {
                 res.status(403).json({ error: 'Access denied' });
                 return;
             }
 
-            const content = await TodoManager.getContent(session.guildId, sessionId);
+            const content = await TodoManager.getContent(sessionId);
             if (!content) {
                 res.status(404).json({ error: 'Content not found' });
                 return;
@@ -152,14 +148,13 @@ export class TodoController {
 
         try {
             // 編集権限を確認（オーナーまたはエディター）
-            const accessLevel = await TodoManager.canAccess(session.guildId, sessionId, session.userId);
+            const accessLevel = await TodoManager.canAccess(sessionId, session.userId);
             if (accessLevel !== 'owner' && accessLevel !== 'editor') {
                 res.status(403).json({ error: 'Edit permission required' });
                 return;
             }
 
             const todo = await TodoManager.addTodo(
-                session.guildId,
                 sessionId,
                 text.trim(),
                 session.userId,
@@ -187,13 +182,13 @@ export class TodoController {
 
         try {
             // 編集権限を確認（オーナーまたはエディター）
-            const accessLevel = await TodoManager.canAccess(session.guildId, sessionId, session.userId);
+            const accessLevel = await TodoManager.canAccess(sessionId, session.userId);
             if (accessLevel !== 'owner' && accessLevel !== 'editor') {
                 res.status(403).json({ error: 'Edit permission required' });
                 return;
             }
 
-            await TodoManager.updateTodo(session.guildId, sessionId, todoId, updates);
+            await TodoManager.updateTodo(sessionId, todoId, updates);
             res.json({ success: true });
         } catch (error) {
             console.error('Todo更新エラー:', error);
@@ -211,13 +206,13 @@ export class TodoController {
 
         try {
             // 編集権限を確認（オーナーまたはエディター）
-            const accessLevel = await TodoManager.canAccess(session.guildId, sessionId, session.userId);
+            const accessLevel = await TodoManager.canAccess(sessionId, session.userId);
             if (accessLevel !== 'owner' && accessLevel !== 'editor') {
                 res.status(403).json({ error: 'Edit permission required' });
                 return;
             }
 
-            await TodoManager.deleteTodo(session.guildId, sessionId, todoId);
+            await TodoManager.deleteTodo(sessionId, todoId);
             res.json({ success: true });
         } catch (error) {
             console.error('Todo削除エラー:', error);
@@ -242,7 +237,7 @@ export class TodoController {
         const { sessionId, userId } = req.params;
 
         try {
-            const todoSession = await TodoManager.getSession(session.guildId, sessionId);
+            const todoSession = await TodoManager.getSession(sessionId);
             if (!todoSession) {
                 res.status(404).json({ error: 'Session not found' });
                 return;
@@ -254,7 +249,7 @@ export class TodoController {
                 return;
             }
 
-            await TodoManager.removeMember(session.guildId, sessionId, userId);
+            await TodoManager.removeMember(sessionId, userId);
             res.json({ success: true });
         } catch (error) {
             console.error('メンバー削除エラー:', error);
@@ -272,13 +267,13 @@ export class TodoController {
 
         try {
             // アクセス権限を確認
-            const accessLevel = await TodoManager.canAccess(session.guildId, sessionId, session.userId);
+            const accessLevel = await TodoManager.canAccess(sessionId, session.userId);
             if (!accessLevel) {
                 res.status(403).json({ error: 'Access denied' });
                 return;
             }
 
-            const isFavorited = await TodoManager.toggleFavorite(session.guildId, sessionId, session.userId);
+            const isFavorited = await TodoManager.toggleFavorite(sessionId, session.userId);
             res.json({ success: true, isFavorited });
         } catch (error) {
             console.error('お気に入りトグルエラー:', error);
@@ -301,7 +296,7 @@ export class TodoController {
         }
 
         try {
-            const todoSession = await TodoManager.getSession(session.guildId, sessionId);
+            const todoSession = await TodoManager.getSession(sessionId);
             if (!todoSession) {
                 res.status(404).json({ error: 'Session not found' });
                 return;
@@ -313,7 +308,7 @@ export class TodoController {
                 return;
             }
 
-            const token = await TodoManager.createShareLink(session.guildId, sessionId, mode, typeof expiresInSeconds === 'number' ? expiresInSeconds : null);
+            const token = await TodoManager.createShareLink(sessionId, mode, typeof expiresInSeconds === 'number' ? expiresInSeconds : null);
             res.json({ token, expiresInSeconds: expiresInSeconds || null });
         } catch (error) {
             console.error('共有リンク作成エラー:', error);
@@ -329,22 +324,19 @@ export class TodoController {
         const { sessionId } = req.params;
 
         try {
-            const todoSession = await TodoManager.getSession(session.guildId, sessionId);
+            // セッション存在・権限チェックは従来通り
+            const todoSession = await TodoManager.getSession(sessionId);
             if (!todoSession) {
                 res.status(404).json({ error: 'Session not found' });
                 return;
             }
-
-            // オーナーのみ共有リンク一覧取得可能
             if (todoSession.ownerId !== session.userId) {
                 res.status(403).json({ error: 'Only owner can view share links' });
                 return;
             }
 
-            // 共有リンクを取得（guildIdでフィルタ）
-            const allShares = await TodoManager.getAllShareLinks(session.guildId);
-            const sessionShares = allShares.filter(share => share.sessionId === sessionId);
-
+            // すべての共有リンクを取得し、sessionIdでフィルタ
+            const sessionShares = await TodoManager.getSharesForSession(sessionId);
             res.json({ shareLinks: sessionShares });
         } catch (error) {
             console.error('共有リンク一覧取得エラー:', error);
@@ -356,7 +348,7 @@ export class TodoController {
         const { sessionId, token } = req.params;
 
         try {
-            const todoSession = await TodoManager.getSession(session.guildId, sessionId);
+            const todoSession = await TodoManager.getSession(sessionId);
             if (!todoSession) {
                 res.status(404).json({ error: 'Session not found' });
                 return;
@@ -368,7 +360,7 @@ export class TodoController {
                 return;
             }
 
-            const ok = await TodoManager.revokeShareLink(session.guildId, token);
+            const ok = await TodoManager.revokeShareLink(token);
             res.json({ success: ok });
         } catch (error) {
             console.error('共有リンク取り消しエラー:', error);
@@ -381,11 +373,8 @@ export class TodoController {
      */
     async getSessionByToken(req: Request, res: Response): Promise<void> {
         const { token } = req.params;
-        // Todo を共通にしたので、guildId は常に 'default' を使用
-        const guildId = 'default';
-
         try {
-            const result = await TodoManager.getSessionByShareToken(guildId, token);
+            const result = await TodoManager.getSessionByShareToken(token);
             if (!result) {
                 res.status(404).json({ error: 'Shared session not found or token expired' });
                 return;
@@ -410,7 +399,7 @@ export class TodoController {
             // }
 
             // 返却するのはセッションメタとアクセスモード。編集権限がある場合は編集可能
-            const content = await TodoManager.getSessionContent(guildId, result.session!.id);
+            const content = await TodoManager.getContent(result.session!.id);
             res.json({ 
                 session: result.session, 
                 accessLevel: result.mode === 'edit' ? 'editor' : 'viewer', 

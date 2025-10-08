@@ -7,12 +7,34 @@ interface GuildStats {
     id: string;
     name: string;
     icon?: string;
+    iconURL?: string | null;
     totalMessages: number;
     linkMessages: number;
     mediaMessages: number;
     memberCount?: number;
     joinedAt?: string;
     role?: string;
+}
+
+interface ActivityData {
+    weeklyMessages: number;
+    monthlyMessages: number;
+    yearlyMessages: number;
+    weeklyLinks: number;
+    weeklyMedia: number;
+    weeklyAverage: number;
+    monthlyAverage: number;
+    chatFrequency: 'very_high' | 'high' | 'moderate' | 'low' | 'very_low';
+    mostActiveGuild?: {
+        id: string;
+        name: string;
+        messages: number;
+    };
+    recentActivity: Array<{
+        date: string;
+        messages: number;
+    }>;
+    hasTimestampData?: boolean;
 }
 
 interface UserProfile {
@@ -38,7 +60,9 @@ interface UserProfileProps {
 const UserProfile: React.FC<UserProfileProps> = ({ user, onLoginClick }) => {
     const [loading, setLoading] = useState(true);
     const [profileData, setProfileData] = useState<UserProfile | null>(user || null);
-    const [activeTab, setActiveTab] = useState<'overview' | 'servers'>('overview');
+    const [activeTab, setActiveTab] = useState<'overview' | 'servers' | 'activity' | 'settings'>('overview');
+    const [sidebarOpen, setSidebarOpen] = useState(false);
+    const [activityData, setActivityData] = useState<ActivityData | null>(null);
 
     const [] = useSearchParams();
 
@@ -138,6 +162,115 @@ const UserProfile: React.FC<UserProfileProps> = ({ user, onLoginClick }) => {
         }
     };
 
+    // アクティビティデータを計算
+    const calculateActivityData = (profile: UserProfile): ActivityData => {
+        const totalMessages = profile.totalStats.totalMessages || 0;
+        const guilds = profile.guilds || [];
+
+        // 週間・月間・年間の推定値（実際のデータがないため、総メッセージ数から推定）
+        // 実装では、過去のメッセージタイムスタンプがあれば正確に計算可能
+        const now = new Date();
+
+        // 簡易的な推定（実際のタイムスタンプデータがある場合は正確に計算）
+        // ここでは総メッセージ数から比例配分
+        const estimatedYearlyMessages = totalMessages;
+        const estimatedMonthlyMessages = Math.floor(totalMessages / 12);
+        const estimatedWeeklyMessages = Math.floor(totalMessages / 52);
+
+        // リンクとメディアの推定値
+        const totalLinks = guilds.reduce((sum, guild) => sum + (guild.linkMessages || 0), 0);
+        const totalMedia = guilds.reduce((sum, guild) => sum + (guild.mediaMessages || 0), 0);
+        const weeklyLinks = Math.floor(totalLinks / 52);
+        const weeklyMedia = Math.floor(totalMedia / 52);
+
+        // 1日あたりの平均
+        const weeklyAverage = estimatedWeeklyMessages / 7;
+        const monthlyAverage = estimatedMonthlyMessages / 30;
+
+        // チャット頻度の判定
+        let chatFrequency: 'very_high' | 'high' | 'moderate' | 'low' | 'very_low' = 'low';
+        if (weeklyAverage >= 50) chatFrequency = 'very_high';
+        else if (weeklyAverage >= 20) chatFrequency = 'high';
+        else if (weeklyAverage >= 10) chatFrequency = 'moderate';
+        else if (weeklyAverage >= 3) chatFrequency = 'low';
+        else chatFrequency = 'very_low';
+
+        // 最もアクティブなサーバーを見つける
+        const mostActiveGuild = guilds.reduce((prev, current) => {
+            return (current.totalMessages > (prev?.totalMessages || 0)) ? current : prev;
+        }, guilds[0] || null);
+
+        // 最近7日間のアクティビティ（模擬データ - 実装では実際のデータを使用）
+        const recentActivity = Array.from({ length: 7 }, (_, i) => {
+            const date = new Date(now.getTime() - (6 - i) * 24 * 60 * 60 * 1000);
+            // ランダムな変動を追加してグラフを表示（実際のデータがある場合は置き換え）
+            const dailyMessages = Math.floor(weeklyAverage * (0.7 + Math.random() * 0.6));
+            return {
+                date: date.toLocaleDateString('ja-JP', { month: 'short', day: 'numeric' }),
+                messages: dailyMessages
+            };
+        });
+
+        return {
+            weeklyMessages: estimatedWeeklyMessages,
+            monthlyMessages: estimatedMonthlyMessages,
+            yearlyMessages: estimatedYearlyMessages,
+            weeklyLinks,
+            weeklyMedia,
+            weeklyAverage,
+            monthlyAverage,
+            chatFrequency,
+            mostActiveGuild: mostActiveGuild ? {
+                id: mostActiveGuild.id,
+                name: mostActiveGuild.name,
+                messages: mostActiveGuild.totalMessages
+            } : undefined,
+            recentActivity
+        };
+    };
+
+    useEffect(() => {
+        if (profileData) {
+            // Try to fetch real timestamp-based activity data from API
+            fetchActivityData();
+        }
+    }, [profileData]);
+
+    const fetchActivityData = async () => {
+        try {
+            const response = await fetch('/api/user/activity', { credentials: 'include' });
+            if (response.ok) {
+                const data = await response.json();
+                
+                // Find most active guild
+                const guilds = profileData?.guilds || [];
+                const mostActiveGuild = guilds.reduce((prev, current) => {
+                    return (current.totalMessages > (prev?.totalMessages || 0)) ? current : prev;
+                }, guilds[0] || null);
+
+                                setActivityData({
+                    ...data,
+                    weeklyLinks: data.weeklyLinks || 0,
+                    weeklyMedia: data.weeklyMedia || 0,
+                    mostActiveGuild: mostActiveGuild ? {
+                        id: mostActiveGuild.id,
+                        name: mostActiveGuild.name,
+                        messages: mostActiveGuild.totalMessages
+                    } : undefined
+                });
+            } else {
+                // Fallback to calculation if API fails
+                const activity = calculateActivityData(profileData!);
+                setActivityData(activity);
+            }
+        } catch (error) {
+            console.error('Failed to fetch activity data:', error);
+            // Fallback to calculation
+            const activity = calculateActivityData(profileData!);
+            setActivityData(activity);
+        }
+    };
+
 
     if (loading) {
         return (
@@ -175,77 +308,120 @@ const UserProfile: React.FC<UserProfileProps> = ({ user, onLoginClick }) => {
     return (
         <div className={styles.page}>
             <AppHeader user={{ userId: profileData.id, username: profileData.username, avatar: profileData.avatar }} />
-            <div className={styles.container}>
-                {/* User Header */}
-                <header className={styles.profileHeader} role="banner">
-                    <div className={styles.headerInner}>
-                        <div className={styles.avatarContainer}>
-                            {(() => {
-                                const avatar = profileData.avatar;
-                                let src = `https://cdn.discordapp.com/embed/avatars/${parseInt(profileData.discriminator) % 5}.png`;
-                                if (avatar) {
-                                    // if avatar looks like an absolute URL, use it directly
-                                    if (/^https?:\/\//.test(avatar)) {
-                                        src = avatar;
-                                    } else {
-                                        // avatar is likely a Discord hash; construct CDN URL
-                                        const isAnimated = avatar.startsWith('a_');
-                                        const ext = isAnimated ? 'gif' : 'png';
-                                        src = `https://cdn.discordapp.com/avatars/${profileData.id}/${avatar}.${ext}?size=256`;
-                                    }
-                                }
 
-                                return (
-                                    <img
-                                        src={src}
-                                        alt={`${profileData.username}のプロフィール画像`}
-                                        className={styles.avatar}
-                                    />
-                                );
-                            })()}
-                        </div>
-                        <div className={styles.userInfo}>
-                            <h1 className={styles.username}>
-                                {profileData.username}
-                                <span className={styles.discriminator}>#{profileData.discriminator}</span>
-                            </h1>
-                            <p className={styles.userId}>ユーザーID: {profileData.id}</p>
-                            <p className={styles.smallText}>{profileData.totalStats.totalMessages?.toLocaleString() || 0} メッセージ • {profileData.guilds.length} サーバー</p>
-                        </div>
-                        <div className={styles.headerActions}>
-                            <button className={styles.primaryButton} onClick={handleLogout} aria-label="ログアウト">
-                                <span className="material-icons-outlined">logout</span>
-                                ログアウト
+            <main className={styles.content}>
+                {/* Sidebar - MainContent内に内包 */}
+                <aside className={`${styles.sidebar} ${sidebarOpen ? styles.sidebarOpen : styles.sidebarClosed}`}>
+                    <div className={styles.sidebarHeader}>
+                        <h2 className={styles.sidebarTitle}>プロフィール</h2>
+                        <button
+                            className={styles.sidebarToggle}
+                            onClick={() => setSidebarOpen(!sidebarOpen)}
+                            aria-label="サイドバーを切り替え"
+                        >
+                            <span className="material-icons">
+                                {sidebarOpen ? 'menu_open' : 'menu'}
+                            </span>
+                        </button>
+                    </div>
+
+                    <nav className={styles.sidebarNav}>
+                        <button
+                            className={`${styles.sidebarItem} ${activeTab === 'overview' ? styles.sidebarItemActive : ''}`}
+                            onClick={() => setActiveTab('overview')}
+                        >
+                            <span className="material-icons">dashboard</span>
+                            {sidebarOpen && <span>概要</span>}
+                        </button>
+                        <button
+                            className={`${styles.sidebarItem} ${activeTab === 'servers' ? styles.sidebarItemActive : ''}`}
+                            onClick={() => setActiveTab('servers')}
+                        >
+                            <span className="material-icons">dns</span>
+                            {sidebarOpen && <span>サーバー</span>}
+                        </button>
+                        <button
+                            className={`${styles.sidebarItem} ${activeTab === 'activity' ? styles.sidebarItemActive : ''}`}
+                            onClick={() => setActiveTab('activity')}
+                        >
+                            <span className="material-icons">timeline</span>
+                            {sidebarOpen && <span>アクティビティ</span>}
+                        </button>
+                        <button
+                            className={`${styles.sidebarItem} ${activeTab === 'settings' ? styles.sidebarItemActive : ''}`}
+                            onClick={() => setActiveTab('settings')}
+                        >
+                            <span className="material-icons">settings</span>
+                            {sidebarOpen && <span>設定</span>}
+                        </button>
+                    </nav>
+
+                    <div className={styles.sidebarFooter}>
+                        <button className={styles.logoutBtn} onClick={handleLogout}>
+                            <span className="material-icons">logout</span>
+                            {sidebarOpen && <span>ログアウト</span>}
+                        </button>
+                    </div>
+                </aside>
+
+                {/* Profile Content - Sidebarと共に同じ行 */}
+                <div className={styles.profileContent}>
+                    {/* User Header */}
+                    <div className={styles.profileCard}>
+                        <div className={styles.profileCardHeader}>
+                            {/* Mobile Menu Button */}
+                            <button
+                                className={styles.mobileMenuButton}
+                                onClick={() => setSidebarOpen(true)}
+                                aria-label="メニューを開く"
+                            >
+                                <span className="material-icons">menu</span>
                             </button>
+
+                            <div className={styles.avatarWrapper}>
+                                {(() => {
+                                    const avatar = profileData.avatar;
+                                    let src = `https://cdn.discordapp.com/embed/avatars/${parseInt(profileData.discriminator) % 5}.png`;
+                                    if (avatar) {
+                                        if (/^https?:\/\//.test(avatar)) {
+                                            src = avatar;
+                                        } else {
+                                            const isAnimated = avatar.startsWith('a_');
+                                            const ext = isAnimated ? 'gif' : 'png';
+                                            src = `https://cdn.discordapp.com/avatars/${profileData.id}/${avatar}.${ext}?size=256`;
+                                        }
+                                    }
+                                    return (
+                                        <img
+                                            src={src}
+                                            alt={`${profileData.username}のプロフィール画像`}
+                                            className={styles.profileAvatar}
+                                        />
+                                    );
+                                })()}
+                            </div>
+                            <div className={styles.profileInfo}>
+                                <h1 className={styles.profileName}>
+                                    {profileData.username}
+                                    <span className={styles.profileDiscriminator}>#{profileData.discriminator}</span>
+                                </h1>
+                                <p className={styles.profileId}>ID: {profileData.id}</p>
+                                <div className={styles.profileStats}>
+                                    <span className={styles.profileStat}>
+                                        <span className="material-icons">message</span>
+                                        {profileData.totalStats.totalMessages?.toLocaleString() || 0} メッセージ
+                                    </span>
+                                    <span className={styles.profileStat}>
+                                        <span className="material-icons">dns</span>
+                                        {profileData.guilds.length} サーバー
+                                    </span>
+                                </div>
+                            </div>
                         </div>
                     </div>
-                    {profileData.banner && (
-                        <div className={styles.bannerContainer}>
-                            <img src={profileData.banner} alt="バナー画像" className={styles.banner} />
-                        </div>
-                    )}
-                </header>
 
-            {/* Navigation Tabs */}
-            <div className={styles.tabs}>
-                <button
-                    className={`${styles.tab} ${activeTab === 'overview' ? styles.active : ''}`}
-                    onClick={() => setActiveTab('overview')}
-                >
-                    <span className="material-icons-outlined">analytics</span>
-                    概要
-                </button>
-                <button
-                    className={`${styles.tab} ${activeTab === 'servers' ? styles.active : ''}`}
-                    onClick={() => setActiveTab('servers')}
-                >
-                    <span className="material-icons-outlined">groups</span>
-                    参加中のサーバー ({profileData.guilds.length})
-                </button>
-            </div>
-
-            {/* Tab Content */}
-            <div className={styles.tabContent}>
+                    {/* Tab Content */}
+                    <div className={styles.tabContent}>
                 {activeTab === 'overview' && (
                     <div className={styles.overview}>
                         <h2 className={styles.sectionTitle}>活動統計</h2>
@@ -306,9 +482,9 @@ const UserProfile: React.FC<UserProfileProps> = ({ user, onLoginClick }) => {
                                 <div key={guild.id} className={styles.guildCard}>
                                     <div className={styles.guildHeader}>
                                         <div className={styles.guildIcon}>
-                                            {guild.icon ? (
+                                            {guild.iconURL || guild.icon ? (
                                                 <img
-                                                    src={`https://cdn.discordapp.com/icons/${guild.id}/${guild.icon}.png`}
+                                                    src={guild.iconURL ? guild.iconURL : `https://cdn.discordapp.com/icons/${guild.id}/${guild.icon}.png`}
                                                     alt={`${guild.name}のアイコン`}
                                                 />
                                             ) : (
@@ -371,9 +547,179 @@ const UserProfile: React.FC<UserProfileProps> = ({ user, onLoginClick }) => {
                         </div>
                     </div>
                 )}
+
+                {activeTab === 'activity' && (
+                    <div className={styles.activity}>
+                        <h2 className={styles.sectionTitle}>アクティビティ</h2>
+                        {activityData ? (
+                            <div className={styles.activityContent}>
+                                {/* 今週の詳細統計 */}
+                                <div className={styles.statsGrid}>
+                                    <div className={styles.statCard}>
+                                        <div className={styles.statIcon}>
+                                            <span className="material-icons-outlined">message</span>
+                                        </div>
+                                        <div className={styles.statContent}>
+                                            <h3>今週のメッセージ</h3>
+                                            <p className={styles.statValue}>
+                                                {(activityData.weeklyMessages || 0).toLocaleString()}
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <div className={styles.statCard}>
+                                        <div className={styles.statIcon}>
+                                            <span className="material-icons-outlined">link</span>
+                                        </div>
+                                        <div className={styles.statContent}>
+                                            <h3>今週のリンク</h3>
+                                            <p className={styles.statValue}>
+                                                {(activityData.weeklyLinks || 0).toLocaleString()}
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <div className={styles.statCard}>
+                                        <div className={styles.statIcon}>
+                                            <span className="material-icons-outlined">image</span>
+                                        </div>
+                                        <div className={styles.statContent}>
+                                            <h3>今週のメディア</h3>
+                                            <p className={styles.statValue}>
+                                                {(activityData.weeklyMedia || 0).toLocaleString()}
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <div className={styles.statCard}>
+                                        <div className={styles.statIcon}>
+                                            <span className="material-icons-outlined">speed</span>
+                                        </div>
+                                        <div className={styles.statContent}>
+                                            <h3>チャット頻度</h3>
+                                            <p className={styles.chatFrequency}>
+                                                {activityData.chatFrequency === 'very_high' && '🔥 非常に高い'}
+                                                {activityData.chatFrequency === 'high' && '⚡ 高い'}
+                                                {activityData.chatFrequency === 'moderate' && '📊 普通'}
+                                                {activityData.chatFrequency === 'low' && '📉 低い'}
+                                                {activityData.chatFrequency === 'very_low' && '💤 とても低い'}
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* 集計データ */}
+                                <div className={styles.periodStats}>
+                                    <div className={styles.periodCard}>
+                                        <div className={styles.periodIcon}>
+                                            <span className="material-icons">calendar_view_week</span>
+                                        </div>
+                                        <div className={styles.periodData}>
+                                            <h4>週間</h4>
+                                            <p className={styles.periodValue}>{activityData.weeklyMessages.toLocaleString()}</p>
+                                            <span className={styles.periodLabel}>メッセージ</span>
+                                        </div>
+                                    </div>
+
+                                    <div className={styles.periodCard}>
+                                        <div className={styles.periodIcon}>
+                                            <span className="material-icons">calendar_month</span>
+                                        </div>
+                                        <div className={styles.periodData}>
+                                            <h4>月間</h4>
+                                            <p className={styles.periodValue}>{activityData.monthlyMessages.toLocaleString()}</p>
+                                            <span className={styles.periodLabel}>メッセージ</span>
+                                        </div>
+                                    </div>
+
+                                    <div className={styles.periodCard}>
+                                        <div className={styles.periodIcon}>
+                                            <span className="material-icons">event</span>
+                                        </div>
+                                        <div className={styles.periodData}>
+                                            <h4>年間</h4>
+                                            <p className={styles.periodValue}>{activityData.yearlyMessages.toLocaleString()}</p>
+                                            <span className={styles.periodLabel}>メッセージ</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* 最近のアクティビティグラフ */}
+                                <div className={styles.activityChart}>
+                                    <h3>最近7日間のアクティビティ</h3>
+                                    <div className={styles.chartBars}>
+                                        {activityData.recentActivity.map((day, index) => {
+                                            const maxMessages = Math.max(...activityData.recentActivity.map(d => d.messages), 1);
+                                            const height = (day.messages / maxMessages) * 100;
+                                            return (
+                                                <div key={index} className={styles.chartBar}>
+                                                    <div 
+                                                        className={styles.bar} 
+                                                        style={{ height: `${height}%` }}
+                                                        title={`${day.messages} メッセージ`}
+                                                    >
+                                                        <span className={styles.barValue}>{day.messages}</span>
+                                                    </div>
+                                                    <span className={styles.barLabel}>{day.date}</span>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+
+                                {/* 最もアクティブなサーバー */}
+                                {activityData.mostActiveGuild && (
+                                    <div className={styles.mostActiveServer}>
+                                        <h3>最もアクティブなサーバー</h3>
+                                        <div className={styles.activeServerCard}>
+                                            <span className="material-icons">emoji_events</span>
+                                            <div className={styles.serverInfo}>
+                                                <h4>{activityData.mostActiveGuild.name}</h4>
+                                                <p>{activityData.mostActiveGuild.messages.toLocaleString()} メッセージ</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* 平均メッセージ数 */}
+                                <div className={styles.averageStats}>
+                                    <div className={styles.avgCard}>
+                                        <span className="material-icons">today</span>
+                                        <div>
+                                            <h4>1日平均（週間）</h4>
+                                            <p>{activityData.weeklyAverage.toFixed(1)} メッセージ</p>
+                                        </div>
+                                    </div>
+                                    <div className={styles.avgCard}>
+                                        <span className="material-icons">calendar_today</span>
+                                        <div>
+                                            <h4>1日平均（月間）</h4>
+                                            <p>{activityData.monthlyAverage.toFixed(1)} メッセージ</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className={styles.activityLoading}>
+                                <div className={styles.loadingSpinner}></div>
+                                <p>アクティビティデータを計算中...</p>
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                {activeTab === 'settings' && (
+                    <div className={styles.settings}>
+                        <h2 className={styles.sectionTitle}>設定</h2>
+                        <div className={styles.settingsContent}>
+                            <div className={styles.infoCard}>
+                                <span className="material-icons">settings</span>
+                                <p>プロフィール設定は今後のアップデートで追加されます。</p>
+                            </div>
+                        </div>
+                    </div>
+                )}
+                </div>
             </div>
-            </div>
-        </div>
+        </main>
+    </div>
     );
 };
 

@@ -377,6 +377,30 @@ const EditTodoModal: React.FC<{
     const [priority, setPriority] = useState<'low' | 'medium' | 'high'>(todo.priority);
     const [tags, setTags] = useState(todo.tags.join(', '));
     const [showPreview, setShowPreview] = useState(false);
+    // Draggable modal state
+    const [pos, setPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+    const [dragging, setDragging] = useState(false);
+    const dragStartRef = React.useRef<{ x: number; y: number } | null>(null);
+
+    // Pointer/touch handlers for drag
+    const onPointerDown = (e: React.PointerEvent) => {
+        (e.target as Element).setPointerCapture(e.pointerId);
+        setDragging(true);
+        dragStartRef.current = { x: e.clientX - pos.x, y: e.clientY - pos.y };
+    };
+
+    const onPointerMove = (e: React.PointerEvent) => {
+        if (!dragging || !dragStartRef.current) return;
+        const nx = e.clientX - dragStartRef.current.x;
+        const ny = e.clientY - dragStartRef.current.y;
+        setPos({ x: nx, y: ny });
+    };
+
+    const onPointerUp = (e: React.PointerEvent) => {
+        try { (e.target as Element).releasePointerCapture(e.pointerId); } catch {}
+        setDragging(false);
+        dragStartRef.current = null;
+    };
 
     const handleSave = () => {
         const tagsArray = tags.split(',').map(t => t.trim()).filter(t => t.length > 0);
@@ -413,8 +437,18 @@ const EditTodoModal: React.FC<{
 
     return (
         <div className={styles.modalOverlay} onClick={onClose}>
-            <div className={styles.editModal} onClick={(e) => e.stopPropagation()}>
-                <div className={styles.modalHeader}>
+            <div
+                className={styles.editModal}
+                onClick={(e) => e.stopPropagation()}
+                style={{ transform: `translate(${pos.x}px, ${pos.y}px)` }}
+            >
+                <div
+                    className={`${styles.modalHeader} ${'draggable'}`}
+                    onPointerDown={onPointerDown}
+                    onPointerMove={onPointerMove}
+                    onPointerUp={onPointerUp}
+                    onPointerCancel={onPointerUp}
+                >
                     <h2>Todoを編集</h2>
                     <button onClick={onClose}><i className="material-icons">close</i></button>
                 </div>
@@ -553,8 +587,13 @@ const ShareModal: React.FC<{ sessionId: string; onClose: () => void; }> =
             });
             if (response.ok) {
                 const data = await response.json();
-                console.log('[ShareModal] Loaded share links:', data);
-                const links = data.shareLinks.map((link: any) => ({
+                let shareLinksRaw = data.shareLinks;
+                // 型安全: 配列でなければ空配列に
+                if (!Array.isArray(shareLinksRaw)) {
+                    console.warn('[ShareModal] shareLinks is not array:', shareLinksRaw);
+                    shareLinksRaw = [];
+                }
+                const links = shareLinksRaw.map((link: any) => ({
                     token: link.token,
                     mode: link.mode,
                     url: `${window.location.origin}/todo/shared/${link.token}`

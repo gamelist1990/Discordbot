@@ -19,9 +19,14 @@ export class StaffController {
         const session = (req as any).session as SettingsSession;
 
         try {
+            if (!session.guildId) {
+                res.status(400).json({ error: 'Invalid session: missing guild ID' });
+                return;
+            }
+
             const { PrivateChatManager } = await import('../../core/PrivateChatManager.js');
             const chats = await PrivateChatManager.getChatsByGuild(session.guildId);
-            
+
             // ユーザー情報を付加
             const guild = this.botClient.client.guilds.cache.get(session.guildId);
             const enrichedChats = await Promise.all(
@@ -76,6 +81,11 @@ export class StaffController {
         }
 
         try {
+            if (!session.guildId) {
+                res.status(400).json({ error: 'Invalid session: missing guild ID' });
+                return;
+            }
+
             const guild = this.botClient.client.guilds.cache.get(session.guildId);
             if (!guild) {
                 res.status(404).json({ error: 'Guild not found' });
@@ -109,6 +119,11 @@ export class StaffController {
         const { chatId } = req.params;
 
         try {
+            if (!session.guildId) {
+                res.status(400).json({ error: 'Invalid session: missing guild ID' });
+                return;
+            }
+
             const guild = this.botClient.client.guilds.cache.get(session.guildId);
             if (!guild) {
                 res.status(404).json({ error: 'Guild not found' });
@@ -137,6 +152,11 @@ export class StaffController {
         const session = (req as any).session as SettingsSession;
 
         try {
+            if (!session.guildId) {
+                res.status(400).json({ error: 'Invalid session: missing guild ID' });
+                return;
+            }
+
             const { PrivateChatManager } = await import('../../core/PrivateChatManager.js');
             const stats = await PrivateChatManager.getStats(session.guildId);
 
@@ -163,6 +183,12 @@ export class StaffController {
         let isFirstUpdate = true;
 
         try {
+            if (!session.guildId) {
+                res.write(`data: ${JSON.stringify({ error: 'Invalid session: missing guild ID' })}\n\n`);
+                res.end();
+                return;
+            }
+
             const { PrivateChatManager } = await import('../../core/PrivateChatManager.js');
             const guild = this.botClient.client.guilds.cache.get(session.guildId);
 
@@ -175,8 +201,8 @@ export class StaffController {
             // 初期データを送信
             const sendUpdate = async () => {
                 try {
-                    const chats = await PrivateChatManager.getChatsByGuild(session.guildId);
-                    const stats = await PrivateChatManager.getStats(session.guildId);
+                    const chats = await PrivateChatManager.getChatsByGuild(session.guildId!);
+                    const stats = await PrivateChatManager.getStats(session.guildId!);
 
                     // チャット情報を強化
                     const enrichedChats = await Promise.all(
@@ -294,6 +320,11 @@ export class StaffController {
         const { chatId } = req.params;
 
         try {
+            if (!session.guildId) {
+                res.status(400).json({ error: 'Invalid session: missing guild ID' });
+                return;
+            }
+
             const guild = this.botClient.client.guilds.cache.get(session.guildId);
             if (!guild) {
                 res.status(404).json({ error: 'Guild not found' });
@@ -336,6 +367,11 @@ export class StaffController {
         }
 
         try {
+            if (!session.guildId) {
+                res.status(400).json({ error: 'Invalid session: missing guild ID' });
+                return;
+            }
+
             const guild = this.botClient.client.guilds.cache.get(session.guildId);
             if (!guild) {
                 res.status(404).json({ error: 'Guild not found' });
@@ -389,6 +425,11 @@ export class StaffController {
         const { chatId, userId } = req.params;
 
         try {
+            if (!session.guildId) {
+                res.status(400).json({ error: 'Invalid session: missing guild ID' });
+                return;
+            }
+
             const guild = this.botClient.client.guilds.cache.get(session.guildId);
             if (!guild) {
                 res.status(404).json({ error: 'Guild not found' });
@@ -420,6 +461,11 @@ export class StaffController {
         }
 
         try {
+            if (!session.guildId) {
+                res.status(400).json({ error: 'Invalid session: missing guild ID' });
+                return;
+            }
+
             const guild = this.botClient.client.guilds.cache.get(session.guildId);
             if (!guild) {
                 res.status(404).json({ error: 'Guild not found' });

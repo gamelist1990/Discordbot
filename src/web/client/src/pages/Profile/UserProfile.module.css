@@ -1,16 +1,944 @@
-/* Google Material Design inspired profile page */
-.page {
-    min-height: 100vh;
+.mainLayout {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+}
+
+/* Main Content Container - Sidebarを内包するコンテナ */
+.content {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+    position: relative; /* Sidebarの位置調整用 */
+}
+
+/* Profile Content - メインのプロフィール領域 */
+.profileContent {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
     background: #F1F3F4;
     display: flex;
     flex-direction: column;
 }
 
-.container {
-    max-width: 1100px;
-    margin: 0 auto;
-    padding: 24px;
+@media (max-width: 768px) {
+    .profileContent {
+        margin-left: 0;
+        width: 100%;
+    }
+}
+
+/* Sidebar Styles */
+.sidebar {
+    background: white;
+    border-right: 1px solid #E8EAED;
+    display: flex;
+    flex-direction: column;
+    transition: transform 0.3s ease, width 0.3s ease;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    z-index: 1000;
+}
+
+.sidebarOpen {
+    width: 256px;
+}
+
+.sidebarClosed {
+    width: 72px;
+}
+
+/* Mobile (Tablet and below) */
+@media (max-width: 768px) {
+    .sidebar {
+        position: fixed;
+        left: 0;
+        top: 0;
+        height: 100vh;
+        z-index: 1000;
+        box-shadow: 2px 0 8px rgba(0, 0, 0, 0.1);
+        transform: translateX(-100%);
+    }
+
+    .sidebar.sidebarOpen {
+        transform: translateX(0);
+    }
+
+    .sidebar.sidebarClosed {
+        transform: translateX(-100%);
+    }
+
+    /* Open Sidebar 時のオーバーレイ */
+    .sidebarOpen {
+        width: 280px; /* Mobile時は少し広めに */
+    }
+
+    .sidebarClosed {
+        width: 280px; /* Mobile時は閉じた状態でもフル幅設定 */
+    }
+}
+
+.sidebarHeader {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px;
+    border-bottom: 1px solid #E8EAED;
+}
+
+.sidebarTitle {
+    font-size: 20px;
+    font-weight: 500;
+    color: #202124;
+    margin: 0;
+    white-space: nowrap;
+}
+
+/* Profile Card Header - Mobile Menu Button */
+.profileCardHeader {
+    display: flex;
+    gap: 16px;
+    align-items: flex-start;
+}
+
+.mobileMenuButton {
+    display: none;
+    background: white;
+    border: 1px solid #E8EAED;
+    border-radius: 8px;
+    padding: 12px;
+    cursor: pointer;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    transition: all 0.2s ease;
+}
+
+.mobileMenuButton:hover {
+    background: #F1F3F4;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+}
+
+@media (max-width: 768px) {
+    .mobileMenuButton {
+        display: block;
+    }
+}
+
+.sidebarTitle {
+    font-size: 20px;
+    font-weight: 500;
+    color: #202124;
+    margin: 0;
+    white-space: nowrap;
+}
+
+.sidebarClosed .sidebarTitle {
+    display: none;
+}
+
+.sidebarToggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    border: none;
+    background: transparent;
+    border-radius: 50%;
+    cursor: pointer;
+    transition: background 0.2s;
+    color: #5F6368;
+}
+
+.sidebarToggle:hover {
+    background: #F8F9FA;
+}
+
+.sidebarNav {
     flex: 1;
+    padding: 8px 0;
+    overflow-y: auto;
+}
+
+.sidebarItem {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    width: 100%;
+    padding: 12px 16px;
+    border: none;
+    background: transparent;
+    color: #5F6368;
+    font-size: 14px;
+    font-weight: 500;
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.sidebarItem:hover {
+    background: #F8F9FA;
+}
+
+.sidebarItem .material-icons {
+    font-size: 24px;
+    min-width: 24px;
+}
+
+.sidebarClosed .sidebarItem {
+    justify-content: center;
+    padding: 12px;
+}
+
+.sidebarClosed .sidebarItem span:last-child {
+    display: none;
+}
+
+.sidebarItemActive {
+    background: #E8F0FE !important;
+    color: #1A73E8 !important;
+}
+
+.sidebarItemActive .material-icons {
+    color: #1A73E8;
+}
+
+.sidebarFooter {
+    padding: 8px;
+    border-top: 1px solid #E8EAED;
+}
+
+.logoutBtn {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    width: 100%;
+    padding: 12px 16px;
+    border: none;
+    background: transparent;
+    color: #EA4335;
+    font-size: 14px;
+    font-weight: 500;
+    text-align: left;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: background 0.2s;
+}
+
+.logoutBtn:hover {
+    background: #FCE8E6;
+}
+
+.logoutBtn .material-icons {
+    font-size: 24px;
+    min-width: 24px;
+}
+
+.sidebarClosed .logoutBtn {
+    justify-content: center;
+    padding: 12px;
+}
+
+.sidebarClosed .logoutBtn span:last-child {
+    display: none;
+}
+
+/* Content Area */
+.content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 0;
+    background: #F1F3F4;
+}
+
+.profileCard {
+    background: white;
+    border-radius: 0;
+    box-shadow: 0 1px 2px 0 rgba(60,64,67,0.3);
+    margin-bottom: 0;
+    overflow: hidden;
+}
+
+.profileCardHeader {
+    padding: 24px;
+    display: flex;
+    align-items: center;
+    gap: 24px;
+}
+
+.avatarWrapper {
+    flex-shrink: 0;
+}
+
+.profileAvatar {
+    width: 96px;
+    height: 96px;
+    border-radius: 50%;
+    object-fit: cover;
+}
+
+.profileInfo {
+    flex: 1;
+    min-width: 0;
+}
+
+.profileName {
+    font-size: 28px;
+    font-weight: 400;
+    color: #202124;
+    margin: 0 0 8px 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.profileDiscriminator {
+    font-size: 20px;
+    color: #5F6368;
+    font-weight: 300;
+}
+
+.profileId {
+    font-size: 14px;
+    color: #5F6368;
+    margin: 0 0 12px 0;
+}
+
+.profileStats {
+    display: flex;
+    gap: 24px;
+    flex-wrap: wrap;
+}
+
+.profileStat {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    color: #5F6368;
+}
+
+.profileStat .material-icons {
+    font-size: 18px;
+}
+
+/* Tab Content */
+.tabContent {
+    background: #F1F3F4;
+    padding: 24px;
+    min-height: calc(100vh - 64px - 200px);
+}
+
+.sectionTitle {
+    font-size: 20px;
+    font-weight: 500;
+    color: #202124;
+    margin: 0 0 20px 0;
+}
+
+/* Overview Section */
+.overview {
+    padding: 0;
+}
+
+.statsGrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 16px;
+}
+
+.statCard {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 24px;
+    background: white;
+    border-radius: 8px;
+    transition: box-shadow 0.2s;
+    box-shadow: 0 1px 2px 0 rgba(60,64,67,0.3), 0 1px 3px 1px rgba(60,64,67,0.15);
+}
+
+.statCard:hover {
+    box-shadow: 0 1px 3px 0 rgba(60,64,67,0.3), 0 4px 8px 3px rgba(60,64,67,0.15);
+}
+
+.statIcon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 48px;
+    height: 48px;
+    background: #F1F3F4;
+    border-radius: 50%;
+    color: #1A73E8;
+}
+
+.statIcon .material-icons-outlined {
+    font-size: 28px;
+}
+
+.statContent h3 {
+    font-size: 14px;
+    font-weight: 400;
+    color: #5F6368;
+    margin: 0 0 4px 0;
+}
+
+.statValue {
+    font-size: 24px;
+    font-weight: 500;
+    color: #202124;
+    margin: 0;
+}
+
+.chatFrequency {
+    font-size: 18px;
+    font-weight: 600;
+    margin: 0;
+    color: #202124;
+}
+
+/* Servers Section */
+.servers {
+    padding: 0;
+    background: #fff;
+    border-radius: 12px;
+    min-height: 320px;
+}
+
+.guildsGrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 16px;
+}
+
+.guildCard {
+    padding: 20px;
+    background: white;
+    border-radius: 8px;
+    transition: box-shadow 0.2s;
+    box-shadow: 0 1px 2px 0 rgba(60,64,67,0.3), 0 1px 3px 1px rgba(60,64,67,0.15);
+}
+
+.guildCard:hover {
+    box-shadow: 0 1px 3px 0 rgba(60,64,67,0.3), 0 4px 8px 3px rgba(60,64,67,0.15);
+}
+
+.guildHeader {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.guildIcon {
+    flex-shrink: 0;
+}
+
+.guildIcon img {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    object-fit: cover;
+}
+
+.defaultIcon {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: #4285F4;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-size: 20px;
+    font-weight: 500;
+}
+
+.guildInfo {
+    flex: 1;
+    min-width: 0;
+}
+
+.guildInfo h3 {
+    font-size: 16px;
+    font-weight: 500;
+    color: #202124;
+    margin: 0 0 4px 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.guildInfo p {
+    font-size: 13px;
+    color: #5F6368;
+    margin: 0;
+}
+
+.guildStats {
+    display: flex;
+    gap: 16px;
+    margin-top: 12px;
+}
+
+.guildStat {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    flex: 1;
+}
+
+.guildStat .material-icons-outlined {
+    font-size: 20px;
+    color: #5F6368;
+}
+
+.guildStat span:nth-child(2) {
+    font-size: 16px;
+    font-weight: 500;
+    color: #202124;
+}
+
+.guildStat label {
+    font-size: 12px;
+    color: #5F6368;
+}
+
+.guildRole {
+    margin-top: 12px;
+    padding: 8px 12px;
+    background: #E8F0FE;
+    border-radius: 4px;
+    font-size: 13px;
+    color: #1A73E8;
+}
+
+.guildRolesList {
+    margin-top: 12px;
+    font-size: 13px;
+    color: #5F6368;
+}
+
+.guildRolesList ul {
+    margin: 4px 0 0 0;
+    padding-left: 20px;
+}
+
+.guildRolesList li {
+    margin: 2px 0;
+}
+
+.guildJoined {
+    margin-top: 8px;
+    font-size: 12px;
+    color: #5F6368;
+}
+
+/* Activity and Settings Sections */
+.activity,
+.settings {
+    padding: 0;
+    background: #fff;
+    border-radius: 12px;
+    min-height: 320px;
+}
+
+.activityContent,
+.settingsContent {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.activityLoading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 60px 20px;
+    gap: 16px;
+    background: white;
+    border-radius: 8px;
+    margin: 16px;
+}
+
+/* Frequency Card */
+.frequencyCard {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border-radius: 8px;
+    padding: 32px;
+    color: white;
+    box-shadow: 0 1px 2px 0 rgba(60,64,67,0.3), 0 1px 3px 1px rgba(60,64,67,0.15);
+}
+
+.frequencyHeader {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.frequencyHeader .material-icons {
+    font-size: 32px;
+}
+
+.frequencyHeader h3 {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 500;
+}
+
+.frequencyBadge {
+    display: inline-block;
+    padding: 12px 24px;
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 24px;
+    font-size: 18px;
+    font-weight: 600;
+    margin-bottom: 12px;
+    backdrop-filter: blur(10px);
+}
+
+.frequencyDesc {
+    margin: 0;
+    font-size: 14px;
+    opacity: 0.9;
+}
+
+.frequencyDesc strong {
+    font-size: 18px;
+    font-weight: 600;
+}
+
+.timestampBadge {
+    display: inline-block;
+    margin-left: 12px;
+    padding: 4px 12px;
+    background: rgba(255, 255, 255, 0.3);
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+    vertical-align: middle;
+}
+
+/* Period Stats */
+.periodStats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 16px;
+}
+
+.periodCard {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 24px;
+    background: white;
+    border-radius: 8px;
+    transition: transform 0.2s, box-shadow 0.2s;
+    box-shadow: 0 1px 2px 0 rgba(60,64,67,0.3), 0 1px 3px 1px rgba(60,64,67,0.15);
+}
+
+.periodCard:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 1px 3px 0 rgba(60,64,67,0.3), 0 4px 8px 3px rgba(60,64,67,0.15);
+}
+
+.periodIcon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 56px;
+    height: 56px;
+    background: #F1F3F4;
+    border-radius: 50%;
+    color: #4285F4;
+}
+
+.periodIcon .material-icons {
+    font-size: 32px;
+}
+
+.periodData h4 {
+    margin: 0 0 4px 0;
+    font-size: 14px;
+    color: #5F6368;
+    font-weight: 400;
+}
+
+.periodValue {
+    margin: 4px 0;
+    font-size: 28px;
+    font-weight: 500;
+    color: #202124;
+}
+
+.periodLabel {
+    font-size: 12px;
+    color: #5F6368;
+}
+
+/* Activity Chart */
+.activityChart {
+    background: white;
+    border-radius: 8px;
+    padding: 24px;
+    box-shadow: 0 1px 2px 0 rgba(60,64,67,0.3), 0 1px 3px 1px rgba(60,64,67,0.15);
+}
+
+.activityChart h3 {
+    margin: 0 0 20px 0;
+    font-size: 16px;
+    font-weight: 500;
+    color: #202124;
+}
+
+.chartBars {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-around;
+    gap: 8px;
+    height: 200px;
+    padding: 20px 0;
+}
+
+.chartBar {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    flex: 1;
+    gap: 8px;
+}
+
+.bar {
+    position: relative;
+    width: 100%;
+    max-width: 60px;
+    background: linear-gradient(to top, #4285F4, #667eea);
+    border-radius: 4px 4px 0 0;
+    min-height: 20px;
+    transition: all 0.3s ease;
+    cursor: pointer;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding-top: 4px;
+}
+
+.bar:hover {
+    opacity: 0.8;
+    transform: scaleY(1.05);
+}
+
+.barValue {
+    font-size: 11px;
+    font-weight: 600;
+    color: white;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.2);
+}
+
+.barLabel {
+    font-size: 11px;
+    color: #5F6368;
+    text-align: center;
+}
+
+/* Most Active Server */
+.mostActiveServer {
+    background: white;
+    border-radius: 8px;
+    padding: 24px;
+    box-shadow: 0 1px 2px 0 rgba(60,64,67,0.3), 0 1px 3px 1px rgba(60,64,67,0.15);
+}
+
+.mostActiveServer h3 {
+    margin: 0 0 16px 0;
+    font-size: 16px;
+    font-weight: 500;
+    color: #202124;
+}
+
+.activeServerCard {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 20px;
+    background: #FFFBF0;
+    border-radius: 8px;
+    border: 2px solid #FBBC04;
+    box-shadow: 0 1px 2px rgba(251, 188, 4, 0.1);
+}
+
+.activeServerCard .material-icons {
+    font-size: 40px;
+    color: #FBBC04;
+}
+
+.serverInfo h4 {
+    margin: 0 0 4px 0;
+    font-size: 16px;
+    font-weight: 500;
+    color: #202124;
+}
+
+.serverInfo p {
+    margin: 0;
+    font-size: 14px;
+    color: #5F6368;
+}
+
+/* Average Stats */
+.averageStats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 16px;
+}
+
+.avgCard {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 24px;
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 1px 2px 0 rgba(60,64,67,0.3), 0 1px 3px 1px rgba(60,64,67,0.15);
+}
+
+.avgCard .material-icons {
+    font-size: 32px;
+    color: #4285F4;
+}
+
+.avgCard h4 {
+    margin: 0 0 4px 0;
+    font-size: 14px;
+    color: #5F6368;
+    font-weight: 400;
+}
+
+.avgCard p {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 500;
+    color: #202124;
+}
+
+.infoCard {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 20px;
+    background: white;
+    border-radius: 8px;
+    color: #5F6368;
+    box-shadow: 0 1px 2px 0 rgba(60,64,67,0.3), 0 1px 3px 1px rgba(60,64,67,0.15);
+    margin: 16px;
+}
+
+.infoCard .material-icons {
+    font-size: 32px;
+}
+
+.infoCard p {
+    margin: 0;
+    font-size: 14px;
+}
+
+/* Mobile Responsive */
+@media (max-width: 1024px) {
+    .sidebarOpen {
+        width: 200px;
+    }
+    
+    .content {
+        padding: 0;
+    }
+
+    .tabContent {
+        padding: 16px;
+    }
+}
+
+@media (max-width: 768px) {
+    .mainLayout {
+        flex-direction: column;
+    }
+    
+    .sidebar {
+        position: fixed;
+        top: 64px;
+        left: 0;
+        z-index: 50;
+        transform: translateX(-100%);
+        transition: transform 0.3s ease;
+        height: calc(100vh - 64px);
+    }
+    
+    .sidebarOpen {
+        transform: translateX(0);
+        width: 256px;
+        box-shadow: 2px 0 8px rgba(0,0,0,0.1);
+    }
+    
+    .content {
+        width: 100%;
+    }
+    
+    .profileCardHeader {
+        flex-direction: column;
+        text-align: center;
+    }
+    
+    .profileStats {
+        justify-content: center;
+    }
+    
+    .statsGrid {
+        grid-template-columns: 1fr;
+    }
+    
+    .guildsGrid {
+        grid-template-columns: 1fr;
+    }
+
+    .periodStats {
+        grid-template-columns: 1fr;
+    }
+
+    .averageStats {
+        grid-template-columns: 1fr;
+    }
+
+    .chartBars {
+        height: 150px;
+    }
+
+    .bar {
+        max-width: 40px;
+    }
+}
+
+@media (max-width: 480px) {
+    .content {
+        padding: 0;
+    }
+
+    .tabContent {
+        padding: 12px;
+    }
+    
+    .profileAvatar {
+        width: 72px;
+        height: 72px;
+    }
+    
+    .profileName {
+        font-size: 20px;
+    }
 }
 
 .loading {

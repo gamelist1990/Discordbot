@@ -16,8 +16,8 @@ const App: React.FC = () => {
       <Route path="/" element={<HomePage />} />
       <Route path="/dashboard" element={<DashboardPage />} />
       <Route path="/profile" element={<UserProfile />} />
-  <Route path="/settings" element={<SettingsListPage />} />
-  <Route path="/settings/:guildId" element={<SettingsPage />} />
+      <Route path="/settings" element={<SettingsListPage />} />
+      <Route path="/settings/:guildId" element={<SettingsPage />} />
       <Route path="/staff/privatechat/:token" element={<PrivateChatPage />} />
       <Route path="/todo/:guildId" element={<TodoDashboard />} />
       <Route path="/todo/:guildId/session/:sessionId" element={<TodoSession />} />
