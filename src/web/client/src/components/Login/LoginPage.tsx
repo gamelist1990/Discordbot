@@ -37,8 +37,27 @@ const LoginPage: React.FC<LoginPageProps> = ({ serviceName, onLoginSuccess, redi
             if (response.ok) {
                 const data = await response.json();
                 setSession(data.user);
+
+                // If a parent handler exists, call it. Otherwise fallback:
+                // 1) if redirectPath provided, navigate there
+                // 2) otherwise reload the page so the app can re-evaluate auth state
                 if (onLoginSuccess) {
                     onLoginSuccess(data.user);
+                } else {
+                    try {
+                        if (redirectPath) {
+                            // preserve origin-relative path behavior
+                            window.location.href = redirectPath;
+                        } else {
+                            window.location.reload();
+                        }
+                    } catch (e) {
+                        // Best-effort: swallowing errors here is fine; log for debugging
+                        // and continue without throwing so UI can render a stable state
+                        // in environments where window is not available.
+                        // eslint-disable-next-line no-console
+                        console.error('Post-login navigation failed:', e);
+                    }
                 }
             }
         } catch (err) {
