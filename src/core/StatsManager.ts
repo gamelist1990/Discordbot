@@ -134,10 +134,17 @@ export class StatsManager {
                             const newGlobal = globalUserAny && typeof globalUserAny === 'object' ? { ...globalUserAny } : {};
 
                             // Always read the current merged counts from the per-guild file to ensure data consistency
+                            // Await once and provide a safe default to avoid possible null accesses
+                            const existingCounts = (await database.get<UserCounts>(
+                                guildId,
+                                `Guild/${guildId}/User/${userId}`,
+                                { totalMessages: 0, linkMessages: 0, mediaMessages: 0 }
+                            )) ?? { totalMessages: 0, linkMessages: 0, mediaMessages: 0 };
+
                             const currentCounts = {
-                                totalMessages: (await database.get<UserCounts>(guildId, `Guild/${guildId}/User/${userId}`, { totalMessages: 0, linkMessages: 0, mediaMessages: 0 })).totalMessages,
-                                linkMessages: (await database.get<UserCounts>(guildId, `Guild/${guildId}/User/${userId}`, { totalMessages: 0, linkMessages: 0, mediaMessages: 0 })).linkMessages,
-                                mediaMessages: (await database.get<UserCounts>(guildId, `Guild/${guildId}/User/${userId}`, { totalMessages: 0, linkMessages: 0, mediaMessages: 0 })).mediaMessages,
+                                totalMessages: existingCounts.totalMessages,
+                                linkMessages: existingCounts.linkMessages,
+                                mediaMessages: existingCounts.mediaMessages,
                             };
 
                             // Update the guilds breakdown with fresh data
