@@ -81,7 +81,17 @@ export function createAuthRoutes(
             res.setHeader('Pragma', 'no-cache');
             res.setHeader('Expires', '0');
             res.setHeader('Surrogate-Control', 'no-store');
+
             const sessionId = req.cookies?.sessionId;
+
+            // DEBUG: log incoming cookies and session table keys to help diagnose "Session not found" issues
+            try {
+                console.info('[DEBUG][/api/auth/session] incoming Cookie header:', req.headers['cookie']);
+                console.info('[DEBUG][/api/auth/session] parsed sessionId cookie:', sessionId);
+                console.info('[DEBUG][/api/auth/session] sessions keys:', Array.from(sessions.keys()).slice(0,50));
+            } catch (dbgErr) {
+                console.warn('[DEBUG][/api/auth/session] failed to log debug info', dbgErr);
+            }
 
             if (!sessionId) {
                 res.status(401).json({ authenticated: false });
@@ -260,7 +270,7 @@ export function createAuthRoutes(
                 let level = 0;
                 try {
                     // サーバー設定取得
-                    const settings = await database.get(g.id, 'guild_settings');
+                    const settings = await database.get(g.id, `Guild/${g.id}/settings`);
                     // メンバー情報取得
                     const memberResp = await fetch(`https://discord.com/api/guilds/${g.id}/members/${userData.id}`, {
                         headers: { Authorization: `Bot ${botClient.token}` }

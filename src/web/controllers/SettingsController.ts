@@ -31,7 +31,7 @@ export class SettingsController {
             return;
         }
         try {
-            const settings = await database.get<GuildSettings>(guildId, 'guild_settings');
+            const settings = await database.get<GuildSettings>(guildId, `Guild/${guildId}/settings`);
             res.json(settings || {
                 guildId,
                 staffRoleId: null,
@@ -49,7 +49,7 @@ export class SettingsController {
      */
     async saveSettings(req: Request, res: Response): Promise<void> {
         const session = (req as any).session as SettingsSession;
-        const { staffRoleId, adminRoleId, guildId: bodyGuildId } = req.body;
+    const { staffRoleId, guildId: bodyGuildId } = req.body;
         const guildId = bodyGuildId || req.query.guildId || req.params?.guildId || session.guildId;
         if (!guildId) {
             res.status(400).json({ error: 'guildId is required' });
@@ -63,19 +63,23 @@ export class SettingsController {
         } else if (session.permission !== undefined) {
             level = session.permission;
         }
-        if (level < 2) {
-            res.status(403).json({ error: '管理者権限がありません' });
+        // Only staff (level >= 1) can update the staff role. Admin role cannot be changed via this API.
+        if (level < 1) {
+            res.status(403).json({ error: '権限がありません' });
             return;
         }
         try {
+            // Fetch existing settings to preserve adminRoleId and other fields
+            const existing = await database.get<GuildSettings>(guildId, `Guild/${guildId}/settings`);
             const settings: GuildSettings = {
                 guildId,
-                staffRoleId: staffRoleId || undefined,
-                adminRoleId: adminRoleId || undefined,
+                staffRoleId: staffRoleId || existing?.staffRoleId || undefined,
+                // adminRoleId is intentionally preserved from existing settings and cannot be modified here
+                adminRoleId: existing?.adminRoleId || undefined,
                 updatedAt: Date.now(),
             };
-            await database.set(guildId, 'guild_settings', settings);
-            console.log(`設定を保存しました: Guild=${guildId}, Staff=${staffRoleId}, Admin=${adminRoleId}`);
+            await database.set(guildId, `Guild/${guildId}/settings`, settings);
+            console.log(`設定を保存しました: Guild=${guildId}, Staff=${staffRoleId}`);
             res.json({ success: true });
         } catch (error) {
             console.error('設定の保存に失敗:', error);

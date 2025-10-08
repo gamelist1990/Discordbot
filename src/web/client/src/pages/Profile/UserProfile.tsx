@@ -79,7 +79,8 @@ const UserProfile: React.FC<UserProfileProps> = ({ user, onLoginClick }) => {
 
                 // For each guild, try to fetch authoritative mod stats and merge
                 try {
-                    const guilds = data.guilds || [];
+                    // Normalize guilds to an array in case server returns unexpected type
+                    const guilds = Array.isArray(data.guilds) ? data.guilds : [];
                     const updatedGuilds = await Promise.all(guilds.map(async (g: GuildStats) => {
                         try {
                             const r = await fetch(`/api/guilds/${g.id}/modinfo`, { credentials: 'include' });
@@ -102,10 +103,10 @@ const UserProfile: React.FC<UserProfileProps> = ({ user, onLoginClick }) => {
                     }));
 
                     // compute totals from updatedGuilds
-                    const totals = updatedGuilds.reduce((acc, cur) => {
-                        acc.totalMessages += cur.totalMessages || 0;
-                        acc.totalLinks += cur.linkMessages || 0;
-                        acc.totalMedia += cur.mediaMessages || 0;
+                    const totals = (Array.isArray(updatedGuilds) ? updatedGuilds : []).reduce((acc, cur) => {
+                        acc.totalMessages += (cur && cur.totalMessages) ? cur.totalMessages : 0;
+                        acc.totalLinks += (cur && cur.linkMessages) ? cur.linkMessages : 0;
+                        acc.totalMedia += (cur && cur.mediaMessages) ? cur.mediaMessages : 0;
                         return acc;
                     }, { totalMessages: 0, totalLinks: 0, totalMedia: 0 });
 

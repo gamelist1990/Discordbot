@@ -18,8 +18,10 @@ export function createSessionRoutes(
     // トークンの検証
     router.get('/validate/:token', controller.validateToken.bind(controller));
 
-    // ギルド情報の取得
-    router.get('/guild/:token', auth.validateToken, controller.getGuild.bind(controller));
+    // ギルド情報の取得（トークン指定）
+    // NOTE: 以前は '/guild/:token' でしたが、同パスが別ルートと衝突するため
+    // 明示的に '/session/guild/:token' に移動しました。
+    router.get('/session/guild/:token', auth.validateToken, controller.getGuild.bind(controller));
 
     return router;
 }

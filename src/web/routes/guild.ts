@@ -56,17 +56,27 @@ export function createGuildRoutes(sessions: Map<string, SettingsSession>, botCli
             return;
         }
 
-        // サーバー設定取得
+        // サーバー設定取得 (新しいレイアウト: Data/Guild/<guildId>/settings.json)
         let settings = null;
         try {
-            settings = await database.get(guildId, 'guild_settings');
+            settings = await database.get(guildId, `Guild/${guildId}/settings`);
         } catch {}
+
+        // マップ可能なロール情報をクライアント向けに整形
+        let roles: Array<{ id: string; name: string; color: number; position: number }> = [];
+        try {
+            const roleCollection = (guild.roles && guild.roles.cache) ? Array.from(guild.roles.cache.values()) : [];
+            roles = roleCollection.map((r: any) => ({ id: r.id, name: r.name, color: r.color ?? 0, position: r.position ?? 0 }));
+        } catch (e) {
+            roles = [];
+        }
 
         res.json({
             id: guild.id,
             name: guild.name,
-            icon: guild.icon ? `https://cdn.discordapp.com/icons/${guild.id}/${guild.icon}.png` : null,
+            iconURL: guild.icon ? `https://cdn.discordapp.com/icons/${guild.id}/${guild.icon}.png` : null,
             memberCount: guild.memberCount,
+            roles,
             settings: settings || null
         });
     });

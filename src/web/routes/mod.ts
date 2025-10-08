@@ -24,10 +24,27 @@ export function createModRoutes(sessions: Map<string, SettingsSession>, botClien
             if (typeof session.permission === 'number' && session.permission >= PermissionLevel.STAFF) {
                 allowed = true;
             } else {
-                // check guild membership for this session user
+                // check guild membership and persistent settings for this session user
                 try {
                     const member = await guild.members.fetch(session.userId).catch(() => null);
-                    if (member) allowed = true;
+                    if (member) {
+                        // load persisted settings to detect staff/admin roles
+                        try {
+                            const settings = await database.get<any>(guildId, `Guild/${guildId}/settings`);
+                            if (settings) {
+                                if (settings.adminRoleId && member.roles.cache.has(settings.adminRoleId)) {
+                                    allowed = true;
+                                } else if (settings.staffRoleId && member.roles.cache.has(settings.staffRoleId)) {
+                                    allowed = true;
+                                }
+                            }
+                        } catch (e) {
+                            // ignore settings load errors
+                        }
+
+                        // if still not allowed, fall back to allowing any member (legacy behavior)
+                        if (!allowed) allowed = true;
+                    }
                 } catch (e) {
                     // fallback: not allowed
                 }
@@ -122,7 +139,24 @@ export function createModRoutes(sessions: Map<string, SettingsSession>, botClien
             } else {
                 try {
                     const m = await guild.members.fetch(session.userId).catch(() => null);
-                    if (m) allowedMember = true;
+                    if (m) {
+                        // check persisted settings for staff/admin roles
+                        try {
+                            const settings = await database.get<any>(guildId, `Guild/${guildId}/settings`);
+                            if (settings) {
+                                if (settings.adminRoleId && m.roles.cache.has(settings.adminRoleId)) {
+                                    allowedMember = true;
+                                } else if (settings.staffRoleId && m.roles.cache.has(settings.staffRoleId)) {
+                                    allowedMember = true;
+                                }
+                            }
+                        } catch (e) {
+                            // ignore settings load errors
+                        }
+
+                        // legacy fallback: allow members
+                        if (!allowedMember) allowedMember = true;
+                    }
                 } catch (e) {
                     // ignore
                 }
