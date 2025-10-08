@@ -31,6 +31,7 @@ interface ActivityData {
         date: string;
         messages: number;
     }>;
+    hasTimestampData?: boolean;
 }
 
 interface UserProfile {
@@ -222,10 +223,43 @@ const UserProfile: React.FC<UserProfileProps> = ({ user, onLoginClick }) => {
 
     useEffect(() => {
         if (profileData) {
-            const activity = calculateActivityData(profileData);
-            setActivityData(activity);
+            // Try to fetch real timestamp-based activity data from API
+            fetchActivityData();
         }
     }, [profileData]);
+
+    const fetchActivityData = async () => {
+        try {
+            const response = await fetch('/api/user/activity', { credentials: 'include' });
+            if (response.ok) {
+                const data = await response.json();
+                
+                // Find most active guild
+                const guilds = profileData?.guilds || [];
+                const mostActiveGuild = guilds.reduce((prev, current) => {
+                    return (current.totalMessages > (prev?.totalMessages || 0)) ? current : prev;
+                }, guilds[0] || null);
+
+                setActivityData({
+                    ...data,
+                    mostActiveGuild: mostActiveGuild ? {
+                        id: mostActiveGuild.id,
+                        name: mostActiveGuild.name,
+                        messages: mostActiveGuild.totalMessages
+                    } : undefined
+                });
+            } else {
+                // Fallback to calculation if API fails
+                const activity = calculateActivityData(profileData!);
+                setActivityData(activity);
+            }
+        } catch (error) {
+            console.error('Failed to fetch activity data:', error);
+            // Fallback to calculation
+            const activity = calculateActivityData(profileData!);
+            setActivityData(activity);
+        }
+    };
 
 
     if (loading) {
@@ -515,6 +549,11 @@ const UserProfile: React.FC<UserProfileProps> = ({ user, onLoginClick }) => {
                                     </div>
                                     <p className={styles.frequencyDesc}>
                                         1日平均 <strong>{activityData.weeklyAverage.toFixed(1)}</strong> メッセージ
+                                        {activityData.hasTimestampData && (
+                                            <span className={styles.timestampBadge} title="実際のメッセージタイムスタンプに基づいた正確なデータ">
+                                                ✓ リアルタイムデータ
+                                            </span>
+                                        )}
                                     </p>
                                 </div>
 
