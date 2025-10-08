@@ -449,7 +449,264 @@
 
 .activityContent,
 .settingsContent {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+}
+
+.activityLoading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 60px 20px;
+    gap: 16px;
+}
+
+/* Frequency Card */
+.frequencyCard {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border-radius: 12px;
+    padding: 24px;
+    color: white;
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+}
+
+.frequencyHeader {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.frequencyHeader .material-icons {
+    font-size: 32px;
+}
+
+.frequencyHeader h3 {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 500;
+}
+
+.frequencyBadge {
+    display: inline-block;
+    padding: 12px 24px;
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 24px;
+    font-size: 18px;
+    font-weight: 600;
+    margin-bottom: 12px;
+    backdrop-filter: blur(10px);
+}
+
+.frequencyDesc {
+    margin: 0;
+    font-size: 14px;
+    opacity: 0.9;
+}
+
+.frequencyDesc strong {
+    font-size: 18px;
+    font-weight: 600;
+}
+
+/* Period Stats */
+.periodStats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 16px;
+}
+
+.periodCard {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 20px;
+    background: #F8F9FA;
+    border-radius: 8px;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.periodCard:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(60,64,67,0.15);
+}
+
+.periodIcon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 56px;
+    height: 56px;
+    background: white;
+    border-radius: 50%;
+    color: #4285F4;
+}
+
+.periodIcon .material-icons {
+    font-size: 32px;
+}
+
+.periodData h4 {
+    margin: 0 0 4px 0;
+    font-size: 14px;
+    color: #5F6368;
+    font-weight: 400;
+}
+
+.periodValue {
+    margin: 4px 0;
+    font-size: 28px;
+    font-weight: 500;
+    color: #202124;
+}
+
+.periodLabel {
+    font-size: 12px;
+    color: #5F6368;
+}
+
+/* Activity Chart */
+.activityChart {
+    background: #F8F9FA;
+    border-radius: 8px;
+    padding: 24px;
+}
+
+.activityChart h3 {
+    margin: 0 0 20px 0;
+    font-size: 16px;
+    font-weight: 500;
+    color: #202124;
+}
+
+.chartBars {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-around;
+    gap: 8px;
+    height: 200px;
     padding: 20px 0;
+}
+
+.chartBar {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    flex: 1;
+    gap: 8px;
+}
+
+.bar {
+    position: relative;
+    width: 100%;
+    max-width: 60px;
+    background: linear-gradient(to top, #4285F4, #667eea);
+    border-radius: 4px 4px 0 0;
+    min-height: 20px;
+    transition: all 0.3s ease;
+    cursor: pointer;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding-top: 4px;
+}
+
+.bar:hover {
+    opacity: 0.8;
+    transform: scaleY(1.05);
+}
+
+.barValue {
+    font-size: 11px;
+    font-weight: 600;
+    color: white;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.2);
+}
+
+.barLabel {
+    font-size: 11px;
+    color: #5F6368;
+    text-align: center;
+}
+
+/* Most Active Server */
+.mostActiveServer {
+    background: #F8F9FA;
+    border-radius: 8px;
+    padding: 24px;
+}
+
+.mostActiveServer h3 {
+    margin: 0 0 16px 0;
+    font-size: 16px;
+    font-weight: 500;
+    color: #202124;
+}
+
+.activeServerCard {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 20px;
+    background: white;
+    border-radius: 8px;
+    border: 2px solid #FBBC04;
+    box-shadow: 0 2px 8px rgba(251, 188, 4, 0.2);
+}
+
+.activeServerCard .material-icons {
+    font-size: 40px;
+    color: #FBBC04;
+}
+
+.serverInfo h4 {
+    margin: 0 0 4px 0;
+    font-size: 16px;
+    font-weight: 500;
+    color: #202124;
+}
+
+.serverInfo p {
+    margin: 0;
+    font-size: 14px;
+    color: #5F6368;
+}
+
+/* Average Stats */
+.averageStats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 16px;
+}
+
+.avgCard {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 20px;
+    background: #F8F9FA;
+    border-radius: 8px;
+}
+
+.avgCard .material-icons {
+    font-size: 32px;
+    color: #4285F4;
+}
+
+.avgCard h4 {
+    margin: 0 0 4px 0;
+    font-size: 14px;
+    color: #5F6368;
+    font-weight: 400;
+}
+
+.avgCard p {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 500;
+    color: #202124;
 }
 
 .infoCard {
@@ -522,6 +779,22 @@
     
     .guildsGrid {
         grid-template-columns: 1fr;
+    }
+
+    .periodStats {
+        grid-template-columns: 1fr;
+    }
+
+    .averageStats {
+        grid-template-columns: 1fr;
+    }
+
+    .chartBars {
+        height: 150px;
+    }
+
+    .bar {
+        max-width: 40px;
     }
 }
 
