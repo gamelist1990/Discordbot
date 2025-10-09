@@ -8,6 +8,7 @@ export interface AppConfig {
     BASE_URL?: string;
     NODE_ENV?: string;
     DEBUG?: string;
+    brave?: string;
     WEB_BASE_URL?: string;
     openai?: {
         apiKey: string;
@@ -44,6 +45,7 @@ export const config: Required<AppConfig> = {
     BASE_URL: raw.BASE_URL || 'http://localhost:3000',
     NODE_ENV: raw.NODE_ENV || 'development',
     DEBUG: raw.DEBUG || 'false',
+    brave: raw.brave || '',
     WEB_BASE_URL: raw.WEB_BASE_URL || raw.BASE_URL || 'http://localhost:3000',
     openai: {
         apiKey: raw.openai?.apiKey || '',

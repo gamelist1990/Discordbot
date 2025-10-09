@@ -66,6 +66,11 @@ export const subcommandHandler = {
 
         // 安全なレスポンス関数: interaction が期限切れの場合は followUp、さらに失敗したらチャンネルに直接送信してフォールバックする
         async function safeRespond(payload: { content?: string; files?: any[]; ephemeral?: boolean }) {
+            // contentが空の場合はデフォルトメッセージを設定
+            if (!payload.content || payload.content.trim() === '') {
+                payload.content = '（応答が空でした）';
+            }
+
             try {
                 // まず編集を試みる（既に返信がある想定）
                 await interaction.editReply({ content: payload.content, files: payload.files });
@@ -292,23 +297,41 @@ export const subcommandHandler = {
         let interactionExpired = false;
 
         try {
-            // ストリーミングレスポンスを追加
-            await chatManager.streamMessage(
-                messages,
-                (chunk: OpenAIChatCompletionChunk) => {
-                    if (chunk.choices[0]?.delta?.content) {
-                        responseContent += chunk.choices[0].delta.content;
+            // ストリーミングレスポンスを追加（まず GPT-4o を試す）
+            let modelToUse = 'gpt-4o';
 
-                        // 定期的にメッセージを更新（インタラクションが有効な場合のみ）
-                        const now = Date.now();
-                        if (now - lastUpdateTime >= UPDATE_INTERVAL && !interactionExpired) {
-                            lastUpdateTime = now;
-                            updateDiscordMessage(interaction, formatResponse(responseContent));
+            const attemptStream = async (model: string) => {
+                await chatManager.streamMessage(
+                    messages,
+                    (chunk: OpenAIChatCompletionChunk) => {
+                        if (chunk.choices[0]?.delta?.content) {
+                            responseContent += chunk.choices[0].delta.content;
+
+                            // 定期的にメッセージを更新（インタラクションが有効な場合のみ）
+                            const now = Date.now();
+                            if (now - lastUpdateTime >= UPDATE_INTERVAL && !interactionExpired) {
+                                lastUpdateTime = now;
+                                updateDiscordMessage(interaction, formatResponse(responseContent));
+                            }
                         }
-                    }
-                },
-                { temperature: 0.7 } // オプションの設定
-            );
+                    },
+                    { temperature: 0.7, model: model }
+                );
+            };
+
+            try {
+                await attemptStream(modelToUse);
+            } catch (error: any) {
+                if (error.message.includes('RateLimitReached') && modelToUse === 'gpt-4o') {
+                    console.log('GPT-4o がレート制限に達したため、GPT-4o-mini に切り替え');
+                    modelToUse = 'gpt-4o-mini';
+                    responseContent = ''; // レスポンスをリセット
+                    lastUpdateTime = Date.now();
+                    await attemptStream(modelToUse);
+                } else {
+                    throw error; // 再スロー
+                }
+            }
 
             // 完了としてマーク
             isCompleted = true;
@@ -323,24 +346,30 @@ export const subcommandHandler = {
         } catch (error) {
             console.error('AIストリームでエラーが発生:', error);
 
+            // OpenAIのレート制限エラーを検知して適切なメッセージを表示
+            let errorMessage = '❌ リクエストの処理中にエラーが発生しました。';
+            if (error instanceof Error && error.message.includes('RateLimitReached')) {
+                errorMessage = '⚠️ OpenAIのレート制限に達しました。1日あたり50リクエストの制限を超えています。しばらく待ってから再試行してください。';
+            }
+
             // インタラクションが無効になった場合のエラーハンドリング
             if (error instanceof DiscordAPIError && error.code === 10062) {
                 interactionExpired = true;
                 try {
-                    await safeRespond({ content: `❌ インタラクションがタイムアウトしました。最終結果:\n\n${formatResponse(responseContent, true)}`, ephemeral: true });
+                    await safeRespond({ content: `${errorMessage}\n\n最終結果:\n\n${formatResponse(responseContent, true)}`, ephemeral: true });
                 } catch (followUpError) {
                     console.error('safeRespond エラー:', followUpError);
                 }
             } else {
                 if (!interactionExpired) {
                     try {
-                        await safeRespond({ content: '❌ リクエストの処理中にエラーが発生しました。' });
+                        await safeRespond({ content: errorMessage });
                     } catch (e) {
                         console.error('safeRespond エラー:', e);
                     }
                 } else {
                     try {
-                        await safeRespond({ content: '❌ リクエストの処理中にエラーが発生しました。', ephemeral: true });
+                        await safeRespond({ content: errorMessage, ephemeral: true });
                     } catch (e) {
                         console.error('safeRespond エラー:', e);
                     }
