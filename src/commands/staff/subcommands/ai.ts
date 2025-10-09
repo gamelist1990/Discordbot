@@ -2,7 +2,8 @@
 import { ChatInputCommandInteraction, MessageFlags, DiscordAPIError } from 'discord.js';
 import { OpenAIChatManager } from '../../../core/OpenAIChatManager';
 import { OpenAIChatCompletionMessage, OpenAIChatCompletionChunk } from '../../../types/openai';
-import { statusToolDefinition, statusToolHandler } from './ai-tools';
+import { statusToolDefinition, statusToolHandler, weatherToolDefinition, weatherToolHandler, timeToolDefinition, timeToolHandler } from './ai-tools';
+import { PdfRAGManager } from '../../../core/PdfRAGManager';
 
 // レート制限の設定
 const userRateLimits = new Map<string, { lastUsed: number, count: number }>();
@@ -31,7 +32,7 @@ export const subcommandHandler = {
                     .setDescription('添付ファイル (JSON, text, JS, TSなど。動画は未対応)')
                     .setRequired(false)
             )
-            
+
             .addStringOption((opt: any) =>
                 opt.setName('system_prompt')
                     .setDescription('（任意）システムプロンプトを追加・上書きします（安全性のためサニタイズされます）')
@@ -47,19 +48,49 @@ export const subcommandHandler = {
 
     async execute(interaction: ChatInputCommandInteraction): Promise<void> {
         const userId = interaction.user.id;
-        
+
         // レート制限のチェック
         if (isRateLimited(userId)) {
-            await interaction.reply({ 
-                content: '⚠️ レート制限に達しました。しばらく待ってから再試行してください。', 
-                flags: MessageFlags.Ephemeral 
+            await interaction.reply({
+                content: '⚠️ レート制限に達しました。しばらく待ってから再試行してください。',
+                flags: MessageFlags.Ephemeral
             });
             return;
         }
-        
+
         const prompt = interaction.options.getString('prompt', true);
         const attachment = interaction.options.getAttachment('attachment');
-        
+
+        // prompt と attachment を受け取ったらすぐに defer してインタラクションの期限切れを防止
+        await interaction.deferReply();
+
+        // 安全なレスポンス関数: interaction が期限切れの場合は followUp、さらに失敗したらチャンネルに直接送信してフォールバックする
+        async function safeRespond(payload: { content?: string; files?: any[]; ephemeral?: boolean }) {
+            try {
+                // まず編集を試みる（既に返信がある想定）
+                await interaction.editReply({ content: payload.content, files: payload.files });
+                return;
+            } catch (err: any) {
+                // Unknown interaction や期限切れの場合、followUp かチャンネル送信でフォールバック
+                try {
+                    await interaction.followUp({ content: payload.content || '', files: payload.files, ephemeral: payload.ephemeral });
+                    return;
+                } catch (followErr: any) {
+                    // 最終フォールバック: チャンネルに直接送信（パブリック）
+                    try {
+                        const channel = interaction.channel;
+                        if (channel && 'send' in channel) {
+                            // @ts-ignore send exists
+                            await (channel as any).send({ content: payload.content || '', files: payload.files });
+                            return;
+                        }
+                    } catch (chErr: any) {
+                        console.error('safeRespond: final channel send failed', chErr);
+                    }
+                }
+            }
+        }
+
         // 会話履歴の取得と処理
         let conversationHistory: string = '';
         try {
@@ -69,7 +100,7 @@ export const subcommandHandler = {
                     .filter(msg => msg.createdTimestamp > Date.now() - 3600000) // 1時間以内のメッセージ
                     .sort((a, b) => a.createdTimestamp - b.createdTimestamp)
                     .slice(-20); // 最新20件
-                
+
                 // 最新の会話履歴を取得して含める（連続投稿が5件必要、という厳しい条件は廃止）
                 // 過度に長くならないよう、最大メッセージ数と最大文字数で切り詰める
                 const MAX_HISTORY_MESSAGES = 10;
@@ -92,25 +123,51 @@ export const subcommandHandler = {
             console.error('会話履歴の取得中にエラーが発生:', error);
             // エラーが発生しても続行
         }
-        
+
         // 添付ファイルの処理
         let attachmentContent: string | any[] | null = null;
+        const rag = new PdfRAGManager();
         if (attachment) {
             // 動画ファイルのチェック
             if (attachment.contentType?.startsWith('video/')) {
-                await interaction.reply({ 
-                    content: '❌ 動画ファイルは未対応です。JSON、テキスト、JS、TS、画像ファイルのみ対応しています。', 
-                    flags: MessageFlags.Ephemeral 
-                });
+                await safeRespond({ content: '❌ 動画ファイルは未対応です。JSON、テキスト、JS、TS、画像ファイルのみ対応しています。', ephemeral: true });
                 return;
             }
-            
+
             // 画像ファイルの場合
             if (attachment.contentType?.startsWith('image/')) {
                 attachmentContent = [
                     { type: 'text', text: `添付画像: ${attachment.name}` },
                     { type: 'image_url', image_url: { url: attachment.url, detail: 'auto' } }
                 ];
+            }
+            // PDFファイルの場合 — RAG フローで扱う
+            else if (attachment.contentType === 'application/pdf' || attachment.name?.toLowerCase().endsWith('.pdf')) {
+                try {
+                    const resp = await fetch(attachment.url);
+                    if (!resp.ok) throw new Error(`Failed to fetch PDF: ${resp.status}`);
+                    const arrayBuffer = await resp.arrayBuffer();
+                    const buffer = Buffer.from(arrayBuffer);
+
+                    // Index the PDF (idempotent: re-index will replace existing entries for same file hash)
+                    const { fileId, chunksIndexed } = await rag.indexPdfBuffer(buffer);
+                    console.info(`Indexed PDF ${attachment.name} -> ${chunksIndexed} chunks (fileId=${fileId})`);
+
+                    // Query relevant chunks for current prompt
+                    const relevant = await rag.queryRelevant(prompt, 3);
+                    if (relevant && relevant.length > 0) {
+                        // プレフィックスとして関連チャンクを挿入
+                        const ragText = relevant.map(r => `【関連】(score:${r.score.toFixed(3)}) ${r.text}`).join('\n\n');
+                        attachmentContent = `添付PDF (${attachment.name}) の関連情報:
+\n${ragText}`;
+                    } else {
+                        attachmentContent = `添付PDF (${attachment.name}): (関連情報なし)`;
+                    }
+                } catch (err) {
+                    console.error('PDF RAG 処理エラー:', err);
+                    await safeRespond({ content: '❌ 添付PDFの処理中にエラーが発生しました。', ephemeral: true });
+                    return;
+                }
             } else {
                 // テキストベースのファイルの場合
                 try {
@@ -120,39 +177,35 @@ export const subcommandHandler = {
                         throw new Error(`Failed to fetch attachment: ${response.status}`);
                     }
                     const content = await response.text();
-                    
+
                     // サイズチェック（トークン制限を避けるため）
                     if (content.length > 10000) { // 約10KB
-                        await interaction.reply({ 
-                            content: '❌ 添付ファイルが大きすぎます。10KB以内のファイルのみ対応しています。', 
-                            flags: MessageFlags.Ephemeral 
+                        await interaction.reply({
+                            content: '❌ 添付ファイルが大きすぎます。10KB以内のファイルのみ対応しています。',
+                            flags: MessageFlags.Ephemeral
                         });
                         return;
                     }
-                    
+
                     attachmentContent = `添付ファイル (${attachment.name}):\n\`\`\`\n${content}\n\`\`\``;
                 } catch (error) {
                     console.error('添付ファイルのダウンロード中にエラーが発生:', error);
-                    await interaction.reply({ 
-                        content: '❌ 添付ファイルの処理中にエラーが発生しました。', 
-                        flags: MessageFlags.Ephemeral 
-                    });
+                    await safeRespond({ content: '❌ 添付ファイルの処理中にエラーが発生しました。', ephemeral: true });
                     return;
                 }
             }
         }
-        
-        // 応答を遅延して処理中であることを示す
-        await interaction.deferReply();
-        
+
         const chatManager = new OpenAIChatManager();
-        
+
         // ツールを登録
         chatManager.registerTool(statusToolDefinition, statusToolHandler);
-        
+        chatManager.registerTool(weatherToolDefinition, weatherToolHandler);
+        chatManager.registerTool(timeToolDefinition, timeToolHandler);
+
         // ツール実行時のコンテキストとして interaction を設定
         chatManager.setToolContext(interaction);
-        
+
         // カスタム system prompt と安全化オプションの取得
         const userSystemPrompt = interaction.options.getString('system_prompt', false);
         const safetyOverride = interaction.options.getBoolean('safety', false);
@@ -220,11 +273,10 @@ export const subcommandHandler = {
             ...historyMessages,
             { role: 'user', content: userContentText }
         ];
-        
+
         // 添付ファイルの内容を追加
         if (attachment && attachmentContent) {
             if (Array.isArray(attachmentContent)) {
-                // 画像の場合は、プロンプトに添付情報を付ける形で別 user メッセージを追加
                 const imagePart = attachmentContent[1];
                 messages.push({ role: 'user', content: `[添付画像: ${imagePart.image_url?.url || 'image'}]` });
             } else {
@@ -232,13 +284,13 @@ export const subcommandHandler = {
                 messages.push({ role: 'user', content: attachmentContent });
             }
         }
-        
+
         // レスポンスを蓄積
         let responseContent = '';
         let lastUpdateTime = Date.now();
         let isCompleted = false;
         let interactionExpired = false;
-        
+
         try {
             // ストリーミングレスポンスを追加
             await chatManager.streamMessage(
@@ -246,7 +298,7 @@ export const subcommandHandler = {
                 (chunk: OpenAIChatCompletionChunk) => {
                     if (chunk.choices[0]?.delta?.content) {
                         responseContent += chunk.choices[0].delta.content;
-                        
+
                         // 定期的にメッセージを更新（インタラクションが有効な場合のみ）
                         const now = Date.now();
                         if (now - lastUpdateTime >= UPDATE_INTERVAL && !interactionExpired) {
@@ -257,57 +309,52 @@ export const subcommandHandler = {
                 },
                 { temperature: 0.7 } // オプションの設定
             );
-            
+
             // 完了としてマーク
             isCompleted = true;
-            
+
             // コードブロックを検知してファイル化
             const { cleanedResponse, codeFiles } = processCodeBlocks(responseContent);
-            
+
             // 最終的な完全なレスポンスで更新（インタラクションが有効な場合のみ）
-            if (!interactionExpired) {
-                await interaction.editReply({
-                    content: cleanedResponse,
-                    files: codeFiles.length > 0 ? codeFiles : undefined
-                });
-            } else {
-                // インタラクションが無効になった場合はフォローアップ
-                await interaction.followUp({
-                    content: cleanedResponse,
-                    files: codeFiles.length > 0 ? codeFiles : undefined,
-                    ephemeral: true
-                });
-            }
-            
+            // 完了レスポンスを安全に送信（期限切れ等は safeRespond がフォールバックする）
+            await safeRespond({ content: cleanedResponse, files: codeFiles.length > 0 ? codeFiles : undefined, ephemeral: interactionExpired });
+
         } catch (error) {
             console.error('AIストリームでエラーが発生:', error);
-            
+
             // インタラクションが無効になった場合のエラーハンドリング
             if (error instanceof DiscordAPIError && error.code === 10062) {
                 interactionExpired = true;
                 try {
-                    await interaction.followUp({
-                        content: `❌ インタラクションがタイムアウトしました。最終結果:\n\n${formatResponse(responseContent, true)}`,
-                        ephemeral: true
-                    });
+                    await safeRespond({ content: `❌ インタラクションがタイムアウトしました。最終結果:\n\n${formatResponse(responseContent, true)}`, ephemeral: true });
                 } catch (followUpError) {
-                    console.error('フォローアップ送信エラー:', followUpError);
+                    console.error('safeRespond エラー:', followUpError);
                 }
             } else {
                 if (!interactionExpired) {
-                    await interaction.editReply('❌ リクエストの処理中にエラーが発生しました。');
+                    try {
+                        await safeRespond({ content: '❌ リクエストの処理中にエラーが発生しました。' });
+                    } catch (e) {
+                        console.error('safeRespond エラー:', e);
+                    }
                 } else {
-                    await interaction.followUp({
-                        content: '❌ リクエストの処理中にエラーが発生しました。',
-                        ephemeral: true
-                    });
+                    try {
+                        await safeRespond({ content: '❌ リクエストの処理中にエラーが発生しました。', ephemeral: true });
+                    } catch (e) {
+                        console.error('safeRespond エラー:', e);
+                    }
                 }
             }
         }
-        
+
         // 何らかの理由で完了せずに終了した場合、現在の内容で更新
         if (!isCompleted && !interactionExpired) {
-            await interaction.editReply(formatResponse(responseContent, true));
+            try {
+                await safeRespond({ content: formatResponse(responseContent, true) });
+            } catch (e) {
+                console.error('safeRespond エラー:', e);
+            }
         }
     }
 };
@@ -316,17 +363,17 @@ export const subcommandHandler = {
 function formatResponse(response: string, isComplete = false): string {
     // 回答だけを表示
     let formattedMessage = response;
-    
+
     // 完了していない場合は入力インジケータを追加
     if (!isComplete) {
         formattedMessage += '▌'; // 入力カーソルインジケータ
     }
-    
+
     // Discordのメッセージ長制限を処理
     if (formattedMessage.length > 1950) {
         return formattedMessage.substring(0, 1950) + '...\n\n(内容が長すぎるため切り詰められました)';
     }
-    
+
     return formattedMessage;
 }
 
@@ -342,24 +389,24 @@ function updateDiscordMessage(interaction: ChatInputCommandInteraction, content:
 function isRateLimited(userId: string): boolean {
     const now = Date.now();
     const userLimit = userRateLimits.get(userId);
-    
+
     if (!userLimit) {
         // このユーザーからの最初のリクエスト
         userRateLimits.set(userId, { lastUsed: now, count: 1 });
         return false;
     }
-    
+
     if (now - userLimit.lastUsed > RATE_LIMIT_WINDOW) {
         // ウィンドウ外の場合はリセット
         userRateLimits.set(userId, { lastUsed: now, count: 1 });
         return false;
     }
-    
+
     // ウィンドウ内の場合、カウントをインクリメントして制限をチェック
     userLimit.count += 1;
     userLimit.lastUsed = now;
     userRateLimits.set(userId, userLimit);
-    
+
     return userLimit.count > MAX_REQUESTS_PER_WINDOW;
 }
 
@@ -370,32 +417,32 @@ function processCodeBlocks(response: string): { cleanedResponse: string, codeFil
     let cleanedResponse = response;
     let match;
     let index = 0;
-    
+
     while ((match = codeBlockRegex.exec(response)) !== null) {
         const language = match[1] || 'txt';
         const code = match[2];
-        
+
         // ファイル拡張子を決定
         const extension = getFileExtension(language);
         const fileName = `code_${index + 1}.${extension}`;
-        
+
         // ファイルをBufferとして作成
         const buffer = Buffer.from(code, 'utf-8');
         codeFiles.push({
             attachment: buffer,
             name: fileName
         });
-        
+
         // 応答からコードブロックを除去
         cleanedResponse = cleanedResponse.replace(match[0], `\n[コードファイル: ${fileName}]\n`);
         index++;
     }
-    
+
     // コードブロックがない場合は元の応答を返す
     if (codeFiles.length === 0) {
         return { cleanedResponse: formatResponse(response, true), codeFiles: [] };
     }
-    
+
     return { cleanedResponse: formatResponse(cleanedResponse, true), codeFiles };
 }
 
@@ -427,7 +474,7 @@ function getFileExtension(language: string): string {
         powershell: 'ps1',
         dockerfile: 'dockerfile'
     };
-    
+
     return extensions[language.toLowerCase()] || 'txt';
 }
 

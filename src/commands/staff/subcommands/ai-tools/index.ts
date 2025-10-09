@@ -5,3 +5,5 @@
  */
 
 export { statusToolDefinition, statusToolHandler } from './status';
+export { weatherToolDefinition, weatherToolHandler } from './weather';
+export { timeToolDefinition, timeToolHandler } from './time';

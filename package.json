@@ -11,12 +11,14 @@
   "dependencies": {
     "@google/genai": "^0.7.0",
     "@material/web": "^2.4.0",
+    "@types/pdf-parse": "^1.1.5",
     "canvas": "^3.1.0",
     "cheerio": "^1.0.0",
     "cors": "^2.8.5",
     "discord.js": "^14.18.0",
     "express": "^5.1.0",
     "inquirer": "^12.5.0",
+    "pdf-parse": "^1.1.1",
     "sharp": "^0.34.0"
   },
   "bugs": {
