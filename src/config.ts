@@ -9,6 +9,11 @@ export interface AppConfig {
     NODE_ENV?: string;
     DEBUG?: string;
     WEB_BASE_URL?: string;
+    openai?: {
+        apiKey: string;
+        apiEndpoint: string;
+        defaultModel: string;
+    };
 }
 
 const configPath = path.resolve(__dirname, '..', 'config.json');
@@ -40,6 +45,11 @@ export const config: Required<AppConfig> = {
     NODE_ENV: raw.NODE_ENV || 'development',
     DEBUG: raw.DEBUG || 'false',
     WEB_BASE_URL: raw.WEB_BASE_URL || raw.BASE_URL || 'http://localhost:3000',
+    openai: {
+        apiKey: raw.openai?.apiKey || '',
+        apiEndpoint: raw.openai?.apiEndpoint || '',
+        defaultModel: raw.openai?.defaultModel || '',
+    },
 };
 
 
