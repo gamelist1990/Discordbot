@@ -101,43 +101,6 @@ const UserProfile: React.FC<UserProfileProps> = ({ user, onLoginClick }) => {
                 const data = await response.json();
                 setProfileData(data);
 
-                // For each guild, try to fetch authoritative mod stats and merge
-                try {
-                    // Normalize guilds to an array in case server returns unexpected type
-                    const guilds = Array.isArray(data.guilds) ? data.guilds : [];
-                    const updatedGuilds = await Promise.all(guilds.map(async (g: GuildStats) => {
-                        try {
-                            const r = await fetch(`/api/guilds/${g.id}/modinfo`, { credentials: 'include' });
-                            if (!r.ok) return g;
-                            const mod = await r.json();
-                            // if mod returns aggregates, use them
-                            if (mod && mod.guildAggregates) {
-                                return {
-                                    ...g,
-                                    totalMessages: mod.guildAggregates.totalMessages || g.totalMessages,
-                                    linkMessages: mod.guildAggregates.totalLinks || g.linkMessages,
-                                    mediaMessages: mod.guildAggregates.totalMedia || g.mediaMessages,
-                                    memberCount: mod.memberCount || g.memberCount,
-                                } as GuildStats;
-                            }
-                            return g;
-                        } catch (e) {
-                            return g;
-                        }
-                    }));
-
-                    // compute totals from updatedGuilds
-                    const totals = (Array.isArray(updatedGuilds) ? updatedGuilds : []).reduce((acc, cur) => {
-                        acc.totalMessages += (cur && cur.totalMessages) ? cur.totalMessages : 0;
-                        acc.totalLinks += (cur && cur.linkMessages) ? cur.linkMessages : 0;
-                        acc.totalMedia += (cur && cur.mediaMessages) ? cur.mediaMessages : 0;
-                        return acc;
-                    }, { totalMessages: 0, totalLinks: 0, totalMedia: 0 });
-
-                    setProfileData({ ...data, guilds: updatedGuilds, totalStats: { ...data.totalStats, totalMessages: totals.totalMessages, totalLinks: totals.totalLinks, totalMedia: totals.totalMedia } });
-                } catch (e) {
-                    // ignore per-guild merge failures
-                }
             }
         } catch (error) {
             console.error('Failed to load user profile:', error);

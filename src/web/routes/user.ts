@@ -68,12 +68,9 @@ export function createUserRoutes(
             const user = getCurrentUser(req);
 
             // デバッグログ: セッション情報とユーザー情報を出力
-            console.log('[PROFILE DEBUG] Session ID from cookie:', req.cookies?.sessionId);
-            console.log('[PROFILE DEBUG] Current user object:', JSON.stringify(user, null, 2));
-            console.log('[PROFILE DEBUG] Request session object:', JSON.stringify((req as any).session, null, 2));
+       
 
             if (!user) {
-                console.log('[PROFILE DEBUG] No user found, returning 401');
                 res.status(401).json({ error: 'Unauthorized' });
                 return;
             }
@@ -90,13 +87,7 @@ export function createUserRoutes(
                     const raw = fs.readFileSync(authPersistPath, 'utf8') || '{}';
                     const obj = JSON.parse(raw) as Record<string, any>;
                     userOauth = obj[user.userId];
-                    console.log('[PROFILE DEBUG] OAuth sessions file exists, looking for userId:', user.userId);
-                    console.log('[PROFILE DEBUG] Found OAuth data for user:', userOauth ? 'YES' : 'NO');
-                    if (userOauth) {
-                        console.log('[PROFILE DEBUG] OAuth user data keys:', Object.keys(userOauth));
-                    }
                 } else {
-                    console.log('[PROFILE DEBUG] OAuth sessions file does not exist at:', authPersistPath);
                 }
             } catch (e) {
                 console.warn('[UserProfile] Failed to read OAuth sessions from disk:', e);
@@ -296,9 +287,7 @@ export function createUserRoutes(
                 totalStats: totalStats,
             };
 
-            console.log('[PROFILE DEBUG] Returning profile for userId:', userProfile.id, 'username:', userProfile.username);
-            console.log('[PROFILE DEBUG] Profile guilds count:', userProfile.guilds.length);
-            console.log('[PROFILE DEBUG] Total stats:', userProfile.totalStats);
+         
 
             res.json(userProfile);
         } catch (error) {
