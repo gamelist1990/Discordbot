@@ -1,0 +1,107 @@
+// src/commands/staff/subcommands/ai-tools/web-search.ts
+import { OpenAITool, ToolHandler } from '../../../../types/openai';
+import config from '../../../../config';
+
+export const webSearchToolDefinition: OpenAITool = {
+    type: 'function',
+    function: {
+        name: 'web_search',
+        description: '指定したクエリでWeb検索を行い、結果を返します。最新の情報や一般知識の検索に使用してください。',
+        parameters: {
+            type: 'object',
+            properties: {
+                query: { type: 'string', description: '検索クエリ' },
+                count: { type: 'number', description: '取得する web 結果数（デフォルト: 5、最大: 20）', minimum: 1, maximum: 20 },
+                offset: { type: 'number', description: 'ページング用オフセット（0始まり、最大: 9）', minimum: 0, maximum: 9 },
+                freshness: { type: 'string', description: "絞り込み: pd|pw|pm|py または YYYY-MM-DDtoYYYY-MM-DD" },
+                safesearch: { type: 'string', description: 'safe search レベル: off | moderate | strict', enum: ['off', 'moderate', 'strict'] },
+                result_filter: { type: 'string', description: '取得する結果タイプ（カンマ区切り、例: web,news,videos）' }
+            },
+            required: ['query']
+        }
+    }
+};
+
+export const webSearchToolHandler: ToolHandler = async (args: any) => {
+    if (!args || !args.query || typeof args.query !== 'string' || args.query.trim() === '') {
+        return '検索クエリが指定されていません。';
+    }
+
+    try {
+        const apiKey = config.brave;
+        if (!apiKey) {
+            return 'Brave API key が設定されていません。管理者に設定を依頼してください。';
+        }
+
+        const q = encodeURIComponent(args.query);
+        const count = Math.min(20, Math.max(1, args.count || 5));
+        const offset = Math.min(9, Math.max(0, args.offset || 0));
+        const safesearch = args.safesearch || 'moderate';
+        const result_filter = args.result_filter;
+        const freshness = args.freshness;
+
+        const qs: string[] = [];
+        qs.push(`q=${q}`);
+        qs.push(`count=${count}`);
+        qs.push(`offset=${offset}`);
+        qs.push(`safesearch=${encodeURIComponent(safesearch)}`);
+        if (result_filter) qs.push(`result_filter=${encodeURIComponent(result_filter)}`);
+        if (freshness) {
+            const simple = ['pd','pw','pm','py'];
+            const rangeRe = /^\d{4}-\d{2}-\d{2}to\d{4}-\d{2}-\d{2}$/;
+            if (simple.includes(freshness) || rangeRe.test(freshness)) {
+                qs.push(`freshness=${encodeURIComponent(freshness)}`);
+            }
+        }
+
+        const url = `https://api.search.brave.com/res/v1/web/search?${qs.join('&')}`;
+
+        const resp = await fetch(url, {
+            method: 'GET',
+            headers: {
+                'Accept': 'application/json',
+                'Accept-Encoding': 'gzip',
+                'X-Subscription-Token': apiKey
+            }
+        });
+
+        if (!resp.ok) {
+            if (resp.status === 429) {
+                return 'Brave Search API でレート制限に達しました。しばらく待ってから再試行してください。';
+            }
+            let text = `${resp.status} ${resp.statusText}`;
+            try {
+                const body = await resp.text();
+                const jb = JSON.parse(body);
+                if (jb && jb.message) text = `${jb.message} (${text})`;
+            } catch (_e) {}
+            return `Brave Search API error: ${text}`;
+        }
+
+        const data = await resp.json();
+        const results = data.web?.results || [];
+        if (!results || results.length === 0) {
+            return `「${args.query}」の検索結果が見つかりませんでした。`;
+        }
+
+        let formatted = `「${args.query}」の検索結果（上位 ${Math.min(results.length, count)} 件）:\n\n`;
+        for (let i = 0; i < Math.min(results.length, count); i++) {
+            const r = results[i];
+            const title = r.title || r.displayName || '（タイトルなし）';
+            const urlv = r.url || r.meta_url?.path || r.meta_url?.netloc || '（URL不明）';
+            const desc = r.description || r.snippet || '';
+            formatted += `${i + 1}. ${title}\n   URL: ${urlv}\n`;
+            if (desc) formatted += `   説明: ${desc}\n`;
+            formatted += '\n';
+        }
+
+        if (formatted.length > 1800) {
+            formatted = formatted.substring(0, 1800) + '\n\n...（省略）';
+        }
+
+        return formatted;
+    } catch (error: any) {
+        console.error('webSearchToolHandler error', error);
+        return `Web検索中にエラーが発生しました: ${error?.message ?? String(error)}`;
+    }
+};

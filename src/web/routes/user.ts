@@ -67,6 +67,9 @@ export function createUserRoutes(
         try {
             const user = getCurrentUser(req);
 
+            // デバッグログ: セッション情報とユーザー情報を出力
+       
+
             if (!user) {
                 res.status(401).json({ error: 'Unauthorized' });
                 return;
@@ -84,6 +87,7 @@ export function createUserRoutes(
                     const raw = fs.readFileSync(authPersistPath, 'utf8') || '{}';
                     const obj = JSON.parse(raw) as Record<string, any>;
                     userOauth = obj[user.userId];
+                } else {
                 }
             } catch (e) {
                 console.warn('[UserProfile] Failed to read OAuth sessions from disk:', e);
@@ -282,6 +286,8 @@ export function createUserRoutes(
                 })),
                 totalStats: totalStats,
             };
+
+         
 
             res.json(userProfile);
         } catch (error) {

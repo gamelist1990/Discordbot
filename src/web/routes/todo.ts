@@ -58,7 +58,23 @@ export function createTodoRoutes(
     router.delete('/todos/sessions/:sessionId/share/:token', auth.validateToken, controller.revokeShare.bind(controller));
 
     // 共有トークン経由でセッションを取得 (公開エンドポイント - トークンにより検証)
-    router.get('/todos/shared/:token', controller.getSessionByToken.bind(controller));
+    // If the user has a sessionId cookie, populate req.session so the controller
+    // can optionally add the authenticated user as an editor when the share
+    // token grants edit rights.
+    router.get('/todos/shared/:token', (req, _res, next) => {
+        try {
+            const cookieSessionId = (req as any).cookies?.sessionId;
+            if (cookieSessionId && sessions.has(cookieSessionId)) {
+                (req as any).session = sessions.get(cookieSessionId);
+            }
+        } catch (e) {
+            // ignore — best-effort
+        }
+        next();
+    }, controller.getSessionByToken.bind(controller));
+
+    // 共有トークン経由でTodoアイテムを更新 (公開エンドポイント - トークンにより検証)
+    router.patch('/todos/shared/:token/items/:todoId', controller.updateTodoByToken.bind(controller));
 
     return router;
 }

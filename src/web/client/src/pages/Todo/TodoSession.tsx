@@ -88,7 +88,9 @@ const TodoSessionPage: React.FC = () => {
         if (!newTodoText.trim() || accessLevel === 'viewer') return;
 
         try {
-            const response = await fetch(`/api/todos/sessions/${sessionId}/items`, {
+            const sid = sessionId || todoSession?.id;
+            if (!sid) return;
+            const response = await fetch(`/api/todos/sessions/${sid}/items`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 credentials: 'include',
@@ -108,7 +110,9 @@ const TodoSessionPage: React.FC = () => {
         if (accessLevel === 'viewer') return;
 
         try {
-            await fetch(`/api/todos/sessions/${sessionId}/items/${todoId}`, {
+            const sid = sessionId || todoSession?.id;
+            if (!sid) return;
+            await fetch(`/api/todos/sessions/${sid}/items/${todoId}`, {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
                 credentials: 'include',
@@ -124,7 +128,9 @@ const TodoSessionPage: React.FC = () => {
         if (accessLevel === 'viewer') return;
 
         try {
-            await fetch(`/api/todos/sessions/${sessionId}/items/${todoId}`, {
+            const sid = sessionId || todoSession?.id;
+            if (!sid) return;
+            await fetch(`/api/todos/sessions/${sid}/items/${todoId}`, {
                 method: 'DELETE',
                 credentials: 'include'
             });
@@ -143,7 +149,9 @@ const TodoSessionPage: React.FC = () => {
         if (!editingTodo || accessLevel === 'viewer') return;
 
         try {
-            await fetch(`/api/todos/sessions/${sessionId}/items/${editingTodo.id}`, {
+            const sid = sessionId || todoSession?.id;
+            if (!sid) return;
+            await fetch(`/api/todos/sessions/${sid}/items/${editingTodo.id}`, {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
                 credentials: 'include',
@@ -162,7 +170,9 @@ const TodoSessionPage: React.FC = () => {
         if (!window.confirm('このセッションを削除しますか？')) return;
 
         try {
-            const response = await fetch(`/api/todos/sessions/${sessionId}`, {
+            const sid = sessionId || todoSession?.id;
+            if (!sid) return;
+            const response = await fetch(`/api/todos/sessions/${sid}`, {
                 method: 'DELETE',
                 credentials: 'include'
             });

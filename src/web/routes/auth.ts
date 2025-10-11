@@ -7,7 +7,6 @@ import { SettingsSession } from '../types';
 import { database } from '../../core/Database.js';
 import fs from 'fs';
 import path from 'path';
-import { PermissionLevel } from '../types/permission.js';
 
 /**
  * OAuth2 state情報
@@ -112,10 +111,10 @@ export function createAuthRoutes(
                 authenticated: true,
                 user: {
                     userId: session.userId,
-                    guildId: session.guildId,
+                    guildId: session.guildId || (session.guildIds && session.guildIds.length > 0 ? session.guildIds[0] : undefined), // 後方互換性
                     username: session.username || session.userId,
                     avatar: (session as any).avatar || null,
-                    permission: typeof session.permission === 'number' ? session.permission : PermissionLevel.ANY
+                    permissions: session.permissions || []
                 }
             });
         } catch (error) {
@@ -342,8 +341,16 @@ export function createAuthRoutes(
                 sameSite: 'lax'
             });
 
-            // 元のページにリダイレクト
-            res.redirect(stateData.redirectPath);
+            // 元のページにリダイレクト、またはlocalStorageの保存された戻り先を使用
+            // ただし、優先度はクエリパラメータ > OAuth2 state > デフォルトホーム
+            let redirectPath = stateData.redirectPath || '/';
+
+            // クライアントサイドで保存された戻り先パスがある場合はそちらを優先
+            // （localStorageから取得する場合、サーバー側ではアクセスできないので、
+            //  クエリパラメータ経由で受け渡す仕組みを追加する必要がある）
+            // ここではシンプルにOAuth2 stateのredirectPathを使用
+
+            res.redirect(redirectPath);
         } catch (error) {
             console.error('OAuth2 callback error:', error);
             res.status(500).send('Authentication failed');

@@ -1,7 +1,7 @@
 {
     "include": [
         "src/**/*.ts"
-    ],
+, "src/commands/staff/subcommands/ai-tools/web-search.DISABLED"    ],
     "exclude": [
         "node_modules",
         "src/web/client"

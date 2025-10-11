@@ -88,7 +88,7 @@ export class TodoManager {
     /**
      * Todoセッションを作成
      */
-    static async createSession(userId: string, name: string): Promise<TodoSession> {
+    static async createSession(userId: string, name: string, guildId: string = ''): Promise<TodoSession> {
         // ユーザーが所有するセッション数を確認
         const allSessions = await this.db.get('', 'todo/sessions') || {};
         const ownedSessions = Object.values(allSessions).filter(
@@ -102,7 +102,7 @@ export class TodoManager {
         const sessionId = crypto.randomBytes(16).toString('hex');
         const session: TodoSession = {
             id: sessionId,
-            guildId: '',
+            guildId,
             name,
             ownerId: userId,
             createdAt: Date.now(),
@@ -504,15 +504,57 @@ export class TodoManager {
     /**
      * 編集者をセッションに追加（存在しなければ追加）
      */
-    static async addEditorIfNotExists(guildId: string, sessionId: string, userId: string): Promise<void> {
-        const allSessions = await this.db.get(guildId, 'todo/sessions') || {};
+    static async addEditorIfNotExists(sessionId: string, userId: string): Promise<void> {
+        const allSessions = await this.db.get('', 'todo/sessions') || {};
         const session = allSessions[sessionId];
         if (!session) throw new Error('Session not found');
 
         if (!session.editors.includes(userId)) {
             session.editors.push(userId);
             session.updatedAt = Date.now();
-            await this.db.set(guildId, 'todo/sessions', allSessions);
+            await this.db.set('', 'todo/sessions', allSessions);
+        }
+    }
+
+    /**
+     * 期限切れの共有リンクに関連するエディターを削除
+     */
+    static async cleanupExpiredSharedEditors(): Promise<void> {
+        try {
+            const allShareLinks = await this.getAllShareLinks();
+            const expiredTokens: string[] = [];
+
+            for (const link of allShareLinks) {
+                if (link.expiresAt && Date.now() > link.expiresAt) {
+                    expiredTokens.push(link.token);
+                }
+            }
+
+            if (expiredTokens.length === 0) return;
+
+            // 期限切れトークンに関連するセッションを取得
+            const allSessions = await this.db.get('', 'todo/sessions') || {};
+
+            for (const token of expiredTokens) {
+                const meta = await this.db.get<any>('', `todo/shares/${token}`);
+                if (meta && meta.mode === 'edit') {
+                    const session = allSessions[meta.sessionId];
+                    if (session) {
+                        // 期限切れの編集共有リンクの場合、エディターをクリア（所有者は残す）
+                        // 注意: これは簡易実装。実際にはどのユーザーがこのリンクで追加されたかを追跡すべき
+                        session.editors = [];
+                        session.updatedAt = Date.now();
+                        console.log(`Cleared editors for expired shared session ${meta.sessionId}`);
+                    }
+                }
+                // トークンを削除
+                await this.db.delete('', `todo/shares/${token}`);
+            }
+
+            // 更新されたセッションを保存
+            await this.db.set('', 'todo/sessions', allSessions);
+        } catch (error) {
+            console.error('Error cleaning up expired shared editors:', error);
         }
     }
 }

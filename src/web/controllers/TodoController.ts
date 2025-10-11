@@ -39,7 +39,7 @@ export class TodoController {
         }
 
         try {
-            const todoSession = await TodoManager.createSession(session.userId, name.trim());
+            const todoSession = await TodoManager.createSession(session.userId, name.trim(), session.guildId);
 
             res.json({ session: todoSession });
         } catch (error) {
@@ -178,12 +178,42 @@ export class TodoController {
     async updateTodo(req: Request, res: Response): Promise<void> {
         const session = (req as any).session as SettingsSession;
         const { sessionId, todoId } = req.params;
+        const { shareToken } = req.query;
         const updates = req.body;
 
         try {
-            // 編集権限を確認（オーナーまたはエディター）
-            const accessLevel = await TodoManager.canAccess(sessionId, session.userId);
-            if (accessLevel !== 'owner' && accessLevel !== 'editor') {
+            let hasEditPermission = false;
+
+            // 通常の権限チェック
+            if (session?.userId) {
+                const accessLevel = await TodoManager.canAccess(sessionId, session.userId);
+                if (accessLevel === 'owner' || accessLevel === 'editor') {
+                    hasEditPermission = true;
+                }
+            }
+
+            // 共有トークン経由の権限チェック（フォールバック）
+            if (!hasEditPermission) {
+                let tokenToCheck = shareToken as string;
+
+                // shareTokenパラメータがない場合、Refererから共有リンクトークンを抽出
+                if (!tokenToCheck && req.headers.referer) {
+                    const referer = req.headers.referer;
+                    const shareMatch = referer.match(/\/todo\/shared\/([a-f0-9-]+)/);
+                    if (shareMatch) {
+                        tokenToCheck = shareMatch[1];
+                    }
+                }
+
+                if (tokenToCheck) {
+                    const shareResult = await TodoManager.getSessionByShareToken(tokenToCheck);
+                    if (shareResult && shareResult.mode === 'edit' && shareResult.session?.id === sessionId) {
+                        hasEditPermission = true;
+                    }
+                }
+            }
+
+            if (!hasEditPermission) {
                 res.status(403).json({ error: 'Edit permission required' });
                 return;
             }
@@ -382,21 +412,24 @@ export class TodoController {
 
             let addedAsEditor = false;
 
-            // 自動追加を削除 - URLだけでアクセス可能にする
             // If token mode is edit, and request has an authenticated session cookie for the same guild,
             // auto-add that user as editor to the target todo session (so they get persistent edit rights)
-            // if (result.mode === 'edit') {
-            //     try {
-            //         const authSession = (req as any).session as SettingsSession | undefined;
-            //         // Also allow sessionId cookie based lookup as a fallback
-            //         if (authSession && authSession.guildId === guildId && authSession.userId && result.session) {
-            //             await TodoManager.addEditorIfNotExists(guildId, result.session.id, authSession.userId);
-            //             addedAsEditor = true;
-            //         }
-            //     } catch (e) {
-            //         console.error('Failed to auto-add editor from share token access:', e);
-            //     }
-            // }
+            if (result.mode === 'edit') {
+                try {
+                    const authSession = (req as any).session as SettingsSession | undefined;
+                    // We treat guildId present on the todo session as authoritative; if the authSession exists
+                    // and the guild IDs match (or todo session has no guildId), add the user as editor.
+                    if (authSession && result.session && authSession.userId) {
+                        const guildMatch = !result.session.guildId || authSession.guildId === result.session.guildId;
+                        if (guildMatch) {
+                            await TodoManager.addEditorIfNotExists(result.session.id, authSession.userId);
+                            addedAsEditor = true;
+                        }
+                    }
+                } catch (e) {
+                    console.error('Failed to auto-add editor from share token access:', e);
+                }
+            }
 
             // 返却するのはセッションメタとアクセスモード。編集権限がある場合は編集可能
             const content = await TodoManager.getContent(result.session!.id);
@@ -409,6 +442,36 @@ export class TodoController {
         } catch (error) {
             console.error('共有トークン取得エラー:', error);
             res.status(500).json({ error: 'Failed to fetch shared session' });
+        }
+    }
+
+    /**
+     * 共有トークン経由でTodoアイテムを更新
+     */
+    async updateTodoByToken(req: Request, res: Response): Promise<void> {
+        const { token, todoId } = req.params;
+        const updates = req.body;
+
+        try {
+            // トークンを検証
+            const result = await TodoManager.getSessionByShareToken(token);
+            if (!result) {
+                res.status(404).json({ error: 'Shared session not found or token expired' });
+                return;
+            }
+
+            // 編集権限があるか確認
+            if (result.mode !== 'edit') {
+                res.status(403).json({ error: 'Edit permission required' });
+                return;
+            }
+
+            await TodoManager.updateTodo(result.session!.id, todoId, updates);
+            res.json({ success: true });
+        } catch (error) {
+            console.error('共有トークン経由Todo更新エラー:', error);
+            const errorMessage = error instanceof Error ? error.message : 'Failed to update todo';
+            res.status(500).json({ error: errorMessage });
         }
     }
 }

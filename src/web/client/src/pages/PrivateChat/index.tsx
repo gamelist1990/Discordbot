@@ -1,11 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import {
-    validateToken,
-    fetchPrivateChats,
     createPrivateChat,
     deletePrivateChat,
-    fetchPrivateChatStats,
     fetchChatMembers,
     addChatMember,
     removeChatMember,
@@ -20,16 +17,17 @@ import styles from './PrivateChatPage.module.css';
 type TabType = 'overview' | 'rooms' | 'stats';
 
 const PrivateChatPage: React.FC = () => {
-    const { token } = useParams<{ token: string }>();
     const navigate = useNavigate();
     
     const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
+    const [error] = useState<string | null>(null);
     const [activeTab, setActiveTab] = useState<TabType>('overview');
     
     const [chats, setChats] = useState<PrivateChat[]>([]);
     const [stats, setStats] = useState<PrivateChatStats | null>(null);
     const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
+    const [accessibleGuilds, setAccessibleGuilds] = useState<Array<{ id: string; name: string; icon?: string | null }>>([]);
+    const [targetGuildId, setTargetGuildId] = useState<string | null>(null);
     const [roomMembers, setRoomMembers] = useState<ChatMember[]>([]);
     
     const [newRoomName, setNewRoomName] = useState('');
@@ -48,77 +46,88 @@ const PrivateChatPage: React.FC = () => {
         }
     })();
 
-    // トークン検証
+    // session-based entry
     useEffect(() => {
-        if (!token) {
-            setError('トークンが指定されていません');
-            setLoading(false);
-            return;
-        }
-
-        validateToken(token)
-            .then(() => {
-                setLoading(false);
-            })
-            .catch(() => {
-                setError('トークンが無効です');
-                setLoading(false);
-            });
-    }, [token]);
+        // no token-based access; simply clear loading state
+        setLoading(false);
+    }, []);
 
     // データ取得とSSE接続
     useEffect(() => {
-        if (!token || loading || error) return;
-
-        const loadData = async () => {
+        // Session-based: fetch accessible guilds for selection
+        const loadAccessibleGuilds = async () => {
             try {
-                const [chatsData, statsData] = await Promise.all([
-                    fetchPrivateChats(token),
-                    fetchPrivateChatStats(token)
-                ]);
-                setChats(chatsData.chats);
-                setStats(statsData);
-                setLastUpdate(new Date().toLocaleTimeString('ja-JP'));
-            } catch (err) {
-                console.error('データ取得エラー:', err);
-            }
-        };
-
-        loadData();
-
-        // SSE接続
-        const eventSource = new EventSource(`/api/staff/privatechats/${token}/stream`);
-        eventSourceRef.current = eventSource;
-
-        eventSource.onmessage = (event) => {
-            try {
-                const data = JSON.parse(event.data);
-                if (data.type === 'update') {
-                    setChats(data.chats);
-                    setStats(data.stats);
-                    setLastUpdate(new Date().toLocaleTimeString('ja-JP'));
+                const res = await fetch('/api/staff/guilds', { credentials: 'include' });
+                if (res.ok) {
+                    const data = await res.json();
+                    setAccessibleGuilds(data.guilds || []);
+                } else {
+                    setAccessibleGuilds([]);
                 }
             } catch (err) {
-                console.error('SSE データパースエラー:', err);
+                // ignore - user might not be logged in
+                setAccessibleGuilds([]);
             }
         };
 
-        eventSource.onerror = () => {
-            eventSource.close();
+        loadAccessibleGuilds();
+
+    }, []);
+
+    // When a guild is selected in session-based flow, load chats and connect SSE
+    useEffect(() => {
+        if (!targetGuildId) return;
+
+        let es: EventSource | null = null;
+        const loadForGuild = async () => {
+            try {
+                const res = await fetch(`/api/staff/privatechats?guildId=${encodeURIComponent(targetGuildId)}`, { credentials: 'include' });
+                if (res.ok) {
+                    const data = await res.json();
+                    setChats(data.chats || []);
+                }
+                const statsRes = await fetch(`/api/staff/stats?guildId=${encodeURIComponent(targetGuildId)}`, { credentials: 'include' });
+                if (statsRes.ok) {
+                    const st = await statsRes.json();
+                    setStats(st);
+                }
+                setLastUpdate(new Date().toLocaleTimeString('ja-JP'));
+
+                // SSE (session-based)
+                es = new EventSource(`/api/staff/privatechats/stream?guildId=${encodeURIComponent(targetGuildId)}`);
+                eventSourceRef.current = es;
+                es.onmessage = (event) => {
+                    try {
+                        const data = JSON.parse(event.data);
+                        if (data.type === 'update') {
+                            setChats(data.chats || []);
+                            setStats(data.stats || null);
+                            setLastUpdate(new Date().toLocaleTimeString('ja-JP'));
+                        }
+                    } catch (err) {
+                        console.error('SSE データパースエラー:', err);
+                    }
+                };
+                es.onerror = () => { es && es.close(); };
+            } catch (err) {
+                console.error('guild load error', err);
+            }
         };
 
+        loadForGuild();
+
         return () => {
-            eventSource.close();
+            if (es) es.close();
         };
-    }, [token, loading, error]);
+    }, [targetGuildId]);
 
     // 選択された部屋のメンバーを取得
     useEffect(() => {
-        if (!token || !selectedRoomId) return;
+        if (!selectedRoomId) return;
 
         const loadMembers = async () => {
             try {
-                const data = await fetchChatMembers(token, selectedRoomId);
+                const data = await fetchChatMembers(selectedRoomId, targetGuildId || undefined);
                 setRoomMembers(data.members);
             } catch (err) {
                 console.error('メンバー取得エラー:', err);
@@ -126,20 +135,20 @@ const PrivateChatPage: React.FC = () => {
         };
 
         loadMembers();
-    }, [token, selectedRoomId]);
+    }, [selectedRoomId]);
 
     // チャット作成
     const handleCreateChat = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!token || !newRoomName.trim() || creatingChat) return;
+        if (!newRoomName.trim() || creatingChat) return;
 
         setCreatingChat(true);
         try {
             const roomToCreate = newRoomName.trim();
-            await createPrivateChat(token, {
+            await createPrivateChat({
                 roomName: roomToCreate,
                 members: []
-            });
+            }, targetGuildId || undefined);
             setNewRoomName('');
             // 即時通知（SSE による更新も来るが、ユーザフィードバックを即座に出す）
             try { (window as any).web?.notify?.(`部屋 "${roomToCreate}" を作成しました`, 'success', 'プライベートチャット作成', 5000); } catch {}
@@ -153,10 +162,10 @@ const PrivateChatPage: React.FC = () => {
 
     // チャット削除
     const handleDeleteChat = async (chatId: string) => {
-        if (!token || !confirm('このチャットを削除してもよろしいですか？')) return;
+        if (!confirm('このチャットを削除してもよろしいですか？')) return;
 
         try {
-            await deletePrivateChat(token, chatId);
+            await deletePrivateChat(chatId, targetGuildId || undefined);
             if (selectedRoomId === chatId) {
                 setSelectedRoomId(null);
             }
@@ -170,15 +179,15 @@ const PrivateChatPage: React.FC = () => {
     // メンバー追加
     const handleAddMember = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!token || !selectedRoomId || !newMemberUserName.trim()) return;
+        if (!selectedRoomId || !newMemberUserName.trim()) return;
 
         try {
-            await addChatMember(token, selectedRoomId, newMemberUserName.trim());
+            await addChatMember(selectedRoomId, newMemberUserName.trim(), targetGuildId || undefined);
             setNewMemberUserName('');
             setUserSearchResults([]);
             setShowUserSuggestions(false);
             // メンバーリストを再取得
-            const data = await fetchChatMembers(token, selectedRoomId);
+            const data = await fetchChatMembers(selectedRoomId, targetGuildId || undefined);
             setRoomMembers(data.members);
             // トースト通知
             try { addToast && addToast('メンバーを追加しました', 'success'); } catch {}
@@ -194,9 +203,9 @@ const PrivateChatPage: React.FC = () => {
         const value = e.target.value;
         setNewMemberUserName(value);
 
-        if (value.trim().length > 0 && token) {
+        if (value.trim().length > 0) {
             try {
-                const results = await searchUsers(token, value.trim(), selectedRoomId || undefined);
+                const results = await searchUsers(value.trim(), selectedRoomId || undefined, targetGuildId || undefined);
                 setUserSearchResults(results.users);
                 setShowUserSuggestions(true);
             } catch (err) {
@@ -219,12 +228,12 @@ const PrivateChatPage: React.FC = () => {
 
     // メンバー削除
     const handleRemoveMember = async (userId: string) => {
-        if (!token || !selectedRoomId || !confirm('このメンバーを削除してもよろしいですか？')) return;
+        if (!selectedRoomId || !confirm('このメンバーを削除してもよろしいですか？')) return;
 
         try {
-            await removeChatMember(token, selectedRoomId, userId);
+            await removeChatMember(selectedRoomId, userId, targetGuildId || undefined);
             // メンバーリストを再取得
-            const data = await fetchChatMembers(token, selectedRoomId);
+            const data = await fetchChatMembers(selectedRoomId, targetGuildId || undefined);
             setRoomMembers(data.members);
             try { addToast && addToast('メンバーを削除しました', 'info'); } catch {}
             try { (window as any).web?.notify?.('メンバーを削除しました', 'info', 'メンバー削除', 4000); } catch {}
@@ -280,8 +289,39 @@ const PrivateChatPage: React.FC = () => {
                 </div>
             </header>
 
-            {/* タブナビゲーション */}
-            <div className={styles.tabs}>
+            {/* Session-based guild selector: shown when no targetGuildId is selected */}
+            {!targetGuildId && (
+                <div className={styles.guildSelectorGrid}>
+                    {accessibleGuilds.length === 0 ? (
+                        <div className={styles.emptyState}>
+                            <i className="material-icons">visibility_off</i>
+                            <p>アクセス可能なサーバーが見つかりません</p>
+                            <p className={styles.hint}>まずDiscordで `/staff help` を実行するか、OAuthでサインインしてください</p>
+                        </div>
+                    ) : (
+                        <div className={styles.guildCards}>
+                            {accessibleGuilds.map(g => (
+                                <div key={g.id} className={styles.guildCard} onClick={() => setTargetGuildId(g.id)}>
+                                    {g.icon ? (
+                                        <img src={`https://cdn.discordapp.com/icons/${g.id}/${g.icon}.png`} alt={g.name} className={styles.guildIcon} />
+                                    ) : (
+                                        <div className={styles.guildIconPlaceholder}><i className="material-icons">group</i></div>
+                                    )}
+                                    <div className={styles.guildName}>{g.name}</div>
+                                    <button className={styles.button} onClick={(e) => { e.stopPropagation(); setTargetGuildId(g.id); }}>
+                                        開く
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {/* タブナビゲーション（選択したギルドがある場合のみ表示） */}
+            {targetGuildId ? (
+                <>
+                <div className={styles.tabs}>
                 <button
                     className={`${styles.tab} ${activeTab === 'overview' ? styles.tabActive : ''}`}
                     onClick={() => setActiveTab('overview')}
@@ -305,7 +345,7 @@ const PrivateChatPage: React.FC = () => {
                 </button>
             </div>
 
-            {/* メインコンテンツ */}
+            {/* メインコンテンツ（選択したギルドがある場合のみ表示） */}
             <div className={styles.content}>
                 {/* 概要タブ */}
                 {activeTab === 'overview' && (
@@ -671,6 +711,8 @@ const PrivateChatPage: React.FC = () => {
                     </>
                 )}
             </div>
+                </>
+            ) : null}
         </div>
     );
 };
