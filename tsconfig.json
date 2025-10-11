@@ -1,9 +1,10 @@
 {
     "include": [
         "src/**/*.ts"
-    ],
+, "src/commands/staff/subcommands/ai-tools/web-search.DISABLED"    ],
     "exclude": [
-        "node_modules"
+        "node_modules",
+        "src/web/client"
     ],
     "watchOptions": {
         "excludeDirectories": [
@@ -14,7 +15,7 @@
     "compilerOptions": {
         "target": "ESNext",
         "module": "ESNext",
-        "moduleResolution": "node",
+        "moduleResolution": "bundler",
         "lib": [
             "ESNext",
             "DOM"
@@ -22,6 +23,8 @@
         "typeRoots": [
             "./node_modules/@types"
         ],
+        "types": ["node"],
+        "skipLibCheck": true,
         "noEmit": false,
         "emitDecoratorMetadata": true,
         "experimentalDecorators": true,

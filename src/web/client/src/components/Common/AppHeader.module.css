@@ -1,0 +1,318 @@
+/* Google Material Design inspired header */
+.header {
+    background: white;
+    border-bottom: 1px solid #E8EAED;
+    box-shadow: 0 1px 2px 0 rgba(60,64,67,0.3);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+}
+
+.container {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 0 24px;
+    height: 64px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 24px;
+}
+
+.left {
+    display: flex;
+    align-items: center;
+}
+
+.logoBtn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    border: none;
+    background: transparent;
+    color: #202124;
+    font-size: 18px;
+    font-weight: 500;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: background 0.2s;
+}
+
+.logoBtn:hover {
+    background: #F8F9FA;
+}
+
+.logoBtn .material-icons {
+    font-size: 24px;
+    color: #4285F4;
+}
+
+.logoText {
+    font-family: 'Roboto', 'Arial', sans-serif;
+}
+
+.nav {
+    display: flex;
+    gap: 8px;
+    flex: 1;
+    justify-content: center;
+}
+
+.navBtn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    border: none;
+    background: transparent;
+    color: #5F6368;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: background 0.2s;
+}
+
+.navBtn:hover {
+    background: #F8F9FA;
+}
+
+.navBtn .material-icons {
+    font-size: 20px;
+}
+
+.right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.appMenuSection {
+    position: relative;
+}
+
+.appMenuBtn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    border: none;
+    background: transparent;
+    border-radius: 50%;
+    cursor: pointer;
+    transition: background 0.2s;
+    color: #5F6368;
+}
+
+.appMenuBtn:hover {
+    background: #F8F9FA;
+}
+
+.appMenuBtn .material-icons {
+    font-size: 24px;
+}
+
+.appMenu {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+    padding: 16px;
+    animation: slideDown 0.2s ease-out;
+    z-index: 1000;
+}
+
+.appGrid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+    width: 280px;
+}
+
+.appItem {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 16px;
+    border: none;
+    background: transparent;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background 0.2s;
+    color: #202124;
+    font-size: 13px;
+    text-align: center;
+}
+
+.appItem:hover {
+    background: #F8F9FA;
+}
+
+.appItem .material-icons {
+    font-size: 32px;
+    color: #5F6368;
+}
+
+.appItem span:last-child {
+    font-weight: 500;
+}
+
+
+.userSection {
+    position: relative;
+}
+
+.userButton {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 6px 12px;
+    border: 1px solid #E8EAED;
+    border-radius: 24px;
+    background: white;
+    cursor: pointer;
+    transition: box-shadow 0.2s;
+}
+
+.userButton:hover {
+    box-shadow: 0 1px 2px 0 rgba(60,64,67,0.3);
+}
+
+.avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+}
+
+.userInfo {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+}
+
+.username {
+    font-size: 14px;
+    font-weight: 500;
+    color: #202124;
+}
+
+.userId {
+    font-size: 12px;
+    color: #5F6368;
+}
+
+.userMenu {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+    min-width: 200px;
+    overflow: hidden;
+    animation: slideDown 0.2s ease-out;
+}
+
+@keyframes slideDown {
+    from {
+        opacity: 0;
+        transform: translateY(-8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.menuItem {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    padding: 12px 16px;
+    border: none;
+    background: transparent;
+    color: #202124;
+    font-size: 14px;
+    cursor: pointer;
+    transition: background 0.2s;
+    text-align: left;
+}
+
+.menuItem:hover {
+    background: #F8F9FA;
+}
+
+.menuItem .material-icons {
+    font-size: 20px;
+    color: #5F6368;
+}
+
+.divider {
+    height: 1px;
+    background: #E8EAED;
+    margin: 4px 0;
+}
+
+.loginBtn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    border: 1px solid #4285F4;
+    border-radius: 4px;
+    background: #4285F4;
+    color: white;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.loginBtn:hover {
+    background: #1A73E8;
+    border-color: #1A73E8;
+}
+
+.loginBtn .material-icons {
+    font-size: 20px;
+}
+
+/* Mobile Responsive */
+@media (max-width: 768px) {
+    .container {
+        padding: 0 16px;
+    }
+
+    .nav {
+        display: none;
+    }
+
+    .logoText {
+        display: none;
+    }
+
+    .userInfo {
+        display: none;
+    }
+
+    .userButton {
+        padding: 6px;
+    }
+}
+
+@media (max-width: 480px) {
+    .container {
+        padding: 0 12px;
+    }
+
+    .userId {
+        display: none;
+    }
+}

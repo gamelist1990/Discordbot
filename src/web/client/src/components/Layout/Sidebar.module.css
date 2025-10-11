@@ -1,0 +1,78 @@
+/* Sidebar.module.css - Google Material Design inspired */
+.sidebar {
+  width: 256px;
+  background: #fff;
+  border-right: 1px solid #E0E0E0;
+  box-shadow: 2px 0 8px 0 rgba(60,64,67,0.04);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.nav {
+  padding: 16px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 24px;
+  background: transparent;
+  color: #444;
+  font-size: 1rem;
+  font-weight: 500;
+  border: none;
+  border-radius: 24px 0 0 24px;
+  transition: background 0.18s, color 0.18s, box-shadow 0.18s;
+  cursor: pointer;
+  margin-right: 8px;
+}
+
+.tab:hover, .tab:focus {
+  background: #F1F3F4;
+  color: #1967d2;
+}
+
+.tab.active {
+  background: #E8F0FE;
+  color: #1967d2;
+  box-shadow: 0 2px 5px 0 rgba(25,103,210,.09);
+}
+
+.icon {
+  font-size: 1.5rem;
+  line-height: 1;
+  width: 32px;
+  text-align: center;
+}
+
+.label {
+  flex: 1;
+  white-space: nowrap;
+}
+
+@media (max-width: 768px) {
+  .sidebar {
+    width: 100vw;
+    min-width: unset;
+    border-right: none;
+    border-bottom: 1px solid #E0E0E0;
+    box-shadow: none;
+  }
+  .nav {
+    flex-direction: row;
+    overflow-x: auto;
+    gap: 0;
+    padding: 0 8px;
+  }
+  .tab {
+    border-radius: 20px;
+    font-size: 0.93rem;
+    padding: 8px 14px;
+    margin: 0 3px 0 0;
+  }
+}

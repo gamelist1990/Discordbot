@@ -7,12 +7,18 @@
     "url": "git+https://github.com/gamelist1990/PEXclient.git"
   },
   "main": "null",
+  "type": "module",
   "dependencies": {
     "@google/genai": "^0.7.0",
+    "@material/web": "^2.4.0",
+    "@types/pdf-parse": "^1.1.5",
     "canvas": "^3.1.0",
     "cheerio": "^1.0.0",
+    "cors": "^2.8.5",
     "discord.js": "^14.18.0",
+    "express": "^5.1.0",
     "inquirer": "^12.5.0",
+    "pdf-parse": "^1.1.1",
     "sharp": "^0.34.0"
   },
   "bugs": {
@@ -27,13 +33,27 @@
     "linux-arm": "bun build src/index.ts --compile --target=bun-linux-arm64 --minify --outfile discord_linuxArm --minify",
     "windows-64": "bun build src/index.ts --compile --target=bun-windows-x64 --minify --outfile discord_windows --minify",
     "macOS-64": "bun build src/index.ts --compile --target=bun-darwin-arm64 --minify --outfile discord_mac64 --minify",
-    "macOS-arm": "bun build src/index.ts --compile --target=bun-darwin-arm64 --minify --outfile discord_macArm --minify"
+    "macOS-arm": "bun build src/index.ts --compile --target=bun-darwin-arm64 --minify --outfile discord_macArm --minify",
+    "web": "cd src/web/client &&  vite build ",
+    "dev": "concurrently \"cd src/web/client && vite build\" \"bun --watch run src/index.ts \""
   },
   "devDependencies": {
+    "http-proxy-middleware": "^2.0.6",
     "@types/cheerio": "^0.22.35",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.3",
     "@types/inquirer": "^9.0.7",
     "@types/node": "^22.13.14",
-    "typescript": "^5.8.2"
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "^5.0.4",
+    "concurrently": "^8.2.2",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "react-router-dom": "^7.9.3",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5.8.2",
+    "vite": "^7.1.9"
   },
   "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e"
 }
