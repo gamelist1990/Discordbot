@@ -35,6 +35,7 @@
     "macOS-64": "bun build src/index.ts --compile --target=bun-darwin-arm64 --minify --outfile discord_mac64 --minify",
     "macOS-arm": "bun build src/index.ts --compile --target=bun-darwin-arm64 --minify --outfile discord_macArm --minify",
     "web": "cd src/web/client &&  vite build ",
+    "start": "cd src/web/client && vite build && cd ../../../ && bun --watch run src/index.ts",
     "dev": "concurrently \"cd src/web/client && vite build\" \"bun --watch run src/index.ts \""
   },
   "devDependencies": {
