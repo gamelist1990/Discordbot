@@ -819,7 +819,9 @@ const CreateFeedbackModal: React.FC<CreateFeedbackModalProps> = ({ onClose, onSu
                                 className={`${styles.toggleTagInputButton} ${showTagInput ? styles.active : ''}`}
                                 onClick={() => setShowTagInput(!showTagInput)}
                                 type="button"
-                                title="タグ入力欄を表示/非表示"
+                                title={showTagInput ? 'タグ入力を非表示' : 'タグ入力を表示'}
+                                aria-pressed={showTagInput}
+                                aria-label={showTagInput ? 'タグ入力を非表示' : 'タグ入力を表示'}
                             >
                                 <i className="material-icons" style={{ fontSize: '18px' }}>
                                     {showTagInput ? 'remove' : 'add'}
@@ -1094,7 +1096,9 @@ const FeedbackDetailModal: React.FC<FeedbackDetailModalProps> = ({
                                             className={`${styles.toggleTagInputButton} ${showTagInput ? styles.active : ''}`}
                                             onClick={() => setShowTagInput(!showTagInput)}
                                             type="button"
-                                            title="タグ編集欄を表示/非表示"
+                                            title={showTagInput ? 'タグ編集を閉じる' : 'タグ編集を開く'}
+                                            aria-pressed={showTagInput}
+                                            aria-label={showTagInput ? 'タグ編集を閉じる' : 'タグ編集を開く'}
                                         >
                                             <i className="material-icons" style={{ fontSize: '18px' }}>
                                                 {showTagInput ? 'remove' : 'add'}
