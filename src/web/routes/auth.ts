@@ -107,6 +107,10 @@ export function createAuthRoutes(
                 return;
             }
 
+            // Determine owner flag based on server config
+            const owners: string[] = Array.isArray((config as any).owner) ? (config as any).owner : [];
+            const isOwner = owners.includes(session.userId);
+
             res.json({
                 authenticated: true,
                 user: {
@@ -114,9 +118,12 @@ export function createAuthRoutes(
                     guildId: session.guildId || (session.guildIds && session.guildIds.length > 0 ? session.guildIds[0] : undefined), // 後方互換性
                     username: session.username || session.userId,
                     avatar: (session as any).avatar || null,
-                    permissions: session.permissions || []
+                    permissions: session.permissions || [],
+                    isOwner,
+                    owners
                 }
             });
+
         } catch (error) {
             console.error('Session check error:', error);
             res.status(500).json({ error: 'Internal server error' });

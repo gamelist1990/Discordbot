@@ -1,7 +1,5 @@
 import React from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
-import HomePage from './pages/Home';
-import DashboardPage from './pages/Dashboard';
 import SettingsPage from './pages/Settings';
 import SettingsListPage from './pages/SettingsList';
 import PrivateChatPage from './pages/PrivateChat';
@@ -12,6 +10,7 @@ import TodoSession from './pages/Todo/TodoSession';
 import UserProfile from './pages/Profile';
 import FeedbackPage from './pages/Feedback';
 import { useAuthGuard } from './hooks/useAuthGuard';
+import HomePage from './pages/Home';
 
 // Protected route component for staff access
 const StaffGuard: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -41,8 +40,7 @@ const StaffGuard: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 const App: React.FC = () => {
   return (
     <Routes>
-      <Route path="/" element={<HomePage />} />
-      <Route path="/dashboard" element={<DashboardPage />} />
+  <Route path="/" element={<HomePage />} />
       <Route path="/profile" element={<UserProfile />} />
       <Route path="/settings" element={<SettingsListPage />} />
       <Route path="/settings/:guildId" element={<SettingsPage />} />

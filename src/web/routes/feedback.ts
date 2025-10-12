@@ -21,8 +21,8 @@ export function createFeedbackRoutes(
     // 統計情報取得
     router.get('/feedback/stats', auth, controller.getStats.bind(controller));
 
-    // SSEストリーム（リアルタイム更新）
-    router.get('/feedback/stream', auth, controller.streamFeedbackUpdates.bind(controller));
+    // 初期データ取得（WebSocket用）
+    router.get('/feedback/initial', auth, controller.getInitialData.bind(controller));
 
     // 特定のフィードバック取得
     router.get('/feedback/:id', auth, controller.getFeedbackById.bind(controller));

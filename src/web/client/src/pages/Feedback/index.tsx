@@ -1,6 +1,9 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import styles from './FeedbackPage.module.css';
 import LoginPage from '../../components/Login/LoginPage';
+import AppHeader from '../../components/Common/AppHeader';
+import { feedbackWS, WSMessage } from '../../services/WebSocketService';
+import { getAvatarSrc } from '../../utils/discord';
 
 interface FeedbackItem {
     id: string;
@@ -39,6 +42,8 @@ interface UserSession {
     userId: string;
     username: string;
     avatar?: string;
+    isOwner?: boolean;
+    owners?: string[];
 }
 
 const FeedbackPage: React.FC = () => {
@@ -48,10 +53,10 @@ const FeedbackPage: React.FC = () => {
     const [stats, setStats] = useState<Stats | null>(null);
     const [filterType, setFilterType] = useState<string>('all');
     const [filterStatus, setFilterStatus] = useState<string>('all');
+    const [filterTagInput, setFilterTagInput] = useState<string>('');
     const [showCreateModal, setShowCreateModal] = useState(false);
     const [selectedFeedback, setSelectedFeedback] = useState<FeedbackItem | null>(null);
-    const [sseConnected, setSseConnected] = useState(false);
-    const eventSourceRef = useRef<EventSource | null>(null);
+    const [wsConnected, setWsConnected] = useState(false);
 
     // Check authentication
     useEffect(() => {
@@ -79,22 +84,15 @@ const FeedbackPage: React.FC = () => {
 
     const loadInitialData = async () => {
         try {
-            const [feedbackRes, statsRes] = await Promise.all([
-                fetch('/api/feedback', { credentials: 'include' }),
-                fetch('/api/feedback/stats', { credentials: 'include' })
-            ]);
+            const response = await fetch('/api/feedback/initial', { credentials: 'include' });
 
-            if (feedbackRes.ok) {
-                const feedbackData = await feedbackRes.json();
-                setFeedback(feedbackData.feedback || []);
+            if (response.ok) {
+                const result = await response.json();
+                setFeedback(result.data.feedback || []);
+                setStats(result.data.stats);
             }
 
-            if (statsRes.ok) {
-                const statsData = await statsRes.json();
-                setStats(statsData);
-            }
-
-            setupSSE();
+            setupWebSocket();
             setLoading(false);
         } catch (error) {
             console.error('Failed to load initial data:', error);
@@ -102,104 +100,104 @@ const FeedbackPage: React.FC = () => {
         }
     };
 
-    const setupSSE = () => {
+    const applyTagFilter = async () => {
         try {
-            const es = new EventSource('/api/feedback/stream');
-
-            es.onopen = () => {
-                console.log('[SSE] Connected to feedback stream');
-                setSseConnected(true);
-            };
-
-            es.onmessage = (event) => {
-                try {
-                    const data = JSON.parse(event.data);
-                    handleSSEMessage(data);
-                } catch (error) {
-                    console.error('[SSE] Failed to parse message:', error);
-                }
-            };
-
-            es.onerror = (error) => {
-                console.error('[SSE] Connection error:', error);
-                setSseConnected(false);
-                es.close();
-
-                // Reconnect after 5 seconds
-                setTimeout(() => {
-                    if (!eventSourceRef.current || eventSourceRef.current.readyState === EventSource.CLOSED) {
-                        setupSSE();
-                    }
-                }, 5000);
-            };
-
-            eventSourceRef.current = es;
-        } catch (error) {
-            console.error('[SSE] Setup failed:', error);
+            const tag = filterTagInput.trim();
+            if (!tag) {
+                // reload initial
+                await loadInitialData();
+                return;
+            }
+            const response = await fetch(`/api/feedback?tag=${encodeURIComponent(tag)}`, { credentials: 'include' });
+            if (response.ok) {
+                const data = await response.json();
+                setFeedback(data.feedback || []);
+            }
+        } catch (e) {
+            console.error('Failed to apply tag filter:', e);
         }
     };
 
-    const handleSSEMessage = (data: any) => {
-        switch (data.type) {
-            case 'initialData':
-                if (data.payload.feedback) {
-                    setFeedback(data.payload.feedback);
-                }
-                if (data.payload.stats) {
-                    setStats(data.payload.stats);
-                }
-                break;
+    const setupWebSocket = () => {
+        try {
+            // 接続状態の変化をリスニング
+            feedbackWS.onConnectionChange((connected) => {
+                console.log('[WebSocket] Connection status:', connected);
+                setWsConnected(connected);
+            });
 
-            case 'feedbackCreated':
-                setFeedback(prev => [data.payload, ...prev]);
-                refreshStats();
-                break;
+            // メッセージハンドラーを登録
+            feedbackWS.on('connected', handleWSConnected);
+            feedbackWS.on('feedbackCreated', handleFeedbackCreated);
+            feedbackWS.on('feedbackUpdated', handleFeedbackUpdated);
+            feedbackWS.on('feedbackDeleted', handleFeedbackDeleted);
+            feedbackWS.on('feedbackUpvoted', handleFeedbackUpvoted);
+            feedbackWS.on('commentAdded', handleCommentAdded);
+            feedbackWS.on('commentDeleted', handleCommentDeleted);
 
-            case 'feedbackUpdated':
-                setFeedback(prev =>
-                    prev.map(item => item.id === data.payload.id ? data.payload : item)
-                );
-                if (selectedFeedback && selectedFeedback.id === data.payload.id) {
-                    setSelectedFeedback(data.payload);
-                }
-                break;
+            // WebSocket接続開始
+            feedbackWS.connect();
+        } catch (error) {
+            console.error('[WebSocket] Setup failed:', error);
+        }
+    };
 
-            case 'feedbackDeleted':
-                setFeedback(prev => prev.filter(item => item.id !== data.payload.id));
-                if (selectedFeedback && selectedFeedback.id === data.payload.id) {
-                    setSelectedFeedback(null);
-                }
-                refreshStats();
-                break;
+    const handleWSConnected = (message: WSMessage) => {
+        console.log('[WebSocket] Connected:', message.payload);
+    };
 
-            case 'feedbackUpvoted':
-                setFeedback(prev =>
-                    prev.map(item => item.id === data.payload.id ? data.payload : item)
-                );
-                if (selectedFeedback && selectedFeedback.id === data.payload.id) {
-                    setSelectedFeedback(data.payload);
-                }
-                break;
+    const handleFeedbackCreated = (message: WSMessage) => {
+        setFeedback(prev => [message.payload, ...prev]);
+        refreshStats();
+    };
 
-            case 'commentAdded':
-            case 'commentDeleted':
-                if (data.payload.feedback) {
-                    setFeedback(prev =>
-                        prev.map(item => item.id === data.payload.feedback.id ? data.payload.feedback : item)
-                    );
-                    if (selectedFeedback && selectedFeedback.id === data.payload.feedbackId) {
-                        setSelectedFeedback(data.payload.feedback);
-                    }
-                }
-                break;
+    const handleFeedbackUpdated = (message: WSMessage) => {
+        setFeedback(prev =>
+            prev.map(item => item.id === message.payload.id ? message.payload : item)
+        );
+        // use functional updater to avoid stale closure on selectedFeedback
+        setSelectedFeedback(prev => prev && prev.id === message.payload.id ? message.payload : prev);
+    };
 
-            case 'keepalive':
-            case 'connected':
-                // Just for connection health check
-                break;
+    const handleFeedbackDeleted = (message: WSMessage) => {
+        setFeedback(prev => prev.filter(item => item.id !== message.payload.id));
+        // clear selectedFeedback only if it matches the deleted one (functional updater)
+        setSelectedFeedback(prev => prev && prev.id === message.payload.id ? null : prev);
+        refreshStats();
+    };
 
-            default:
-                console.log('[SSE] Unknown message type:', data.type);
+    const handleFeedbackUpvoted = (message: WSMessage) => {
+        console.log('[WebSocket] feedbackUpvoted received:', message.payload?.id, 'upvotes=', message.payload?.upvotes?.length);
+        setFeedback(prev => {
+            const updated = prev.map(item => item.id === message.payload.id ? message.payload : item);
+            return updated;
+        });
+
+        // update selectedFeedback safely using functional updater
+        setSelectedFeedback(prev => prev && prev.id === message.payload.id ? message.payload : prev);
+
+        // Upvote count changed -> refresh stats to reflect any ordering/aggregates
+        refreshStats();
+    };
+
+    const handleCommentAdded = (message: WSMessage) => {
+        if (message.payload.feedback) {
+            setFeedback(prev =>
+                prev.map(item => item.id === message.payload.feedback.id ? message.payload.feedback : item)
+            );
+            // update selectedFeedback only if it matches the feedback id from payload
+            const fid = message.payload.feedback.id;
+            setSelectedFeedback(prev => prev && prev.id === fid ? message.payload.feedback : prev);
+        }
+    };
+
+    const handleCommentDeleted = (message: WSMessage) => {
+        if (message.payload.feedback) {
+            setFeedback(prev =>
+                prev.map(item => item.id === message.payload.feedback.id ? message.payload.feedback : item)
+            );
+            const fid = message.payload.feedback.id;
+            setSelectedFeedback(prev => prev && prev.id === fid ? message.payload.feedback : prev);
         }
     };
 
@@ -217,9 +215,8 @@ const FeedbackPage: React.FC = () => {
 
     useEffect(() => {
         return () => {
-            if (eventSourceRef.current) {
-                eventSourceRef.current.close();
-            }
+            // WebSocket接続をクリーンアップ
+            feedbackWS.disconnect();
         };
     }, []);
 
@@ -246,18 +243,71 @@ const FeedbackPage: React.FC = () => {
 
     const handleUpvote = async (id: string, e: React.MouseEvent) => {
         e.stopPropagation();
+
+        // optimistic UI update: toggle upvote locally first
         try {
+            const userId = session?.userId;
+            if (!userId) return;
+
+            console.log('[Upvote] optimistic toggle for', id, 'user', userId);
+            setFeedback(prev => {
+                return prev.map(item => {
+                    if (item.id !== id) return item;
+                    // clone
+                    const upvotes = Array.isArray(item.upvotes) ? [...item.upvotes] : [];
+                    const has = upvotes.includes(userId);
+                    const newUpvotes = has ? upvotes.filter(u => u !== userId) : [...upvotes, userId];
+                    console.log('[Upvote] item', id, 'oldCount', upvotes.length, 'newCount', newUpvotes.length);
+                    return { ...item, upvotes: newUpvotes };
+                });
+            });
+
+            if (selectedFeedback && selectedFeedback.id === id) {
+                const upvotes = Array.isArray(selectedFeedback.upvotes) ? [...selectedFeedback.upvotes] : [];
+                const has = upvotes.includes(session.userId);
+                const newUpvotes = has ? upvotes.filter(u => u !== session.userId) : [...upvotes, session.userId];
+                setSelectedFeedback({ ...selectedFeedback, upvotes: newUpvotes });
+            }
+
             const response = await fetch(`/api/feedback/${id}/upvote`, {
                 method: 'POST',
                 credentials: 'include'
             });
 
             if (!response.ok) {
-                alert('投票に失敗しました');
+                // revert by refetching the specific feedback
+                console.warn('Upvote request failed, refetching feedback');
+                const r = await fetch(`/api/feedback/${id}`, { credentials: 'include' });
+                if (r.ok) {
+                    const data = await r.json();
+                    // server returns { feedback }
+                    const updated = data.feedback;
+                    setFeedback(prev => prev.map(item => item.id === updated.id ? updated : item));
+                    if (selectedFeedback && selectedFeedback.id === updated.id) {
+                        setSelectedFeedback(updated);
+                    }
+                } else {
+                    alert('投票に失敗しました');
+                }
             }
-            // SSE will handle the update
+
+            // server will broadcast the canonical state; handler will reconcile
         } catch (error) {
             console.error('Failed to upvote:', error);
+            // try to rollback by refetching
+            try {
+                const r = await fetch(`/api/feedback/${id}`, { credentials: 'include' });
+                if (r.ok) {
+                    const data = await r.json();
+                    const updated = data.feedback;
+                    setFeedback(prev => prev.map(item => item.id === updated.id ? updated : item));
+                    if (selectedFeedback && selectedFeedback.id === updated.id) {
+                        setSelectedFeedback(updated);
+                    }
+                }
+            } catch (e) {
+                // ignore
+            }
         }
     };
 
@@ -328,138 +378,243 @@ const FeedbackPage: React.FC = () => {
 
     return (
         <div className={styles.page}>
-            {/* Header */}
-            <div className={styles.header}>
-                <div className={styles.headerLeft}>
-                    <i className="material-icons">feedback</i>
-                    <div>
-                        <h1 className={styles.title}>フィードバック管理</h1>
-                        <p className={styles.subtitle}>機能リクエスト・バグ報告・改善要望</p>
-                    </div>
-                </div>
-                <div className={styles.headerRight}>
-                    <div className={`${styles.sseStatus} ${sseConnected ? styles.connected : ''}`}>
-                        <span className={`${styles.statusDot} ${sseConnected ? styles.connected : ''}`}></span>
-                        {sseConnected ? 'リアルタイム接続中' : '再接続中...'}
-                    </div>
-                </div>
-            </div>
+            {/* AppHeader (shared with Dashboard) */}
+            <AppHeader user={session} />
 
             <div className={styles.container}>
-                {/* Stats */}
-                {stats && (
-                    <div className={styles.statsGrid}>
-                        <div className={styles.statCard}>
-                            <div className={styles.statLabel}>総フィードバック数</div>
-                            <div className={styles.statValue}>{stats.total}</div>
-                        </div>
-                        <div className={styles.statCard}>
-                            <div className={styles.statLabel}>機能リクエスト</div>
-                            <div className={`${styles.statValue} ${styles.feature}`}>
-                                {stats.byType.feature_request || 0}
-                            </div>
-                        </div>
-                        <div className={styles.statCard}>
-                            <div className={styles.statLabel}>バグ報告</div>
-                            <div className={`${styles.statValue} ${styles.bug}`}>
-                                {stats.byType.bug_report || 0}
-                            </div>
-                        </div>
-                        <div className={styles.statCard}>
-                            <div className={styles.statLabel}>改善要望</div>
-                            <div className={`${styles.statValue} ${styles.improvement}`}>
-                                {stats.byType.improvement || 0}
-                            </div>
+                {/* Sidebar - filters and status (shown on desktop only) */}
+                <div className={styles.sidebar}>
+                    {/* Connection Status */}
+                    <div className={styles.statusBar}>
+                        <div className={`${styles.statusIndicator} ${wsConnected ? styles.connected : ''}`}>
+                            <span className={`${styles.statusDot} ${wsConnected ? styles.connected : ''}`}></span>
+                            {wsConnected ? 'リアルタイム接続中' : '再接続中...'}
                         </div>
                     </div>
-                )}
 
-                {/* Filters */}
-                <div className={styles.filterSection}>
-                    <div className={styles.filterGroup}>
-                        <span className={styles.filterLabel}>種類:</span>
+                    {/* Filters */}
+                    <div className={styles.filterSection}>
+                        <div className={styles.filterGroup}>
+                            <span className={styles.filterLabel}>種類:</span>
+                            <button
+                                className={`${styles.filterButton} ${filterType === 'all' ? styles.active : ''}`}
+                                onClick={() => setFilterType('all')}
+                            >
+                                すべて
+                            </button>
+                            <button
+                                className={`${styles.filterButton} ${filterType === 'feature_request' ? styles.active : ''}`}
+                                onClick={() => setFilterType('feature_request')}
+                            >
+                                機能リクエスト
+                            </button>
+                            <button
+                                className={`${styles.filterButton} ${filterType === 'bug_report' ? styles.active : ''}`}
+                                onClick={() => setFilterType('bug_report')}
+                            >
+                                バグ報告
+                            </button>
+                            <button
+                                className={`${styles.filterButton} ${filterType === 'improvement' ? styles.active : ''}`}
+                                onClick={() => setFilterType('improvement')}
+                            >
+                                改善要望
+                            </button>
+                        </div>
+
+                        <div className={styles.filterGroup}>
+                            <span className={styles.filterLabel}>ステータス:</span>
+                            <button
+                                className={`${styles.filterButton} ${filterStatus === 'all' ? styles.active : ''}`}
+                                onClick={() => setFilterStatus('all')}
+                            >
+                                すべて
+                            </button>
+                            <button
+                                className={`${styles.filterButton} ${filterStatus === 'open' ? styles.active : ''}`}
+                                onClick={() => setFilterStatus('open')}
+                            >
+                                未対応
+                            </button>
+                            <button
+                                className={`${styles.filterButton} ${filterStatus === 'in_progress' ? styles.active : ''}`}
+                                onClick={() => setFilterStatus('in_progress')}
+                            >
+                                対応中
+                            </button>
+                            <button
+                                className={`${styles.filterButton} ${filterStatus === 'completed' ? styles.active : ''}`}
+                                onClick={() => setFilterStatus('completed')}
+                            >
+                                完了
+                            </button>
+                        </div>
+
+                        <div className={styles.filterGroup}>
+                            <span className={styles.filterLabel}>タグ検索:</span>
+                            <input
+                                type="text"
+                                className={styles.formInput}
+                                placeholder="例: ui, performance"
+                                value={filterTagInput}
+                                onChange={(e) => setFilterTagInput(e.target.value)}
+                                onKeyPress={(e) => { if (e.key === 'Enter') applyTagFilter(); }}
+                            />
+                            <button className={styles.filterButton} onClick={applyTagFilter}>検索</button>
+                        </div>
+
                         <button
-                            className={`${styles.filterButton} ${filterType === 'all' ? styles.active : ''}`}
-                            onClick={() => setFilterType('all')}
+                            className={styles.createButton}
+                            onClick={() => setShowCreateModal(true)}
                         >
-                            すべて
-                        </button>
-                        <button
-                            className={`${styles.filterButton} ${filterType === 'feature_request' ? styles.active : ''}`}
-                            onClick={() => setFilterType('feature_request')}
-                        >
-                            機能リクエスト
-                        </button>
-                        <button
-                            className={`${styles.filterButton} ${filterType === 'bug_report' ? styles.active : ''}`}
-                            onClick={() => setFilterType('bug_report')}
-                        >
-                            バグ報告
-                        </button>
-                        <button
-                            className={`${styles.filterButton} ${filterType === 'improvement' ? styles.active : ''}`}
-                            onClick={() => setFilterType('improvement')}
-                        >
-                            改善要望
+                            <i className="material-icons">add</i>
+                            新規作成
                         </button>
                     </div>
-
-                    <div className={styles.filterGroup}>
-                        <span className={styles.filterLabel}>ステータス:</span>
-                        <button
-                            className={`${styles.filterButton} ${filterStatus === 'all' ? styles.active : ''}`}
-                            onClick={() => setFilterStatus('all')}
-                        >
-                            すべて
-                        </button>
-                        <button
-                            className={`${styles.filterButton} ${filterStatus === 'open' ? styles.active : ''}`}
-                            onClick={() => setFilterStatus('open')}
-                        >
-                            未対応
-                        </button>
-                        <button
-                            className={`${styles.filterButton} ${filterStatus === 'in_progress' ? styles.active : ''}`}
-                            onClick={() => setFilterStatus('in_progress')}
-                        >
-                            対応中
-                        </button>
-                        <button
-                            className={`${styles.filterButton} ${filterStatus === 'completed' ? styles.active : ''}`}
-                            onClick={() => setFilterStatus('completed')}
-                        >
-                            完了
-                        </button>
-                    </div>
-
-                    <button
-                        className={styles.createButton}
-                        onClick={() => setShowCreateModal(true)}
-                    >
-                        <i className="material-icons">add</i>
-                        新規作成
-                    </button>
                 </div>
 
-                {/* Feedback Grid */}
-                {filteredFeedback.length === 0 ? (
-                    <div className={styles.emptyState}>
-                        <i className="material-icons">inbox</i>
-                        <p>フィードバックがありません</p>
+                {/* Main Content */}
+                <div className={styles.mainContent}>
+                    {/* Mobile-only filters and status */}
+                    <div className={styles.mobileFilters}>
+                        {/* Connection Status */}
+                        <div className={styles.statusBar}>
+                            <div className={`${styles.statusIndicator} ${wsConnected ? styles.connected : ''}`}>
+                                <span className={`${styles.statusDot} ${wsConnected ? styles.connected : ''}`}></span>
+                                {wsConnected ? 'リアルタイム接続中' : '再接続中...'}
+                            </div>
+                        </div>
+
+                        {/* Filters */}
+                        <div className={styles.filterSection}>
+                            <div className={styles.filterGroup}>
+                                <span className={styles.filterLabel}>種類:</span>
+                                <button
+                                    className={`${styles.filterButton} ${filterType === 'all' ? styles.active : ''}`}
+                                    onClick={() => setFilterType('all')}
+                                >
+                                    すべて
+                                </button>
+                                <button
+                                    className={`${styles.filterButton} ${filterType === 'feature_request' ? styles.active : ''}`}
+                                    onClick={() => setFilterType('feature_request')}
+                                >
+                                    機能リクエスト
+                                </button>
+                                <button
+                                    className={`${styles.filterButton} ${filterType === 'bug_report' ? styles.active : ''}`}
+                                    onClick={() => setFilterType('bug_report')}
+                                >
+                                    バグ報告
+                                </button>
+                                <button
+                                    className={`${styles.filterButton} ${filterType === 'improvement' ? styles.active : ''}`}
+                                    onClick={() => setFilterType('improvement')}
+                                >
+                                    改善要望
+                                </button>
+                            </div>
+
+                            <div className={styles.filterGroup}>
+                                <span className={styles.filterLabel}>ステータス:</span>
+                                <button
+                                    className={`${styles.filterButton} ${filterStatus === 'all' ? styles.active : ''}`}
+                                    onClick={() => setFilterStatus('all')}
+                                >
+                                    すべて
+                                </button>
+                                <button
+                                    className={`${styles.filterButton} ${filterStatus === 'open' ? styles.active : ''}`}
+                                    onClick={() => setFilterStatus('open')}
+                                >
+                                    未対応
+                                </button>
+                                <button
+                                    className={`${styles.filterButton} ${filterStatus === 'in_progress' ? styles.active : ''}`}
+                                    onClick={() => setFilterStatus('in_progress')}
+                                >
+                                    対応中
+                                </button>
+                                <button
+                                    className={`${styles.filterButton} ${filterStatus === 'completed' ? styles.active : ''}`}
+                                    onClick={() => setFilterStatus('completed')}
+                                >
+                                    完了
+                                </button>
+                            </div>
+
+                            <div className={styles.filterGroup}>
+                                <span className={styles.filterLabel}>タグ検索:</span>
+                                <input
+                                    type="text"
+                                    className={styles.formInput}
+                                    placeholder="例: ui, performance"
+                                    value={filterTagInput}
+                                    onChange={(e) => setFilterTagInput(e.target.value)}
+                                    onKeyPress={(e) => { if (e.key === 'Enter') applyTagFilter(); }}
+                                />
+                                <button className={styles.filterButton} onClick={applyTagFilter}>検索</button>
+                            </div>
+
+                            <button
+                                className={styles.createButton}
+                                onClick={() => setShowCreateModal(true)}
+                            >
+                                <i className="material-icons">add</i>
+                                新規作成
+                            </button>
+                        </div>
                     </div>
-                ) : (
-                    <div className={styles.feedbackGrid}>
-                        {filteredFeedback.map(item => (
-                            <FeedbackCard
-                                key={item.id}
-                                item={item}
-                                currentUserId={session.userId}
-                                onUpvote={(id, e) => handleUpvote(id, e)}
-                                onClick={() => setSelectedFeedback(item)}
-                            />
-                        ))}
-                    </div>
-                )}
+
+                    {/* Stats */}
+                    {stats && (
+                        <div className={styles.statsGrid}>
+                            <div className={styles.statCard}>
+                                <div className={styles.statLabel}>総フィードバック数</div>
+                                <div className={styles.statValue}>{stats.total}</div>
+                            </div>
+                            <div className={styles.statCard}>
+                                <div className={styles.statLabel}>機能リクエスト</div>
+                                <div className={`${styles.statValue} ${styles.feature}`}>
+                                    {stats.byType.feature_request || 0}
+                                </div>
+                            </div>
+                            <div className={styles.statCard}>
+                                <div className={styles.statLabel}>バグ報告</div>
+                                <div className={`${styles.statValue} ${styles.bug}`}>
+                                    {stats.byType.bug_report || 0}
+                                </div>
+                            </div>
+                            <div className={styles.statCard}>
+                                <div className={styles.statLabel}>改善要望</div>
+                                <div className={`${styles.statValue} ${styles.improvement}`}>
+                                    {stats.byType.improvement || 0}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Feedback Grid */}
+                    {filteredFeedback.length === 0 ? (
+                        <div className={styles.emptyState}>
+                            <i className="material-icons">inbox</i>
+                            <p>フィードバックがありません</p>
+                        </div>
+                    ) : (
+                        <div className={styles.feedbackGrid}>
+                            {filteredFeedback.map(item => (
+                                <FeedbackCard
+                                    key={item.id}
+                                    item={item}
+                                    currentUserId={session.userId}
+                                    owners={session.owners}
+                                    onUpvote={(id, e) => handleUpvote(id, e)}
+                                    onClick={() => setSelectedFeedback(item)}
+                                />
+                            ))}
+                        </div>
+                    )}
+                </div>
             </div>
 
             {/* Create Modal */}
@@ -473,8 +628,10 @@ const FeedbackPage: React.FC = () => {
             {/* Detail Modal */}
             {selectedFeedback && (
                 <FeedbackDetailModal
+                    key={`${selectedFeedback.id}-${selectedFeedback.upvotes.length}`}
                     feedback={selectedFeedback}
                     currentUserId={session.userId}
+                    owners={session.owners}
                     onClose={() => setSelectedFeedback(null)}
                     onUpvote={(id, e) => handleUpvote(id, e)}
                     onAddComment={handleAddComment}
@@ -491,9 +648,10 @@ interface FeedbackCardProps {
     currentUserId: string;
     onUpvote: (id: string, e: React.MouseEvent) => void;
     onClick: () => void;
+    owners?: string[];
 }
 
-const FeedbackCard: React.FC<FeedbackCardProps> = ({ item, currentUserId, onUpvote, onClick }) => {
+const FeedbackCard: React.FC<FeedbackCardProps> = ({ item, currentUserId, onUpvote, onClick, owners }) => {
     const hasUpvoted = item.upvotes.includes(currentUserId);
 
     const typeLabels = {
@@ -532,12 +690,21 @@ const FeedbackCard: React.FC<FeedbackCardProps> = ({ item, currentUserId, onUpvo
 
             <div className={styles.cardFooter}>
                 <div className={styles.author}>
-                    {item.authorAvatar ? (
-                        <img src={item.authorAvatar} alt={item.authorName} className={styles.avatar} />
-                    ) : (
-                        <div className={styles.avatar} />
-                    )}
-                    <span className={styles.authorName}>{item.authorName}</span>
+                    <img 
+                        src={getAvatarSrc(item.authorAvatar, item.authorId)} 
+                        alt={item.authorName} 
+                        className={styles.avatar}
+                        onError={(e) => {
+                            // 画像読み込み失敗時のフォールバック
+                            e.currentTarget.src = getAvatarSrc(null, item.authorId);
+                        }}
+                    />
+                    <span className={styles.authorName} style={owners && owners.includes(item.authorId) ? { color: '#d4af37', fontWeight: 600 } : {}}>
+                        {item.authorName}
+                        {owners && owners.includes(item.authorId) && (
+                            <i className="material-icons" title="Owner" style={{ fontSize: '16px', marginLeft: '6px', color: '#d4af37' }}>emoji_events</i>
+                        )}
+                    </span>
                 </div>
 
                 <div className={styles.cardMeta}>
@@ -690,6 +857,7 @@ const CreateFeedbackModal: React.FC<CreateFeedbackModalProps> = ({ onClose, onSu
 interface FeedbackDetailModalProps {
     feedback: FeedbackItem;
     currentUserId: string;
+    owners?: string[];
     onClose: () => void;
     onUpvote: (id: string, e: React.MouseEvent) => void;
     onAddComment: (feedbackId: string, content: string) => void;
@@ -699,12 +867,16 @@ interface FeedbackDetailModalProps {
 const FeedbackDetailModal: React.FC<FeedbackDetailModalProps> = ({
     feedback,
     currentUserId,
+    owners,
     onClose,
     onUpvote,
     onAddComment,
     onDelete
 }) => {
     const [commentInput, setCommentInput] = useState('');
+    const [localStatus, setLocalStatus] = useState<FeedbackItem['status']>(feedback.status);
+    const [localTags, setLocalTags] = useState<string[]>(feedback.tags || []);
+    const [tagInput, setTagInput] = useState<string>('');
     const hasUpvoted = feedback.upvotes.includes(currentUserId);
 
     const typeLabels = {
@@ -724,6 +896,62 @@ const FeedbackDetailModal: React.FC<FeedbackDetailModalProps> = ({
         if (!commentInput.trim()) return;
         onAddComment(feedback.id, commentInput);
         setCommentInput('');
+    };
+
+    const canChangeStatus = owners && owners.includes(currentUserId);
+    const canEditTags = feedback.authorId === currentUserId || (owners && owners.includes(currentUserId));
+
+    const handleApplyStatus = async () => {
+        if (!canChangeStatus) return;
+        try {
+            const response = await fetch(`/api/feedback/${feedback.id}`, {
+                method: 'PUT',
+                credentials: 'include',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status: localStatus })
+            });
+
+            if (!response.ok) {
+                const err = await response.json().catch(() => ({}));
+                alert('ステータス変更に失敗しました: ' + (err?.error || response.statusText));
+            } else {
+                // 正常ならサーバが WebSocket で broadcast する -> ハンドラが state を更新する
+                // ここではローカル選択のまま閉じずに待機させる
+            }
+        } catch (e) {
+            console.error('Failed to change status:', e);
+            alert('ステータス変更に失敗しました');
+        }
+    };
+
+    const handleAddTagLocal = () => {
+        const t = tagInput.trim();
+        if (!t) return;
+        if (!localTags.includes(t)) setLocalTags(prev => [...prev, t]);
+        setTagInput('');
+    };
+
+    const handleRemoveTagLocal = (t: string) => {
+        setLocalTags(prev => prev.filter(x => x !== t));
+    };
+
+    const handleSaveTags = async () => {
+        if (!canEditTags) return;
+        try {
+            const response = await fetch(`/api/feedback/${feedback.id}`, {
+                method: 'PUT',
+                credentials: 'include',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ tags: localTags })
+            });
+            if (!response.ok) {
+                const err = await response.json().catch(() => ({}));
+                alert('タグ更新に失敗しました: ' + (err?.error || response.statusText));
+            }
+        } catch (e) {
+            console.error('Failed to save tags:', e);
+            alert('タグ更新に失敗しました');
+        }
     };
 
     const formatDate = (timestamp: number) => {
@@ -759,7 +987,7 @@ const FeedbackDetailModal: React.FC<FeedbackDetailModalProps> = ({
                                 <i className="material-icons" style={{ fontSize: '16px' }}>thumb_up</i>
                                 {feedback.upvotes.length}
                             </button>
-                            {feedback.authorId === currentUserId && (
+                                {feedback.authorId === currentUserId && (
                                 <button
                                     className={styles.iconButton}
                                     onClick={() => onDelete(feedback.id)}
@@ -768,15 +996,30 @@ const FeedbackDetailModal: React.FC<FeedbackDetailModalProps> = ({
                                     <i className="material-icons">delete</i>
                                 </button>
                             )}
+                                {/* Owner-only status controls */}
+                                {canChangeStatus && (
+                                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', marginLeft: '8px' }}>
+                                        <select value={localStatus} onChange={e => setLocalStatus(e.target.value as FeedbackItem['status'])}>
+                                            <option value="open">未対応</option>
+                                            <option value="in_progress">対応中</option>
+                                            <option value="completed">完了</option>
+                                            <option value="rejected">却下</option>
+                                        </select>
+                                        <button className={`${styles.button} ${styles.buttonPrimary}`} onClick={handleApplyStatus}>適用</button>
+                                    </div>
+                                )}
                         </div>
                     </div>
 
                     <div className={styles.author}>
-                        {feedback.authorAvatar ? (
-                            <img src={feedback.authorAvatar} alt={feedback.authorName} className={styles.avatar} />
-                        ) : (
-                            <div className={styles.avatar} />
-                        )}
+                        <img 
+                            src={getAvatarSrc(feedback.authorAvatar, feedback.authorId)} 
+                            alt={feedback.authorName} 
+                            className={styles.avatar}
+                            onError={(e) => {
+                                e.currentTarget.src = getAvatarSrc(null, feedback.authorId);
+                            }}
+                        />
                         <div>
                             <div className={styles.authorName}>{feedback.authorName}</div>
                             <div className={styles.commentTime}>{formatDate(feedback.createdAt)}</div>
@@ -785,11 +1028,21 @@ const FeedbackDetailModal: React.FC<FeedbackDetailModalProps> = ({
 
                     {feedback.tags.length > 0 && (
                         <div className={styles.cardTags}>
-                            {feedback.tags.map((tag, idx) => (
+                            {localTags.map((tag, idx) => (
                                 <span key={idx} className={styles.tag}>
                                     {tag}
+                                    {canEditTags && (
+                                        <button className={styles.removeTagButton} onClick={() => handleRemoveTagLocal(tag)}>×</button>
+                                    )}
                                 </span>
                             ))}
+                            {canEditTags && (
+                                <div className={styles.tagEditor} style={{ marginTop: '8px' }}>
+                                    <input type="text" className={styles.formInput} value={tagInput} onChange={e => setTagInput(e.target.value)} placeholder="新しいタグ" onKeyPress={(e) => e.key === 'Enter' && handleAddTagLocal()} />
+                                    <button className={styles.addTagButton} onClick={handleAddTagLocal}>追加</button>
+                                    <button className={`${styles.button} ${styles.buttonSecondary}`} onClick={handleSaveTags}>タグを保存</button>
+                                </div>
+                            )}
                         </div>
                     )}
 
@@ -806,12 +1059,20 @@ const FeedbackDetailModal: React.FC<FeedbackDetailModalProps> = ({
                             <div key={comment.id} className={styles.commentItem}>
                                 <div className={styles.commentHeader}>
                                     <div className={styles.commentAuthor}>
-                                        {comment.authorAvatar ? (
-                                            <img src={comment.authorAvatar} alt={comment.authorName} className={styles.avatar} />
-                                        ) : (
-                                            <div className={styles.avatar} />
-                                        )}
-                                        <span className={styles.authorName}>{comment.authorName}</span>
+                                        <img 
+                                            src={getAvatarSrc(comment.authorAvatar, comment.authorId)} 
+                                            alt={comment.authorName} 
+                                            className={styles.avatar}
+                                            onError={(e) => {
+                                                e.currentTarget.src = getAvatarSrc(null, comment.authorId);
+                                            }}
+                                        />
+                                        <span className={styles.authorName} style={owners && owners.includes(comment.authorId) ? { color: '#d4af37', fontWeight: 600 } : {}}>
+                                            {comment.authorName}
+                                            {owners && owners.includes(comment.authorId) && (
+                                                <i className="material-icons" title="Owner" style={{ fontSize: '16px', marginLeft: '6px', color: '#d4af37' }}>emoji_events</i>
+                                            )}
+                                        </span>
                                     </div>
                                     <span className={styles.commentTime}>{formatDate(comment.createdAt)}</span>
                                 </div>

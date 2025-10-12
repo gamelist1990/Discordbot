@@ -11,6 +11,7 @@ import { BotClient } from '../core/BotClient.js';
 import { SessionService } from './services/SessionService.js';
 import { createStatusRoutes, createSessionRoutes, createSettingsRoutes, createStaffRoutes, createAuthRoutes, createTodoRoutes, createUserRoutes, createModRoutes, createFeedbackRoutes } from './routes/index.js';
 import { createGuildRoutes } from './routes/guild.js';
+import { setupWebSocketServer } from './routes/websocket.js';
 // 開発時に Vite dev server へプロキシするためのミドルウェア（optional）
 import { statsManagerSingleton } from '../core/StatsManager.js';
 import { TodoManager } from '../core/TodoManager.js';
@@ -186,6 +187,15 @@ export class SettingsServer {
             // 明示的に 0.0.0.0 にバインドして外部からアクセス可能にする
             this.server = this.app.listen(this.port, '0.0.0.0', () => {
                 Logger.info(`Webサーバーをポート ${this.port} で起動しました (bound to 0.0.0.0)`);
+                
+                // WebSocketサーバーをセットアップ
+                try {
+                    setupWebSocketServer(this.server, this.sessionService.getSessions());
+                    Logger.info('WebSocketサーバーを起動しました (path: /ws/feedback)');
+                } catch (error) {
+                    Logger.error('WebSocketサーバーの起動に失敗しました:', error);
+                }
+                
                 resolve();
             });
         });

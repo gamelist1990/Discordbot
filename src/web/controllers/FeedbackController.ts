@@ -1,8 +1,8 @@
 import { Request, Response } from 'express';
 import { SettingsSession } from '../types/index.js';
 import { FeedbackManager, FeedbackType, FeedbackStatus } from '../../core/FeedbackManager.js';
-import { sseManager } from '../services/SSEManager.js';
-import crypto from 'crypto';
+import { wsManager } from '../services/WebSocketManager.js';
+import { isOwner } from '../../config.js';
 
 /**
  * フィードバックコントローラー
@@ -15,15 +15,22 @@ export class FeedbackController {
         try {
             const type = req.query.type as FeedbackType | undefined;
             const status = req.query.status as FeedbackStatus | undefined;
+            const tagQuery = req.query.tag as string | undefined; // comma-separated tags
 
-            let feedback;
+            // Load all then filter server-side to support combined filters (type+status+tag)
+            let feedback = await FeedbackManager.getAllFeedback();
 
             if (type) {
-                feedback = await FeedbackManager.getFeedbackByType(type);
-            } else if (status) {
-                feedback = await FeedbackManager.getFeedbackByStatus(status);
-            } else {
-                feedback = await FeedbackManager.getAllFeedback();
+                feedback = feedback.filter(item => item.type === type);
+            }
+            if (status) {
+                feedback = feedback.filter(item => item.status === status);
+            }
+            if (tagQuery) {
+                const tags = tagQuery.split(',').map(t => t.trim()).filter(Boolean);
+                if (tags.length > 0) {
+                    feedback = feedback.filter(item => item.tags && item.tags.some(t => tags.includes(t)));
+                }
             }
 
             res.json({ feedback });
@@ -82,8 +89,8 @@ export class FeedbackController {
                 tags || []
             );
 
-            // SSE経由でリアルタイム通知
-            sseManager.broadcast('feedback', {
+            // WebSocket経由でリアルタイム通知
+            wsManager.broadcast('feedback', {
                 type: 'feedbackCreated',
                 timestamp: Date.now(),
                 payload: feedback
@@ -113,10 +120,17 @@ export class FeedbackController {
                 return;
             }
 
-            // 作成者のみが更新可能（管理者チェックは後で追加可能）
+            // 作成者は任意の更新が可能。
+            // 作成者でない場合、オーナーは status と tags の変更のみ許可する。
             if (existingFeedback.authorId !== session.userId) {
-                res.status(403).json({ error: 'You are not authorized to update this feedback' });
-                return;
+                const ownerFlag = isOwner(session.userId);
+                const updateKeys = Object.keys(updates || {});
+                const allowedOwnerKeys = ['status', 'tags'];
+                const onlyAllowed = updateKeys.length > 0 && updateKeys.every(k => allowedOwnerKeys.includes(k));
+                if (!(ownerFlag && onlyAllowed)) {
+                    res.status(403).json({ error: 'You are not authorized to update this feedback' });
+                    return;
+                }
             }
 
             const updatedFeedback = await FeedbackManager.updateFeedback(id, updates);
@@ -126,8 +140,8 @@ export class FeedbackController {
                 return;
             }
 
-            // SSE経由でリアルタイム通知
-            sseManager.broadcast('feedback', {
+            // WebSocket経由でリアルタイム通知
+            wsManager.broadcast('feedback', {
                 type: 'feedbackUpdated',
                 timestamp: Date.now(),
                 payload: updatedFeedback
@@ -156,8 +170,8 @@ export class FeedbackController {
                 return;
             }
 
-            // 作成者のみが削除可能（管理者チェックは後で追加可能）
-            if (existingFeedback.authorId !== session.userId) {
+            // 作成者またはオーナーが削除可能
+            if (existingFeedback.authorId !== session.userId && !isOwner(session.userId)) {
                 res.status(403).json({ error: 'You are not authorized to delete this feedback' });
                 return;
             }
@@ -169,8 +183,8 @@ export class FeedbackController {
                 return;
             }
 
-            // SSE経由でリアルタイム通知
-            sseManager.broadcast('feedback', {
+            // WebSocket経由でリアルタイム通知
+            wsManager.broadcast('feedback', {
                 type: 'feedbackDeleted',
                 timestamp: Date.now(),
                 payload: { id }
@@ -199,8 +213,8 @@ export class FeedbackController {
                 return;
             }
 
-            // SSE経由でリアルタイム通知
-            sseManager.broadcast('feedback', {
+            // WebSocket経由でリアルタイム通知
+            wsManager.broadcast('feedback', {
                 type: 'feedbackUpvoted',
                 timestamp: Date.now(),
                 payload: feedback
@@ -244,8 +258,8 @@ export class FeedbackController {
             // 更新されたフィードバック全体を取得
             const feedback = await FeedbackManager.getFeedbackById(id);
 
-            // SSE経由でリアルタイム通知
-            sseManager.broadcast('feedback', {
+            // WebSocket経由でリアルタイム通知
+            wsManager.broadcast('feedback', {
                 type: 'commentAdded',
                 timestamp: Date.now(),
                 payload: { feedbackId: id, comment, feedback }
@@ -295,8 +309,8 @@ export class FeedbackController {
             // 更新されたフィードバック全体を取得
             const updatedFeedback = await FeedbackManager.getFeedbackById(id);
 
-            // SSE経由でリアルタイム通知
-            sseManager.broadcast('feedback', {
+            // WebSocket経由でリアルタイム通知
+            wsManager.broadcast('feedback', {
                 type: 'commentDeleted',
                 timestamp: Date.now(),
                 payload: { feedbackId: id, commentId, feedback: updatedFeedback }
@@ -323,49 +337,20 @@ export class FeedbackController {
     }
 
     /**
-     * SSEストリーム（リアルタイム更新）
+     * WebSocket用の初期データ取得
      */
-    async streamFeedbackUpdates(req: Request, res: Response): Promise<void> {
-        const session = (req as any).session as SettingsSession;
-        const connectionId = `feedback-${session.userId}-${crypto.randomUUID()}`;
-
+    async getInitialData(_req: Request, res: Response): Promise<void> {
         try {
-            // SSE接続を登録
-            sseManager.addConnection(connectionId, res, 'feedback', {
-                userId: session.userId
-            });
-
-            // 初回データを送信
             const feedback = await FeedbackManager.getAllFeedback();
             const stats = await FeedbackManager.getStats();
 
-            sseManager.sendToConnection(connectionId, {
-                type: 'initialData',
-                timestamp: Date.now(),
-                payload: { feedback, stats }
+            res.json({
+                success: true,
+                data: { feedback, stats }
             });
-
-            // Keep-aliveを定期的に送信
-            const keepAliveInterval = setInterval(() => {
-                if (!sseManager.getConnectionInfo(connectionId)) {
-                    clearInterval(keepAliveInterval);
-                    return;
-                }
-                sseManager.sendToConnection(connectionId, {
-                    type: 'keepalive',
-                    timestamp: Date.now()
-                });
-            }, 30000); // 30秒ごと
-
-            // 接続終了時のクリーンアップ
-            res.on('close', () => {
-                clearInterval(keepAliveInterval);
-                sseManager.removeConnection(connectionId);
-            });
-
         } catch (error) {
-            console.error('[FeedbackController] Error setting up SSE stream:', error);
-            res.status(500).json({ error: 'Failed to setup SSE stream' });
+            console.error('[FeedbackController] Error getting initial data:', error);
+            res.status(500).json({ error: 'Failed to fetch initial data' });
         }
     }
 }
