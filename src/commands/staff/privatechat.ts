@@ -3,6 +3,8 @@ import {
     EmbedBuilder,
     MessageFlags
 } from 'discord.js';
+import config from '../../config';
+
 
 /**
  * /staff privatechat サブコマンドを処理
@@ -36,9 +38,9 @@ async function openManagementUI(interaction: ChatInputCommandInteraction): Promi
     }
 
     try {
-        // セッションを作成
-        const token = settingsServer.createSession(interaction.guildId, interaction.user.id);
-        const managementUrl = `http://localhost:3000/staff/privatechat/${token}`;
+        const managementUrl = `${config.WEB_BASE_URL}/staff/privatechat`;
+
+
 
         const embed = new EmbedBuilder()
             .setColor('#0099ff')
@@ -46,9 +48,9 @@ async function openManagementUI(interaction: ChatInputCommandInteraction): Promi
             .setDescription(
                 `以下のURLからWeb UIでプライベートチャットを管理できます：\n\n` +
                 `${managementUrl}\n\n` +
-                `⚠️ このURLは30分間有効です。\n` +
                 `⚠️ このURLは他の人と共有しないでください。`
             )
+
             .addFields(
                 {
                     name: '💡 Web UIでできること',
@@ -58,13 +60,9 @@ async function openManagementUI(interaction: ChatInputCommandInteraction): Promi
                         '• チャットの削除\n' +
                         '• チャット統計の確認',
                     inline: false
-                },
-                {
-                    name: '🔒 セキュリティ',
-                    value: 'トークンは30分後に自動的に無効になります。',
-                    inline: false
                 }
             )
+
             .setTimestamp()
             .setFooter({ text: 'すべての操作はブラウザから行えます' });
 
