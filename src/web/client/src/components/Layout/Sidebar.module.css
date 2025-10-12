@@ -59,9 +59,11 @@
   .sidebar {
     width: 100vw;
     min-width: unset;
+    min-height: auto; /* no longer occupy full viewport on mobile */
     border-right: none;
-    border-bottom: 1px solid #E0E0E0;
+    border-bottom: 1px solid #E0EE0E;
     box-shadow: none;
+    position: relative;
   }
   .nav {
     flex-direction: row;
@@ -74,5 +76,24 @@
     font-size: 0.93rem;
     padding: 8px 14px;
     margin: 0 3px 0 0;
+  }
+}
+
+/* Very small screens: show only icons to save horizontal space */
+@media (max-width: 420px) {
+  .tab {
+    padding: 8px 10px;
+    gap: 8px;
+    min-width: 48px;
+    justify-content: center;
+  }
+
+  .label {
+    display: none;
+  }
+
+  .icon {
+    width: 24px;
+    font-size: 1.2rem;
   }
 }

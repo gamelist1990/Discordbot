@@ -106,10 +106,7 @@ const AppHeader: React.FC<AppHeaderProps> = ({ user: userProp, onLogout }) => {
                 </div>
 
                 <nav className={styles.nav}>
-                    <button className={styles.navBtn} onClick={() => navigate('/')}> 
-                        <span className="material-icons">dashboard</span>
-                        <span>ダッシュボード</span>
-                    </button>
+                    {/* Remove main Dashboard link per request; keep home logo as entrypoint */}
                     {user && (
                         <>
                             <button className={styles.navBtn} onClick={() => navigate('/profile')}>
@@ -119,6 +116,10 @@ const AppHeader: React.FC<AppHeaderProps> = ({ user: userProp, onLogout }) => {
                             <button className={styles.navBtn} onClick={() => navigate('/settings')}>
                                 <span className="material-icons">settings</span>
                                 <span>設定</span>
+                            </button>
+                            <button className={styles.navBtn} onClick={() => navigate('/feedback')}>
+                                <span className="material-icons">feedback</span>
+                                <span>フィードバック</span>
                             </button>
                         </>
                     )}
@@ -142,11 +143,12 @@ const AppHeader: React.FC<AppHeaderProps> = ({ user: userProp, onLogout }) => {
                                             className={styles.appItem}
                                             onClick={() => {
                                                 setShowAppMenu(false);
-                                                navigate('/dashboard');
+                                                // Remove dashboard quick-link, link to feedback instead
+                                                navigate('/feedback');
                                             }}
                                         >
                                             <span className="material-icons">dashboard</span>
-                                            <span>ダッシュボード</span>
+                                            <span>フィードバック</span>
                                         </button>
                                         <button 
                                             className={styles.appItem}

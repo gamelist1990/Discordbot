@@ -10,6 +10,7 @@ export interface AppConfig {
     DEBUG?: string;
     brave?: string;
     WEB_BASE_URL?: string;
+    owner?: string[];
     openai?: {
         apiKey: string;
         apiEndpoint: string;
@@ -47,6 +48,7 @@ export const config: Required<AppConfig> = {
     DEBUG: raw.DEBUG || 'false',
     brave: raw.brave || '',
     WEB_BASE_URL: raw.WEB_BASE_URL || raw.BASE_URL || 'http://localhost:3000',
+    owner: raw.owner || [],
     openai: {
         apiKey: raw.openai?.apiKey || '',
         apiEndpoint: raw.openai?.apiEndpoint || '',
@@ -56,4 +58,15 @@ export const config: Required<AppConfig> = {
 
 
 export default config;
+
+/**
+ * Check if a given userId is listed as an owner in config
+ */
+export function isOwner(userId: string): boolean {
+    try {
+        return Array.isArray(config.owner) && config.owner.includes(userId);
+    } catch (e) {
+        return false;
+    }
+}
 

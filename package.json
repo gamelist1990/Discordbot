@@ -39,7 +39,6 @@
     "dev": "concurrently \"cd src/web/client && vite build\" \"bun --watch run src/index.ts \""
   },
   "devDependencies": {
-    "http-proxy-middleware": "^2.0.6",
     "@types/cheerio": "^0.22.35",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.3",
@@ -49,6 +48,7 @@
     "@types/react-dom": "^19.2.0",
     "@vitejs/plugin-react": "^5.0.4",
     "concurrently": "^8.2.2",
+    "http-proxy-middleware": "^2.0.6",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-router-dom": "^7.9.3",
