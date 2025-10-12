@@ -742,6 +742,7 @@ const CreateFeedbackModal: React.FC<CreateFeedbackModalProps> = ({ onClose, onSu
     const [description, setDescription] = useState('');
     const [tags, setTags] = useState<string[]>([]);
     const [tagInput, setTagInput] = useState('');
+    const [showTagInput, setShowTagInput] = useState(false);
 
     const handleAddTag = () => {
         if (tagInput.trim() && !tags.includes(tagInput.trim())) {
@@ -752,6 +753,10 @@ const CreateFeedbackModal: React.FC<CreateFeedbackModalProps> = ({ onClose, onSu
 
     const handleRemoveTag = (tag: string) => {
         setTags(tags.filter(t => t !== tag));
+    };
+
+    const handleTagDoubleClick = (tag: string) => {
+        handleRemoveTag(tag);
     };
 
     const handleSubmit = () => {
@@ -808,34 +813,65 @@ const CreateFeedbackModal: React.FC<CreateFeedbackModalProps> = ({ onClose, onSu
                     </div>
 
                     <div className={styles.formGroup}>
-                        <label className={styles.formLabel}>タグ</label>
-                        <div className={styles.tagInput}>
+                        <div className={styles.tagSectionHeader}>
+                            <label className={styles.formLabel} style={{ marginBottom: 0 }}>タグ</label>
+                            <button 
+                                className={`${styles.toggleTagInputButton} ${showTagInput ? styles.active : ''}`}
+                                onClick={() => setShowTagInput(!showTagInput)}
+                                type="button"
+                                title="タグ入力欄を表示/非表示"
+                            >
+                                <i className="material-icons" style={{ fontSize: '18px' }}>
+                                    {showTagInput ? 'remove' : 'add'}
+                                </i>
+                            </button>
+                        </div>
+                        <div className={`${styles.tagInput} ${!showTagInput ? styles.collapsed : ''}`}>
                             <input
                                 type="text"
                                 className={`${styles.formInput} ${styles.tagInputField}`}
                                 value={tagInput}
                                 onChange={(e) => setTagInput(e.target.value)}
-                                onKeyPress={(e) => e.key === 'Enter' && handleAddTag()}
+                                onKeyPress={(e) => {
+                                    if (e.key === 'Enter') {
+                                        e.preventDefault();
+                                        handleAddTag();
+                                    }
+                                }}
                                 placeholder="タグを入力してEnter"
                             />
-                            <button className={styles.addTagButton} onClick={handleAddTag}>
-                                追加
+                            <button className={styles.addTagButton} onClick={handleAddTag} type="button">
+                                保存
                             </button>
                         </div>
                         {tags.length > 0 && (
-                            <div className={styles.tagsList}>
-                                {tags.map((tag) => (
-                                    <div key={tag} className={styles.tagItem}>
-                                        {tag}
-                                        <button
-                                            className={styles.removeTagButton}
-                                            onClick={() => handleRemoveTag(tag)}
+                            <>
+                                <div className={styles.tagsList}>
+                                    {tags.map((tag) => (
+                                        <div 
+                                            key={tag} 
+                                            className={styles.tagItem}
+                                            onDoubleClick={() => handleTagDoubleClick(tag)}
+                                            title="ダブルクリックで削除"
                                         >
-                                            ×
-                                        </button>
-                                    </div>
-                                ))}
-                            </div>
+                                            {tag}
+                                            <button
+                                                className={styles.removeTagButton}
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleRemoveTag(tag);
+                                                }}
+                                                type="button"
+                                            >
+                                                ×
+                                            </button>
+                                        </div>
+                                    ))}
+                                </div>
+                                <div className={styles.tagHint}>
+                                    ヒント: タグをダブルクリックで削除できます
+                                </div>
+                            </>
                         )}
                     </div>
                 </div>
@@ -877,6 +913,7 @@ const FeedbackDetailModal: React.FC<FeedbackDetailModalProps> = ({
     const [localStatus, setLocalStatus] = useState<FeedbackItem['status']>(feedback.status);
     const [localTags, setLocalTags] = useState<string[]>(feedback.tags || []);
     const [tagInput, setTagInput] = useState<string>('');
+    const [showTagInput, setShowTagInput] = useState(false);
     const hasUpvoted = feedback.upvotes.includes(currentUserId);
 
     const typeLabels = {
@@ -1026,21 +1063,77 @@ const FeedbackDetailModal: React.FC<FeedbackDetailModalProps> = ({
                         </div>
                     </div>
 
-                    {feedback.tags.length > 0 && (
+                    {(feedback.tags.length > 0 || canEditTags) && (
                         <div className={styles.cardTags}>
                             {localTags.map((tag, idx) => (
-                                <span key={idx} className={styles.tag}>
+                                <span 
+                                    key={idx} 
+                                    className={styles.tag}
+                                    onDoubleClick={() => canEditTags && handleRemoveTagLocal(tag)}
+                                    title={canEditTags ? "ダブルクリックで削除" : ""}
+                                    style={{ cursor: canEditTags ? 'pointer' : 'default' }}
+                                >
                                     {tag}
                                     {canEditTags && (
-                                        <button className={styles.removeTagButton} onClick={() => handleRemoveTagLocal(tag)}>×</button>
+                                        <button 
+                                            className={styles.removeTagButton} 
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleRemoveTagLocal(tag);
+                                            }}
+                                        >
+                                            ×
+                                        </button>
                                     )}
                                 </span>
                             ))}
                             {canEditTags && (
-                                <div className={styles.tagEditor} style={{ marginTop: '8px' }}>
-                                    <input type="text" className={styles.formInput} value={tagInput} onChange={e => setTagInput(e.target.value)} placeholder="新しいタグ" onKeyPress={(e) => e.key === 'Enter' && handleAddTagLocal()} />
-                                    <button className={styles.addTagButton} onClick={handleAddTagLocal}>追加</button>
-                                    <button className={`${styles.button} ${styles.buttonSecondary}`} onClick={handleSaveTags}>タグを保存</button>
+                                <div style={{ width: '100%', marginTop: '12px' }}>
+                                    <div className={styles.tagSectionHeader}>
+                                        <button 
+                                            className={`${styles.toggleTagInputButton} ${showTagInput ? styles.active : ''}`}
+                                            onClick={() => setShowTagInput(!showTagInput)}
+                                            type="button"
+                                            title="タグ編集欄を表示/非表示"
+                                        >
+                                            <i className="material-icons" style={{ fontSize: '18px' }}>
+                                                {showTagInput ? 'remove' : 'add'}
+                                            </i>
+                                        </button>
+                                        <span style={{ fontSize: '13px', color: 'var(--grey-600)' }}>
+                                            タグを編集
+                                        </span>
+                                    </div>
+                                    <div className={`${styles.tagInput} ${!showTagInput ? styles.collapsed : ''}`} style={{ marginTop: '8px' }}>
+                                        <input 
+                                            type="text" 
+                                            className={`${styles.formInput} ${styles.tagInputField}`}
+                                            value={tagInput} 
+                                            onChange={e => setTagInput(e.target.value)} 
+                                            placeholder="新しいタグ" 
+                                            onKeyPress={(e) => {
+                                                if (e.key === 'Enter') {
+                                                    e.preventDefault();
+                                                    handleAddTagLocal();
+                                                }
+                                            }}
+                                        />
+                                        <button className={styles.addTagButton} onClick={handleAddTagLocal} type="button">追加</button>
+                                    </div>
+                                    {showTagInput && (
+                                        <button 
+                                            className={`${styles.button} ${styles.buttonPrimary}`} 
+                                            onClick={handleSaveTags}
+                                            style={{ marginTop: '8px', width: '100%' }}
+                                        >
+                                            タグを保存
+                                        </button>
+                                    )}
+                                    {localTags.length > 0 && (
+                                        <div className={styles.tagHint}>
+                                            ヒント: タグをダブルクリックで削除できます
+                                        </div>
+                                    )}
                                 </div>
                             )}
                         </div>
