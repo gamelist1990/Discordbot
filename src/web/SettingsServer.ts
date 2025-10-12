@@ -12,11 +12,9 @@ import { SessionService } from './services/SessionService.js';
 import { createStatusRoutes, createSessionRoutes, createSettingsRoutes, createStaffRoutes, createAuthRoutes, createTodoRoutes, createUserRoutes, createModRoutes } from './routes/index.js';
 import { createGuildRoutes } from './routes/guild.js';
 // 開発時に Vite dev server へプロキシするためのミドルウェア（optional）
-import { createProxyMiddleware } from 'http-proxy-middleware';
 import { statsManagerSingleton } from '../core/StatsManager.js';
 import { TodoManager } from '../core/TodoManager.js';
 // config.json を読み込む
-import config from '../../config.json' assert { type: 'json' };
 
 // 型定義を型として再エクスポート（実行時には存在しないため type を使用）
 
@@ -134,7 +132,7 @@ export class SettingsServer {
         this.app.use('/api/auth', createAuthRoutes(sessions, this.botClient));
         this.app.use('/api/user', createUserRoutes(sessions, this.botClient));
         this.app.use('/api/guilds', createModRoutes(sessions, this.botClient));
-    this.app.use('/api', createGuildRoutes(sessions, this.botClient));
+        this.app.use('/api', createGuildRoutes(sessions, this.botClient));
 
         // Temporary debug route to inspect StatsManager buffer
         this.app.get('/__debug/stats-buffer', (_req, res) => {
@@ -154,50 +152,29 @@ export class SettingsServer {
             }
         });
 
-        // config.json の dev フィールドで判定
-        if (config.dev) {
-            Logger.info('Development mode (config.dev=true): proxying non-/api requests to Vite dev server at http://localhost:5173');
-            // API のパスは除外して、それ以外の GET リクエストを Vite に転送する
-            this.app.use((req: Request, res: Response, next) => {
-                if (req.path.startsWith('/api')) return next();
-                if (req.method !== 'GET') return next();
+        // 静的ファイルの配信
+        this.app.use(express.static(path.join(__dirname, '..', '..', 'dist', 'web')));
 
-                // createProxyMiddleware を直接呼び出す
-                const proxy = createProxyMiddleware({
-                    target: 'http://localhost:5173',
-                    changeOrigin: true,
-                    ws: true,
-                    logLevel: 'warn',
-                    // Preserve original path and query
-                    pathRewrite: (pathStr) => pathStr,
-                });
+        // SPAのフォールバック（GETかつ/apiで始まらないリクエストに対してindex.htmlを返す）
+        // path-to-regexp のバージョン差による '*' パースエラーを回避するため、
+        // 明示的にメソッドとパスをチェックするミドルウェアを使います。
+        this.app.use((req: Request, res: Response, next) => {
+            // DEBUG: ブラウザから来たリクエストのURL（クエリ含む）をログ出力して、
+            // クライアントが送った query string がサーバに届いているか確認する
+            // 一時的なログなので調査完了後は削除してOK
+            Logger.info(`[SPA Fallback] incoming request: ${req.originalUrl}`);
+            // APIルートは次へ
+            if (req.path.startsWith('/api')) return next();
 
-                return proxy(req as any, res as any, next as any);
+            // GETのみをSPAフォールバックとして扱う
+            if (req.method !== 'GET') return next();
+
+            const indexPath = path.join(__dirname, '..', '..', 'dist', 'web', 'index.html');
+            res.sendFile(indexPath, (err) => {
+                if (err) next(err);
             });
-        } else {
-            // 静的ファイルの配信
-            this.app.use(express.static(path.join(__dirname, '..', '..', 'dist', 'web')));
+        });
 
-            // SPAのフォールバック（GETかつ/apiで始まらないリクエストに対してindex.htmlを返す）
-            // path-to-regexp のバージョン差による '*' パースエラーを回避するため、
-            // 明示的にメソッドとパスをチェックするミドルウェアを使います。
-            this.app.use((req: Request, res: Response, next) => {
-                // DEBUG: ブラウザから来たリクエストのURL（クエリ含む）をログ出力して、
-                // クライアントが送った query string がサーバに届いているか確認する
-                // 一時的なログなので調査完了後は削除してOK
-                Logger.info(`[SPA Fallback] incoming request: ${req.originalUrl}`);
-                // APIルートは次へ
-                if (req.path.startsWith('/api')) return next();
-
-                // GETのみをSPAフォールバックとして扱う
-                if (req.method !== 'GET') return next();
-
-                const indexPath = path.join(__dirname, '..', '..', 'dist', 'web', 'index.html');
-                res.sendFile(indexPath, (err) => {
-                    if (err) next(err);
-                });
-            });
-        }
     }
 
     /**
