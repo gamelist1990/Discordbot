@@ -9,7 +9,7 @@ import path from 'path';
 import { Logger } from '../utils/Logger.js';
 import { BotClient } from '../core/BotClient.js';
 import { SessionService } from './services/SessionService.js';
-import { createStatusRoutes, createSessionRoutes, createSettingsRoutes, createStaffRoutes, createAuthRoutes, createTodoRoutes, createUserRoutes, createModRoutes } from './routes/index.js';
+import { createStatusRoutes, createSessionRoutes, createSettingsRoutes, createStaffRoutes, createAuthRoutes, createTodoRoutes, createUserRoutes, createModRoutes, createFeedbackRoutes } from './routes/index.js';
 import { createGuildRoutes } from './routes/guild.js';
 // 開発時に Vite dev server へプロキシするためのミドルウェア（optional）
 import { statsManagerSingleton } from '../core/StatsManager.js';
@@ -133,6 +133,7 @@ export class SettingsServer {
         this.app.use('/api/user', createUserRoutes(sessions, this.botClient));
         this.app.use('/api/guilds', createModRoutes(sessions, this.botClient));
         this.app.use('/api', createGuildRoutes(sessions, this.botClient));
+        this.app.use('/api', createFeedbackRoutes(sessions));
 
         // Temporary debug route to inspect StatsManager buffer
         this.app.get('/__debug/stats-buffer', (_req, res) => {
