@@ -155,9 +155,11 @@ export class SettingsServer {
             }
         });
 
-        // Generic preview handler (mount before static files so crawlers see OG meta)
-        // The handler consults a registry populated by modules (e.g., feedback route registers itself).
-        this.app.get(['/feedback', '/feedback/:id', '/preview/*'], previewHandler);
+    // Generic preview handler (mount before static files so crawlers see OG meta)
+    // The handler consults a registry populated by modules (e.g., feedback route registers itself).
+    // Use a RegExp for the preview path to avoid path-to-regexp parameter parsing issues.
+    // Express supports regex paths; this avoids version-specific parameter syntax.
+    this.app.get(['/feedback', '/feedback/:id', /^\/preview\/.*$/], previewHandler as any);
 
         // 静的ファイルの配信
         this.app.use(express.static(path.join(__dirname, '..', '..', 'dist', 'web')));

@@ -1,7 +1,6 @@
 import { 
     SlashCommandBuilder, 
     ChatInputCommandInteraction, 
-    PermissionFlagsBits,
     MessageFlags
 } from 'discord.js';
 import fs from 'fs/promises';
@@ -74,7 +73,6 @@ async function buildStaffCommand(): Promise<SlashCommand> {
     const builder = new SlashCommandBuilder()
         .setName('staff')
         .setDescription('スタッフ向けの管理機能')
-        .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
         .setDMPermission(false);
     
     // デフォルトのサブコマンドを追加（後方互換性のため）
