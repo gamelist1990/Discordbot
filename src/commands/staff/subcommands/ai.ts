@@ -2,7 +2,7 @@
 import { ChatInputCommandInteraction, MessageFlags, DiscordAPIError } from 'discord.js';
 import { OpenAIChatManager } from '../../../core/OpenAIChatManager';
 import { OpenAIChatCompletionMessage, OpenAIChatCompletionChunk } from '../../../types/openai';
-import { statusToolDefinition, statusToolHandler, weatherToolDefinition, weatherToolHandler, timeToolDefinition, timeToolHandler } from './ai-tools';
+import { statusToolDefinition, statusToolHandler, weatherToolDefinition, weatherToolHandler, timeToolDefinition, timeToolHandler, countPhraseToolDefinition, countPhraseToolHandler, userInfoToolDefinition, userInfoToolHandler } from './ai-tools';
 import { PdfRAGManager } from '../../../core/PdfRAGManager';
 
 // レート制限の設定
@@ -203,10 +203,18 @@ export const subcommandHandler = {
 
         const chatManager = new OpenAIChatManager();
 
-        // ツールを登録
+        // >> ツールを登録 <<
+        // ステータス検知
         chatManager.registerTool(statusToolDefinition, statusToolHandler);
+        // 天気予報
         chatManager.registerTool(weatherToolDefinition, weatherToolHandler);
+        // 時刻取得
         chatManager.registerTool(timeToolDefinition, timeToolHandler);
+        // フレーズカウント
+        chatManager.registerTool(countPhraseToolDefinition,countPhraseToolHandler);
+        // ユーザー情報取得
+        chatManager.registerTool(userInfoToolDefinition, userInfoToolHandler);
+
 
         // ツール実行時のコンテキストとして interaction を設定
         chatManager.setToolContext(interaction);
@@ -215,8 +223,25 @@ export const subcommandHandler = {
         const userSystemPrompt = interaction.options.getString('system_prompt', false);
         const safetyOverride = interaction.options.getBoolean('safety', false);
 
+        // ギルド絵文字の取得
+        let emojiInfo = '';
+        if (interaction.guild) {
+            const guildEmojis = interaction.guild.emojis.cache;
+            if (guildEmojis.size > 0) {
+                const emojiList = guildEmojis.map(emoji => {
+                    return `${emoji.animated ? '<a:' : '<:'}${emoji.name}:${emoji.id}>`;
+                }).join(' ');
+                emojiInfo = `\n\n# 利用可能なギルド絵文字\nこのサーバーには以下のカスタム絵文字が設定されています。適切な場面で自由に使用できます:\n${emojiList}`;
+            }
+        }
+
         // デフォルトの安全な system prompt
-        const defaultSystemPrompt = 'あなたは役立つアシスタントです。回答は正確かつスピーディにそしてよりフレンドリーに行って下さい。よく分からない意図が不明の場合は聞き直して下さい';
+        const defaultSystemPrompt = `あなたは役立つアシスタントです。回答は正確かつスピーディにそしてよりフレンドリーに行って下さい。よく分からない意図が不明の場合は聞き直して下さい。
+
+# 重要な応答ルール
+- 会話履歴は文脈理解のために提供されますが、応答時にタイムスタンプ（例: [10/13/2025, 10:01:00 PM]）やユーザー名のプレフィックス（例: PEXserver:）を含めないでください
+- あなたの応答は直接的なメッセージ内容のみにしてください
+- 会話履歴の形式を真似せず、自然な会話として応答してください${emojiInfo}`;
 
         // ユーザーが提供した system prompt をサニタイズしてマージ
         const mergedSystemPrompt = mergeSystemPrompts(defaultSystemPrompt, userSystemPrompt, safetyOverride === true);
@@ -235,6 +260,15 @@ export const subcommandHandler = {
                     .slice(-20);
 
                 const historySlice = recentMessages.slice(-10); // MAX_HISTORY_MESSAGES と合わせて10
+                
+                // 会話履歴がある場合、system メッセージに説明を追加
+                if (historySlice.length > 0) {
+                    historyMessages.push({
+                        role: 'system',
+                        content: '以下は会話の文脈理解のための履歴です。各メッセージは [タイムスタンプ] ユーザー名: メッセージ の形式ですが、これは参考情報であり、あなたの応答にこの形式を含めないでください。'
+                    });
+                }
+                
                 for (const msg of historySlice) {
                     const display = (msg as any).member?.displayName || msg.author.username;
                     const role = msg.author.bot ? 'assistant' : 'user';
@@ -247,6 +281,12 @@ export const subcommandHandler = {
         } catch (e) {
             // fetch 失敗時は conversationHistory の文字列を fallback として使う
             if (conversationHistory) {
+                // フォールバック時にも説明を追加
+                historyMessages.push({
+                    role: 'system',
+                    content: '以下は会話の文脈理解のための履歴です。各メッセージは [タイムスタンプ] ユーザー名: メッセージ の形式ですが、これは参考情報であり、あなたの応答にこの形式を含めないでください。'
+                });
+                
                 const lines = conversationHistory.split('\n').filter(l => l.trim() !== '' && !l.startsWith('会話履歴:'));
                 for (const line of lines) {
                     // フォールバック行は "Name: message" または "[time] Name: message" の可能性がある
@@ -343,8 +383,70 @@ export const subcommandHandler = {
             // 完了レスポンスを安全に送信（期限切れ等は safeRespond がフォールバックする）
             await safeRespond({ content: cleanedResponse, files: codeFiles.length > 0 ? codeFiles : undefined, ephemeral: interactionExpired });
 
-        } catch (error) {
+        } catch (error: any) {
             console.error('AIストリームでエラーが発生:', error);
+
+            // コンテンツフィルタ (Azure/OpenAI) による失敗を検出
+            const messageStr = typeof error === 'string' ? error : error?.message || '';
+            const isContentFilterError = messageStr.includes('content_filter') || messageStr.includes('ResponsibleAIPolicyViolation');
+
+            if (isContentFilterError) {
+                // ユーザへ通知
+                try {
+                    await safeRespond({ content: '⚠️ 入力がコンテンツポリシーに抵触したためリクエストが拒否されました。過激な表現・自己傷害・ヘイト表現・暴力表現などが含まれている可能性があります。入力を修正するか、より穏当な表現で再試行してください。', ephemeral: true });
+                } catch (e) {
+                    console.error('safeRespond エラー (content_filter):', e);
+                }
+
+                // 自動サニタイズして再試行を試みる（保守的モード）
+                try {
+                    const sanitized = sanitizeForContentFilter(prompt);
+                    if (sanitized && sanitized !== prompt) {
+                        const sanitizedUserContentText = `### ユーザープロンプト\n${sanitized}`;
+                        // 再構築: system を保守的モードにして、最新の user メッセージを置換
+                        const retryMessages = messages.map(m => ({ ...m }));
+                        if (retryMessages.length > 0) retryMessages[0] = { role: 'system', content: mergeSystemPrompts(defaultSystemPrompt, null, true) };
+                        // find last user message that starts with '### ユーザープロンプト'
+                        for (let i = retryMessages.length - 1; i >= 0; i--) {
+                            // 修正: 要素を一時変数に取り出してから content を安全にチェックする
+                            const entry = retryMessages[i];
+                            const content = entry?.content;
+                            if (entry?.role === 'user' && typeof content === 'string' && content.startsWith('### ユーザープロンプト')) {
+                                retryMessages[i] = { role: 'user', content: sanitizedUserContentText };
+                                break;
+                            }
+                        }
+
+                        // 試行: 安全にストリーム（簡易: model を gpt-4o-mini に切り替える）
+                        try {
+                            responseContent = '';
+                            await chatManager.streamMessage(retryMessages, (chunk: OpenAIChatCompletionChunk) => {
+                                if (chunk.choices[0]?.delta?.content) {
+                                    responseContent += chunk.choices[0].delta.content;
+                                    const now2 = Date.now();
+                                    if (now2 - lastUpdateTime >= UPDATE_INTERVAL && !interactionExpired) {
+                                        lastUpdateTime = now2;
+                                        updateDiscordMessage(interaction, formatResponse(responseContent));
+                                    }
+                                }
+                            }, { temperature: 0.7, model: 'gpt-4o-mini' });
+
+                            // 成功したら送信
+                            await safeRespond({ content: formatResponse(responseContent, true) });
+                            isCompleted = true;
+                            return; // 正常終了
+                        } catch (retryErr) {
+                            console.error('自動サニタイズ再試行に失敗:', retryErr);
+                            // 以降は通常のエラーハンドリングにフォールバックする
+                        }
+                    }
+                } catch (sanErr) {
+                    console.error('sanitize/retry エラー:', sanErr);
+                }
+
+                // 再試行ができなかった／失敗した場合はここで終了
+                return;
+            }
 
             // OpenAIのレート制限エラーを検知して適切なメッセージを表示
             let errorMessage = '❌ リクエストの処理中にエラーが発生しました。';
@@ -545,4 +647,34 @@ function mergeSystemPrompts(defaultPrompt: string, userPrompt: string | null | u
 
     // 標準モードではユーザー指示をデフォルトの下に結合
     return `${defaultPrompt}\n\n# ユーザーの追加指示\n${sanitized}`;
+}
+
+// コンテンツフィルタ用の自動サニタイズ。返り値はサニタイズ後のテキスト（変更がない場合は元の入力を返す）
+function sanitizeForContentFilter(input: string | null | undefined): string {
+    if (!input) return '';
+    let cleaned = input;
+
+    // 危険度の高いキーワード一覧（簡易）を置換
+    const patterns = [
+        /kill yourself/gi,
+        /commit suicide/gi,
+        /i want to die/gi,
+        /hate (?:you|them)/gi,
+        /\bslur1\b/gi, // placeholder: 実運用ではスラーワードリストを整備してください
+        /\bslur2\b/gi,
+        /how to make a bomb/gi,
+        /explode/gi,
+        /\bterrorist\b/gi
+    ];
+
+    for (const pat of patterns) {
+        cleaned = cleaned.replace(pat, '[削除]');
+    }
+
+    // 長すぎる場合は切り詰め
+    if (cleaned.length > 1000) {
+        cleaned = cleaned.substring(0, 1000) + '...';
+    }
+
+    return cleaned.trim();
 }

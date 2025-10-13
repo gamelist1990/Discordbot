@@ -232,8 +232,36 @@ export class OpenAIChatManager {
                 continue;
             }
 
+            // presence/timer support: if toolContext contains a Discord interaction/client,
+            // update bot presence to indicate the tool is being processed and show elapsed seconds.
+            const discordClient = this.toolContext?.client;
+            let restorePresence: any = null;
+            let timerInterval: any = null;
+
             try {
                 const args = JSON.parse(toolCall.function.arguments);
+
+                // start presence timer if possible
+                if (discordClient && discordClient.user && typeof discordClient.user.setPresence === 'function') {
+                    try {
+                        // save previous presence for restore
+                        restorePresence = {
+                            activities: discordClient.user.presence?.activities || [],
+                            status: discordClient.user.presence?.status || 'online'
+                        };
+                    } catch (e) {
+                        restorePresence = null;
+                    }
+
+                    let seconds = 0;
+                    // initial set
+                    try { discordClient.user.setPresence({ activities: [{ name: `考え中... (${toolCall.function.name}: ${seconds}s)` }], status: 'idle' }); } catch (e) { /* ignore */ }
+                    timerInterval = setInterval(() => {
+                        seconds++;
+                        try { discordClient.user.setPresence({ activities: [{ name: `考え中... (${toolCall.function.name}: ${seconds}s)` }], status: 'idle' }); } catch (e) { /* ignore */ }
+                    }, 1000);
+                }
+
                 const result = await toolEntry.handler(args, this.toolContext);
                 const resultStr = typeof result === 'string' ? result : JSON.stringify(result);
 
@@ -249,6 +277,20 @@ export class OpenAIChatManager {
                     content: `Error: ${error instanceof Error ? error.message : String(error)}`,
                     tool_call_id: toolCall.id
                 });
+            } finally {
+                // clear timer and restore presence
+                try {
+                    if (timerInterval) clearInterval(timerInterval);
+                    if (discordClient && discordClient.user && typeof discordClient.user.setPresence === 'function') {
+                        if (restorePresence) {
+                            try { discordClient.user.setPresence({ activities: restorePresence.activities, status: restorePresence.status }); } catch (e) { /* ignore */ }
+                        } else {
+                            try { discordClient.user.setPresence({ activities: [], status: 'online' }); } catch (e) { /* ignore */ }
+                        }
+                    }
+                } catch (e) {
+                    // ignore restore errors
+                }
             }
         }
 
