@@ -8,3 +8,5 @@ export * from './todo.js';
 export * from './user.js';
 export * from './mod.js';
 export * from './feedback.js';
+// register default preview handlers
+import '../preview/defaults.js';

@@ -12,6 +12,7 @@ import { SessionService } from './services/SessionService.js';
 import { createStatusRoutes, createSessionRoutes, createSettingsRoutes, createStaffRoutes, createAuthRoutes, createTodoRoutes, createUserRoutes, createModRoutes, createFeedbackRoutes } from './routes/index.js';
 import { createGuildRoutes } from './routes/guild.js';
 import { setupWebSocketServer } from './routes/websocket.js';
+import { previewHandler } from './preview/PreviewController.js';
 // 開発時に Vite dev server へプロキシするためのミドルウェア（optional）
 import { statsManagerSingleton } from '../core/StatsManager.js';
 import { TodoManager } from '../core/TodoManager.js';
@@ -136,7 +137,7 @@ export class SettingsServer {
         this.app.use('/api', createGuildRoutes(sessions, this.botClient));
         this.app.use('/api', createFeedbackRoutes(sessions));
 
-        // Temporary debug route to inspect StatsManager buffer
+    // Temporary debug route to inspect StatsManager buffer
         this.app.get('/__debug/stats-buffer', (_req, res) => {
             try {
                 const s = statsManagerSingleton.instance as any;
@@ -153,6 +154,10 @@ export class SettingsServer {
                 res.status(500).json({ error: 'debug failed' });
             }
         });
+
+        // Generic preview handler (mount before static files so crawlers see OG meta)
+        // The handler consults a registry populated by modules (e.g., feedback route registers itself).
+        this.app.get(['/feedback', '/feedback/:id', '/preview/*'], previewHandler);
 
         // 静的ファイルの配信
         this.app.use(express.static(path.join(__dirname, '..', '..', 'dist', 'web')));

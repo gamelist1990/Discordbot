@@ -105,7 +105,7 @@ export class CommandRegistry {
      * ユーザーの権限レベルをチェック
      */
     async checkPermission(
-        interaction: ChatInputCommandInteraction, 
+        interaction: ChatInputCommandInteraction,
         requiredLevel: PermissionLevel
     ): Promise<boolean> {
         // ANY は誰でも実行可能
@@ -120,9 +120,17 @@ export class CommandRegistry {
 
         const guildId = interaction.guild.id;
         const userId = interaction.user.id;
-        const member = interaction.guild.members.cache.get(userId);
 
-        if (!member) return false;
+        // Try to get member from cache first, otherwise fetch from API.
+        let member = interaction.guild.members.cache.get(userId);
+        if (!member) {
+            try {
+                member = await interaction.guild.members.fetch(userId);
+            } catch (err) {
+                // couldn't fetch member (not in guild or API error)
+                return false;
+            }
+        }
 
         // OWNER レベル: サーバーオーナー
         if (requiredLevel === PermissionLevel.OWNER) {
@@ -130,7 +138,7 @@ export class CommandRegistry {
         }
 
         // ギルド設定を取得
-    const guildSettings = await database.get<any>(guildId, `Guild/${guildId}/settings`, {
+        const guildSettings = await database.get<any>(guildId, `Guild/${guildId}/settings`, {
             adminRoleId: null,
             staffRoleId: null,
         });

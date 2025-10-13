@@ -2,6 +2,8 @@ import { Router } from 'express';
 import { FeedbackController } from '../controllers/FeedbackController.js';
 import { SettingsSession } from '../types/index.js';
 import { verifyAuth } from '../middleware/auth.js';
+import { globalPreviewRegistry } from '../preview/PreviewRegistry.js';
+import { FeedbackManager } from '../../core/FeedbackManager.js';
 
 /**
  * フィードバックルート
@@ -46,4 +48,35 @@ export function createFeedbackRoutes(
     router.delete('/feedback/:id/comments/:commentId', auth, controller.deleteComment.bind(controller));
 
     return router;
+}
+
+// Register preview handlers for feedback pages so external crawlers
+// can get OG meta for /feedback and /feedback/:id without SettingsServer edits.
+try {
+    // /feedback (index)
+    globalPreviewRegistry.register(/^\/feedback$/i, async (path) => {
+        return {
+            title: 'Feedback',
+            description: 'Community feedback, feature requests and bug reports.',
+            url: path
+        };
+    });
+
+    // /feedback/:id
+    globalPreviewRegistry.register(/^\/feedback\/([a-zA-Z0-9-_]+)$/i, async (path) => {
+        const parts = path.split('/');
+        const id = parts[2];
+        const f = await FeedbackManager.getFeedbackById(id);
+        if (!f) return null;
+        return {
+            title: f.title || 'Feedback item',
+            description: (f.description || '').toString().slice(0, 200),
+            image: f.authorAvatar || undefined,
+            url: path,
+            type: 'article'
+        };
+    });
+} catch (e) {
+    // best-effort registration at import time; swallow errors
+    // console.warn('Preview registration for feedback failed', e);
 }
