@@ -1,4 +1,5 @@
 import { ChatInputCommandInteraction, EmbedBuilder, MessageFlags } from 'discord.js';
+import config from '../../config.js';
 
 /**
  * スタッフコマンドのヘルプ情報
@@ -44,14 +45,14 @@ export async function handleHelpSubcommand(interaction: ChatInputCommandInteract
         return;
     }
 
-    // SettingsServer インスタンスを取得してトークンを生成
+    // SettingsServer インスタンスを取得
     const settingsServer = (interaction.client as any).settingsServer;
 
     if (settingsServer) {
         try {
-            // セッションを作成
-            const token = settingsServer.createSession(interaction.guildId, interaction.user.id);
-            const helpUrl = `http://localhost:3000/staff/help/${token}`;
+            // 直接 /staff ページへ誘導（トークン形式は不要）
+            const baseUrl = process.env.SETTINGS_SERVER_URL ?? config.WEB_BASE_URL ?? `http://localhost:${(process.env.SETTINGS_SERVER_PORT ?? '3000')}`;
+            const helpUrl = `${baseUrl.replace(/\/$/, '')}/staff`;
 
             const embed = new EmbedBuilder()
                 .setColor('#667eea')
@@ -60,8 +61,6 @@ export async function handleHelpSubcommand(interaction: ChatInputCommandInteract
                     `スタッフ向けの管理機能コマンド一覧を確認できます。\n\n` +
                     `**🌐 Webヘルプページ（推奨）:**\n` +
                     `${helpUrl}\n\n` +
-                    `⚠️ このURLは30分間有効です。\n` +
-                    `⚠️ このURLは他の人と共有しないでください。\n\n` +
                     `Webページでは全コマンドの詳細情報を確認できます。`
                 )
                 .setTimestamp()
@@ -70,7 +69,7 @@ export async function handleHelpSubcommand(interaction: ChatInputCommandInteract
             await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
             return;
         } catch (error) {
-            console.error('トークン生成エラー:', error);
+            console.error('SettingsServer URL 生成エラー:', error);
             // エラー時は従来のヘルプ表示にフォールバック
         }
     }
