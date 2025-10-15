@@ -1,11 +1,657 @@
-/* Google Material Design 3 - Role Manager Styles */
+/* Google Material Design 3 - Role Manager Styles with Enhanced Layout */
+
+/* CSS Variables for Material 3 Design Tokens */
+:root {
+    --md-sys-color-primary: #6750a4;
+    --md-sys-color-primary-hover: #5c4194;
+    --md-sys-color-primary-active: #4f378a;
+    --md-sys-color-secondary: #625b71;
+    --md-sys-color-tertiary: #7d5260;
+    --md-sys-color-surface: #fef7ff;
+    --md-sys-color-surface-variant: #f7f2fa;
+    --md-sys-color-surface-container: rgba(255, 255, 255, 0.9);
+    --md-sys-color-on-primary: #ffffff;
+    --md-sys-color-on-surface: #1c1b1f;
+    --md-sys-color-on-surface-variant: #49454f;
+    --md-sys-color-outline: rgba(0, 0, 0, 0.12);
+    --md-sys-color-outline-hover: rgba(103, 80, 164, 0.12);
+    --md-sys-state-layer-opacity-hover: 0.08;
+    --md-sys-state-layer-opacity-focus: 0.12;
+    --md-sys-elevation-level-1: 0px 1px 2px 0px rgba(0, 0, 0, 0.3), 0px 1px 3px 1px rgba(0, 0, 0, 0.15);
+    --md-sys-elevation-level-2: 0px 1px 2px 0px rgba(0, 0, 0, 0.3), 0px 2px 6px 2px rgba(0, 0, 0, 0.15);
+    --md-sys-elevation-level-3: 0px 1px 3px 0px rgba(0, 0, 0, 0.3), 0px 4px 8px 3px rgba(0, 0, 0, 0.15);
+    --md-sys-elevation-level-4: 0px 2px 3px 0px rgba(0, 0, 0, 0.3), 0px 6px 10px 4px rgba(0, 0, 0, 0.15);
+    --md-sys-shape-corner-extra-large: 28px;
+    --md-sys-shape-corner-large: 16px;
+    --md-sys-shape-corner-medium: 12px;
+    --md-sys-shape-corner-small: 8px;
+    --md-sys-shape-corner-extra-small: 4px;
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+    :root {
+        --md-sys-color-surface: #0f0e11;
+        --md-sys-color-surface-variant: #141218;
+        --md-sys-color-surface-container: rgba(40, 34, 41, 0.9);
+        --md-sys-color-on-surface: #e6e0ea;
+        --md-sys-color-on-surface-variant: #cac4d0;
+        --md-sys-color-outline: rgba(238, 229, 237, 0.12);
+    }
+}
 
 /* Container */
 .container {
     min-height: 100vh;
-    background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+    background: linear-gradient(135deg, var(--md-sys-color-surface-variant) 0%, rgba(195, 206, 226, 0.8) 100%);
     padding: 2rem 0;
-    font-family: 'Roboto', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    font-family: 'Google Sans', 'Roboto Flex', 'Noto Sans JP', sans-serif;
+    display: flex;
+    flex-direction: column;
+}
+
+/* Hamburger Menu for Mobile */
+.hamburgerMenu {
+    display: none;
+    position: fixed;
+    top: 1rem;
+    left: 1rem;
+    z-index: 1002;
+    background: var(--md-sys-color-surface-container);
+    border-radius: 50%;
+    width: 56px;
+    height: 56px;
+    border: none;
+    cursor: pointer;
+    box-shadow: var(--md-sys-elevation-level-2);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    align-items: center;
+    justify-content: center;
+    backdrop-filter: blur(20px);
+}
+
+.hamburgerMenu:hover {
+    background: rgba(103, 80, 164, var(--md-sys-state-layer-opacity-hover));
+    box-shadow: var(--md-sys-elevation-level-3);
+}
+
+.hamburgerMenu i {
+    font-size: 24px;
+    color: var(--md-sys-color-on-surface);
+    transition: transform 0.3s ease;
+}
+
+.hamburgerMenu.open i {
+    transform: rotate(90deg);
+}
+
+/* Sidebar Layout */
+.mainLayout {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+}
+
+.sidebar {
+    width: 320px;
+    background: var(--md-sys-color-surface-container);
+    border-right: 1px solid var(--md-sys-color-outline);
+    backdrop-filter: blur(20px);
+    position: fixed;
+    left: 0;
+    top: 140px;
+    bottom: 0;
+    z-index: 1001;
+    transform: translateX(0);
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    overflow-y: auto;
+    padding: 2rem;
+    scrollbar-width: thin;
+    scrollbar-color: var(--md-sys-color-outline) transparent;
+}
+
+.sidebar.hidden {
+    transform: translateX(-100%);
+}
+
+.sidebar::-webkit-scrollbar {
+    width: 6px;
+}
+
+.sidebar::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.sidebar::-webkit-scrollbar-thumb {
+    background: var(--md-sys-color-outline);
+    border-radius: 3px;
+}
+
+/* Main Content */
+.mainContent {
+    flex: 1;
+    margin-left: 320px;
+    padding: 2rem;
+    transition: margin-left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.mainContent.fullWidth {
+    margin-left: 0;
+}
+
+/* Overlay for mobile sidebar */
+.sidebarOverlay {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(28, 27, 31, 0.5);
+    z-index: 1000;
+    backdrop-filter: blur(4px);
+    animation: fadeIn 0.3s ease;
+}
+
+.sidebarOverlay.visible {
+    display: block;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+/* Header */
+.header {
+    background: var(--md-sys-color-surface-container);
+    backdrop-filter: blur(20px);
+    border-bottom: 1px solid var(--md-sys-color-outline);
+    padding: 2rem 0;
+    margin-bottom: 0;
+    border-radius: 0;
+    box-shadow: var(--md-sys-elevation-level-1);
+    z-index: 1000;
+    position: relative;
+}
+
+.headerContent {
+    max-width: none;
+    margin: 0 auto;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0 2rem;
+}
+
+.headerTitle {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+    color: var(--md-sys-color-on-surface);
+}
+
+.headerTitle i {
+    font-size: 3rem;
+    color: var(--md-sys-color-primary);
+}
+
+.headerTitle h1 {
+    font-size: 2.25rem;
+    font-weight: 400;
+    margin: 0;
+    letter-spacing: 0.5px;
+}
+
+/* Loading & Empty States */
+.loading,
+.emptyState {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 5rem 3rem;
+    color: var(--md-sys-color-on-surface-variant);
+    text-align: center;
+    background: var(--md-sys-color-surface-container);
+    border-radius: var(--md-sys-shape-corner-extra-large);
+    margin: 2rem auto;
+    max-width: 600px;
+    box-shadow: var(--md-sys-elevation-level-2);
+}
+
+.loading i,
+.emptyState i {
+    font-size: 5rem;
+    margin-bottom: 2rem;
+    opacity: 0.7;
+    color: var(--md-sys-color-primary);
+}
+
+.loading i {
+    animation: spin 2s linear infinite;
+}
+
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+.hint {
+    font-size: 1.125rem;
+    opacity: 0.8;
+    margin-top: 1rem;
+    line-height: 1.6;
+}
+
+/* Guild Selector (Sidebar) */
+.guildSelector {
+    padding: 0;
+    border-bottom: 1px solid var(--md-sys-color-outline);
+    margin-bottom: 2rem;
+    padding-bottom: 2rem;
+}
+
+.guildSelector h2 {
+    color: var(--md-sys-color-on-surface);
+    font-size: 2rem;
+    font-weight: 400;
+    margin-bottom: 2rem;
+    text-align: center;
+    letter-spacing: 0.25px;
+}
+
+.guildList {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.guildCard {
+    background: var(--md-sys-color-surface);
+    border-radius: var(--md-sys-shape-corner-large);
+    padding: 1.5rem;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    cursor: pointer;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: var(--md-sys-elevation-level-1);
+    border: 2px solid transparent;
+}
+
+.guildCard:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--md-sys-elevation-level-3);
+    border-color: var(--md-sys-color-primary);
+}
+
+.guildCard.selected {
+    background: rgba(103, 80, 164, var(--md-sys-state-layer-opacity-hover));
+    border-color: var(--md-sys-color-primary);
+}
+
+.guildCard.selected .guildName {
+    color: var(--md-sys-color-primary);
+    font-weight: 600;
+}
+
+.guildIcon {
+    width: 48px;
+    height: 48px;
+    border-radius: var(--md-sys-shape-corner-medium);
+    object-fit: cover;
+    box-shadow: var(--md-sys-elevation-level-1);
+    flex-shrink: 0;
+}
+
+.guildIconPlaceholder {
+    width: 48px;
+    height: 48px;
+    border-radius: var(--md-sys-shape-corner-medium);
+    background: linear-gradient(135deg, var(--md-sys-color-primary) 0%, var(--md-sys-color-tertiary) 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--md-sys-color-on-primary);
+    box-shadow: var(--md-sys-elevation-level-1);
+    flex-shrink: 0;
+}
+
+.guildIconPlaceholder i {
+    font-size: 24px;
+}
+
+.guildName {
+    font-weight: 500;
+    text-align: left;
+    font-size: 1rem;
+    color: var(--md-sys-color-on-surface);
+    line-height: 1.4;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Content */
+.content {
+    max-width: none;
+    margin: 0;
+    padding: 0;
+}
+
+/* Toolbar */
+.toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 3rem;
+    background: var(--md-sys-color-surface-container);
+    padding: 2rem;
+    border-radius: var(--md-sys-shape-corner-extra-large);
+    box-shadow: var(--md-sys-elevation-level-2);
+    gap: 2rem;
+}
+
+/* Preset Grid with Enhanced Layout */
+.presetGrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
+    gap: 2rem;
+    container-type: inline-size;
+}
+
+@container (max-width: 480px) {
+    .presetGrid {
+        grid-template-columns: 1fr;
+        gap: 1.5rem;
+    }
+}
+
+.presetCard {
+    background: var(--md-sys-color-surface-container);
+    border-radius: var(--md-sys-shape-corner-extra-large);
+    padding: 2.5rem;
+    box-shadow: var(--md-sys-elevation-level-2);
+    display: flex;
+    flex-direction: column;
+    gap: 2rem;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    border: 1px solid var(--md-sys-color-outline);
+    container-type: inline-size;
+}
+
+.presetCard:hover {
+    transform: translateY(-4px);
+    box-shadow: var(--md-sys-elevation-level-4);
+    border-color: rgba(103, 80, 164, 0.3);
+}
+
+/* Enhanced Role Selection UI */
+.roleCheckboxes {
+    max-height: 300px;
+    overflow-y: auto;
+    border: 1px solid var(--md-sys-color-outline);
+    border-radius: var(--md-sys-shape-corner-large);
+    padding: 1.5rem;
+    background: var(--md-sys-color-surface);
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+    gap: 0.5rem;
+    scrollbar-width: thin;
+    scrollbar-color: var(--md-sys-color-outline) transparent;
+}
+
+.roleCheckboxes::-webkit-scrollbar {
+    width: 6px;
+}
+
+.roleCheckboxes::-webkit-scrollbar-track {
+    background: transparent;
+    border-radius: var(--md-sys-shape-corner-small);
+}
+
+.roleCheckboxes::-webkit-scrollbar-thumb {
+    background: var(--md-sys-color-outline);
+    border-radius: 3px;
+}
+
+.roleCheckbox {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 1rem;
+    cursor: pointer;
+    border-radius: var(--md-sys-shape-corner-medium);
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    border: 1px solid transparent;
+    background: transparent;
+    min-height: 56px;
+    position: relative;
+}
+
+.roleCheckbox:hover {
+    background: var(--md-sys-color-surface-variant);
+    border-color: var(--md-sys-color-outline-hover);
+}
+
+.roleCheckbox.selected {
+    background: rgba(103, 80, 164, 0.06);
+    border-color: var(--md-sys-color-primary);
+}
+
+.roleCheckbox input[type="checkbox"] {
+    position: absolute;
+    opacity: 0;
+    cursor: pointer;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+}
+
+.checkmark {
+    width: 20px;
+    height: 20px;
+    border: 2px solid var(--md-sys-color-outline);
+    border-radius: 4px;
+    position: relative;
+    background: var(--md-sys-color-surface);
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.roleCheckbox.selected .checkmark {
+    background: var(--md-sys-color-primary);
+    border-color: var(--md-sys-color-primary);
+}
+
+.roleCheckbox.selected .checkmark::after {
+    content: '✓';
+    color: var(--md-sys-color-on-primary);
+    font-weight: bold;
+    font-size: 14px;
+}
+
+.roleColor {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    border: 1px solid var(--md-sys-color-outline);
+}
+
+/* Modal Enhancements */
+.modalOverlay {
+    background: rgba(28, 27, 31, 0.5);
+    backdrop-filter: blur(8px);
+}
+
+.modal {
+    border-radius: var(--md-sys-shape-corner-extra-large);
+    max-height: 90vh;
+    overflow: hidden;
+}
+
+.modalForm {
+    max-height: calc(90vh - 140px);
+    overflow-y: auto;
+}
+
+/* Responsive Design with Container Queries and Enhanced Mobile Support */
+@media (max-width: 1024px) {
+    .sidebar {
+        transform: translateX(-100%);
+        width: 280px;
+    }
+
+    .sidebar.visible {
+        transform: translateX(0);
+    }
+
+    .mainContent {
+        margin-left: 0;
+    }
+
+    .hamburgerMenu {
+        display: flex;
+    }
+}
+
+@media (max-width: 768px) {
+    .container {
+        padding: 1rem 0;
+    }
+
+    .header {
+        padding: 1rem 0;
+    }
+
+    .headerContent {
+        padding: 0 1rem;
+        flex-direction: column;
+        gap: 1rem;
+        align-items: flex-start;
+    }
+
+    .headerTitle h1 {
+        font-size: 1.75rem;
+    }
+
+    .hamburgerMenu {
+        top: 1rem;
+        left: 1rem;
+    }
+
+    .sidebar {
+        width: 280px;
+        top: 120px;
+        left: 0;
+        z-index: 1001;
+        padding: 1.5rem;
+        transform: translateX(-100%);
+        box-shadow: var(--md-sys-elevation-level-4);
+    }
+
+    .mainContent {
+        padding: 1rem;
+    }
+
+    .toolbar {
+        flex-direction: column;
+        gap: 1rem;
+        padding: 1.5rem;
+        border-radius: var(--md-sys-shape-corner-large);
+    }
+
+    .presetGrid {
+        grid-template-columns: 1fr;
+        gap: 1.5rem;
+    }
+
+    .presetCard {
+        padding: 2rem;
+        border-radius: var(--md-sys-shape-corner-large);
+    }
+
+    .modalOverlay {
+        padding: 1rem;
+    }
+
+    .modal {
+        border-radius: var(--md-sys-shape-corner-large);
+    }
+
+    .modalHeader {
+        padding: 2rem;
+    }
+
+    .modalForm {
+        padding: 2rem;
+    }
+
+    /* Mobile-specific enhancements */
+    .roleCheckboxes {
+        grid-template-columns: 1fr;
+        gap: 0.25rem;
+        padding: 1rem;
+    }
+
+    .roleCheckbox {
+        padding: 0.75rem;
+        min-height: 48px;
+    }
+
+    .guildCard {
+        padding: 1rem;
+        flex-direction: column;
+        text-align: center;
+        gap: 0.75rem;
+    }
+}
+
+/* Print styles */
+@media print {
+    .container {
+        background: white;
+    }
+
+    .sidebar,
+    .hamburgerMenu,
+    .modalOverlay {
+        display: none;
+    }
+
+    .mainContent {
+        margin-left: 0;
+    }
+
+    .header {
+        box-shadow: none;
+        border-bottom: 1px solid #000;
+    }
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+    :root {
+        --md-sys-color-outline: rgba(255, 255, 255, 0.87);
+        --md-sys-color-on-surface: #ffffff;
+        --md-sys-color-surface: #000000;
+        --md-sys-color-surface-container: #1a1a1a;
+    }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+    * {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+    }
 }
 
 /* Header */
@@ -125,11 +771,8 @@
     letter-spacing: 0.25px;
 }
 
+/* Guild selector old - safe to remove */
 .guildGrid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-    gap: 2rem;
-}
 
 .guildCard {
     background: white;

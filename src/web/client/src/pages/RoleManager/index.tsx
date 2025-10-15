@@ -31,11 +31,12 @@ interface Guild {
 const RoleManagerPage: React.FC = () => {
     const navigate = useNavigate();
     const [loading, setLoading] = useState(true);
+    const [sidebarOpen, setSidebarOpen] = useState(false);
     const [accessibleGuilds, setAccessibleGuilds] = useState<Guild[]>([]);
     const [selectedGuildId, setSelectedGuildId] = useState<string | null>(null);
     const [presets, setPresets] = useState<Record<string, RolePreset>>({});
     const [guildRoles, setGuildRoles] = useState<GuildRole[]>([]);
-    
+
     const [showModal, setShowModal] = useState(false);
     const [editingPreset, setEditingPreset] = useState<RolePreset | null>(null);
     const [formData, setFormData] = useState({
@@ -53,6 +54,18 @@ const RoleManagerPage: React.FC = () => {
             return { addToast: undefined } as any;
         }
     })();
+
+    // Auto-close sidebar on mobile when guild is selected
+    useEffect(() => {
+        if (selectedGuildId && window.innerWidth <= 1024) {
+            setSidebarOpen(false);
+        }
+    }, [selectedGuildId]);
+
+    // Handle sidebar overlay clicks
+    const handleOverlayClick = () => {
+        setSidebarOpen(false);
+    };
 
     // Load accessible guilds
     useEffect(() => {
@@ -412,28 +425,94 @@ const RoleManagerPage: React.FC = () => {
                             <div className={styles.formGroup}>
                                 <label>ロール選択 *</label>
                                 <div className={styles.roleCheckboxes}>
-                                    {guildRoles.map(role => (
-                                        <label key={role.id} className={styles.roleCheckbox}>
-                                            <input
-                                                type="checkbox"
-                                                checked={formData.roles.includes(role.id)}
-                                                onChange={e => {
-                                                    const newRoles = e.target.checked
-                                                        ? [...formData.roles, role.id]
-                                                        : formData.roles.filter(r => r !== role.id);
-                                                    setFormData({ ...formData, roles: newRoles });
-                                                }}
-                                            />
-                                            <span
-                                                className={styles.roleColor}
-                                                style={{
-                                                    backgroundColor: `#${role.color.toString(16).padStart(6, '0')}`
-                                                }}
-                                            />
-                                            {role.name}
-                                        </label>
-                                    ))}
+                                    {guildRoles.length === 0 ? (
+                                        <div className={styles.emptyState}>
+                                            <i className="material-icons">badge</i>
+                                            <p>サーバーからロール情報を取得できませんでした</p>
+                                        </div>
+                                    ) : (
+                                        Object.entries(groupedRoles).map(([colorGroup, roles]) => (
+                                            <div key={colorGroup}>
+                                                {colorGroup !== 'default' && roles.length > 0 && (
+                                                    <h4 style={{
+                                                        marginTop: '1.5rem',
+                                                        marginBottom: '0.75rem',
+                                                        fontSize: '0.875rem',
+                                                        color: 'var(--md-sys-color-on-surface-variant)',
+                                                        fontWeight: '500'
+                                                    }}>
+                                                        {colorGroup === 'default' ? 'デフォルト' : `カラーグループ ${colorGroup.replace('color-', '')}`}
+                                                    </h4>
+                                                )}
+                                                <div style={{
+                                                    display: 'grid',
+                                                    gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))',
+                                                    gap: '0.5rem',
+                                                    marginBottom: '1rem'
+                                                }}>
+                                                    {roles.map(role => (
+                                                        <label
+                                                            key={role.id}
+                                                            className={`${styles.roleCheckbox} ${
+                                                                formData.roles.includes(role.id) ? styles.selected : ''
+                                                            }`}
+                                                            onClick={(e) => e.preventDefault()} // Prevent double-trigger
+                                                        >
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={formData.roles.includes(role.id)}
+                                                                onChange={(e) => handleRoleToggle(role.id, e.target.checked)}
+                                                            />
+                                                            <span
+                                                                className={styles.checkmark}
+                                                                onClick={(e) => {
+                                                                    e.preventDefault();
+                                                                    handleRoleToggle(role.id, !formData.roles.includes(role.id));
+                                                                }}
+                                                            />
+                                                            <span
+                                                                className={styles.roleColor}
+                                                                style={{
+                                                                    backgroundColor: role.color === 0
+                                                                        ? 'var(--md-sys-color-on-surface-variant)'
+                                                                        : `#${role.color.toString(16).padStart(6, '0')}`
+                                                                }}
+                                                            />
+                                                            <span style={{
+                                                                fontSize: '0.875rem',
+                                                                color: 'var(--md-sys-color-on-surface)',
+                                                                fontWeight: '500',
+                                                                overflow: 'hidden',
+                                                                textOverflow: 'ellipsis'
+                                                            }}>
+                                                                {role.name}
+                                                            </span>
+                                                            {!role.managed && (
+                                                                <small style={{
+                                                                    fontSize: '0.75rem',
+                                                                    color: 'var(--md-sys-color-on-surface-variant)',
+                                                                    opacity: 0.8
+                                                                }}>
+                                                                    {role.position === 0 ? '初期ロール' : `位置: ${role.position}`}
+                                                                </small>
+                                                            )}
+                                                        </label>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        ))
+                                    )}
                                 </div>
+                                {formData.roles.length > 0 && (
+                                    <small style={{
+                                        display: 'block',
+                                        marginTop: '0.5rem',
+                                        color: 'var(--md-sys-color-primary)',
+                                        fontSize: '0.875rem'
+                                    }}>
+                                        選択されたロール: {formData.roles.length}個
+                                    </small>
+                                )}
                             </div>
                             <div className={styles.formGroup}>
                                 <label className={styles.checkboxLabel}>
