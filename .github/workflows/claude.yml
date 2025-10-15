@@ -48,5 +48,8 @@ jobs:
           # Optional: Add claude_args to customize behavior and configuration
           # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
           # or https://docs.claude.com/en/docs/claude-code/sdk#command-line for available options
-          claude_args: '--system-prompt "[回答,githubの投稿,githubのTodo,PR,issue]等必ず日本語を使用してください(もしユーザーが English pls)等のようにリクエストした場合は英語等で、また初めにTodoを作り返信後に作業を開始" --allowed-tools Bash(gh pr:*)'
+          claude_args: |
+          --mcp-config '{"mcpServers":{"sequential-thinking":{"command":"npx","args":["-y","@modelcontextprotocol/server-sequential-thinking"]},"playwright":{"command":"npx","args":["@playwright/mcp@latest"]},"filesystem":{"command":"npx","args":["-y","@modelcontextprotocol/server-filesystem","/Users/username/Desktop","/path/to/other/allowed/dir"]}}}'
+          --system-prompt '[回答,githubの投稿,githubのTodo,PR,issue]等必ず日本語を使用してください(もしユーザーが English pls)等のようにリクエストした場合は英語等で、また初めにTodoを作り返信後に作業を開始'
+          --allowed-tools 'mcp__github_inline_comment__create_inline_comment,mcp__github__create_pending_pull_request_review,mcp__github__add_comment_to_pending_review,mcp__github__submit_pending_pull_request_review,mcp__github__get_pull_request_diff,mcp__github__get_pull_request_files,mcp__github__get_pull_request,mcp__github__get_file_contents,mcp__filesystem__read_file,mcp__filesystem__write_file,mcp__filesystem__list_directory,mcp__filesystem__delete_file,mcp__filesystem__create_directory,Bash(gh pr:*)'
 
