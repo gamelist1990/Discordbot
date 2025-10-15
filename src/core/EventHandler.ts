@@ -103,6 +103,12 @@ export class EventHandler {
      */
     private registerInteractionCreateEvent(): void {
         this.botClient.client.on(Events.InteractionCreate, async (interaction: Interaction) => {
+            // Handle SelectMenu interactions (role panel)
+            if (interaction.isStringSelectMenu()) {
+                await this.handleSelectMenuInteraction(interaction);
+                return;
+            }
+
             // ...existing code...
             if (!interaction.isChatInputCommand()) return;
 
@@ -202,6 +208,165 @@ export class EventHandler {
                 }
             }
         });
+    }
+
+    /**
+     * SelectMenu インタラクションのハンドリング（ロールパネル）
+     */
+    private async handleSelectMenuInteraction(interaction: any): Promise<void> {
+        if (!interaction.customId.startsWith('rolepanel:')) return;
+
+        try {
+            const [, guildId, presetId] = interaction.customId.split(':');
+
+            if (!interaction.guild || interaction.guild.id !== guildId) {
+                await interaction.reply({
+                    content: '❌ このパネルは別のサーバー用です。',
+                    flags: MessageFlags.Ephemeral
+                });
+                return;
+            }
+
+            // 遅延インポートで RolePresetManager を取得
+            const { RolePresetManager } = await import('./RolePresetManager.js');
+
+            // プリセットを取得
+            const preset = await RolePresetManager.getPreset(guildId, presetId);
+            if (!preset) {
+                await interaction.reply({
+                    content: '❌ このプリセットは削除されました。',
+                    flags: MessageFlags.Ephemeral
+                });
+                return;
+            }
+
+            await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+            const member = interaction.member;
+            const selectedRoleIds = interaction.values as string[];
+            const currentRoles = (member.roles as GuildMemberRoleManager).cache.map(r => r.id);
+
+            const results: string[] = [];
+            const errors: string[] = [];
+
+            // プリセット内のロールとの差分を計算
+            for (const roleId of preset.roles) {
+                const role = interaction.guild.roles.cache.get(roleId);
+                if (!role) continue;
+
+                const isSelected = selectedRoleIds.includes(roleId);
+                const hasRole = currentRoles.includes(roleId);
+
+                // 選択されているが持っていない → 追加
+                if (isSelected && !hasRole) {
+                    try {
+                        // ロール階層チェック
+                        const botMember = interaction.guild.members.me;
+                        if (role.position >= botMember!.roles.highest.position) {
+                            errors.push(`${role.name}: ボットより上位のロールです`);
+                            continue;
+                        }
+
+                        await member.roles.add(role);
+                        results.push(`✅ ${role.name} を追加しました`);
+
+                        // ログに記録
+                        await RolePresetManager.logRoleChange({
+                            timestamp: new Date().toISOString(),
+                            guildId,
+                            userId: member.user.id,
+                            executorId: member.user.id,
+                            presetId,
+                            action: 'add',
+                            roleId,
+                            roleName: role.name,
+                            success: true
+                        });
+                    } catch (error) {
+                        const errorMsg = error instanceof Error ? error.message : '不明なエラー';
+                        errors.push(`${role.name}: ${errorMsg}`);
+
+                        await RolePresetManager.logRoleChange({
+                            timestamp: new Date().toISOString(),
+                            guildId,
+                            userId: member.user.id,
+                            executorId: member.user.id,
+                            presetId,
+                            action: 'add',
+                            roleId,
+                            roleName: role.name,
+                            success: false,
+                            error: errorMsg
+                        });
+                    }
+                }
+                // 選択されていないが持っている → 削除
+                else if (!isSelected && hasRole) {
+                    try {
+                        await member.roles.remove(role);
+                        results.push(`➖ ${role.name} を削除しました`);
+
+                        await RolePresetManager.logRoleChange({
+                            timestamp: new Date().toISOString(),
+                            guildId,
+                            userId: member.user.id,
+                            executorId: member.user.id,
+                            presetId,
+                            action: 'remove',
+                            roleId,
+                            roleName: role.name,
+                            success: true
+                        });
+                    } catch (error) {
+                        const errorMsg = error instanceof Error ? error.message : '不明なエラー';
+                        errors.push(`${role.name}: ${errorMsg}`);
+
+                        await RolePresetManager.logRoleChange({
+                            timestamp: new Date().toISOString(),
+                            guildId,
+                            userId: member.user.id,
+                            executorId: member.user.id,
+                            presetId,
+                            action: 'remove',
+                            roleId,
+                            roleName: role.name,
+                            success: false,
+                            error: errorMsg
+                        });
+                    }
+                }
+            }
+
+            // 結果を表示
+            let message = '';
+            if (results.length > 0) {
+                message += results.join('\n');
+            }
+            if (results.length === 0 && errors.length === 0) {
+                message = '✅ 変更はありませんでした。';
+            }
+            if (errors.length > 0) {
+                message += '\n\n**エラー:**\n' + errors.join('\n');
+            }
+
+            await interaction.editReply({ content: message });
+
+        } catch (error) {
+            Logger.error('Role panel interaction error:', error);
+            
+            const errorMsg = error instanceof Error ? error.message : '不明なエラー';
+            
+            if (interaction.deferred) {
+                await interaction.editReply({
+                    content: `❌ ロール変更中にエラーが発生しました: ${errorMsg}`
+                });
+            } else {
+                await interaction.reply({
+                    content: `❌ ロール変更中にエラーが発生しました: ${errorMsg}`,
+                    flags: MessageFlags.Ephemeral
+                });
+            }
+        }
     }
 
     /**

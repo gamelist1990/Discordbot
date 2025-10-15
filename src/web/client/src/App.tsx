@@ -3,6 +3,7 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import SettingsPage from './pages/Settings';
 import SettingsListPage from './pages/SettingsList';
 import PrivateChatPage from './pages/PrivateChat';
+import RoleManagerPage from './pages/RoleManager';
 import StaffHelpPage from './pages/StaffHelp';
 import NotFoundPage from './pages/NotFound';
 import TodoDashboard from './pages/Todo/TodoDashboard';
@@ -47,6 +48,7 @@ const App: React.FC = () => {
       <Route path="/feedback" element={<FeedbackPage />} />
   <Route path="/staff" element={<StaffGuard><StaffHelpPage /></StaffGuard>} />
   <Route path="/staff/privatechat" element={<StaffGuard><PrivateChatPage /></StaffGuard>} />
+  <Route path="/staff/rolemanager" element={<StaffGuard><RoleManagerPage /></StaffGuard>} />
   {/* Legacy/typo alias: accept /staff/privateChat (capital C) and redirect to canonical path */}
   <Route path="/staff/privateChat" element={<Navigate to="/staff/privatechat" replace />} />
       <Route path="/todo/:guildId" element={<TodoDashboard />} />
