@@ -5,9 +5,8 @@ import {
     ActionRowBuilder,
     StringSelectMenuBuilder,
     StringSelectMenuOptionBuilder,
-    ComponentType,
     PermissionFlagsBits,
-    GuildMemberRoleManager
+    ChannelType
 } from 'discord.js';
 import { RolePresetManager } from '../../../core/RolePresetManager.js';
 import { Logger } from '../../../utils/Logger.js';
@@ -57,7 +56,16 @@ export default {
         const presetId = interaction.options.getString('preset', true);
         const targetChannel = interaction.options.getChannel('channel') || interaction.channel;
 
-        if (!targetChannel || !targetChannel.isTextBased()) {
+        // テキストベースのチャンネルかどうかをチェック
+        const isTextChannel = targetChannel && (
+            targetChannel.type === ChannelType.GuildText ||
+            targetChannel.type === ChannelType.GuildAnnouncement ||
+            targetChannel.type === ChannelType.GuildForum ||
+            targetChannel.type === ChannelType.PublicThread ||
+            targetChannel.type === ChannelType.PrivateThread
+        );
+
+        if (!targetChannel || !isTextChannel) {
             await interaction.reply({
                 content: '❌ 有効なテキストチャンネルを指定してください。',
                 flags: MessageFlags.Ephemeral
@@ -117,7 +125,8 @@ export default {
                 .setDescription(
                     preset.description +
                     '\n\n下のメニューからロールを選択して、自分のロールを追加/削除できます。' +
-                    (preset.allowMulti ? '\n複数選択可能です。' : '')
+                    (preset.allowMulti ? '\n複数選択可能です。' : '') +
+                    '\n\n**注意:** 選択しているものが現在付与されているロールです。'
                 )
                 .setColor(0x5865F2)
                 .setFooter({ text: `Preset ID: ${preset.id}` })
@@ -135,7 +144,7 @@ export default {
                 .addComponents(selectMenu);
 
             // パネルを投稿
-            await targetChannel.send({
+            await (targetChannel as any).send({
                 embeds: [embed],
                 components: [row]
             });

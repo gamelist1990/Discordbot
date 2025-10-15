@@ -295,12 +295,17 @@ const StaffHelpPage: React.FC = () => {
                                     </div>
 
                                     <div className={styles.serviceCard}>
-                                        <div className={styles.servicePlaceholder}>
-                                            <div className={styles.placeholderIcon}>➕</div>
-                                            <p className={styles.placeholderText}>
-                                                今後のサービスがここに表示されます
-                                            </p>
-                                        </div>
+                                        <div className={styles.serviceIcon}>🎭</div>
+                                        <h3 className={styles.serviceTitle}>ロール管理</h3>
+                                        <p className={styles.serviceDescription}>
+                                            サーバーのロールプリセットを管理
+                                        </p>
+                                        <button
+                                            className={styles.serviceButton}
+                                            onClick={() => navigate('/staff/rolemanager')}
+                                        >
+                                            開く
+                                        </button>
                                     </div>
                                 </div>
                             </div>

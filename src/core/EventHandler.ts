@@ -1,4 +1,4 @@
-import { Events, Interaction, MessageFlags } from 'discord.js';
+import { Events, Interaction, MessageFlags, StringSelectMenuBuilder, ActionRowBuilder, StringSelectMenuOptionBuilder, GuildMemberRoleManager } from 'discord.js';
 import { BotClient } from './BotClient.js';
 import { CommandRegistry } from './CommandRegistry.js';
 import { EnhancedSlashCommand } from '../types/enhanced-command.js';
@@ -350,6 +350,55 @@ export class EventHandler {
             }
 
             await interaction.editReply({ content: message });
+
+            // ロール変更後に、ユーザーの現在のロールをデフォルト選択したSelectMenuでメッセージを更新
+            try {
+                const updatedCurrentRoles = (member.roles as GuildMemberRoleManager).cache.map(r => r.id);
+                
+                // プリセット内のロールからオプションを作成
+                const roleOptions: StringSelectMenuOptionBuilder[] = [];
+                for (const roleId of preset.roles) {
+                    const role = interaction.guild.roles.cache.get(roleId);
+                    if (role) {
+                        // ロール階層チェック
+                        const botMember = interaction.guild.members.me;
+                        if (role.position >= botMember!.roles.highest.position) {
+                            continue; // スキップ
+                        }
+
+                        const isDefault = updatedCurrentRoles.includes(roleId);
+                        roleOptions.push(
+                            new StringSelectMenuOptionBuilder()
+                                .setLabel(role.name)
+                                .setValue(roleId)
+                                .setDescription(`${role.name} ロールを追加/削除`)
+                                .setEmoji('🎭')
+                                .setDefault(isDefault)
+                        );
+                    }
+                }
+
+                if (roleOptions.length > 0) {
+                    // 新しいSelectMenuを作成
+                    const updatedSelectMenu = new StringSelectMenuBuilder()
+                        .setCustomId(`rolepanel:${interaction.guild.id}:${preset.id}`)
+                        .setPlaceholder('ロールを選択してください...')
+                        .setMinValues(0)
+                        .setMaxValues(preset.allowMulti ? roleOptions.length : 1)
+                        .addOptions(roleOptions);
+
+                    const updatedRow = new ActionRowBuilder<StringSelectMenuBuilder>()
+                        .addComponents(updatedSelectMenu);
+
+                    // 元のメッセージを更新
+                    await interaction.message.edit({
+                        components: [updatedRow]
+                    });
+                }
+            } catch (updateError) {
+                Logger.warn('Failed to update role panel message:', updateError);
+                // エラーが発生しても処理を続行
+            }
 
         } catch (error) {
             Logger.error('Role panel interaction error:', error);
