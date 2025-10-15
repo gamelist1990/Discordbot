@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import AppHeader from '../../components/Common/AppHeader';
 import LoginPage from '../../components/Login/LoginPage';
 import styles from './TodoDashboard.module.css';
 
@@ -184,7 +183,6 @@ const TodoDashboard: React.FC = () => {
 
     return (
         <div className={styles.page}>
-            <AppHeader user={session} />
             <div className={styles.dashboard}>
             {/* Main Content */}
             <main className={styles.main}>

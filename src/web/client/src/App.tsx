@@ -1,5 +1,6 @@
 import React from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
+import AppHeader from './components/Common/AppHeader';
 import SettingsPage from './pages/Settings';
 import SettingsListPage from './pages/SettingsList';
 import PrivateChatPage from './pages/PrivateChat';
@@ -40,7 +41,10 @@ const StaffGuard: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
 const App: React.FC = () => {
   return (
-    <Routes>
+    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+      <AppHeader />
+      <main style={{ flex: 1 }}>
+        <Routes>
   <Route path="/" element={<HomePage />} />
       <Route path="/profile" element={<UserProfile />} />
       <Route path="/settings" element={<SettingsListPage />} />
@@ -57,6 +61,8 @@ const App: React.FC = () => {
       <Route path="/404" element={<NotFoundPage />} />
       <Route path="*" element={<Navigate to="/404" replace />} />
     </Routes>
+      </main>
+    </div>
   );
 };
 

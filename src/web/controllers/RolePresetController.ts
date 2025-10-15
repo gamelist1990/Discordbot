@@ -3,6 +3,8 @@ import { RolePresetManager, RolePreset } from '../../core/RolePresetManager.js';
 import { SettingsSession } from '../types/index.js';
 import { BotClient } from '../../core/BotClient.js';
 import { Logger } from '../../utils/Logger.js';
+import { PermissionManager } from '../../utils/PermissionManager.js';
+import { CacheManager } from '../../utils/CacheManager.js';
 
 /**
  * ロールプリセットコントローラー
@@ -35,13 +37,26 @@ export class RolePresetController {
             level = session.permission;
         }
 
-        if (level < 1) {
-            res.status(403).json({ error: '権限がありません' });
+        const permissionError = PermissionManager.checkPermission(level, 1, '権限がありません');
+        if (permissionError) {
+            res.status(permissionError.status).json({ error: permissionError.error });
             return;
         }
 
         try {
+            // キャッシュチェック
+            const cacheKey = `presets_${guildId}`;
+            const cachedPresets = CacheManager.get<any[]>(cacheKey);
+            if (cachedPresets) {
+                res.json(cachedPresets);
+                return;
+            }
+
             const guildPresets = await RolePresetManager.getGuildPresets(guildId);
+
+            // キャッシュに保存（5分間）
+            CacheManager.set(cacheKey, guildPresets, 5 * 60 * 1000);
+
             res.json(guildPresets);
         } catch (error) {
             Logger.error('Failed to get presets:', error);
@@ -70,12 +85,21 @@ export class RolePresetController {
             level = session.permission;
         }
 
-        if (level < 1) {
-            res.status(403).json({ error: '権限がありません' });
+        const permissionError = PermissionManager.checkPermission(level, 1, '権限がありません');
+        if (permissionError) {
+            res.status(permissionError.status).json({ error: permissionError.error });
             return;
         }
 
         try {
+            // キャッシュチェック
+            const cacheKey = `guild_roles_${guildId}`;
+            const cachedRoles = CacheManager.get<any>(cacheKey);
+            if (cachedRoles) {
+                res.json(cachedRoles);
+                return;
+            }
+
             const guild = this.botClient.client.guilds.cache.get(guildId);
             if (!guild) {
                 res.status(404).json({ error: 'Guild not found' });
@@ -99,7 +123,12 @@ export class RolePresetController {
                 }))
                 .sort((a, b) => b.position - a.position);
 
-            res.json({ roles });
+            const result = { roles };
+
+            // キャッシュに保存（10分間）
+            CacheManager.set(cacheKey, result, 10 * 60 * 1000);
+
+            res.json(result);
         } catch (error) {
             Logger.error('Failed to get guild roles:', error);
             res.status(500).json({ error: 'Failed to fetch guild roles' });
@@ -128,8 +157,9 @@ export class RolePresetController {
             level = session.permission;
         }
 
-        if (level < 1) {
-            res.status(403).json({ error: '権限がありません' });
+        const permissionError = PermissionManager.checkPermission(level, 1, '権限がありません');
+        if (permissionError) {
+            res.status(permissionError.status).json({ error: permissionError.error });
             return;
         }
 
@@ -150,6 +180,10 @@ export class RolePresetController {
             });
 
             Logger.info(`Role preset '${id}' created in guild ${guildId} by user ${session.userId}`);
+
+            // キャッシュをクリア
+            CacheManager.delete(`presets_${guildId}`);
+
             res.status(201).json(preset);
         } catch (error) {
             Logger.error('Failed to create preset:', error);
@@ -181,8 +215,9 @@ export class RolePresetController {
             level = session.permission;
         }
 
-        if (level < 1) {
-            res.status(403).json({ error: '権限がありません' });
+        const permissionError = PermissionManager.checkPermission(level, 1, '権限がありません');
+        if (permissionError) {
+            res.status(permissionError.status).json({ error: permissionError.error });
             return;
         }
 
@@ -196,6 +231,10 @@ export class RolePresetController {
             const preset = await RolePresetManager.updatePreset(guildId, presetId, updates);
 
             Logger.info(`Role preset '${presetId}' updated in guild ${guildId} by user ${session.userId}`);
+
+            // キャッシュをクリア
+            CacheManager.delete(`presets_${guildId}`);
+
             res.json(preset);
         } catch (error) {
             Logger.error('Failed to update preset:', error);
@@ -226,8 +265,9 @@ export class RolePresetController {
             level = session.permission;
         }
 
-        if (level < 1) {
-            res.status(403).json({ error: '権限がありません' });
+        const permissionError = PermissionManager.checkPermission(level, 1, '権限がありません');
+        if (permissionError) {
+            res.status(permissionError.status).json({ error: permissionError.error });
             return;
         }
 
@@ -240,6 +280,10 @@ export class RolePresetController {
             }
 
             Logger.info(`Role preset '${presetId}' deleted from guild ${guildId} by user ${session.userId}`);
+
+            // キャッシュをクリア
+            CacheManager.delete(`presets_${guildId}`);
+
             res.json({ success: true });
         } catch (error) {
             Logger.error('Failed to delete preset:', error);
@@ -269,8 +313,9 @@ export class RolePresetController {
             level = session.permission;
         }
 
-        if (level < 1) {
-            res.status(403).json({ error: '権限がありません' });
+        const permissionError = PermissionManager.checkPermission(level, 1, '権限がありません');
+        if (permissionError) {
+            res.status(permissionError.status).json({ error: permissionError.error });
             return;
         }
 

@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import AppHeader from '../../components/Common/AppHeader';
 import styles from './SettingsListPage.module.css';
 
 interface Guild {
@@ -49,7 +48,6 @@ const SettingsListPage: React.FC = () => {
 
   return (
     <div>
-      <AppHeader />
       <div className={styles.container}>
         <h1>管理サーバー一覧</h1>
         {loading ? (

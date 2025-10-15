@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import AppHeader from '../../components/Common/AppHeader';
 import styles from './UserProfile.module.css';
 
 interface GuildStats {
@@ -238,7 +237,6 @@ const UserProfile: React.FC<UserProfileProps> = ({ user, onLoginClick }) => {
     if (loading) {
         return (
             <div>
-                <AppHeader user={profileData ? { userId: profileData.id, username: profileData.username, avatar: profileData.avatar } : null} />
                 <div className={styles.loading}>
                     <div className={styles.loadingSpinner}></div>
                     <p>プロフィールを読み込み中...</p>
@@ -250,7 +248,6 @@ const UserProfile: React.FC<UserProfileProps> = ({ user, onLoginClick }) => {
     if (!profileData) {
         return (
             <div>
-                <AppHeader user={null} />
                 <div className={styles.error}>
                     <h2>ログインが必要です</h2>
                     <p>Discord でログインして、あなたのプロフィールを表示しましょう。</p>
@@ -270,7 +267,6 @@ const UserProfile: React.FC<UserProfileProps> = ({ user, onLoginClick }) => {
 
     return (
         <div className={styles.page}>
-            <AppHeader user={{ userId: profileData.id, username: profileData.username, avatar: profileData.avatar }} />
 
             <main className={styles.content}>
                 {/* Sidebar - MainContent内に内包 */}

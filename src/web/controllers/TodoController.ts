@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { TodoManager } from '../../core/TodoManager.js';
 import { SettingsSession } from '../types/index.js';
+import { CacheManager } from '../../utils/CacheManager.js';
 
 /**
  * Todo コントローラー
@@ -13,7 +14,19 @@ export class TodoController {
         const session = (req as any).session as SettingsSession;
 
         try {
+            // キャッシュチェック
+            const cacheKey = `todo_sessions_${session.userId}`;
+            const cachedSessions = CacheManager.get<any[]>(cacheKey);
+            if (cachedSessions) {
+                res.json({ sessions: cachedSessions });
+                return;
+            }
+
             const sessions = await TodoManager.getUserSessions(session.userId);
+
+            // キャッシュに保存（5分間）
+            CacheManager.set(cacheKey, sessions, 5 * 60 * 1000);
+
             res.json({ sessions });
         } catch (error) {
             console.error('Todoセッション一覧取得エラー:', error);
@@ -41,6 +54,9 @@ export class TodoController {
         try {
             const todoSession = await TodoManager.createSession(session.userId, name.trim(), session.guildId);
 
+            // キャッシュをクリア
+            CacheManager.delete(`todo_sessions_${session.userId}`);
+
             res.json({ session: todoSession });
         } catch (error) {
             console.error('Todoセッション作成エラー:', error);
@@ -57,6 +73,14 @@ export class TodoController {
         const { sessionId } = req.params;
 
         try {
+            // キャッシュチェック
+            const cacheKey = `todo_session_${sessionId}`;
+            const cachedSession = CacheManager.get<any>(cacheKey);
+            if (cachedSession) {
+                res.json(cachedSession);
+                return;
+            }
+
             const todoSession = await TodoManager.getSession(sessionId);
             if (!todoSession) {
                 res.status(404).json({ error: 'Session not found' });
@@ -70,7 +94,12 @@ export class TodoController {
                 return;
             }
 
-            res.json({ session: todoSession, accessLevel });
+            const result = { session: todoSession, accessLevel };
+
+            // キャッシュに保存（10分間）
+            CacheManager.set(cacheKey, result, 10 * 60 * 1000);
+
+            res.json(result);
         } catch (error) {
             console.error('Todoセッション取得エラー:', error);
             res.status(500).json({ error: 'Failed to fetch todo session' });
@@ -98,6 +127,11 @@ export class TodoController {
             }
 
             await TodoManager.deleteSession(sessionId);
+
+            // キャッシュをクリア
+            CacheManager.delete(`todo_sessions_${session.userId}`);
+            CacheManager.delete(`todo_session_${sessionId}`);
+
             res.json({ success: true });
         } catch (error) {
             console.error('Todoセッション削除エラー:', error);

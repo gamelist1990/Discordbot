@@ -1,20 +1,30 @@
 import {
     ChatInputCommandInteraction,
-    MessageFlags,
     EmbedBuilder,
     ActionRowBuilder,
-    StringSelectMenuBuilder,
-    StringSelectMenuOptionBuilder,
+    ButtonBuilder,
+    ButtonStyle,
     PermissionFlagsBits,
     ChannelType,
     SlashCommandSubcommandBuilder,
     SlashCommandStringOption,
     SlashCommandChannelOption,
+    ButtonInteraction,
+    GuildMemberRoleManager,
+    MessageFlags,
+    StringSelectMenuBuilder,
     StringSelectMenuInteraction,
-    GuildMemberRoleManager
+    StringSelectMenuOptionBuilder
 } from 'discord.js';
+
 import { RolePresetManager } from '../../../core/RolePresetManager.js';
-import { Logger } from '../../../utils/Logger.js';
+
+/**
+ * ロールが操作可能かどうかをチェック
+ */
+function canManageRole(role: any, botMember: any): boolean {
+    return role && role.position < botMember.roles.highest.position;
+}
 
 /**
  * /staff rolepanel サブコマンド
@@ -40,13 +50,17 @@ export default {
     },
 
     /**
-     * SelectMenu インタラクションのハンドリング（ロールパネル）
+     * インタラクションのハンドリング（ロールパネル）
      */
-    async handleInteraction(interaction: StringSelectMenuInteraction): Promise<void> {
+    async handleInteraction(interaction: ButtonInteraction | StringSelectMenuInteraction): Promise<void> {
         if (!interaction.customId.startsWith('rolepanel:')) return;
 
         try {
-            const [, guildId, presetId] = interaction.customId.split(':');
+            const parts = interaction.customId.split(':');
+            // parts: ['rolepanel', guildId, presetId, action]
+            const guildId = parts[1];
+            const presetId = parts[2];
+            const action = parts[3];
 
             if (!interaction.guild || interaction.guild.id !== guildId) {
                 await interaction.reply({
@@ -75,214 +89,155 @@ export default {
                 return;
             }
 
-            await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-
-            const selectedRoleIds = interaction.values as string[];
-            const currentRoles = (member.roles as GuildMemberRoleManager).cache.map(r => r.id);
-
-            const results: string[] = [];
-            const errors: string[] = [];
-
-            // プリセット内のロールとの差分を計算
-            for (const roleId of preset.roles) {
-                const role = interaction.guild.roles.cache.get(roleId);
-                if (!role) continue;
-
-                const isSelected = selectedRoleIds.includes(roleId);
-                const hasRole = currentRoles.includes(roleId);
-
-                // 選択されているが持っていない → 追加
-                if (isSelected && !hasRole) {
-                    try {
-                        // ロール階層チェック
-                        const botMember = interaction.guild.members.me;
-                        if (!botMember) {
-                            errors.push(`${role.name}: ボットのメンバー情報を取得できません`);
-                            continue;
-                        }
-                        if (role.position >= botMember.roles.highest.position) {
-                            errors.push(`${role.name}: ボットより上位のロールです`);
-                            continue;
-                        }
-
-                        await (member.roles as GuildMemberRoleManager).add(role);
-                        results.push(`✅ ${role.name} を追加しました`);
-
-                        // ログに記録
-                        await RolePresetManager.logRoleChange({
-                            timestamp: new Date().toISOString(),
-                            guildId,
-                            userId: member.user.id,
-                            executorId: member.user.id,
-                            presetId,
-                            action: 'add',
-                            roleId,
-                            roleName: role.name,
-                            success: true
-                        });
-                    } catch (error) {
-                        const errorMsg = error instanceof Error ? error.message : '不明なエラー';
-                        errors.push(`${role.name}: ${errorMsg}`);
-
-                        await RolePresetManager.logRoleChange({
-                            timestamp: new Date().toISOString(),
-                            guildId,
-                            userId: member.user.id,
-                            executorId: member.user.id,
-                            presetId,
-                            action: 'add',
-                            roleId,
-                            roleName: role.name,
-                            success: false,
-                            error: errorMsg
-                        });
-                    }
-                }
-                // 選択されていないが持っている → 削除
-                else if (!isSelected && hasRole) {
-                    try {
-                        await (member.roles as GuildMemberRoleManager).remove(role);
-                        results.push(`➖ ${role.name} を削除しました`);
-
-                        await RolePresetManager.logRoleChange({
-                            timestamp: new Date().toISOString(),
-                            guildId,
-                            userId: member.user.id,
-                            executorId: member.user.id,
-                            presetId,
-                            action: 'remove',
-                            roleId,
-                            roleName: role.name,
-                            success: true
-                        });
-                    } catch (error) {
-                        const errorMsg = error instanceof Error ? error.message : '不明なエラー';
-                        errors.push(`${role.name}: ${errorMsg}`);
-
-                        await RolePresetManager.logRoleChange({
-                            timestamp: new Date().toISOString(),
-                            guildId,
-                            userId: member.user.id,
-                            executorId: member.user.id,
-                            presetId,
-                            action: 'remove',
-                            roleId,
-                            roleName: role.name,
-                            success: false,
-                            error: errorMsg
-                        });
-                    }
-                }
+            // ボタンクリックの場合はロール選択メニューを表示
+            if (interaction.isButton() && action === 'manage') {
+                await this.showRoleSelectionMenu(interaction as ButtonInteraction, preset);
+                return;
             }
 
-            // 結果を表示
-            let message = '';
-            if (results.length > 0) {
-                message += results.join('\n');
+            // SelectMenu選択の場合はロール変更処理
+            if (interaction.isStringSelectMenu() && action === 'select') {
+                await this.handleRoleChange(interaction as StringSelectMenuInteraction, preset);
+                return;
             }
-            if (results.length === 0 && errors.length === 0) {
-                message = '✅ 変更はありませんでした。';
-            }
-            if (errors.length > 0) {
-                message += '\n\n**エラー:**\n' + errors.join('\n');
-            }
-
-            await interaction.editReply({ content: message });
-
-            // ロール変更後に、ユーザーの現在のロールをデフォルト選択したSelectMenuでメッセージを更新
-            try {
-                const updatedCurrentRoles = (member.roles as GuildMemberRoleManager).cache.map(r => r.id);
-
-                // ロールの色に基づいて絵文字を選択する関数
-                const getRoleColorEmoji = (color: number): string => {
-                    if (color === 0) return '⚪'; // デフォルト色
-
-                    // RGB値に変換
-                    const r = (color >> 16) & 0xFF;
-                    const g = (color >> 8) & 0xFF;
-                    const b = color & 0xFF;
-
-                    // RGBの強さを判定するための閾値
-                    const threshold = 100; // この値以上の成分を「強い」とみなす
-
-                    const isRedStrong = r >= threshold;
-                    const isGreenStrong = g >= threshold;
-                    const isBlueStrong = b >= threshold;
-
-                    // 色の組み合わせに基づいて絵文字を選択
-                    if (isRedStrong && isGreenStrong && isBlueStrong) return '⚪'; // 白/グレー
-                    if (isRedStrong && isGreenStrong && !isBlueStrong) return '🟠'; // オレンジ
-                    if (isRedStrong && !isGreenStrong && isBlueStrong) return '🟣'; // 紫
-                    if (!isRedStrong && isGreenStrong && isBlueStrong) return '🟢'; // ターコイズ
-                    if (isRedStrong && !isGreenStrong && !isBlueStrong) return '🔴'; // 赤
-                    if (!isRedStrong && isGreenStrong && !isBlueStrong) return '🟢'; // 緑
-                    if (!isRedStrong && !isGreenStrong && isBlueStrong) return '🔵'; // 青
-
-                    // デフォルト（弱い色）
-                    return '⚪';
-                };
-
-                // プリセット内のロールからオプションを作成
-                const roleOptions: StringSelectMenuOptionBuilder[] = [];
-                for (const roleId of preset.roles) {
-                    const role = interaction.guild.roles.cache.get(roleId);
-                    if (role) {
-                        // ロール階層チェック
-                        const botMember = interaction.guild.members.me;
-                        if (!botMember || role.position >= botMember.roles.highest.position) {
-                            continue; // スキップ
-                        }
-
-                        const isDefault = updatedCurrentRoles.includes(roleId);
-                        roleOptions.push(
-                            new StringSelectMenuOptionBuilder()
-                                .setLabel(role.name)
-                                .setValue(roleId)
-                                .setDescription(`${role.name} ロールを追加/削除`)
-                                .setEmoji(getRoleColorEmoji(role.color))
-                                .setDefault(isDefault)
-                        );
-                    }
-                }
-
-                if (roleOptions.length > 0) {
-                    // 新しいSelectMenuを作成
-                    const updatedSelectMenu = new StringSelectMenuBuilder()
-                        .setCustomId(`rolepanel:${interaction.guild.id}:${preset.id}`)
-                        .setPlaceholder('ロールを選択してください...')
-                        .setMinValues(0)
-                        .setMaxValues(preset.allowMulti ? roleOptions.length : 1)
-                        .addOptions(roleOptions);
-
-                    const updatedRow = new ActionRowBuilder<StringSelectMenuBuilder>()
-                        .addComponents(updatedSelectMenu);
-
-                    // 元のメッセージを更新
-                    await interaction.message.edit({
-                        components: [updatedRow]
-                    });
-                }
-            } catch (updateError) {
-                Logger.warn('Failed to update role panel message:', updateError);
-                // エラーが発生しても処理を続行
-            }
-
         } catch (error) {
-            Logger.error('Role panel interaction error:', error);
-
-            const errorMsg = error instanceof Error ? error.message : '不明なエラー';
+            const errorMsg = error instanceof Error ? error.message : 'エラー';
 
             if (interaction.deferred) {
                 await interaction.editReply({
-                    content: `❌ ロール変更中にエラーが発生しました: ${errorMsg}`
+                    content: `❌ エラー: ${errorMsg}`
                 });
             } else {
                 await interaction.reply({
-                    content: `❌ ロール変更中にエラーが発生しました: ${errorMsg}`,
+                    content: `❌ エラー: ${errorMsg}`,
                     flags: MessageFlags.Ephemeral
                 });
             }
         }
+    },
+
+    /**
+     * ボタンクリック時の処理 - ロール選択メニューを表示
+     */
+    async showRoleSelectionMenu(interaction: ButtonInteraction, preset: any): Promise<void> {
+        const member = interaction.member as any;
+        if (!member) return;
+
+        // 現在のロール状態を取得
+        const currentRoles = member.roles.cache.map((r: any) => r.id);
+
+        // SelectMenuのオプションを作成
+        const options: StringSelectMenuOptionBuilder[] = [];
+        for (const roleId of preset.roles) {
+            const role = interaction.guild!.roles.cache.get(roleId);
+            if (!role) continue;
+
+            const hasRole = currentRoles.includes(roleId);
+            const option = new StringSelectMenuOptionBuilder()
+                .setLabel(role.name)
+                .setValue(roleId)
+                .setDescription(`現在の状態: ${hasRole ? '付与済み' : '未付与'}`)
+                .setEmoji(hasRole ? '✅' : '⬜')
+                .setDefault(hasRole);
+
+            options.push(option);
+        }
+
+        if (options.length === 0) {
+            await interaction.reply({
+                content: '❌ 選択可能なロールが見つかりません。',
+                flags: MessageFlags.Ephemeral
+            });
+            return;
+        }
+
+        // SelectMenuを作成
+        const selectMenu = new StringSelectMenuBuilder()
+            .setCustomId(`rolepanel:${interaction.guild!.id}:${preset.id}:select`)
+            .setPlaceholder('ロールを選択')
+            .setMinValues(0)
+            .setMaxValues(options.length);
+
+        // オプションを追加
+        if (options.length > 0) {
+            selectMenu.addOptions(...options);
+        }
+
+        const row = new ActionRowBuilder<StringSelectMenuBuilder>()
+            .addComponents(selectMenu);
+
+        await interaction.reply({
+            content: `🎭 **${preset.name}** - ロールを選択してください`,
+            components: [row],
+            flags: MessageFlags.Ephemeral
+        });
+    },
+
+    /**
+     * SelectMenu選択時の処理 - ロール変更処理
+     */
+    async handleRoleChange(interaction: StringSelectMenuInteraction, preset: any): Promise<void> {
+        const member = interaction.member as any;
+        if (!member) return;
+
+        await interaction.deferUpdate();
+
+        const selectedRoleIds = interaction.values;
+        const currentRoles = (member.roles as GuildMemberRoleManager).cache.map(r => r.id);
+        const results: string[] = [];
+        const errors: string[] = [];
+        const botMember = interaction.guild!.members.me;
+
+        // プリセット内のロールとの差分を計算
+        for (const roleId of preset.roles) {
+            const role = interaction.guild!.roles.cache.get(roleId);
+            if (!role) continue;
+
+            const isSelected = selectedRoleIds.includes(roleId);
+            const hasRole = currentRoles.includes(roleId);
+
+            // 選択されているが持っていない → 追加
+            if (isSelected && !hasRole) {
+                try {
+                    if (!canManageRole(role, botMember)) {
+                        errors.push(`${role.name}: 権限不足`);
+                        continue;
+                    }
+
+                    await (member.roles as GuildMemberRoleManager).add(role);
+                    results.push(`✅ ${role.name} を追加`);
+                } catch (error) {
+                    errors.push(`${role.name}: エラー`);
+                }
+            }
+            // 選択されていないが持っている → 削除
+            else if (!isSelected && hasRole) {
+                try {
+                    await (member.roles as GuildMemberRoleManager).remove(role);
+                    results.push(`➖ ${role.name} を削除`);
+                } catch (error) {
+                    errors.push(`${role.name}: エラー`);
+                }
+            }
+        }
+
+        // 結果を表示
+        let message = '';
+        if (results.length > 0) {
+            message += results.join('\n');
+        }
+        if (results.length === 0 && errors.length === 0) {
+            message = '✅ 変更はありませんでした。';
+        }
+        if (errors.length > 0) {
+            message += '\n\n**エラー:**\n' + errors.join('\n');
+        }
+
+        // 元のドロップダウンメッセージを結果に更新
+        await interaction.editReply({
+            content: message,
+            components: []
+        });
     },
 
     async execute(interaction: ChatInputCommandInteraction): Promise<void> {
@@ -307,14 +262,8 @@ export default {
         const presetId = interaction.options.getString('preset', true);
         const targetChannel = interaction.options.getChannel('channel') || interaction.channel;
 
-        // テキストベースのチャンネルかどうかをチェック
-        const isTextChannel = targetChannel && (
-            targetChannel.type === ChannelType.GuildText ||
-            targetChannel.type === ChannelType.GuildAnnouncement ||
-            targetChannel.type === ChannelType.GuildForum ||
-            targetChannel.type === ChannelType.PublicThread ||
-            targetChannel.type === ChannelType.PrivateThread
-        );
+        // テキストチャンネルかどうかをチェック
+        const isTextChannel = targetChannel?.type !== ChannelType.GuildVoice && targetChannel?.type !== ChannelType.GuildCategory;
 
         if (!targetChannel || !isTextChannel) {
             await interaction.reply({
@@ -337,61 +286,17 @@ export default {
                 return;
             }
 
-            // ロール情報を取得
-            const roleOptions: StringSelectMenuOptionBuilder[] = [];
+            // ロール情報をチェック
             const missingRoles: string[] = [];
-
-            // ロールの色に基づいて絵文字を選択する関数
-            const getRoleColorEmoji = (color: number): string => {
-                if (color === 0) return '⚪'; // デフォルト色
-
-                // RGB値に変換
-                const r = (color >> 16) & 0xFF;
-                const g = (color >> 8) & 0xFF;
-                const b = color & 0xFF;
-
-                // RGBの強さを判定するための閾値
-                const threshold = 100; // この値以上の成分を「強い」とみなす
-
-                const isRedStrong = r >= threshold;
-                const isGreenStrong = g >= threshold;
-                const isBlueStrong = b >= threshold;
-
-                // 色の組み合わせに基づいて絵文字を選択
-                if (isRedStrong && isGreenStrong && isBlueStrong) return '⚪'; // 白/グレー
-                if (isRedStrong && isGreenStrong && !isBlueStrong) return '🟠'; // オレンジ
-                if (isRedStrong && !isGreenStrong && isBlueStrong) return '🟣'; // 紫
-                if (!isRedStrong && isGreenStrong && isBlueStrong) return '🟢'; // ターコイズ
-                if (isRedStrong && !isGreenStrong && !isBlueStrong) return '🔴'; // 赤
-                if (!isRedStrong && isGreenStrong && !isBlueStrong) return '🟢'; // 緑
-                if (!isRedStrong && !isGreenStrong && isBlueStrong) return '🔵'; // 青
-
-                // デフォルト（弱い色）
-                return '⚪';
-            };
 
             for (const roleId of preset.roles) {
                 const role = interaction.guild.roles.cache.get(roleId);
-                if (role) {
-                    // ロール階層チェック
-                    if (role.position >= botMember.roles.highest.position) {
-                        missingRoles.push(`${role.name} (ボットより上位)`);
-                        continue;
-                    }
-
-                    roleOptions.push(
-                        new StringSelectMenuOptionBuilder()
-                            .setLabel(role.name)
-                            .setValue(roleId)
-                            .setDescription(`${role.name} ロールを追加/削除`)
-                            .setEmoji(getRoleColorEmoji(role.color))
-                    );
-                } else {
-                    missingRoles.push(roleId);
+                if (!canManageRole(role, botMember)) {
+                    missingRoles.push(role ? `${role.name} (権限不足)` : roleId);
                 }
             }
 
-            if (roleOptions.length === 0) {
+            if (preset.roles.length === missingRoles.length) {
                 await interaction.editReply({
                     content: `❌ プリセット内の有効なロールが見つかりませんでした。\n` +
                         `不足: ${missingRoles.join(', ')}`
@@ -404,24 +309,25 @@ export default {
                 .setTitle(`🎭 ${preset.name}`)
                 .setDescription(
                     preset.description +
-                    '\n\n下のメニューからロールを選択して、自分のロールを追加/削除できます。' +
-                    (preset.allowMulti ? '\n複数選択可能です。' : '') +
-                    '\n\n**注意:** 選択しているものが現在付与されているロールです。'
+                    '\n\n**使い方:**' +
+                    '\n• ボタンをクリックしてロール管理を開始' +
+                    '\n• 現在のロール状態を確認可能' +
+                    '\n• ロールの追加/削除が可能' +
+                    '\n\n**注意:** ボットより上位のロールは操作不可'
                 )
                 .setColor(0x5865F2)
-                .setFooter({ text: `Preset ID: ${preset.id}` })
+                .setFooter({ text: `ID: ${preset.id}` })
                 .setTimestamp();
 
-            // SelectMenuを作成
-            const selectMenu = new StringSelectMenuBuilder()
-                .setCustomId(`rolepanel:${interaction.guild.id}:${preset.id}`)
-                .setPlaceholder('ロールを選択してください...')
-                .setMinValues(0)
-                .setMaxValues(preset.allowMulti ? roleOptions.length : 1)
-                .addOptions(roleOptions);
+            // ボタンを作成
+            const roleButton = new ButtonBuilder()
+                .setCustomId(`rolepanel:${interaction.guild.id}:${preset.id}:manage`)
+                .setLabel('ロールを管理する')
+                .setStyle(ButtonStyle.Primary)
+                .setEmoji('🎭');
 
-            const row = new ActionRowBuilder<StringSelectMenuBuilder>()
-                .addComponents(selectMenu);
+            const row = new ActionRowBuilder<ButtonBuilder>()
+                .addComponents(roleButton);
 
             // パネルを投稿
             await (targetChannel as any).send({
@@ -438,12 +344,9 @@ export default {
                 content: `✅ ロールパネル「${preset.name}」を ${targetChannel} に投稿しました！${warningText}`
             });
 
-            Logger.info(`Role panel '${preset.id}' posted in guild ${interaction.guild.id} by ${interaction.user.tag}`);
-
         } catch (error) {
-            Logger.error('Failed to post role panel:', error);
             await interaction.editReply({
-                content: `❌ パネルの投稿に失敗しました: ${error instanceof Error ? error.message : '不明なエラー'}`
+                content: `❌ エラー: ${error instanceof Error ? error.message : '不明'}`
             });
         }
     }

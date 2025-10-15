@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import AppHeader from '../../components/Common/AppHeader';
 import { fetchBotStatus } from '../../services/api';
 import type { BotStatusResponse } from '../../types';
 import styles from './HomePage.module.css';
@@ -59,7 +58,6 @@ const HomePage: React.FC = () => {
 
     return (
         <div className={styles.page}>
-            <AppHeader user={user} />
             
             <main className={styles.main}>
                 {/* Hero Section */}

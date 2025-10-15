@@ -1,6 +1,8 @@
 import { Request, Response } from 'express';
 import { SettingsSession, GuildSettings } from '../types';
 import { database } from '../../core/Database.js';
+import { PermissionManager } from '../../utils/PermissionManager.js';
+import { CacheManager } from '../../utils/CacheManager.js';
 
 /**
  * 設定コントローラー
@@ -25,19 +27,34 @@ export class SettingsController {
         } else if (session.permission !== undefined) {
             level = session.permission;
         }
-        // ここで権限レベルチェック（例: 0=一般, 1=staff, 2=admin など）
-        if (level < 1) {
-            res.status(403).json({ error: '権限がありません' });
+        // 権限チェック
+        const permissionError = PermissionManager.checkPermission(level, 1, '権限がありません');
+        if (permissionError) {
+            res.status(permissionError.status).json({ error: permissionError.error });
             return;
         }
         try {
+            // キャッシュチェック
+            const cacheKey = `settings_${guildId}`;
+            const cachedSettings = CacheManager.get<GuildSettings>(cacheKey);
+            if (cachedSettings) {
+                res.json(cachedSettings);
+                return;
+            }
+
             const settings = await database.get<GuildSettings>(guildId, `Guild/${guildId}/settings`);
-            res.json(settings || {
+
+            const result = settings || {
                 guildId,
                 staffRoleId: null,
                 adminRoleId: null,
                 updatedAt: Date.now(),
-            });
+            };
+
+            // キャッシュに保存（10分間）
+            CacheManager.set(cacheKey, result, 10 * 60 * 1000);
+
+            res.json(result);
         } catch (error) {
             console.error('設定の取得に失敗:', error);
             res.status(500).json({ error: 'Failed to fetch settings' });
@@ -63,9 +80,10 @@ export class SettingsController {
         } else if (session.permission !== undefined) {
             level = session.permission;
         }
-        // Only staff (level >= 1) can update the staff role. Admin role cannot be changed via this API.
-        if (level < 1) {
-            res.status(403).json({ error: '権限がありません' });
+        // 権限チェック
+        const permissionError = PermissionManager.checkPermission(level, 1, '権限がありません');
+        if (permissionError) {
+            res.status(permissionError.status).json({ error: permissionError.error });
             return;
         }
         try {
@@ -80,6 +98,10 @@ export class SettingsController {
             };
             await database.set(guildId, `Guild/${guildId}/settings`, settings);
             console.log(`設定を保存しました: Guild=${guildId}, Staff=${staffRoleId}`);
+
+            // キャッシュをクリア
+            CacheManager.delete(`settings_${guildId}`);
+
             res.json({ success: true });
         } catch (error) {
             console.error('設定の保存に失敗:', error);

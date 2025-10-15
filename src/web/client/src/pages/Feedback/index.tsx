@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import styles from './FeedbackPage.module.css';
 import LoginPage from '../../components/Login/LoginPage';
-import AppHeader from '../../components/Common/AppHeader';
 import { feedbackWS, WSMessage } from '../../services/WebSocketService';
 import { getAvatarSrc } from '../../utils/discord';
 
@@ -378,8 +377,6 @@ const FeedbackPage: React.FC = () => {
 
     return (
         <div className={styles.page}>
-            {/* AppHeader (shared with Dashboard) */}
-            <AppHeader user={session} />
 
             <div className={styles.container}>
                 {/* Sidebar - filters and status (shown on desktop only) */}

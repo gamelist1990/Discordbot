@@ -1,4 +1,4 @@
-import { ChatInputCommandInteraction, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalSubmitInteraction, Interaction } from 'discord.js';
+import { ChatInputCommandInteraction, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalSubmitInteraction, Interaction, MessageFlags } from 'discord.js';
 import type { ExtendedClient } from '../../../types/discord';
 import { Event } from '../../../types/events';
 
@@ -92,10 +92,10 @@ export default {
                     .setURL(url)
             );
 
-            await submitted.reply({ content: '以下のリンクを開き、内容を確認のうえ Issue を作成してください。', components: [row], ephemeral: true });
+            await submitted.reply({ content: '以下のリンクを開き、内容を確認のうえ Issue を作成してください。', components: [row], flags: MessageFlags.Ephemeral });
         } catch (err: any) {
             if (err && err.message === 'TIMEOUT') {
-                await interaction.reply({ content: 'モーダル入力がタイムアウトしました。再度 /staff issue を実行してください。', ephemeral: true } as any).catch(() => {});
+                await interaction.reply({ content: 'モーダル入力がタイムアウトしました。再度 /staff issue を実行してください。', flags: MessageFlags.Ephemeral } as any).catch(() => {});
                 return;
             }
 
