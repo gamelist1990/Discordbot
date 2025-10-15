@@ -6,7 +6,10 @@ import {
     StringSelectMenuBuilder,
     StringSelectMenuOptionBuilder,
     PermissionFlagsBits,
-    ChannelType
+    ChannelType,
+    SlashCommandSubcommandBuilder,
+    SlashCommandStringOption,
+    SlashCommandChannelOption
 } from 'discord.js';
 import { RolePresetManager } from '../../../core/RolePresetManager.js';
 import { Logger } from '../../../utils/Logger.js';
@@ -18,16 +21,16 @@ export default {
     name: 'rolepanel',
     description: 'ロールパネルを投稿または管理します',
 
-    builder: (subcommand: any) => {
+    builder: (subcommand: SlashCommandSubcommandBuilder) => {
         return subcommand
             .setName('rolepanel')
             .setDescription('ロールパネルを投稿します')
-            .addStringOption((opt: any) =>
+            .addStringOption((opt: SlashCommandStringOption) =>
                 opt.setName('preset')
                     .setDescription('使用するプリセットID')
                     .setRequired(true)
             )
-            .addChannelOption((opt: any) =>
+            .addChannelOption((opt: SlashCommandChannelOption) =>
                 opt.setName('channel')
                     .setDescription('パネルを投稿するチャンネル（省略時は現在のチャンネル）')
                     .setRequired(false)

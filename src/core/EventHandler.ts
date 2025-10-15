@@ -1,4 +1,4 @@
-import { Events, Interaction, MessageFlags, StringSelectMenuBuilder, ActionRowBuilder, StringSelectMenuOptionBuilder, GuildMemberRoleManager } from 'discord.js';
+import { Events, Interaction, MessageFlags, StringSelectMenuBuilder, ActionRowBuilder, StringSelectMenuOptionBuilder, GuildMemberRoleManager, StringSelectMenuInteraction } from 'discord.js';
 import { BotClient } from './BotClient.js';
 import { CommandRegistry } from './CommandRegistry.js';
 import { EnhancedSlashCommand } from '../types/enhanced-command.js';
@@ -213,7 +213,7 @@ export class EventHandler {
     /**
      * SelectMenu インタラクションのハンドリング（ロールパネル）
      */
-    private async handleSelectMenuInteraction(interaction: any): Promise<void> {
+    private async handleSelectMenuInteraction(interaction: StringSelectMenuInteraction): Promise<void> {
         if (!interaction.customId.startsWith('rolepanel:')) return;
 
         try {
@@ -222,6 +222,15 @@ export class EventHandler {
             if (!interaction.guild || interaction.guild.id !== guildId) {
                 await interaction.reply({
                     content: '❌ このパネルは別のサーバー用です。',
+                    flags: MessageFlags.Ephemeral
+                });
+                return;
+            }
+
+            const member = interaction.member;
+            if (!member) {
+                await interaction.reply({
+                    content: '❌ メンバー情報を取得できませんでした。',
                     flags: MessageFlags.Ephemeral
                 });
                 return;
@@ -242,7 +251,13 @@ export class EventHandler {
 
             await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
-            const member = interaction.member;
+            if (!member) {
+                await interaction.editReply({
+                    content: '❌ メンバー情報を取得できませんでした。'
+                });
+                return;
+            }
+
             const selectedRoleIds = interaction.values as string[];
             const currentRoles = (member.roles as GuildMemberRoleManager).cache.map(r => r.id);
 
@@ -262,12 +277,16 @@ export class EventHandler {
                     try {
                         // ロール階層チェック
                         const botMember = interaction.guild.members.me;
-                        if (role.position >= botMember!.roles.highest.position) {
+                        if (!botMember) {
+                            errors.push(`${role.name}: ボットのメンバー情報を取得できません`);
+                            continue;
+                        }
+                        if (role.position >= botMember.roles.highest.position) {
                             errors.push(`${role.name}: ボットより上位のロールです`);
                             continue;
                         }
 
-                        await member.roles.add(role);
+                        await (member.roles as GuildMemberRoleManager).add(role);
                         results.push(`✅ ${role.name} を追加しました`);
 
                         // ログに記録
@@ -303,7 +322,7 @@ export class EventHandler {
                 // 選択されていないが持っている → 削除
                 else if (!isSelected && hasRole) {
                     try {
-                        await member.roles.remove(role);
+                        await (member.roles as GuildMemberRoleManager).remove(role);
                         results.push(`➖ ${role.name} を削除しました`);
 
                         await RolePresetManager.logRoleChange({
@@ -362,7 +381,7 @@ export class EventHandler {
                     if (role) {
                         // ロール階層チェック
                         const botMember = interaction.guild.members.me;
-                        if (role.position >= botMember!.roles.highest.position) {
+                        if (!botMember || role.position >= botMember.roles.highest.position) {
                             continue; // スキップ
                         }
 
