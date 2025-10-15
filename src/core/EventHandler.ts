@@ -1,4 +1,4 @@
-import { Events, Interaction, MessageFlags } from 'discord.js';
+import { Events, Interaction, MessageFlags, StringSelectMenuInteraction, ButtonInteraction } from 'discord.js';
 import { BotClient } from './BotClient.js';
 import { CommandRegistry } from './CommandRegistry.js';
 import { EnhancedSlashCommand } from '../types/enhanced-command.js';
@@ -103,6 +103,12 @@ export class EventHandler {
      */
     private registerInteractionCreateEvent(): void {
         this.botClient.client.on(Events.InteractionCreate, async (interaction: Interaction) => {
+            // Handle SelectMenu and Button interactions (role panel)
+            if (interaction.isStringSelectMenu() || interaction.isButton()) {
+                await this.handleInteraction(interaction);
+                return;
+            }
+
             // ...existing code...
             if (!interaction.isChatInputCommand()) return;
 
@@ -202,6 +208,19 @@ export class EventHandler {
                 }
             }
         });
+    }
+
+    /**
+     * SelectMenu および Button インタラクションのハンドリング（ロールパネル）
+     */
+    private async handleInteraction(interaction: Interaction): Promise<void> {
+        // ロールパネルのインタラクションのみ処理
+        if (!interaction.isStringSelectMenu() && !interaction.isButton()) return;
+        if (!interaction.customId.startsWith('rolepanel:')) return;
+
+        // rolepanel.tsのhandleInteraction関数を呼び出し
+        const { default: rolePanelCommand } = await import('../commands/staff/subcommands/rolepanel.js');
+        await rolePanelCommand.handleInteraction(interaction as StringSelectMenuInteraction | ButtonInteraction);
     }
 
     /**

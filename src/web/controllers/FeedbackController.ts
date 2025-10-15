@@ -3,6 +3,7 @@ import { SettingsSession } from '../types/index.js';
 import { FeedbackManager, FeedbackType, FeedbackStatus } from '../../core/FeedbackManager.js';
 import { wsManager } from '../services/WebSocketManager.js';
 import { isOwner } from '../../config.js';
+import { CacheManager } from '../../utils/CacheManager.js';
 
 /**
  * フィードバックコントローラー
@@ -16,6 +17,14 @@ export class FeedbackController {
             const type = req.query.type as FeedbackType | undefined;
             const status = req.query.status as FeedbackStatus | undefined;
             const tagQuery = req.query.tag as string | undefined; // comma-separated tags
+
+            // キャッシュキーを生成（フィルタ条件を含む）
+            const cacheKey = `feedback_all_${type || 'all'}_${status || 'all'}_${tagQuery || 'none'}`;
+            const cachedFeedback = CacheManager.get<any[]>(cacheKey);
+            if (cachedFeedback) {
+                res.json({ feedback: cachedFeedback });
+                return;
+            }
 
             // Load all then filter server-side to support combined filters (type+status+tag)
             let feedback = await FeedbackManager.getAllFeedback();
@@ -33,6 +42,9 @@ export class FeedbackController {
                 }
             }
 
+            // キャッシュに保存（5分間）
+            CacheManager.set(cacheKey, feedback, 5 * 60 * 1000);
+
             res.json({ feedback });
         } catch (error) {
             console.error('[FeedbackController] Error getting feedback:', error);
@@ -46,12 +58,24 @@ export class FeedbackController {
     async getFeedbackById(req: Request, res: Response): Promise<void> {
         try {
             const { id } = req.params;
+
+            // キャッシュチェック
+            const cacheKey = `feedback_${id}`;
+            const cachedFeedback = CacheManager.get<any>(cacheKey);
+            if (cachedFeedback) {
+                res.json({ feedback: cachedFeedback });
+                return;
+            }
+
             const feedback = await FeedbackManager.getFeedbackById(id);
 
             if (!feedback) {
                 res.status(404).json({ error: 'Feedback not found' });
                 return;
             }
+
+            // キャッシュに保存（10分間）
+            CacheManager.set(cacheKey, feedback, 10 * 60 * 1000);
 
             res.json({ feedback });
         } catch (error) {
@@ -95,6 +119,9 @@ export class FeedbackController {
                 timestamp: Date.now(),
                 payload: feedback
             });
+
+            // キャッシュをクリア（フィードバック関連の全キャッシュ）
+            CacheManager.clear();
 
             res.json({ success: true, feedback });
         } catch (error) {
@@ -147,6 +174,9 @@ export class FeedbackController {
                 payload: updatedFeedback
             });
 
+            // キャッシュをクリア
+            CacheManager.clear();
+
             res.json({ success: true, feedback: updatedFeedback });
         } catch (error) {
             console.error('[FeedbackController] Error updating feedback:', error);
@@ -189,6 +219,9 @@ export class FeedbackController {
                 timestamp: Date.now(),
                 payload: { id }
             });
+
+            // キャッシュをクリア
+            CacheManager.clear();
 
             res.json({ success: true });
         } catch (error) {

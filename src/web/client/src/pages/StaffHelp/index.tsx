@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { fetchStaffCommands, type StaffCommandData } from '../../services/api';
-import AppHeader from '../../components/Common/AppHeader';
 import styles from './StaffHelpPage.module.css';
 
 interface UserSession {
@@ -16,7 +15,7 @@ const StaffHelpPage: React.FC = () => {
     // no token-based access any more; use session-based APIs
     const navigate = useNavigate();
 
-    const [user, setUser] = useState<UserSession | null>(null);
+    const [, setUser] = useState<UserSession | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [activeTab, setActiveTab] = useState<TabType>('help');
@@ -98,7 +97,6 @@ const StaffHelpPage: React.FC = () => {
     if (loading) {
         return (
             <div className={styles.page}>
-                <AppHeader user={user} />
                 <div className={styles.loading}>
                     <div className={styles.spinner} />
                     <p>読み込み中...</p>
@@ -110,7 +108,6 @@ const StaffHelpPage: React.FC = () => {
     if (error || !commandData) {
         return (
             <div className={styles.page}>
-                <AppHeader user={user} />
                 <div className={styles.error}>
                     <h2>エラー</h2>
                     <p>{error || 'データの取得に失敗しました'}</p>
@@ -121,7 +118,6 @@ const StaffHelpPage: React.FC = () => {
 
     return (
         <div className={styles.page}>
-            <AppHeader user={user} />
             
             <div className={styles.container}>
                 {/* ヘッダー */}
@@ -295,12 +291,17 @@ const StaffHelpPage: React.FC = () => {
                                     </div>
 
                                     <div className={styles.serviceCard}>
-                                        <div className={styles.servicePlaceholder}>
-                                            <div className={styles.placeholderIcon}>➕</div>
-                                            <p className={styles.placeholderText}>
-                                                今後のサービスがここに表示されます
-                                            </p>
-                                        </div>
+                                        <div className={styles.serviceIcon}>🎭</div>
+                                        <h3 className={styles.serviceTitle}>ロール管理</h3>
+                                        <p className={styles.serviceDescription}>
+                                            サーバーのロールプリセットを管理
+                                        </p>
+                                        <button
+                                            className={styles.serviceButton}
+                                            onClick={() => navigate('/staff/rolemanager')}
+                                        >
+                                            開く
+                                        </button>
                                     </div>
                                 </div>
                             </div>
