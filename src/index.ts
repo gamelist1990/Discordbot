@@ -97,6 +97,11 @@ async function main() {
         eventHandler.setRegistry(commandLoader.getRegistry());
         eventHandler.registerAll();
 
+        // RankManager を初期化
+        const { rankManager } = await import('./core/RankManager.js');
+        rankManager.setClient(botClient.client);
+        Logger.info('📊 RankManager を初期化しました');
+
         // すべてのサーバーにコマンドをデプロイ
         Logger.info('🚀 全サーバーにコマンドをデプロイします...');
         await botClient.deployCommandsToAllGuilds();

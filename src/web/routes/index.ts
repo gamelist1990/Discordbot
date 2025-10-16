@@ -9,5 +9,6 @@ export * from './user.js';
 export * from './mod.js';
 export * from './feedback.js';
 export * from './rolepreset.js';
+export * from './rank.js';
 // register default preview handlers
 import '../preview/defaults.js';

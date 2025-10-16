@@ -9,7 +9,7 @@ import path from 'path';
 import { Logger } from '../utils/Logger.js';
 import { BotClient } from '../core/BotClient.js';
 import { SessionService } from './services/SessionService.js';
-import { createStatusRoutes, createSessionRoutes, createSettingsRoutes, createStaffRoutes, createAuthRoutes, createTodoRoutes, createUserRoutes, createModRoutes, createFeedbackRoutes, createRolePresetRoutes } from './routes/index.js';
+import { createStatusRoutes, createSessionRoutes, createSettingsRoutes, createStaffRoutes, createAuthRoutes, createTodoRoutes, createUserRoutes, createModRoutes, createFeedbackRoutes, createRolePresetRoutes, createRankRoutes } from './routes/index.js';
 import { createGuildRoutes } from './routes/guild.js';
 import { setupWebSocketServer } from './routes/websocket.js';
 import { previewHandler } from './preview/PreviewController.js';
@@ -131,6 +131,7 @@ export class SettingsServer {
         this.app.use('/api', createSettingsRoutes(sessions));
         this.app.use('/api/staff', createStaffRoutes(sessions, this.botClient));
         this.app.use('/api/staff', createRolePresetRoutes(sessions, this.botClient));
+        this.app.use('/api/staff/rankmanager', createRankRoutes(this.botClient));
         this.app.use('/api', createTodoRoutes(sessions, this.botClient));
         this.app.use('/api/auth', createAuthRoutes(sessions, this.botClient));
         this.app.use('/api/user', createUserRoutes(sessions, this.botClient));

@@ -31,6 +31,8 @@ export class EventHandler {
         this.registerReadyEvent();
         this.registerInteractionCreateEvent();
         this.registerGuildEvents();
+        this.registerMessageEvents();
+        this.registerVoiceEvents();
         this.registerErrorEvents();
     }
 
@@ -233,6 +235,70 @@ export class EventHandler {
 
         this.botClient.client.on(Events.Warn, (warning) => {
             Logger.warn('⚠️ Discord クライアント警告:', warning);
+        });
+    }
+
+    /**
+     * メッセージイベント（XP付与用）
+     */
+    private registerMessageEvents(): void {
+        this.botClient.client.on(Events.MessageCreate, async (message) => {
+            // Bot のメッセージは無視
+            if (message.author.bot) return;
+            
+            // ギルド内のみ
+            if (!message.guild) return;
+
+            try {
+                const { rankManager } = await import('./RankManager.js');
+                const member = message.member;
+                if (!member) return;
+
+                const roleIds = Array.from(member.roles.cache.keys());
+                await rankManager.handleMessageXp(
+                    message.guild.id,
+                    message.author.id,
+                    message.channel.id,
+                    roleIds
+                );
+            } catch (error) {
+                // XP付与エラーは無視（ログに記録のみ）
+                Logger.debug('Failed to add message XP:', error);
+            }
+        });
+    }
+
+    /**
+     * ボイスチャンネルイベント（XP付与用）
+     */
+    private registerVoiceEvents(): void {
+        this.botClient.client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
+            // Bot は無視
+            if (newState.member?.user.bot) return;
+
+            try {
+                const { rankManager } = await import('./RankManager.js');
+
+                // VC参加
+                if (!oldState.channel && newState.channel) {
+                    rankManager.vcJoin(newState.member!.id);
+                }
+
+                // VC退出
+                if (oldState.channel && !newState.channel) {
+                    await rankManager.vcLeave(oldState.guild.id, oldState.member!.id);
+                }
+
+                // VC移動（チャンネル変更）
+                if (oldState.channel && newState.channel && oldState.channel.id !== newState.channel.id) {
+                    // 退出扱いで計算してから再度参加
+                    await rankManager.vcLeave(oldState.guild.id, oldState.member!.id);
+                    rankManager.vcJoin(newState.member!.id);
+                }
+            } catch (error) {
+                // XP付与エラーは無視（ログに記録のみ）
+                Logger.debug('Failed to handle VC XP:', error);
+            }
         });
     }
 }
