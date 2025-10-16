@@ -66,11 +66,11 @@ const rankCommand: SlashCommand = {
                 ? Math.round((userData.xp / nextRank.minXp) * 100)
                 : 100;
 
-            // 進捗バーを作成
+            // 進捗バーを作成（より見やすい文字を使用）
             const progressBarLength = 20;
             const filledLength = Math.round((progress / 100) * progressBarLength);
             const emptyLength = progressBarLength - filledLength;
-            const progressBar = '█'.repeat(filledLength) + '░'.repeat(emptyLength);
+            const progressBar = '█'.repeat(filledLength) + '□'.repeat(emptyLength);
 
             const embed = new EmbedBuilder()
                 .setColor((currentRank?.color as any) || '#4A90E2')

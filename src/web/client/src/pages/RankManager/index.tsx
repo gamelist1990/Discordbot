@@ -82,13 +82,13 @@ const RankManagerPage: React.FC = () => {
   // Modal states
   const [showPresetModal, setShowPresetModal] = useState(false);
   const [showPanelModal, setShowPanelModal] = useState(false);
-  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [, setShowSettingsModal] = useState(false);
   const [editingPreset, setEditingPreset] = useState<RankPreset | null>(null);
-  const [editingRankIndex, setEditingRankIndex] = useState<number | null>(null);
+  const [] = useState<number | null>(null);
   const [presetModalTab, setPresetModalTab] = useState<'ranks' | 'rewards'>('ranks');
   
   // Panel creation state
-  const [newPanel, setNewPanel] = useState({
+  const [, setNewPanel] = useState({
     preset: '',
     channelId: '',
     topCount: 10
@@ -308,24 +308,6 @@ const RankManagerPage: React.FC = () => {
     setShowPanelModal(true);
   };
 
-  const handleSavePanel = async () => {
-    if (!selectedGuildId || !newPanel.channelId || !newPanel.preset) {
-      addToast?.('すべての項目を入力してください', 'error');
-      return;
-    }
-
-    setSaving(true);
-    try {
-      // This would need a create panel endpoint
-      addToast?.('パネル作成機能は Discord コマンドから実行してください', 'info');
-      setShowPanelModal(false);
-    } catch (err) {
-      console.error('Failed to create panel:', err);
-      addToast?.('パネルの作成に失敗しました', 'error');
-    } finally {
-      setSaving(false);
-    }
-  };
 
   const handleDeletePanel = async (panelId: string) => {
     if (!selectedGuildId) return;
@@ -817,23 +799,6 @@ const RankManagerPage: React.FC = () => {
                         ))}
                       </div>
                       <span className={styles.helpText}>これらのロールを持つユーザーはXPを獲得できません</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-                          type="number"
-                          step="0.1"
-                          value={settings.xpRates.globalMultiplier}
-                          onChange={(e) => setSettings({
-                            ...settings,
-                            xpRates: { ...settings.xpRates, globalMultiplier: parseFloat(e.target.value) || 1.0 }
-                          })}
-                          min="0.1"
-                          max="10"
-                        />
-                        <span className={styles.helpText}>イベント時などのXP倍率</span>
-                      </div>
                     </div>
                   </div>
                 </div>

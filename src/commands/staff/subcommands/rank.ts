@@ -7,7 +7,7 @@ import {
     MessageFlags,
     TextChannel
 } from 'discord.js';
-import { rankManager, RankPreset } from '../../../core/RankManager.js';
+import { rankManager } from '../../../core/RankManager.js';
 import { Logger } from '../../../utils/Logger.js';
 
 /**
@@ -29,12 +29,8 @@ export default {
                     .setRequired(true)
                     .addChoices(
                         { name: 'プリセット一覧', value: 'list-presets' },
-                        { name: 'プリセット作成', value: 'create-preset' },
-                        { name: 'プリセット削除', value: 'delete-preset' },
                         { name: 'パネル作成', value: 'create-panel' },
                         { name: 'パネル削除', value: 'delete-panel' },
-                        { name: '設定: 通知チャンネル', value: 'set-notify-channel' },
-                        { name: '設定: 更新間隔', value: 'set-update-interval' },
                         { name: 'XP付与', value: 'add-xp' },
                         { name: 'XP設定', value: 'set-xp' },
                         { name: 'ランキング表示', value: 'show-ranking' }
@@ -95,23 +91,11 @@ export default {
                 case 'list-presets':
                     await handleListPresets(interaction, guildId);
                     break;
-                case 'create-preset':
-                    await handleCreatePreset(interaction, guildId);
-                    break;
-                case 'delete-preset':
-                    await handleDeletePreset(interaction, guildId);
-                    break;
                 case 'create-panel':
                     await handleCreatePanel(interaction, guildId);
                     break;
                 case 'delete-panel':
                     await handleDeletePanel(interaction, guildId);
-                    break;
-                case 'set-notify-channel':
-                    await handleSetNotifyChannel(interaction, guildId);
-                    break;
-                case 'set-update-interval':
-                    await handleSetUpdateInterval(interaction, guildId);
                     break;
                 case 'add-xp':
                     await handleAddXp(interaction, guildId);
@@ -150,7 +134,7 @@ export default {
  * プリセット一覧を表示
  */
 async function handleListPresets(interaction: ChatInputCommandInteraction, guildId: string): Promise<void> {
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
     const data = await rankManager.getRankingData(guildId);
 
@@ -177,95 +161,13 @@ async function handleListPresets(interaction: ChatInputCommandInteraction, guild
 }
 
 /**
- * プリセットを作成
- */
-async function handleCreatePreset(interaction: ChatInputCommandInteraction, guildId: string): Promise<void> {
-    await interaction.deferReply({ ephemeral: true });
-
-    const presetName = interaction.options.getString('preset');
-    
-    if (!presetName) {
-        await interaction.editReply('❌ プリセット名を指定してください。');
-        return;
-    }
-
-    const data = await rankManager.getRankingData(guildId);
-
-    // 既存チェック
-    if (data.rankPresets.find(p => p.name === presetName)) {
-        await interaction.editReply('❌ 同名のプリセットが既に存在します。');
-        return;
-    }
-
-    // デフォルトのランク構成でプリセットを作成
-    const newPreset: RankPreset = {
-        name: presetName,
-        description: 'カスタムプリセット',
-        ranks: [
-            { name: 'Beginner', minXp: 0, maxXp: 499, color: '#95A5A6' },
-            { name: 'Intermediate', minXp: 500, maxXp: 1999, color: '#3498DB' },
-            { name: 'Advanced', minXp: 2000, maxXp: 4999, color: '#9B59B6' },
-            { name: 'Expert', minXp: 5000, maxXp: 999999, color: '#E74C3C' }
-        ],
-        rewards: []
-    };
-
-    data.rankPresets.push(newPreset);
-    await rankManager.saveRankingData(guildId, data);
-
-    const embed = new EmbedBuilder()
-        .setColor('#2ECC71')
-        .setTitle('✅ プリセット作成完了')
-        .setDescription(`プリセット「${presetName}」を作成しました。`)
-        .addFields({
-            name: '📝 次のステップ',
-            value: 'Web UIでランクの編集や報酬の設定ができます。',
-            inline: false
-        });
-
-    await interaction.editReply({ embeds: [embed] });
-    Logger.info(`Created rank preset: ${presetName} in guild ${guildId}`);
-}
-
-/**
  * プリセットを削除
  */
-async function handleDeletePreset(interaction: ChatInputCommandInteraction, guildId: string): Promise<void> {
-    await interaction.deferReply({ ephemeral: true });
-
-    const presetName = interaction.options.getString('preset');
-    
-    if (!presetName) {
-        await interaction.editReply('❌ プリセット名を指定してください。');
-        return;
-    }
-
-    const data = await rankManager.getRankingData(guildId);
-    const index = data.rankPresets.findIndex(p => p.name === presetName);
-
-    if (index === -1) {
-        await interaction.editReply('❌ 指定されたプリセットが見つかりません。');
-        return;
-    }
-
-    // デフォルトプリセットの削除は禁止
-    if (index === 0 && data.rankPresets.length === 1) {
-        await interaction.editReply('❌ 最後のプリセットは削除できません。');
-        return;
-    }
-
-    data.rankPresets.splice(index, 1);
-    await rankManager.saveRankingData(guildId, data);
-
-    await interaction.editReply(`✅ プリセット「${presetName}」を削除しました。`);
-    Logger.info(`Deleted rank preset: ${presetName} from guild ${guildId}`);
-}
-
 /**
  * ランクパネルを作成
  */
 async function handleCreatePanel(interaction: ChatInputCommandInteraction, guildId: string): Promise<void> {
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
     const presetName = interaction.options.getString('preset') || 'default';
     const channel = interaction.options.getChannel('channel') as TextChannel || interaction.channel as TextChannel;
@@ -324,7 +226,7 @@ async function handleCreatePanel(interaction: ChatInputCommandInteraction, guild
  * パネルを削除
  */
 async function handleDeletePanel(interaction: ChatInputCommandInteraction, guildId: string): Promise<void> {
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
     const data = await rankManager.getRankingData(guildId);
     const panelIds = Object.keys(data.panels);
@@ -361,53 +263,14 @@ async function handleDeletePanel(interaction: ChatInputCommandInteraction, guild
 /**
  * 通知チャンネルを設定
  */
-async function handleSetNotifyChannel(interaction: ChatInputCommandInteraction, guildId: string): Promise<void> {
-    await interaction.deferReply({ ephemeral: true });
-
-    const channel = interaction.options.getChannel('channel') as TextChannel;
-
-    if (!channel) {
-        await interaction.editReply('❌ チャンネルを指定してください。');
-        return;
-    }
-
-    const data = await rankManager.getRankingData(guildId);
-    data.settings.notifyChannelId = channel.id;
-    await rankManager.saveRankingData(guildId, data);
-
-    await interaction.editReply(`✅ ランクアップ通知チャンネルを <#${channel.id}> に設定しました。`);
-    Logger.info(`Set rank notify channel to ${channel.id} in guild ${guildId}`);
-}
-
 /**
  * 更新間隔を設定
  */
-async function handleSetUpdateInterval(interaction: ChatInputCommandInteraction, guildId: string): Promise<void> {
-    await interaction.deferReply({ ephemeral: true });
-
-    const minutes = interaction.options.getInteger('value');
-
-    if (!minutes || minutes < 1) {
-        await interaction.editReply('❌ 更新間隔（分）を指定してください（最小: 1分）。');
-        return;
-    }
-
-    const data = await rankManager.getRankingData(guildId);
-    data.settings.updateIntervalMs = minutes * 60 * 1000;
-    await rankManager.saveRankingData(guildId, data);
-
-    // タイマーを再起動
-    await rankManager.startPanelUpdateTimer(guildId);
-
-    await interaction.editReply(`✅ パネルの更新間隔を ${minutes} 分に設定しました。`);
-    Logger.info(`Set panel update interval to ${minutes} minutes in guild ${guildId}`);
-}
-
 /**
  * ユーザーにXPを付与
  */
 async function handleAddXp(interaction: ChatInputCommandInteraction, guildId: string): Promise<void> {
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
     const user = interaction.options.getUser('user');
     const xp = interaction.options.getInteger('value');
@@ -460,7 +323,7 @@ async function handleSetXp(interaction: ChatInputCommandInteraction, guildId: st
  * ランキングを表示
  */
 async function handleShowRanking(interaction: ChatInputCommandInteraction, guildId: string): Promise<void> {
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
     const leaderboard = await rankManager.getLeaderboard(guildId, 10);
 
@@ -479,8 +342,18 @@ async function handleShowRanking(interaction: ChatInputCommandInteraction, guild
         const entry = leaderboard[i];
         const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i + 1}.`;
         
+        // ユーザー名を取得（見つからない場合はIDを表示）
+        let userName = entry.userId;
+        try {
+            const member = await interaction.guild!.members.fetch(entry.userId);
+            userName = member.displayName || member.user.username;
+        } catch (error) {
+            // ユーザーが見つからない場合はIDのまま
+            Logger.warn(`Failed to fetch user ${entry.userId} for ranking display:`, error);
+        }
+        
         embed.addFields({
-            name: `${medal} <@${entry.userId}>`,
+            name: `${medal} ${userName}`,
             value: `**XP:** ${entry.xp.toLocaleString()} | **ランク:** ${entry.rank}`,
             inline: false
         });

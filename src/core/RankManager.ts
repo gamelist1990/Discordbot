@@ -449,11 +449,14 @@ export class RankManager {
             } catch (error) {
                 Logger.error(`Failed to update panel ${panelId}:`, error);
                 
-                // パネルが削除されている場合はDBから削除
-                if (error && typeof error === 'object' && 'code' in error && error.code === 10008) {
-                    delete data.panels[panelId];
-                    await this.saveRankingData(guildId, data);
-                    Logger.info(`Removed deleted panel ${panelId} from database`);
+                // パネルが削除されている場合やチャンネルが見つからない場合はDBから削除
+                if (error && typeof error === 'object' && 'code' in error) {
+                    const discordError = error as any;
+                    if (discordError.code === 10008 || discordError.code === 10003) { // Unknown Message or Unknown Channel
+                        delete data.panels[panelId];
+                        await this.saveRankingData(guildId, data);
+                        Logger.info(`Removed invalid panel ${panelId} from database (code: ${discordError.code})`);
+                    }
                 }
             }
         }
@@ -462,15 +465,21 @@ export class RankManager {
     /**
      * 単一パネルを更新
      */
-    private async updatePanel(guild: Guild, _panelId: string, panel: RankPanel, data: RankingData): Promise<void> {
+    private async updatePanel(guild: Guild, panelId: string, panel: RankPanel, data: RankingData): Promise<void> {
         const channel = guild.channels.cache.get(panel.channelId) as TextChannel;
         if (!channel) {
-            throw new Error('Channel not found');
+            Logger.warn(`Channel ${panel.channelId} not found for panel ${panelId}, removing panel`);
+            delete data.panels[panelId];
+            await this.saveRankingData(guild.id, data);
+            return;
         }
 
         const message = await channel.messages.fetch(panel.messageId);
         if (!message) {
-            throw new Error('Message not found');
+            Logger.warn(`Message ${panel.messageId} not found for panel ${panelId}, removing panel`);
+            delete data.panels[panelId];
+            await this.saveRankingData(guild.id, data);
+            return;
         }
 
         // トップユーザーを取得
@@ -491,8 +500,18 @@ export class RankManager {
             const rank = this.getUserRank(data, userData.xp, panel.preset);
             const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i + 1}.`;
             
+            // ユーザー名を取得（見つからない場合はIDを表示）
+            let userName = userId;
+            try {
+                const member = await guild.members.fetch(userId);
+                userName = member.displayName || member.user.username;
+            } catch (error) {
+                // ユーザーが見つからない場合はIDのまま
+                Logger.warn(`Failed to fetch user ${userId} for ranking display:`, error);
+            }
+            
             embed.addFields({
-                name: `${medal} <@${userId}>`,
+                name: `${medal} ${userName}`,
                 value: `**XP:** ${userData.xp} | **ランク:** ${rank?.name || '未定'}`,
                 inline: false
             });
