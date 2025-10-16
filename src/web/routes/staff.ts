@@ -33,6 +33,12 @@ export function createStaffRoutes(
     // セッションベースでアクセス可能なギルド一覧取得
     router.get('/guilds', verifyAuth(sessions), controller.getAccessibleGuilds.bind(controller));
 
+    // ギルドのチャンネル一覧取得
+    router.get('/guilds/:guildId/channels', verifyAuth(sessions), controller.getGuildChannels.bind(controller));
+
+    // ギルドのロール一覧取得
+    router.get('/guilds/:guildId/roles', verifyAuth(sessions), controller.getGuildRoles.bind(controller));
+
     // メンバー管理エンドポイント (session-based)
     router.get('/privatechats/:chatId/members', verifyAuth(sessions), controller.getChatMembers.bind(controller));
     router.post('/privatechats/:chatId/members', verifyAuth(sessions), controller.addChatMember.bind(controller));

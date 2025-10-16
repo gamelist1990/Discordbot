@@ -85,6 +85,7 @@ const RankManagerPage: React.FC = () => {
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [editingPreset, setEditingPreset] = useState<RankPreset | null>(null);
   const [editingRankIndex, setEditingRankIndex] = useState<number | null>(null);
+  const [presetModalTab, setPresetModalTab] = useState<'ranks' | 'rewards'>('ranks');
   
   // Panel creation state
   const [newPanel, setNewPanel] = useState({
@@ -411,6 +412,31 @@ const RankManagerPage: React.FC = () => {
     setEditingPreset({ ...editingPreset, ranks: newRanks });
   };
 
+  const addReward = () => {
+    if (!editingPreset || editingPreset.ranks.length === 0) return;
+    const newReward: RankReward = {
+      rankName: editingPreset.ranks[0].name,
+      notify: true
+    };
+    setEditingPreset({
+      ...editingPreset,
+      rewards: [...editingPreset.rewards, newReward]
+    });
+  };
+
+  const updateReward = (index: number, field: keyof RankReward, value: any) => {
+    if (!editingPreset) return;
+    const newRewards = [...editingPreset.rewards];
+    newRewards[index] = { ...newRewards[index], [field]: value };
+    setEditingPreset({ ...editingPreset, rewards: newRewards });
+  };
+
+  const removeReward = (index: number) => {
+    if (!editingPreset) return;
+    const newRewards = editingPreset.rewards.filter((_, i) => i !== index);
+    setEditingPreset({ ...editingPreset, rewards: newRewards });
+  };
+
   if (loading) {
     return (
       <div className={styles.container}>
@@ -638,18 +664,34 @@ const RankManagerPage: React.FC = () => {
 
                   <div className={styles.formSection}>
                     <h3>ボイスチャット設定</h3>
-                    <div className={styles.formGroup}>
-                      <label>VC XP (毎分)</label>
-                      <input
-                        type="number"
-                        value={settings.xpRates.vcXpPerMinute}
-                        onChange={(e) => setSettings({
-                          ...settings,
-                          xpRates: { ...settings.xpRates, vcXpPerMinute: parseInt(e.target.value) || 0 }
-                        })}
-                        min="0"
-                      />
-                      <span className={styles.helpText}>VC接続1分あたりのXP</span>
+                    <div className={styles.formGrid}>
+                      <div className={styles.formGroup}>
+                        <label>VC XP (毎分)</label>
+                        <input
+                          type="number"
+                          value={settings.xpRates.vcXpPerMinute}
+                          onChange={(e) => setSettings({
+                            ...settings,
+                            xpRates: { ...settings.xpRates, vcXpPerMinute: parseInt(e.target.value) || 0 }
+                          })}
+                          min="0"
+                        />
+                        <span className={styles.helpText}>VC接続1分あたりのXP</span>
+                      </div>
+                      <div className={styles.formGroup}>
+                        <label>VC計測間隔 (秒)</label>
+                        <input
+                          type="number"
+                          value={settings.xpRates.vcIntervalSec}
+                          onChange={(e) => setSettings({
+                            ...settings,
+                            xpRates: { ...settings.xpRates, vcIntervalSec: parseInt(e.target.value) || 60 }
+                          })}
+                          min="1"
+                          max="3600"
+                        />
+                        <span className={styles.helpText}>VCのXP計算間隔</span>
+                      </div>
                     </div>
                   </div>
 
@@ -686,6 +728,114 @@ const RankManagerPage: React.FC = () => {
                       </div>
                     </div>
                   </div>
+
+                  <div className={styles.formSection}>
+                    <h3>パネル設定</h3>
+                    <div className={styles.formGrid}>
+                      <div className={styles.formGroup}>
+                        <label>更新間隔 (分)</label>
+                        <input
+                          type="number"
+                          value={Math.round(settings.updateIntervalMs / 60000)}
+                          onChange={(e) => setSettings({
+                            ...settings,
+                            updateIntervalMs: (parseInt(e.target.value) || 5) * 60000
+                          })}
+                          min="1"
+                          max="60"
+                        />
+                        <span className={styles.helpText}>パネルの自動更新間隔</span>
+                      </div>
+                      <div className={styles.formGroup}>
+                        <label>通知チャンネル</label>
+                        <select
+                          value={settings.notifyChannelId || ''}
+                          onChange={(e) => setSettings({
+                            ...settings,
+                            notifyChannelId: e.target.value || undefined
+                          })}
+                        >
+                          <option value="">未設定</option>
+                          {channels.filter(ch => ch.type === 0).map(channel => (
+                            <option key={channel.id} value={channel.id}>{channel.name}</option>
+                          ))}
+                        </select>
+                        <span className={styles.helpText}>ランクアップ通知を送信するチャンネル</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className={styles.formSection}>
+                    <h3>除外設定</h3>
+                    <div className={styles.formGroup}>
+                      <label>除外チャンネル</label>
+                      <div className={styles.multiSelect}>
+                        {channels.filter(ch => ch.type === 0).map(channel => (
+                          <label key={channel.id} className={styles.checkboxLabel}>
+                            <input
+                              type="checkbox"
+                              checked={settings.xpRates.excludeChannels.includes(channel.id)}
+                              onChange={(e) => {
+                                const newExclude = e.target.checked
+                                  ? [...settings.xpRates.excludeChannels, channel.id]
+                                  : settings.xpRates.excludeChannels.filter(id => id !== channel.id);
+                                setSettings({
+                                  ...settings,
+                                  xpRates: { ...settings.xpRates, excludeChannels: newExclude }
+                                });
+                              }}
+                            />
+                            <span>#{channel.name}</span>
+                          </label>
+                        ))}
+                      </div>
+                      <span className={styles.helpText}>これらのチャンネルではXPを獲得できません</span>
+                    </div>
+
+                    <div className={styles.formGroup}>
+                      <label>除外ロール</label>
+                      <div className={styles.multiSelect}>
+                        {roles.map(role => (
+                          <label key={role.id} className={styles.checkboxLabel}>
+                            <input
+                              type="checkbox"
+                              checked={settings.xpRates.excludeRoles.includes(role.id)}
+                              onChange={(e) => {
+                                const newExclude = e.target.checked
+                                  ? [...settings.xpRates.excludeRoles, role.id]
+                                  : settings.xpRates.excludeRoles.filter(id => id !== role.id);
+                                setSettings({
+                                  ...settings,
+                                  xpRates: { ...settings.xpRates, excludeRoles: newExclude }
+                                });
+                              }}
+                            />
+                            <span style={{ color: role.color ? `#${role.color.toString(16).padStart(6, '0')}` : undefined }}>
+                              @{role.name}
+                            </span>
+                          </label>
+                        ))}
+                      </div>
+                      <span className={styles.helpText}>これらのロールを持つユーザーはXPを獲得できません</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+                          type="number"
+                          step="0.1"
+                          value={settings.xpRates.globalMultiplier}
+                          onChange={(e) => setSettings({
+                            ...settings,
+                            xpRates: { ...settings.xpRates, globalMultiplier: parseFloat(e.target.value) || 1.0 }
+                          })}
+                          min="0.1"
+                          max="10"
+                        />
+                        <span className={styles.helpText}>イベント時などのXP倍率</span>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
             )}
@@ -703,88 +853,195 @@ const RankManagerPage: React.FC = () => {
                 <i className="material-icons">close</i>
               </button>
             </div>
+
+            {/* Modal Tabs */}
+            <div className={styles.modalTabs}>
+              <button
+                className={`${styles.modalTab} ${presetModalTab === 'ranks' ? styles.modalTabActive : ''}`}
+                onClick={() => setPresetModalTab('ranks')}
+              >
+                <i className="material-icons-outlined">military_tech</i>
+                ランク設定
+              </button>
+              <button
+                className={`${styles.modalTab} ${presetModalTab === 'rewards' ? styles.modalTabActive : ''}`}
+                onClick={() => setPresetModalTab('rewards')}
+              >
+                <i className="material-icons-outlined">card_giftcard</i>
+                報酬設定
+              </button>
+            </div>
+
             <div className={styles.modalBody}>
-              <div className={styles.formGroup}>
-                <label>プリセット名 *</label>
-                <input
-                  type="text"
-                  value={editingPreset.name}
-                  onChange={(e) => setEditingPreset({ ...editingPreset, name: e.target.value })}
-                  placeholder="例: default, vip, seasonal"
-                />
-              </div>
-              <div className={styles.formGroup}>
-                <label>説明</label>
-                <textarea
-                  value={editingPreset.description || ''}
-                  onChange={(e) => setEditingPreset({ ...editingPreset, description: e.target.value })}
-                  placeholder="このプリセットの説明"
-                  rows={2}
-                />
-              </div>
-              
-              <div className={styles.ranksEditor}>
-                <div className={styles.ranksHeader}>
-                  <h3>ランク一覧</h3>
-                  <button className={styles.secondaryButton} onClick={addRankToPreset}>
-                    <i className="material-icons">add</i>
-                    ランク追加
-                  </button>
-                </div>
-                
-                {editingPreset.ranks.map((rank, idx) => (
-                  <div key={idx} className={styles.rankEditor}>
-                    <div className={styles.rankEditorHeader}>
-                      <span className={styles.rankNumber}>#{idx + 1}</span>
-                      {editingPreset.ranks.length > 1 && (
-                        <button 
-                          className={styles.iconButton}
-                          onClick={() => removeRank(idx)}
-                          title="削除"
-                        >
-                          <i className="material-icons-outlined">delete</i>
-                        </button>
-                      )}
-                    </div>
-                    <div className={styles.rankFields}>
-                      <div className={styles.formGroup}>
-                        <label>ランク名</label>
-                        <input
-                          type="text"
-                          value={rank.name}
-                          onChange={(e) => updateRank(idx, 'name', e.target.value)}
-                        />
-                      </div>
-                      <div className={styles.formGroup}>
-                        <label>最小XP</label>
-                        <input
-                          type="number"
-                          value={rank.minXp}
-                          onChange={(e) => updateRank(idx, 'minXp', parseInt(e.target.value) || 0)}
-                          min="0"
-                        />
-                      </div>
-                      <div className={styles.formGroup}>
-                        <label>最大XP</label>
-                        <input
-                          type="number"
-                          value={rank.maxXp}
-                          onChange={(e) => updateRank(idx, 'maxXp', parseInt(e.target.value) || 0)}
-                          min="0"
-                        />
-                      </div>
-                      <div className={styles.formGroup}>
-                        <label>色</label>
-                        <input
-                          type="color"
-                          value={rank.color || '#4A90E2'}
-                          onChange={(e) => updateRank(idx, 'color', e.target.value)}
-                        />
-                      </div>
-                    </div>
+              {presetModalTab === 'ranks' && (
+                <>
+                  <div className={styles.formGroup}>
+                    <label>プリセット名 *</label>
+                    <input
+                      type="text"
+                      value={editingPreset.name}
+                      onChange={(e) => setEditingPreset({ ...editingPreset, name: e.target.value })}
+                      placeholder="例: default, vip, seasonal"
+                    />
                   </div>
-                ))}
-              </div>
+                  <div className={styles.formGroup}>
+                    <label>説明</label>
+                    <textarea
+                      value={editingPreset.description || ''}
+                      onChange={(e) => setEditingPreset({ ...editingPreset, description: e.target.value })}
+                      placeholder="このプリセットの説明"
+                      rows={2}
+                    />
+                  </div>
+                  
+                  <div className={styles.ranksEditor}>
+                    <div className={styles.ranksHeader}>
+                      <h3>ランク一覧</h3>
+                      <button className={styles.secondaryButton} onClick={addRankToPreset}>
+                        <i className="material-icons">add</i>
+                        ランク追加
+                      </button>
+                    </div>
+                    
+                    {editingPreset.ranks.map((rank, idx) => (
+                      <div key={idx} className={styles.rankEditor}>
+                        <div className={styles.rankEditorHeader}>
+                          <span className={styles.rankNumber}>#{idx + 1}</span>
+                          {editingPreset.ranks.length > 1 && (
+                            <button 
+                              className={styles.iconButton}
+                              onClick={() => removeRank(idx)}
+                              title="削除"
+                            >
+                              <i className="material-icons-outlined">delete</i>
+                            </button>
+                          )}
+                        </div>
+                        <div className={styles.rankFields}>
+                          <div className={styles.formGroup}>
+                            <label>ランク名</label>
+                            <input
+                              type="text"
+                              value={rank.name}
+                              onChange={(e) => updateRank(idx, 'name', e.target.value)}
+                            />
+                          </div>
+                          <div className={styles.formGroup}>
+                            <label>最小XP</label>
+                            <input
+                              type="number"
+                              value={rank.minXp}
+                              onChange={(e) => updateRank(idx, 'minXp', parseInt(e.target.value) || 0)}
+                              min="0"
+                            />
+                          </div>
+                          <div className={styles.formGroup}>
+                            <label>最大XP</label>
+                            <input
+                              type="number"
+                              value={rank.maxXp}
+                              onChange={(e) => updateRank(idx, 'maxXp', parseInt(e.target.value) || 0)}
+                              min="0"
+                            />
+                          </div>
+                          <div className={styles.formGroup}>
+                            <label>色</label>
+                            <input
+                              type="color"
+                              value={rank.color || '#4A90E2'}
+                              onChange={(e) => updateRank(idx, 'color', e.target.value)}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+
+              {presetModalTab === 'rewards' && (
+                <div className={styles.rewardsEditor}>
+                  <div className={styles.ranksHeader}>
+                    <h3>ランクアップ報酬</h3>
+                    <button className={styles.secondaryButton} onClick={addReward}>
+                      <i className="material-icons">add</i>
+                      報酬追加
+                    </button>
+                  </div>
+
+                  {editingPreset.rewards.length === 0 ? (
+                    <div className={styles.emptyRewards}>
+                      <i className="material-icons-outlined">card_giftcard</i>
+                      <p>報酬が設定されていません</p>
+                      <button className={styles.secondaryButton} onClick={addReward}>
+                        <i className="material-icons">add</i>
+                        報酬を追加
+                      </button>
+                    </div>
+                  ) : (
+                    editingPreset.rewards.map((reward, idx) => (
+                      <div key={idx} className={styles.rewardEditor}>
+                        <div className={styles.rankEditorHeader}>
+                          <span className={styles.rankNumber}>報酬 #{idx + 1}</span>
+                          <button 
+                            className={styles.iconButton}
+                            onClick={() => removeReward(idx)}
+                            title="削除"
+                          >
+                            <i className="material-icons-outlined">delete</i>
+                          </button>
+                        </div>
+                        <div className={styles.rewardFields}>
+                          <div className={styles.formGroup}>
+                            <label>対象ランク</label>
+                            <select
+                              value={reward.rankName}
+                              onChange={(e) => updateReward(idx, 'rankName', e.target.value)}
+                            >
+                              {editingPreset.ranks.map(rank => (
+                                <option key={rank.name} value={rank.name}>{rank.name}</option>
+                              ))}
+                            </select>
+                          </div>
+                          <div className={styles.formGroup}>
+                            <label>付与ロール</label>
+                            <select
+                              value={reward.giveRoleId || ''}
+                              onChange={(e) => updateReward(idx, 'giveRoleId', e.target.value || undefined)}
+                            >
+                              <option value="">なし</option>
+                              {roles.map(role => (
+                                <option key={role.id} value={role.id}>{role.name}</option>
+                              ))}
+                            </select>
+                            <span className={styles.helpText}>ランク到達時に付与するロール</span>
+                          </div>
+                          <div className={styles.formGroup}>
+                            <label className={styles.checkboxLabel}>
+                              <input
+                                type="checkbox"
+                                checked={reward.notify || false}
+                                onChange={(e) => updateReward(idx, 'notify', e.target.checked)}
+                              />
+                              <span>ランクアップ通知を送信</span>
+                            </label>
+                          </div>
+                          <div className={styles.formGroup}>
+                            <label>カスタムメッセージ</label>
+                            <textarea
+                              value={reward.customMessage || ''}
+                              onChange={(e) => updateReward(idx, 'customMessage', e.target.value)}
+                              placeholder="例: おめでとうございます！{rank}に到達しました！"
+                              rows={2}
+                            />
+                            <span className={styles.helpText}>変数: {`{rank}`} = ランク名, {`{user}`} = ユーザー名</span>
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
             </div>
             <div className={styles.modalFooter}>
               <button 
