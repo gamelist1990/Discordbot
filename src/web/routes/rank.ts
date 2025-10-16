@@ -33,6 +33,8 @@ export function createRankRoutes(
 
     // リーダーボード
     router.get('/leaderboard', (req, res) => controller.getLeaderboard(req, res));
+    router.get('/leaderboard/:guildId/presets/:presetName', (req, res) => controller.getPresetLeaderboard(req, res));
+    router.get('/leaderboard/:guildId/all', (req, res) => controller.getAllPresetLeaderboards(req, res));
 
     // ウェブランキングボード用エンドポイント
     router.get('/guilds', (req, res) => controller.getUserGuilds(req, res));
@@ -42,6 +44,31 @@ export function createRankRoutes(
 
     // XP操作
     router.post('/xp/add', (req, res) => controller.addUserXp(req, res));
+
+    // ランクリセット
+    router.post('/guilds/:guildId/reset', (req, res) => controller.resetRank(req, res));
+
+    // XP条件ルール管理
+    router.get('/guilds/:guildId/presets/:presetName/rules', (req, res) => controller.getXpConditionRules(req, res));
+    router.post('/guilds/:guildId/presets/:presetName/rules', (req, res) => controller.addXpConditionRule(req, res));
+    router.put('/guilds/:guildId/presets/:presetName/rules/:ruleId', (req, res) => controller.updateXpConditionRule(req, res));
+    router.delete('/guilds/:guildId/presets/:presetName/rules/:ruleId', (req, res) => controller.deleteXpConditionRule(req, res));
+
+    return router;
+}
+
+/**
+ * 公開ランキングボード用ルート（認証不要）
+ */
+export function createPublicRankRoutes(
+    botClient: BotClient
+): Router {
+    const router = Router();
+    const controller = new RankController(botClient);
+
+    // 公開エンドポイント（認証不要）
+    router.get('/panel/:guildId/:panelId', (req, res) => controller.getPanelLeaderboard(req, res));
+    router.get('/leaderboard/:guildId/presets/:presetName', (req, res) => controller.getPresetLeaderboard(req, res));
 
     return router;
 }
@@ -65,6 +92,8 @@ export function createWebRankRoutes(
     router.get('/panels/:guildId', (req, res) => controller.getGuildPanels(req, res));
     router.get('/panel/:guildId/:panelId', (req, res) => controller.getPanelLeaderboard(req, res));
     router.get('/leaderboard/:guildId', (req, res) => controller.getLeaderboard(req, res));
+    router.get('/leaderboard/:guildId/presets/:presetName', (req, res) => controller.getPresetLeaderboard(req, res));
+    router.get('/leaderboard/:guildId/all', (req, res) => controller.getAllPresetLeaderboards(req, res));
 
     return router;
 }

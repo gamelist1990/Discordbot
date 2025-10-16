@@ -301,18 +301,25 @@ async function handleSetXp(interaction: ChatInputCommandInteraction, guildId: st
     }
 
     const data = await rankManager.getRankingData(guildId);
+    const presetName = data.rankPresets[0]?.name || 'default';
     
     if (!data.users[user.id]) {
-        data.users[user.id] = {
+        data.users[user.id] = {};
+    }
+
+    if (!data.users[user.id][presetName]) {
+        data.users[user.id][presetName] = {
             xp: 0,
             lastUpdated: new Date().toISOString(),
             dailyXp: 0,
-            dailyXpResetDate: new Date().toISOString().split('T')[0]
+            dailyXpResetDate: new Date().toISOString().split('T')[0],
+            lastMessageTime: undefined,
+            vcAccumMs: 0
         };
     }
 
-    data.users[user.id].xp = xp;
-    data.users[user.id].lastUpdated = new Date().toISOString();
+    data.users[user.id][presetName].xp = xp;
+    data.users[user.id][presetName].lastUpdated = new Date().toISOString();
     await rankManager.saveRankingData(guildId, data);
 
     await interaction.editReply(`✅ ${user.tag} のXPを ${xp} に設定しました。`);

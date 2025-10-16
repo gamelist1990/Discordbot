@@ -211,6 +211,12 @@
     border-color: #bdc1c6;
 }
 
+.secondaryButton i,
+.dangerButton i {
+    font-size: 1.2rem;
+    line-height: 1;
+}
+
 .iconButton {
     background: transparent;
     border: none;
@@ -374,9 +380,10 @@
 }
 
 .formGroup label {
-    font-weight: 500;
+    font-weight: 600;
     color: #202124;
-    font-size: 0.875rem;
+    font-size: 0.95rem;
+    letter-spacing: 0.3px;
 }
 
 .formGroup input,
@@ -461,6 +468,25 @@
     animation: slideUp 0.3s;
 }
 
+/* Reset Confirmation Modal - Special Styling */
+.modal:has(.warningBox) .modalHeader {
+    background: linear-gradient(135deg, #fff3cd 0%, #ffe8b6 100%);
+    border-bottom: 2px solid #ffc107;
+}
+
+.modal:has(.warningBox) .modalHeader h2 {
+    color: #856404;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.modal:has(.warningBox) .modalHeader h2::before {
+    content: "⚠️";
+    font-size: 1.5rem;
+}
+
 @keyframes slideUp {
     from { opacity: 0; transform: translateY(20px); }
     to { opacity: 1; transform: translateY(0); }
@@ -505,7 +531,8 @@
 
 .modalFooter {
     display: flex;
-    justify-content: flex-end;
+    justify-content: space-between;
+    align-items: center;
     gap: 1rem;
     padding: 1.5rem 2rem;
     border-top: 1px solid #e0e0e0;
@@ -730,6 +757,244 @@
     color: #1a73e8;
 }
 
+/* XP Rules Editor */
+.rulesEditor {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 1.5rem;
+    margin-top: 1.5rem;
+}
+
+.ruleCard {
+    background: white;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    padding: 1.5rem;
+    transition: all 0.2s ease;
+}
+
+.ruleCard:hover {
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+    border-color: #1a73e8;
+}
+
+.ruleDetails {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 1px solid #f0f0f0;
+}
+
+.detail {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.875rem;
+}
+
+.detail span {
+    color: #5f6368;
+}
+
+.detail strong {
+    color: #202124;
+    font-weight: 500;
+}
+
+/* Advanced Options */
+.advancedOptions {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 1.5rem;
+    margin-top: 1.5rem;
+}
+
+.optionCard {
+    background: white;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    padding: 1.5rem;
+    transition: all 0.2s ease;
+}
+
+.optionCard:hover {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    border-color: #0f766e;
+}
+
+.optionHeader {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 0.75rem;
+}
+
+.optionHeader i {
+    font-size: 1.5rem;
+    color: #0f766e;
+}
+
+.optionHeader h3 {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 500;
+    color: #202124;
+}
+
+.optionDescription {
+    font-size: 0.875rem;
+    color: #5f6368;
+    margin: 0.75rem 0 1rem;
+}
+
+/* Reset Confirmation Dialog */
+.warningBox {
+    background: linear-gradient(135deg, #fff3cd 0%, #ffe8b6 100%);
+    border: 2px solid #ffc107;
+    border-radius: 8px;
+    padding: 1.5rem;
+    display: flex;
+    align-items: flex-start;
+    gap: 1rem;
+    margin-bottom: 2rem;
+    box-shadow: 0 2px 8px rgba(255, 193, 7, 0.2);
+}
+
+.warningBox i {
+    color: #ff9800;
+    font-size: 2rem;
+    min-width: 2rem;
+    text-align: center;
+    animation: pulse 2s infinite;
+}
+
+.warningBox p {
+    margin: 0;
+    color: #856404;
+    font-size: 1rem;
+    font-weight: 500;
+    line-height: 1.4;
+}
+
+@keyframes pulse {
+    0%, 100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.6;
+    }
+}
+
+/* Radio Group */
+.radioGroup {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    background: #f9f9f9;
+    padding: 1rem;
+    border-radius: 6px;
+    margin: 1rem 0;
+}
+
+.radioLabel {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    cursor: pointer;
+    padding: 0.75rem;
+    border-radius: 6px;
+    transition: all 0.2s ease;
+    border: 2px solid transparent;
+}
+
+.radioLabel:hover {
+    background-color: #e8f5e9;
+    border-color: #4caf50;
+}
+
+.radioLabel input {
+    margin: 0;
+    cursor: pointer;
+    width: 18px;
+    height: 18px;
+    accent-color: #1a73e8;
+}
+
+.radioLabel input:checked {
+    accent-color: #d32f2f;
+}
+
+.radioLabel span {
+    font-size: 0.95rem;
+    color: #202124;
+    font-weight: 500;
+}
+
+/* Danger Button */
+.dangerButton {
+    background: linear-gradient(135deg, #d32f2f 0%, #c62828 100%);
+    color: white;
+    border: none;
+    padding: 0.75rem 2rem;
+    border-radius: 6px;
+    font-size: 0.95rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    box-shadow: 0 2px 8px rgba(211, 47, 47, 0.3);
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.dangerButton:hover:not(:disabled) {
+    background: linear-gradient(135deg, #c62828 0%, #b71c1c 100%);
+    box-shadow: 0 4px 12px rgba(211, 47, 47, 0.4);
+    transform: translateY(-2px);
+}
+
+.dangerButton:active:not(:disabled) {
+    transform: translateY(0);
+}
+
+.dangerButton:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+
+/* Info Box in Modal */
+.infoBox {
+    background: #e3f2fd;
+    border: 1px solid #1976d2;
+    border-radius: 6px;
+    padding: 1rem;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.infoBox i {
+    color: #1976d2;
+    font-size: 1.5rem;
+}
+
+.infoBox p {
+    margin: 0;
+    color: #0d47a1;
+    font-size: 0.9rem;
+}
+
+.infoBox code {
+    background: white;
+    padding: 0.2rem 0.5rem;
+    border-radius: 3px;
+    font-family: 'Courier New', monospace;
+}
+
 /* Responsive */
 @media (max-width: 768px) {
     .topBarContent {
@@ -772,5 +1037,14 @@
     .select {
         width: 100%;
     }
-}
 
+    /* Responsive for XP Rules */
+    .rulesEditor {
+        grid-template-columns: 1fr;
+    }
+
+    /* Responsive for Advanced Options */
+    .advancedOptions {
+        grid-template-columns: 1fr;
+    }
+}

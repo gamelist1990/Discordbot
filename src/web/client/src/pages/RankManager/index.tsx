@@ -22,7 +22,23 @@ interface RankReward {
   rankName: string;
   giveRoleId?: string;
   notify?: boolean;
+  webhookUrl?: string;
   customMessage?: string;
+}
+
+interface XpConditionRule {
+  id: string;
+  name: string;
+  actionType: 'message' | 'reaction' | 'voiceChat' | 'invite' | 'custom';
+  description?: string;
+  channels?: string[];
+  roles?: string[];
+  xpReward: number;
+  xpRewardMin?: number;
+  xpRewardMax?: number;
+  cooldownSec?: number;
+  maxPerDay?: number;
+  isActive: boolean;
 }
 
 interface RankPanel {
@@ -38,8 +54,12 @@ interface RankSettings {
   updateIntervalMs: number;
   xpRates: {
     messageXp: number;
+    messageXpMin?: number;
+    messageXpMax?: number;
     messageCooldownSec: number;
     vcXpPerMinute: number;
+    vcXpPerMinuteMin?: number;
+    vcXpPerMinuteMax?: number;
     vcIntervalSec: number;
     dailyXpCap: number;
     excludeChannels: string[];
@@ -77,7 +97,7 @@ const RankManagerPage: React.FC = () => {
   const [settings, setSettings] = useState<RankSettings | null>(null);
   const [channels, setChannels] = useState<GuildChannel[]>([]);
   const [roles, setRoles] = useState<GuildRole[]>([]);
-  const [activeTab, setActiveTab] = useState<'presets' | 'panels' | 'settings'>('presets');
+  const [activeTab, setActiveTab] = useState<'presets' | 'panels' | 'settings' | 'rules' | 'advanced'>('presets');
   
   // Modal states
   const [showPresetModal, setShowPresetModal] = useState(false);
@@ -86,6 +106,17 @@ const RankManagerPage: React.FC = () => {
   const [editingPreset, setEditingPreset] = useState<RankPreset | null>(null);
   const [] = useState<number | null>(null);
   const [presetModalTab, setPresetModalTab] = useState<'ranks' | 'rewards'>('ranks');
+  
+  // XP条件ルール管理
+  const [xpRules, setXpRules] = useState<XpConditionRule[]>([]);
+  const [showRuleModal, setShowRuleModal] = useState(false);
+  const [editingRule, setEditingRule] = useState<XpConditionRule | null>(null);
+  const [selectedPresetForRules, setSelectedPresetForRules] = useState<string | null>(null);
+  
+  // リセット確認ダイアログ
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [resetTarget, setResetTarget] = useState<'all' | 'user'>('all');
+  const [resetUserId, setResetUserId] = useState('');
   
   // Panel creation state
   const [, setNewPanel] = useState({
@@ -419,6 +450,108 @@ const RankManagerPage: React.FC = () => {
     setEditingPreset({ ...editingPreset, rewards: newRewards });
   };
 
+  // XP条件ルール管理
+  const loadXpRules = async (presetName: string) => {
+    if (!selectedGuildId) return;
+    try {
+      const res = await fetch(
+        `/api/staff/rankmanager/guilds/${selectedGuildId}/presets/${presetName}/rules`,
+        { credentials: 'include' }
+      );
+      if (res.ok) {
+        const data = await res.json();
+        setXpRules(Array.isArray(data) ? data : []);
+      }
+    } catch (err) {
+      console.error('Failed to load XP rules:', err);
+    }
+  };
+
+  const handleSaveRule = async () => {
+    if (!editingRule || !selectedGuildId || !selectedPresetForRules) return;
+
+    setSaving(true);
+    try {
+      const method = editingRule.id && editingRule.id.startsWith('new-') ? 'POST' : 'PUT';
+      const url = method === 'POST'
+        ? `/api/staff/rankmanager/guilds/${selectedGuildId}/presets/${selectedPresetForRules}/rules`
+        : `/api/staff/rankmanager/guilds/${selectedGuildId}/presets/${selectedPresetForRules}/rules/${editingRule.id}`;
+
+      const res = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(editingRule)
+      });
+
+      if (res.ok) {
+        addToast?.('ルールを保存しました', 'success');
+        setShowRuleModal(false);
+        loadXpRules(selectedPresetForRules);
+      } else {
+        const error = await res.json();
+        addToast?.(error.error || 'ルール保存に失敗しました', 'error');
+      }
+    } catch (err) {
+      console.error('Failed to save rule:', err);
+      addToast?.('ルール保存に失敗しました', 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeleteRule = async (ruleId: string) => {
+    if (!selectedGuildId || !selectedPresetForRules) return;
+
+    try {
+      const res = await fetch(
+        `/api/staff/rankmanager/guilds/${selectedGuildId}/presets/${selectedPresetForRules}/rules/${ruleId}`,
+        { method: 'DELETE', credentials: 'include' }
+      );
+
+      if (res.ok) {
+        addToast?.('ルールを削除しました', 'success');
+        loadXpRules(selectedPresetForRules);
+      } else {
+        const error = await res.json();
+        addToast?.(error.error || 'ルール削除に失敗しました', 'error');
+      }
+    } catch (err) {
+      console.error('Failed to delete rule:', err);
+      addToast?.('ルール削除に失敗しました', 'error');
+    }
+  };
+
+  const handleResetRank = async () => {
+    if (!selectedGuildId) return;
+
+    setSaving(true);
+    try {
+      const res = await fetch(
+        `/api/staff/rankmanager/guilds/${selectedGuildId}/reset`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ userId: resetTarget === 'user' ? resetUserId : undefined })
+        }
+      );
+
+      if (res.ok) {
+        addToast?.(resetTarget === 'user' ? 'ユーザーのランクをリセットしました' : 'すべてのランクをリセットしました', 'success');
+        setShowResetConfirm(false);
+      } else {
+        const error = await res.json();
+        addToast?.(error.error || 'リセットに失敗しました', 'error');
+      }
+    } catch (err) {
+      console.error('Failed to reset rank:', err);
+      addToast?.('リセットに失敗しました', 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className={styles.container}>
@@ -483,6 +616,26 @@ const RankManagerPage: React.FC = () => {
             >
               <i className="material-icons-outlined">settings</i>
               設定
+            </button>
+            <button
+              className={`${styles.tab} ${activeTab === 'rules' ? styles.tabActive : ''}`}
+              onClick={() => {
+                if (presets.length > 0) {
+                  setSelectedPresetForRules(presets[0].name);
+                  loadXpRules(presets[0].name);
+                }
+                setActiveTab('rules');
+              }}
+            >
+              <i className="material-icons-outlined">rule</i>
+              XP条件
+            </button>
+            <button
+              className={`${styles.tab} ${activeTab === 'advanced' ? styles.tabActive : ''}`}
+              onClick={() => setActiveTab('advanced')}
+            >
+              <i className="material-icons-outlined">tune</i>
+              アドバンス
             </button>
           </div>
 
@@ -616,7 +769,7 @@ const RankManagerPage: React.FC = () => {
                     <h3>メッセージ設定</h3>
                     <div className={styles.formGrid}>
                       <div className={styles.formGroup}>
-                        <label>メッセージXP</label>
+                        <label>メッセージXP (固定)</label>
                         <input
                           type="number"
                           value={settings.xpRates.messageXp}
@@ -626,7 +779,35 @@ const RankManagerPage: React.FC = () => {
                           })}
                           min="0"
                         />
-                        <span className={styles.helpText}>1メッセージあたりのXP</span>
+                        <span className={styles.helpText}>固定XP値 (ランダム無効時はこちらを使用)</span>
+                      </div>
+                      <div className={styles.formGroup}>
+                        <label>メッセージXP Min</label>
+                        <input
+                          type="number"
+                          value={settings.xpRates.messageXpMin || ''}
+                          onChange={(e) => setSettings({
+                            ...settings,
+                            xpRates: { ...settings.xpRates, messageXpMin: parseInt(e.target.value) || undefined }
+                          })}
+                          min="0"
+                          placeholder="ランダム無効"
+                        />
+                        <span className={styles.helpText}>ランダムXPの下限</span>
+                      </div>
+                      <div className={styles.formGroup}>
+                        <label>メッセージXP Max</label>
+                        <input
+                          type="number"
+                          value={settings.xpRates.messageXpMax || ''}
+                          onChange={(e) => setSettings({
+                            ...settings,
+                            xpRates: { ...settings.xpRates, messageXpMax: parseInt(e.target.value) || undefined }
+                          })}
+                          min="0"
+                          placeholder="ランダム無効"
+                        />
+                        <span className={styles.helpText}>ランダムXPの上限</span>
                       </div>
                       <div className={styles.formGroup}>
                         <label>クールダウン (秒)</label>
@@ -648,7 +829,7 @@ const RankManagerPage: React.FC = () => {
                     <h3>ボイスチャット設定</h3>
                     <div className={styles.formGrid}>
                       <div className={styles.formGroup}>
-                        <label>VC XP (毎分)</label>
+                        <label>VC XP (毎分・固定)</label>
                         <input
                           type="number"
                           value={settings.xpRates.vcXpPerMinute}
@@ -658,7 +839,35 @@ const RankManagerPage: React.FC = () => {
                           })}
                           min="0"
                         />
-                        <span className={styles.helpText}>VC接続1分あたりのXP</span>
+                        <span className={styles.helpText}>固定XP値 (ランダム無効時はこちらを使用)</span>
+                      </div>
+                      <div className={styles.formGroup}>
+                        <label>VC XP Min (毎分)</label>
+                        <input
+                          type="number"
+                          value={settings.xpRates.vcXpPerMinuteMin || ''}
+                          onChange={(e) => setSettings({
+                            ...settings,
+                            xpRates: { ...settings.xpRates, vcXpPerMinuteMin: parseInt(e.target.value) || undefined }
+                          })}
+                          min="0"
+                          placeholder="ランダム無効"
+                        />
+                        <span className={styles.helpText}>ランダムXPの下限</span>
+                      </div>
+                      <div className={styles.formGroup}>
+                        <label>VC XP Max (毎分)</label>
+                        <input
+                          type="number"
+                          value={settings.xpRates.vcXpPerMinuteMax || ''}
+                          onChange={(e) => setSettings({
+                            ...settings,
+                            xpRates: { ...settings.xpRates, vcXpPerMinuteMax: parseInt(e.target.value) || undefined }
+                          })}
+                          min="0"
+                          placeholder="ランダム無効"
+                        />
+                        <span className={styles.helpText}>ランダムXPの上限</span>
                       </div>
                       <div className={styles.formGroup}>
                         <label>VC計測間隔 (秒)</label>
@@ -800,6 +1009,140 @@ const RankManagerPage: React.FC = () => {
                       </div>
                       <span className={styles.helpText}>これらのロールを持つユーザーはXPを獲得できません</span>
                     </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'rules' && selectedPresetForRules && (
+              <div className={styles.tabPanel}>
+                <div className={styles.panelHeader}>
+                  <div>
+                    <h2>XP獲得条件ルール</h2>
+                    <p className={styles.cardDescription}>プリセット: {selectedPresetForRules}</p>
+                  </div>
+                  <button className={styles.primaryButton} onClick={() => {
+                    setEditingRule({
+                      id: `new-${Date.now()}`,
+                      name: '新規ルール',
+                      actionType: 'message',
+                      xpReward: 10,
+                      isActive: true
+                    });
+                    setShowRuleModal(true);
+                  }}>
+                    <i className="material-icons">add</i>
+                    ルール追加
+                  </button>
+                </div>
+
+                <div className={styles.rulesEditor}>
+                  {xpRules.length === 0 ? (
+                    <div className={styles.emptyState}>
+                      <i className="material-icons-outlined">rule</i>
+                      <p>ルールがありません</p>
+                    </div>
+                  ) : (
+                    xpRules.map((rule) => (
+                      <div key={rule.id} className={styles.ruleCard}>
+                        <div className={styles.cardHeader}>
+                          <div>
+                            <h3>{rule.name}</h3>
+                            <p className={styles.cardDescription}>{rule.description || 'アクション: ' + rule.actionType}</p>
+                          </div>
+                          <div className={styles.cardActions}>
+                            <button className={styles.iconButton} onClick={() => {
+                              setEditingRule(rule);
+                              setShowRuleModal(true);
+                            }} title="編集">
+                              <i className="material-icons-outlined">edit</i>
+                            </button>
+                            <button className={styles.iconButton} onClick={() => handleDeleteRule(rule.id)} title="削除">
+                              <i className="material-icons-outlined">delete</i>
+                            </button>
+                          </div>
+                        </div>
+                        <div className={styles.ruleDetails}>
+                          <div className={styles.detail}>
+                            <span>アクション:</span>
+                            <strong>{rule.actionType}</strong>
+                          </div>
+                          <div className={styles.detail}>
+                            <span>獲得XP:</span>
+                            <strong>
+                              {rule.xpRewardMin && rule.xpRewardMax 
+                                ? `${rule.xpRewardMin}-${rule.xpRewardMax} (ランダム)`
+                                : rule.xpReward
+                              }
+                            </strong>
+                          </div>
+                          {rule.cooldownSec && (
+                            <div className={styles.detail}>
+                              <span>クールダウン:</span>
+                              <strong>{rule.cooldownSec}秒</strong>
+                            </div>
+                          )}
+                          {rule.maxPerDay && (
+                            <div className={styles.detail}>
+                              <span>1日の上限:</span>
+                              <strong>{rule.maxPerDay}回</strong>
+                            </div>
+                          )}
+                          <div className={styles.detail}>
+                            <span>ステータス:</span>
+                            <strong style={{ color: rule.isActive ? '#4CAF50' : '#F44336' }}>
+                              {rule.isActive ? '有効' : '無効'}
+                            </strong>
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'advanced' && (
+              <div className={styles.tabPanel}>
+                <div className={styles.panelHeader}>
+                  <h2>アドバンスオプション</h2>
+                </div>
+
+                <div className={styles.advancedOptions}>
+                  <div className={styles.optionCard}>
+                    <div className={styles.optionHeader}>
+                      <i className="material-icons-outlined">restart_alt</i>
+                      <h3>ランクリセット</h3>
+                    </div>
+                    <p className={styles.optionDescription}>ユーザーまたはすべてのユーザーのランク/XPをリセットします</p>
+                    <button className={styles.secondaryButton} onClick={() => setShowResetConfirm(true)}>
+                      <i className="material-icons-outlined">restart_alt</i>
+                      リセット実行
+                    </button>
+                  </div>
+
+                  <div className={styles.optionCard}>
+                    <div className={styles.optionHeader}>
+                      <i className="material-icons-outlined">info</i>
+                      <h3>XP条件の詳細設定</h3>
+                    </div>
+                    <p className={styles.optionDescription}>「XP条件」タブで、ユーザーがXPを獲得できるアクションを細かく設定できます</p>
+                    <button className={styles.secondaryButton} onClick={() => setActiveTab('rules')}>
+                      <i className="material-icons-outlined">rule</i>
+                      条件ルールの管理
+                    </button>
+                  </div>
+
+                  <div className={styles.optionCard}>
+                    <div className={styles.optionHeader}>
+                      <i className="material-icons-outlined">webhook</i>
+                      <h3>外部Webhook連携</h3>
+                    </div>
+                    <p className={styles.optionDescription}>報酬設定でWebhook URLを指定すると、ランクアップ時に外部APIに通知します</p>
+                    <button className={styles.secondaryButton} onClick={() => setActiveTab('presets')}>
+                      <i className="material-icons-outlined">category</i>
+                      プリセットの編集
+                    </button>
                   </div>
                 </div>
               </div>
@@ -1001,6 +1344,16 @@ const RankManagerPage: React.FC = () => {
                             />
                             <span className={styles.helpText}>変数: {`{rank}`} = ランク名, {`{user}`} = ユーザー名</span>
                           </div>
+                          <div className={styles.formGroup}>
+                            <label>Webhook URL</label>
+                            <input
+                              type="url"
+                              value={reward.webhookUrl || ''}
+                              onChange={(e) => updateReward(idx, 'webhookUrl', e.target.value || undefined)}
+                              placeholder="https://example.com/webhook"
+                            />
+                            <span className={styles.helpText}>ランクアップ時に外部APIに通知を送信します</span>
+                          </div>
                         </div>
                       </div>
                     ))
@@ -1049,6 +1402,214 @@ const RankManagerPage: React.FC = () => {
                 onClick={() => setShowPanelModal(false)}
               >
                 閉じる
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* XP Rule Modal */}
+      {showRuleModal && editingRule && (
+        <div className={styles.modal} onClick={() => setShowRuleModal(false)}>
+          <div className={styles.modalContent} onClick={(e) => e.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <h2>{editingRule.id.startsWith('new-') ? 'ルール作成' : 'ルール編集'}</h2>
+              <button className={styles.closeButton} onClick={() => setShowRuleModal(false)}>
+                <i className="material-icons">close</i>
+              </button>
+            </div>
+            <div className={styles.modalBody}>
+              <div className={styles.formGroup}>
+                <label>ルール名 *</label>
+                <input
+                  type="text"
+                  value={editingRule.name}
+                  onChange={(e) => setEditingRule({ ...editingRule, name: e.target.value })}
+                  placeholder="例: メッセージ投稿"
+                />
+              </div>
+
+              <div className={styles.formGroup}>
+                <label>説明</label>
+                <textarea
+                  value={editingRule.description || ''}
+                  onChange={(e) => setEditingRule({ ...editingRule, description: e.target.value })}
+                  placeholder="このルールの説明"
+                  rows={2}
+                />
+              </div>
+
+              <div className={styles.formGrid}>
+                <div className={styles.formGroup}>
+                  <label>アクション種別 *</label>
+                  <select
+                    value={editingRule.actionType}
+                    onChange={(e) => setEditingRule({ 
+                      ...editingRule, 
+                      actionType: e.target.value as any 
+                    })}
+                  >
+                    <option value="message">メッセージ投稿</option>
+                    <option value="reaction">リアクション</option>
+                    <option value="voiceChat">ボイスチャット</option>
+                    <option value="invite">招待</option>
+                    <option value="custom">カスタム</option>
+                  </select>
+                </div>
+                <div className={styles.formGroup}>
+                  <label>獲得XP (固定) *</label>
+                  <input
+                    type="number"
+                    value={editingRule.xpReward}
+                    onChange={(e) => setEditingRule({ ...editingRule, xpReward: parseInt(e.target.value) || 0 })}
+                    min="1"
+                  />
+                  <span className={styles.helpText}>固定XP値 (ランダム無効時はこちらを使用)</span>
+                </div>
+                <div className={styles.formGroup}>
+                  <label>獲得XP Min</label>
+                  <input
+                    type="number"
+                    value={editingRule.xpRewardMin || ''}
+                    onChange={(e) => setEditingRule({ ...editingRule, xpRewardMin: e.target.value ? parseInt(e.target.value) : undefined })}
+                    placeholder="ランダム無効"
+                    min="1"
+                  />
+                  <span className={styles.helpText}>ランダムXPの下限</span>
+                </div>
+                <div className={styles.formGroup}>
+                  <label>獲得XP Max</label>
+                  <input
+                    type="number"
+                    value={editingRule.xpRewardMax || ''}
+                    onChange={(e) => setEditingRule({ ...editingRule, xpRewardMax: e.target.value ? parseInt(e.target.value) : undefined })}
+                    placeholder="ランダム無効"
+                    min="1"
+                  />
+                  <span className={styles.helpText}>ランダムXPの上限</span>
+                </div>
+              </div>
+
+              <div className={styles.formGrid}>
+                <div className={styles.formGroup}>
+                  <label>クールダウン (秒)</label>
+                  <input
+                    type="number"
+                    value={editingRule.cooldownSec || ''}
+                    onChange={(e) => setEditingRule({ ...editingRule, cooldownSec: e.target.value ? parseInt(e.target.value) : undefined })}
+                    placeholder="クールダウンなし"
+                    min="0"
+                  />
+                  <span className={styles.helpText}>同じユーザーが短時間に何度も獲得できないようにします</span>
+                </div>
+                <div className={styles.formGroup}>
+                  <label>1日の上限</label>
+                  <input
+                    type="number"
+                    value={editingRule.maxPerDay || ''}
+                    onChange={(e) => setEditingRule({ ...editingRule, maxPerDay: e.target.value ? parseInt(e.target.value) : undefined })}
+                    placeholder="上限なし"
+                    min="1"
+                  />
+                  <span className={styles.helpText}>1日に何回までこのルールでXPを獲得できるか</span>
+                </div>
+              </div>
+
+              <div className={styles.formGroup}>
+                <label className={styles.checkboxLabel}>
+                  <input
+                    type="checkbox"
+                    checked={editingRule.isActive}
+                    onChange={(e) => setEditingRule({ ...editingRule, isActive: e.target.checked })}
+                  />
+                  <span>このルールを有効にする</span>
+                </label>
+              </div>
+            </div>
+            <div className={styles.modalFooter}>
+              <button 
+                className={styles.secondaryButton}
+                onClick={() => setShowRuleModal(false)}
+              >
+                キャンセル
+              </button>
+              <button 
+                className={styles.primaryButton}
+                onClick={handleSaveRule}
+                disabled={saving}
+              >
+                {saving ? '保存中...' : '保存'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Reset Confirmation Dialog */}
+      {showResetConfirm && (
+        <div className={styles.modal} onClick={() => setShowResetConfirm(false)}>
+          <div className={styles.modalContent} onClick={(e) => e.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <h2>ランクリセット確認</h2>
+              <button className={styles.closeButton} onClick={() => setShowResetConfirm(false)}>
+                <i className="material-icons">close</i>
+              </button>
+            </div>
+            <div className={styles.modalBody}>
+              <div className={styles.warningBox}>
+                <i className="material-icons-outlined">warning</i>
+                <p>このアクションは取り消せません。本当に実行しますか？</p>
+              </div>
+
+              <div className={styles.formGroup}>
+                <label>リセット対象</label>
+                <div className={styles.radioGroup}>
+                  <label className={styles.radioLabel}>
+                    <input
+                      type="radio"
+                      checked={resetTarget === 'all'}
+                      onChange={() => setResetTarget('all')}
+                    />
+                    <span>すべてのユーザー</span>
+                  </label>
+                  <label className={styles.radioLabel}>
+                    <input
+                      type="radio"
+                      checked={resetTarget === 'user'}
+                      onChange={() => setResetTarget('user')}
+                    />
+                    <span>特定のユーザー</span>
+                  </label>
+                </div>
+              </div>
+
+              {resetTarget === 'user' && (
+                <div className={styles.formGroup}>
+                  <label>ユーザーID *</label>
+                  <input
+                    type="text"
+                    value={resetUserId}
+                    onChange={(e) => setResetUserId(e.target.value)}
+                    placeholder="ユーザーIDを入力"
+                  />
+                </div>
+              )}
+            </div>
+            <div className={styles.modalFooter}>
+              <button 
+                className={styles.secondaryButton}
+                onClick={() => setShowResetConfirm(false)}
+              >
+                <i className="material-icons-outlined">close</i>
+                キャンセル
+              </button>
+              <button 
+                className={styles.dangerButton}
+                onClick={handleResetRank}
+                disabled={saving || (resetTarget === 'user' && !resetUserId)}
+              >
+                <i className="material-icons-outlined">restart_alt</i>
+                {saving ? '実行中...' : 'リセット実行'}
               </button>
             </div>
           </div>

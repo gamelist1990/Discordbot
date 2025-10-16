@@ -37,7 +37,8 @@ const rankCommand: SlashCommand = {
 
             // ランキングデータを取得
             const data = await rankManager.getRankingData(guildId);
-            const userData = data.users[targetUser.id];
+            const presetName = data.rankPresets[0]?.name || 'default';
+            const userData = data.users[targetUser.id]?.[presetName];
 
             if (!userData || userData.xp === 0) {
                 const embed = new EmbedBuilder()
@@ -57,8 +58,12 @@ const rankCommand: SlashCommand = {
 
             // 総ユーザー数とランキング順位を計算
             const allUsers = Object.entries(data.users)
-                .sort(([, a], [, b]) => b.xp - a.xp);
-            const userRanking = allUsers.findIndex(([id]) => id === targetUser.id) + 1;
+                .map(([userId, presetMap]) => ({
+                    userId,
+                    xp: presetMap[presetName]?.xp || 0
+                }))
+                .sort((a, b) => b.xp - a.xp);
+            const userRanking = allUsers.findIndex(({ userId }) => userId === targetUser.id) + 1;
 
             // 次のランクまでの必要XP
             const xpToNext = nextRank ? nextRank.minXp - userData.xp : 0;

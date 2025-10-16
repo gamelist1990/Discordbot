@@ -421,6 +421,18 @@ export class RankController {
                 if (xpRates.vcXpPerMinute !== undefined && xpRates.vcXpPerMinute >= 0) {
                     data.settings.xpRates.vcXpPerMinute = xpRates.vcXpPerMinute;
                 }
+                if (xpRates.messageXpMin !== undefined && xpRates.messageXpMin >= 0) {
+                    data.settings.xpRates.messageXpMin = xpRates.messageXpMin;
+                }
+                if (xpRates.messageXpMax !== undefined && xpRates.messageXpMax >= 0) {
+                    data.settings.xpRates.messageXpMax = xpRates.messageXpMax;
+                }
+                if (xpRates.vcXpPerMinuteMin !== undefined && xpRates.vcXpPerMinuteMin >= 0) {
+                    data.settings.xpRates.vcXpPerMinuteMin = xpRates.vcXpPerMinuteMin;
+                }
+                if (xpRates.vcXpPerMinuteMax !== undefined && xpRates.vcXpPerMinuteMax >= 0) {
+                    data.settings.xpRates.vcXpPerMinuteMax = xpRates.vcXpPerMinuteMax;
+                }
                 if (xpRates.dailyXpCap !== undefined && xpRates.dailyXpCap >= 0) {
                     data.settings.xpRates.dailyXpCap = xpRates.dailyXpCap;
                 }
@@ -502,6 +514,127 @@ export class RankController {
     }
 
     /**
+     * プリセット別ランキングを取得
+     */
+    async getPresetLeaderboard(req: Request, res: Response): Promise<void> {
+        const guildId = req.params.guildId || req.query.guildId as string;
+        const presetName = req.params.presetName as string;
+
+        if (!guildId || !presetName) {
+            res.status(400).json({ error: 'guildId and presetName are required' });
+            return;
+        }
+
+        try {
+            const stats = await rankManager.getPresetLeaderboardStats(guildId, presetName);
+            
+            // ユーザー情報をエンリッチ
+            const guild = this.botClient.client.guilds.cache.get(guildId);
+            const enrichedLeaderboard: Array<{
+                rankIndex: number;
+                userId: string;
+                username: string;
+                avatar: string | null;
+                xp: number;
+                rank: string;
+            }> = [];
+
+            for (const entry of stats.leaderboard) {
+                try {
+                    const member = guild?.members.cache.get(entry.userId);
+                    const user = member?.user;
+                    enrichedLeaderboard.push({
+                        rankIndex: entry.rankIndex,
+                        userId: entry.userId,
+                        username: member?.displayName || user?.username || entry.userId,
+                        avatar: user?.avatarURL() || user?.defaultAvatarURL || null,
+                        xp: entry.xp,
+                        rank: entry.rank
+                    });
+                } catch (error) {
+                    enrichedLeaderboard.push({
+                        rankIndex: entry.rankIndex,
+                        userId: entry.userId,
+                        username: entry.userId,
+                        avatar: null,
+                        xp: entry.xp,
+                        rank: entry.rank
+                    });
+                }
+            }
+
+            res.json({
+                preset: stats.preset,
+                totalUsers: stats.totalUsers,
+                leaderboard: enrichedLeaderboard
+            });
+        } catch (error) {
+            Logger.error('Failed to get preset leaderboard:', error);
+            res.status(500).json({ error: 'Failed to fetch preset leaderboard' });
+        }
+    }
+
+    /**
+     * 全プリセットランキングを取得
+     */
+    async getAllPresetLeaderboards(req: Request, res: Response): Promise<void> {
+        const guildId = req.params.guildId || req.query.guildId as string;
+
+        if (!guildId) {
+            res.status(400).json({ error: 'guildId is required' });
+            return;
+        }
+
+        try {
+            const allStats = await rankManager.getAllPresetLeaderboards(guildId);
+            const guild = this.botClient.client.guilds.cache.get(guildId);
+
+            const enrichedStats = allStats.map(stat => {
+                const enrichedLeaderboard: Array<{
+                    userId: string;
+                    username: string;
+                    avatar: string | null;
+                    xp: number;
+                    rank: string;
+                }> = [];
+
+                for (const entry of stat.topUsers) {
+                    try {
+                        const member = guild?.members.cache.get(entry.userId);
+                        const user = member?.user;
+                        enrichedLeaderboard.push({
+                            userId: entry.userId,
+                            username: member?.displayName || user?.username || entry.userId,
+                            avatar: user?.avatarURL() || user?.defaultAvatarURL || null,
+                            xp: entry.xp,
+                            rank: entry.rank
+                        });
+                    } catch (error) {
+                        enrichedLeaderboard.push({
+                            userId: entry.userId,
+                            username: entry.userId,
+                            avatar: null,
+                            xp: entry.xp,
+                            rank: entry.rank
+                        });
+                    }
+                }
+
+                return {
+                    preset: stat.preset,
+                    totalUsers: stat.totalUsers,
+                    topUsers: enrichedLeaderboard
+                };
+            });
+
+            res.json({ presets: enrichedStats });
+        } catch (error) {
+            Logger.error('Failed to get all preset leaderboards:', error);
+            res.status(500).json({ error: 'Failed to fetch preset leaderboards' });
+        }
+    }
+
+    /**
      * ユーザーのXPを追加
      */
     async addUserXp(req: Request, res: Response): Promise<void> {
@@ -509,6 +642,7 @@ export class RankController {
         const guildId = req.body.guildId;
         const userId = req.body.userId;
         const xp = req.body.xp;
+        const presetName = req.body.presetName; // オプション
 
         if (!guildId || !userId || xp === undefined) {
             res.status(400).json({ error: 'guildId, userId, and xp are required' });
@@ -531,9 +665,9 @@ export class RankController {
         }
 
         try {
-            await rankManager.addXp(guildId, userId, xp, 'web-api');
+            await rankManager.addXp(guildId, userId, xp, presetName, 'web-api');
             res.json({ success: true });
-            Logger.info(`Added ${xp} XP to user ${userId} in guild ${guildId} (web API)`);
+            Logger.info(`Added ${xp} XP to user ${userId} in guild ${guildId} (preset: ${presetName || 'default'}, web API)`);
         } catch (error) {
             Logger.error('Failed to add XP:', error);
             res.status(500).json({ error: 'Failed to add XP' });
@@ -713,7 +847,7 @@ export class RankController {
      * パネルのリーダーボードを取得（ウェブランキングボード用）
      */
     async getPanelLeaderboard(req: Request, res: Response): Promise<void> {
-        const session = (req as any).session as SettingsSession;
+        const session = (req as any).session as SettingsSession | undefined;
         const { guildId, panelId } = req.params;
 
         if (!guildId || !panelId) {
@@ -721,9 +855,8 @@ export class RankController {
             return;
         }
 
-        // ユーザーがこのギルドのメンバーかチェック
-        const isMember = session.guildIds?.includes(guildId);
-        if (!isMember) {
+        // ユーザーがこのギルドのメンバーかチェック（セッションが存在する場合のみ）
+        if (session && !session.guildIds?.includes(guildId)) {
             res.status(403).json({ error: 'Access denied' });
             return;
         }
@@ -792,6 +925,226 @@ export class RankController {
         } catch (error) {
             Logger.error('Failed to get panel leaderboard:', error);
             res.status(500).json({ error: 'Failed to get panel leaderboard' });
+        }
+    }
+
+    /**
+     * ランクをリセット
+     */
+    async resetRank(req: Request, res: Response): Promise<void> {
+        const session = (req as any).session as SettingsSession;
+        const guildId = req.params.guildId;
+        const { userId } = req.body;
+
+        if (!guildId) {
+            res.status(400).json({ error: 'guildId is required' });
+            return;
+        }
+
+        // 権限チェック (ADMIN以上)
+        let level = 0;
+        if (Array.isArray(session.permissions)) {
+            const found = session.permissions.find(p => p.guildId === guildId);
+            if (found) level = found.level;
+        } else if (session.permission !== undefined) {
+            level = session.permission;
+        }
+
+        const permissionError = PermissionManager.checkPermission(level, 2, '権限がありません');
+        if (permissionError) {
+            res.status(permissionError.status).json({ error: permissionError.error });
+            return;
+        }
+
+        try {
+            await rankManager.resetRank(guildId, userId);
+
+            // キャッシュクリア
+            CacheManager.delete(`rank_presets_${guildId}`);
+            CacheManager.delete(`rank_leaderboard_${guildId}`);
+
+            res.json({ 
+                success: true, 
+                message: userId 
+                    ? `User ${userId} rank has been reset` 
+                    : 'All ranks have been reset'
+            });
+            Logger.info(`Reset rank in guild ${guildId}. User: ${userId || 'all'}`);
+        } catch (error) {
+            Logger.error('Failed to reset rank:', error);
+            res.status(500).json({ error: 'Failed to reset rank' });
+        }
+    }
+
+    /**
+     * XP条件ルールを追加
+     */
+    async addXpConditionRule(req: Request, res: Response): Promise<void> {
+        const session = (req as any).session as SettingsSession;
+        const guildId = req.params.guildId;
+        const presetName = req.params.presetName;
+        const rule = req.body;
+
+        if (!guildId || !presetName) {
+            res.status(400).json({ error: 'guildId and presetName are required' });
+            return;
+        }
+
+        // 権限チェック
+        let level = 0;
+        if (Array.isArray(session.permissions)) {
+            const found = session.permissions.find(p => p.guildId === guildId);
+            if (found) level = found.level;
+        } else if (session.permission !== undefined) {
+            level = session.permission;
+        }
+
+        const permissionError = PermissionManager.checkPermission(level, 1, '権限がありません');
+        if (permissionError) {
+            res.status(permissionError.status).json({ error: permissionError.error });
+            return;
+        }
+
+        try {
+            if (!rule.id || !rule.name || !rule.actionType) {
+                res.status(400).json({ error: 'id, name, and actionType are required' });
+                return;
+            }
+
+            await rankManager.addXpConditionRule(guildId, presetName, rule);
+
+            CacheManager.delete(`rank_presets_${guildId}`);
+
+            res.json({ success: true, rule });
+            Logger.info(`Added XP condition rule: ${rule.id} to preset ${presetName}`);
+        } catch (error) {
+            Logger.error('Failed to add XP condition rule:', error);
+            const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+            res.status(400).json({ error: errorMsg });
+        }
+    }
+
+    /**
+     * XP条件ルールを更新
+     */
+    async updateXpConditionRule(req: Request, res: Response): Promise<void> {
+        const session = (req as any).session as SettingsSession;
+        const guildId = req.params.guildId;
+        const presetName = req.params.presetName;
+        const ruleId = req.params.ruleId;
+        const updates = req.body;
+
+        if (!guildId || !presetName || !ruleId) {
+            res.status(400).json({ error: 'guildId, presetName, and ruleId are required' });
+            return;
+        }
+
+        // 権限チェック
+        let level = 0;
+        if (Array.isArray(session.permissions)) {
+            const found = session.permissions.find(p => p.guildId === guildId);
+            if (found) level = found.level;
+        } else if (session.permission !== undefined) {
+            level = session.permission;
+        }
+
+        const permissionError = PermissionManager.checkPermission(level, 1, '権限がありません');
+        if (permissionError) {
+            res.status(permissionError.status).json({ error: permissionError.error });
+            return;
+        }
+
+        try {
+            await rankManager.updateXpConditionRule(guildId, presetName, ruleId, updates);
+
+            CacheManager.delete(`rank_presets_${guildId}`);
+
+            res.json({ success: true });
+            Logger.info(`Updated XP condition rule: ${ruleId}`);
+        } catch (error) {
+            Logger.error('Failed to update XP condition rule:', error);
+            const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+            res.status(400).json({ error: errorMsg });
+        }
+    }
+
+    /**
+     * XP条件ルールを削除
+     */
+    async deleteXpConditionRule(req: Request, res: Response): Promise<void> {
+        const session = (req as any).session as SettingsSession;
+        const guildId = req.params.guildId;
+        const presetName = req.params.presetName;
+        const ruleId = req.params.ruleId;
+
+        if (!guildId || !presetName || !ruleId) {
+            res.status(400).json({ error: 'guildId, presetName, and ruleId are required' });
+            return;
+        }
+
+        // 権限チェック
+        let level = 0;
+        if (Array.isArray(session.permissions)) {
+            const found = session.permissions.find(p => p.guildId === guildId);
+            if (found) level = found.level;
+        } else if (session.permission !== undefined) {
+            level = session.permission;
+        }
+
+        const permissionError = PermissionManager.checkPermission(level, 1, '権限がありません');
+        if (permissionError) {
+            res.status(permissionError.status).json({ error: permissionError.error });
+            return;
+        }
+
+        try {
+            await rankManager.deleteXpConditionRule(guildId, presetName, ruleId);
+
+            CacheManager.delete(`rank_presets_${guildId}`);
+
+            res.json({ success: true });
+            Logger.info(`Deleted XP condition rule: ${ruleId}`);
+        } catch (error) {
+            Logger.error('Failed to delete XP condition rule:', error);
+            const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+            res.status(400).json({ error: errorMsg });
+        }
+    }
+
+    /**
+     * XP条件ルール一覧を取得
+     */
+    async getXpConditionRules(req: Request, res: Response): Promise<void> {
+        const session = (req as any).session as SettingsSession;
+        const guildId = req.params.guildId;
+        const presetName = req.params.presetName;
+
+        if (!guildId || !presetName) {
+            res.status(400).json({ error: 'guildId and presetName are required' });
+            return;
+        }
+
+        // 権限チェック
+        let level = 0;
+        if (Array.isArray(session.permissions)) {
+            const found = session.permissions.find(p => p.guildId === guildId);
+            if (found) level = found.level;
+        } else if (session.permission !== undefined) {
+            level = session.permission;
+        }
+
+        const permissionError = PermissionManager.checkPermission(level, 1, '権限がありません');
+        if (permissionError) {
+            res.status(permissionError.status).json({ error: permissionError.error });
+            return;
+        }
+
+        try {
+            const rules = await rankManager.getXpConditionRules(guildId, presetName);
+            res.json(rules);
+        } catch (error) {
+            Logger.error('Failed to get XP condition rules:', error);
+            res.status(500).json({ error: 'Failed to fetch XP condition rules' });
         }
     }
 }
