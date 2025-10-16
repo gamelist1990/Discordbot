@@ -1,46 +1,51 @@
-import { ChatInputCommandInteraction, PermissionFlagsBits, MessageFlags, EmbedBuilder } from 'discord.js';
+import { ChatInputCommandInteraction, PermissionFlagsBits, MessageFlags, EmbedBuilder, GuildMember } from 'discord.js';
+import { SlashCommandSubcommandBuilder, SlashCommandUserOption, SlashCommandStringOption } from 'discord.js';
+import { database } from '../../../core/Database';
 
 export default {
     name: 'timeout',
     description: 'ユーザーをタイムアウトまたは解除します',
 
-    builder: (subcommand: any) => {
+    builder: (subcommand: SlashCommandSubcommandBuilder) => {
+        const targetOption = new SlashCommandUserOption()
+            .setName('target')
+            .setDescription('対象のユーザー')
+            .setRequired(true);
+
+        const durationOption = new SlashCommandStringOption()
+            .setName('duration')
+            .setDescription('時間（例: 1s, 5m, 2h, 1d, 1h30m）または "clear" で解除')
+            .setRequired(false);
+
+        const reasonOption = new SlashCommandStringOption()
+            .setName('reason')
+            .setDescription('理由（任意）')
+            .setRequired(false);
+
         return subcommand
             .setName('timeout')
             .setDescription('ユーザーをタイムアウト/解除します')
-            .addUserOption((opt: any) =>
-                opt.setName('target')
-                    .setDescription('対象のユーザー')
-                    .setRequired(true)
-            )
-            .addStringOption((opt: any) =>
-                opt.setName('duration')
-                    .setDescription('時間（例: 1s, 5m, 2h, 1d）または "clear" で解除')
-                    .setRequired(false)
-            )
-            .addStringOption((opt: any) =>
-                opt.setName('reason')
-                    .setDescription('理由（任意）')
-                    .setRequired(false)
-            );
+            .addUserOption(targetOption)
+            .addStringOption(durationOption)
+            .addStringOption(reasonOption);
     },
 
     async execute(interaction: ChatInputCommandInteraction): Promise<void> {
         if (!interaction.guild) {
-            await interaction.reply({ content: '❌ このコマンドはサーバー内でのみ使用できます。', flags: MessageFlags.Ephemeral });
+            await interaction.reply({ content: '❌ このコマンドはサーバー内でのみ使用できます。', ephemeral: true });
             return;
         }
 
         // 権限チェック: 実行者
         if (!interaction.memberPermissions?.has(PermissionFlagsBits.ModerateMembers)) {
-            await interaction.reply({ content: '❌ このコマンドを実行する権限がありません（Moderate Members）。', flags: MessageFlags.Ephemeral });
+            await interaction.reply({ content: '❌ このコマンドを実行する権限がありません（Moderate Members）。', ephemeral: true });
             return;
         }
 
         // Bot の権限チェック
         const me = interaction.guild.members.me;
         if (!me || !me.permissions.has(PermissionFlagsBits.ModerateMembers)) {
-            await interaction.reply({ content: '❌ ボットに必要な権限がありません（Moderate Members）。', flags: MessageFlags.Ephemeral });
+            await interaction.reply({ content: '❌ ボットに必要な権限がありません（Moderate Members）。', ephemeral: true });
             return;
         }
 
@@ -48,7 +53,7 @@ export default {
         const durationStr = interaction.options.getString('duration', false);
         const reason = interaction.options.getString('reason', false) || `Command by ${interaction.user.tag}`;
 
-        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        await interaction.deferReply({ ephemeral: true });
 
         try {
             const member = await interaction.guild.members.fetch(user.id).catch(() => null);
@@ -57,13 +62,36 @@ export default {
                 return;
             }
 
+            // 操作可能チェック
+            if (!member.manageable) {
+                await interaction.editReply({ content: '❌ このユーザーに対して操作できません。ロール階層や権限を確認してください。' });
+                return;
+            }
+            if (!member.moderatable) {
+                await interaction.editReply({ content: '❌ このユーザーのタイムアウトを操作できません。ボットの権限を確認してください。' });
+                return;
+            }
+            if (member.id === interaction.user.id) {
+                await interaction.editReply({ content: '❌ 自分自身をタイムアウトすることはできません。' });
+                return;
+            }
+            if (member.id === interaction.guild.ownerId) {
+                await interaction.editReply({ content: '❌ サーバー所有者をタイムアウトすることはできません。' });
+                return;
+            }
+            if (member.permissions?.has(PermissionFlagsBits.Administrator)) {
+                await interaction.editReply({ content: '❌ 管理者権限を持つユーザーをタイムアウトすることはできません。' });
+                return;
+            }
+
             // clear または 未指定 -> 解除
             if (!durationStr || durationStr.toLowerCase() === 'clear') {
                 // timeout を解除
                 // discord.js v14: member.timeout(null) で解除
                 try {
-                    // @ts-ignore - 一部環境では型が厳密に合わない場合があるため安全に呼び出す
                     await member.timeout(null, reason);
+
+                    await logAudit(interaction, 'clear', user.id, undefined, reason);
 
                     const embed = new EmbedBuilder()
                         .setTitle('タイムアウトを解除しました')
@@ -93,8 +121,9 @@ export default {
             }
 
             try {
-                // @ts-ignore
                 await member.timeout(durationMs, reason);
+
+                await logAudit(interaction, 'timeout', user.id, durationMs, reason);
 
                 const embed = new EmbedBuilder()
                     .setTitle('ユーザーをタイムアウトしました')
@@ -116,9 +145,7 @@ export default {
             console.error('Staff timeout command error:', err);
             if (interaction.replied || interaction.deferred) {
                 await interaction.editReply({ content: `❌ コマンド実行中にエラーが発生しました: ${err instanceof Error ? err.message : '不明なエラー'}` });
-            } else {
-                await interaction.reply({ content: `❌ コマンド実行中にエラーが発生しました: ${err instanceof Error ? err.message : '不明なエラー'}`, flags: MessageFlags.Ephemeral });
-            }
+                await interaction.reply({ content: `❌ コマンド実行中にエラーが発生しました: ${err instanceof Error ? err.message : '不明なエラー'}`, ephemeral: true });
         }
     }
 };
@@ -137,7 +164,7 @@ function parseDurationToMs(input: string): number | null {
     const value = Number(match[1]);
     const unit = match[2];
 
-    if (isNaN(value)) return null;
+    if (isNaN(value) || value <= 0) return null;
 
     switch (unit) {
         case 's':
@@ -152,3 +179,24 @@ function parseDurationToMs(input: string): number | null {
             return null;
     }
 }
+
+async function logAudit(interaction: ChatInputCommandInteraction, action: 'timeout' | 'clear', targetId: string, durationMs?: number, reason?: string) {
+    const auditEntry = {
+        timestamp: new Date().toISOString(),
+        action,
+        actorId: interaction.user.id,
+        targetId,
+        durationMs: durationMs || null,
+        reason: reason || null,
+    };
+
+    try {
+        const existingLogs: Array<typeof auditEntry> = await database.get(interaction.guildId!, 'staff-timeout-audit', []);
+        existingLogs.push(auditEntry);
+        await database.set(interaction.guildId!, 'staff-timeout-audit', existingLogs);
+    } catch (error) {
+        console.error('Failed to log audit:', error);
+        // ログ失敗でコマンド失敗にしない
+    }
+}
+
