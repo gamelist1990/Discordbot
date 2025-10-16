@@ -42,7 +42,7 @@ export class SettingsServer {
         // Disable ETag generation for API responses to avoid 304 cached responses
         this.app.disable('etag');
         this.port = port;
-        this.sessionService = new SessionService();
+        this.sessionService = new SessionService(botClient);
         this.botClient = botClient;
 
         this.setupMiddleware();

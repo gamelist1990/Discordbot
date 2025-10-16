@@ -340,6 +340,31 @@ export function createAuthRoutes(
                 console.error('Failed to persist OAuth token:', e);
             }
 
+            // WEB認証ロールを付与
+            try {
+                for (const g of filteredGuilds) {
+                    try {
+                        const settings = await database.get(g.id, `Guild/${g.id}/settings`);
+                        if (settings?.webAuthRoleId) {
+                            const guild = botClient.client.guilds.cache.get(g.id);
+                            if (guild) {
+                                const member = await guild.members.fetch(userData.id);
+                                if (member) {
+                                    await member.roles.add(settings.webAuthRoleId);
+                                    console.log(`[WebAuth] ロール付与: ${userData.id} -> ${settings.webAuthRoleId} (Guild: ${g.id})`);
+                                }
+                            }
+                        }
+                    } catch (roleError) {
+                        console.error(`[WebAuth] ロール付与に失敗 (Guild: ${g.id}):`, roleError);
+                        // ロール付与失敗は認証を失敗させない
+                    }
+                }
+            } catch (e) {
+                console.error('[WebAuth] ロール付与処理でエラー:', e);
+                // ロール付与エラーは認証を失敗させない
+            }
+
             // クッキーを設定してリダイレクト
             res.cookie('sessionId', sessionId, {
                 httpOnly: true,
@@ -372,6 +397,35 @@ export function createAuthRoutes(
             const sessionId = req.cookies?.sessionId;
 
             if (sessionId) {
+                const session = sessions.get(sessionId);
+                
+                // ロール削除（WEB認証時に付与したロール）
+                if (session && session.guildIds) {
+                    try {
+                        for (const guildId of session.guildIds) {
+                            try {
+                                const settings = await database.get(guildId, `Guild/${guildId}/settings`);
+                                if (settings?.webAuthRoleId) {
+                                    const guild = botClient.client.guilds.cache.get(guildId);
+                                    if (guild) {
+                                        const member = await guild.members.fetch(session.userId);
+                                        if (member) {
+                                            await member.roles.remove(settings.webAuthRoleId);
+                                            console.log(`[WebAuth] ロール削除: ${session.userId} -> ${settings.webAuthRoleId} (Guild: ${guildId})`);
+                                        }
+                                    }
+                                }
+                            } catch (roleError) {
+                                console.error(`[WebAuth] ロール削除に失敗 (Guild: ${guildId}):`, roleError);
+                                // ロール削除失敗はログアウトを失敗させない
+                            }
+                        }
+                    } catch (e) {
+                        console.error('[WebAuth] ロール削除処理でエラー:', e);
+                        // ロール削除エラーはログアウトを失敗させない
+                    }
+                }
+                
                 sessions.delete(sessionId);
             }
 

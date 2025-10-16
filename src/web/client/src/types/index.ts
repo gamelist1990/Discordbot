@@ -16,6 +16,7 @@ export interface GuildSettings {
   guildId: string;
   staffRoleId?: string;
   adminRoleId?: string;
+  webAuthRoleId?: string; // WEB認証時に付与するロール
   updatedAt: number;
 }
 

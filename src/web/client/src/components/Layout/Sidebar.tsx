@@ -1,7 +1,9 @@
 import React from 'react';
+import type { GuildInfo } from '../../types';
 import styles from './Sidebar.module.css';
 
 interface SidebarProps {
+  guildInfo?: GuildInfo;
   activeTab: string;
   onTabChange: (tab: string) => void;
 }
@@ -12,9 +14,14 @@ const tabs = [
   { id: 'moderation', label: 'モデレーション', icon: '🛡️' },
 ];
 
-const Sidebar: React.FC<SidebarProps> = ({ activeTab, onTabChange }) => {
+const Sidebar: React.FC<SidebarProps> = ({ guildInfo, activeTab, onTabChange }) => {
   return (
     <aside className={styles.sidebar}>
+      {guildInfo && (
+        <div className={styles.guildHeader}>
+          <h3>{guildInfo.name}</h3>
+        </div>
+      )}
       <nav className={styles.nav}>
         {tabs.map((tab) => (
           <button

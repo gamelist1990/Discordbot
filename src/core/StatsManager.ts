@@ -125,51 +125,6 @@ export class StatsManager {
                             }
                         }
                     }
-                    
-                        // Also update a global per-user file that contains per-guild breakdowns
-                        // This makes Data/User/<userId>.json contain a `guilds` mapping for easier profile aggregation.
-                        try {
-                            // read existing global user file (supports both old flat and new structure)
-                            const globalUserAny = await database.get(guildId, `User/${userId}`, null) as any;
-                            const newGlobal = globalUserAny && typeof globalUserAny === 'object' ? { ...globalUserAny } : {};
-
-                            // Always read the current merged counts from the per-guild file to ensure data consistency
-                            // Await once and provide a safe default to avoid possible null accesses
-                            const existingCounts = (await database.get<UserCounts>(
-                                guildId,
-                                `Guild/${guildId}/User/${userId}`,
-                                { totalMessages: 0, linkMessages: 0, mediaMessages: 0 }
-                            )) ?? { totalMessages: 0, linkMessages: 0, mediaMessages: 0 };
-
-                            const currentCounts = {
-                                totalMessages: existingCounts.totalMessages,
-                                linkMessages: existingCounts.linkMessages,
-                                mediaMessages: existingCounts.mediaMessages,
-                            };
-
-                            // Update the guilds breakdown with fresh data
-                            if (!newGlobal.guilds || typeof newGlobal.guilds !== 'object') newGlobal.guilds = {};
-                            newGlobal.guilds[guildId] = currentCounts;
-
-                            // Recompute totals across all guilds to ensure accuracy
-                            try {
-                                // Accumulate totals across all guilds in the guilds object
-                                const totals: { totalMessages: number; linkMessages: number; mediaMessages: number } = Object.values(newGlobal.guilds).reduce((acc: { totalMessages: number; linkMessages: number; mediaMessages: number }, g: any) => {
-                                    acc.totalMessages += (g.totalMessages || 0);
-                                    acc.linkMessages += (g.linkMessages || 0);
-                                    acc.mediaMessages += (g.mediaMessages || 0);
-                                    return acc;
-                                }, { totalMessages: 0, linkMessages: 0, mediaMessages: 0 });
-                                (newGlobal as any).totalMessages = totals.totalMessages;
-                                (newGlobal as any).linkMessages = totals.linkMessages;
-                                (newGlobal as any).mediaMessages = totals.mediaMessages;
-                            } catch (_) {
-                                // ignore
-                            }
-                            await database.set(guildId, `User/${userId}`, newGlobal);
-                        } catch (e) {
-                            // ignore errors updating global user file
-                        }
 
                     persistedCount++;
                 }

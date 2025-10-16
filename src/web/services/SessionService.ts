@@ -2,6 +2,8 @@ import { randomUUID } from 'crypto';
 import { SettingsSession } from '../types';
 import fs from 'fs';
 import path from 'path';
+import { BotClient } from '../../core/BotClient.js';
+import { database } from '../../core/Database.js';
 
 /**
  * セッション管理サービス
@@ -9,9 +11,11 @@ import path from 'path';
 export class SessionService {
     private sessions: Map<string, SettingsSession>;
     private persistPath: string;
+    private botClient?: BotClient;
 
-    constructor() {
+    constructor(botClient?: BotClient) {
         this.sessions = new Map();
+        this.botClient = botClient;
         // Persist sessions to project Data directory so sessions survive restarts
         this.persistPath = path.join(process.cwd(), 'Data', 'sessions.json');
         this.loadFromDisk();
@@ -81,6 +85,10 @@ export class SessionService {
         const now = Date.now();
         for (const [token, session] of this.sessions.entries()) {
             if (now > session.expiresAt) {
+                // セッション削除前にロール削除
+                this.removeWebAuthRolesFromSession(session).catch(e => {
+                    console.error('[WebAuth] セッション期限切れ時のロール削除エラー:', e);
+                });
                 this.sessions.delete(token);
             }
         }
@@ -88,6 +96,32 @@ export class SessionService {
             this.saveToDisk();
         } catch (e) {
             // ignore
+        }
+    }
+
+    /**
+     * セッションのWEB認証ロールを削除
+     */
+    private async removeWebAuthRolesFromSession(session: SettingsSession): Promise<void> {
+        if (!this.botClient || !session.guildIds) return;
+
+        for (const guildId of session.guildIds) {
+            try {
+                const settings = await database.get(guildId, `Guild/${guildId}/settings`);
+                if (settings?.webAuthRoleId) {
+                    const guild = this.botClient.client.guilds.cache.get(guildId);
+                    if (guild) {
+                        const member = await guild.members.fetch(session.userId);
+                        if (member) {
+                            await member.roles.remove(settings.webAuthRoleId);
+                            console.log(`[WebAuth] セッション期限切れ時にロール削除: ${session.userId} -> ${settings.webAuthRoleId} (Guild: ${guildId})`);
+                        }
+                    }
+                }
+            } catch (roleError) {
+                console.error(`[WebAuth] セッション期限切れ時のロール削除に失敗 (Guild: ${guildId}):`, roleError);
+                // エラーを無視して続行
+            }
         }
     }
 

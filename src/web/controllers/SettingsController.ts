@@ -48,6 +48,7 @@ export class SettingsController {
                 guildId,
                 staffRoleId: null,
                 adminRoleId: null,
+                webAuthRoleId: null,
                 updatedAt: Date.now(),
             };
 
@@ -66,7 +67,7 @@ export class SettingsController {
      */
     async saveSettings(req: Request, res: Response): Promise<void> {
         const session = (req as any).session as SettingsSession;
-    const { staffRoleId, guildId: bodyGuildId } = req.body;
+        const { staffRoleId, webAuthRoleId, guildId: bodyGuildId } = req.body;
         const guildId = bodyGuildId || req.query.guildId || req.params?.guildId || session.guildId;
         if (!guildId) {
             res.status(400).json({ error: 'guildId is required' });
@@ -94,10 +95,11 @@ export class SettingsController {
                 staffRoleId: staffRoleId || existing?.staffRoleId || undefined,
                 // adminRoleId is intentionally preserved from existing settings and cannot be modified here
                 adminRoleId: existing?.adminRoleId || undefined,
+                webAuthRoleId: webAuthRoleId || existing?.webAuthRoleId || undefined,
                 updatedAt: Date.now(),
             };
             await database.set(guildId, `Guild/${guildId}/settings`, settings);
-            console.log(`設定を保存しました: Guild=${guildId}, Staff=${staffRoleId}`);
+            console.log(`設定を保存しました: Guild=${guildId}, Staff=${staffRoleId}, WebAuth=${webAuthRoleId}`);
 
             // キャッシュをクリア
             CacheManager.delete(`settings_${guildId}`);

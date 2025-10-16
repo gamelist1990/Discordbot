@@ -1,6 +1,5 @@
 import { ChatInputCommandInteraction, PermissionFlagsBits, EmbedBuilder, MessageFlags } from 'discord.js';
 import { SlashCommandSubcommandBuilder, SlashCommandUserOption, SlashCommandStringOption } from 'discord.js';
-import { database } from '../../../core/Database';
 
 export default {
     name: 'timeout',
@@ -91,8 +90,6 @@ export default {
                 try {
                     await member.timeout(null, reason);
 
-                    await logAudit(interaction, 'clear', user.id, undefined, reason);
-
                     const embed = new EmbedBuilder()
                         .setTitle('タイムアウトを解除しました')
                         .setDescription(`${user} のタイムアウトを解除しました。`)
@@ -122,8 +119,6 @@ export default {
 
             try {
                 await member.timeout(durationMs, reason);
-
-                await logAudit(interaction, 'timeout', user.id, durationMs, reason);
 
                 const embed = new EmbedBuilder()
                     .setTitle('ユーザーをタイムアウトしました')
@@ -179,26 +174,6 @@ function parseDurationToMs(input: string): number | null {
             return value * 24 * 60 * 60 * 1000;
         default:
             return null;
-    }
-}
-
-async function logAudit(interaction: ChatInputCommandInteraction, action: 'timeout' | 'clear', targetId: string, durationMs?: number, reason?: string) {
-    const auditEntry = {
-        timestamp: new Date().toISOString(),
-        action,
-        actorId: interaction.user.id,
-        targetId,
-        durationMs: durationMs || null,
-        reason: reason || null,
-    };
-
-    try {
-        const existingLogs: Array<typeof auditEntry> = await database.get(interaction.guildId!, 'staff-timeout-audit', []) || [];
-        existingLogs.push(auditEntry);
-        await database.set(interaction.guildId!, 'staff-timeout-audit', existingLogs);
-    } catch (error) {
-        console.error('Failed to log audit:', error);
-        // ログ失敗でコマンド失敗にしない
     }
 }
 

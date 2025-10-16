@@ -10,6 +10,7 @@ interface PermissionsTabProps {
 
 const PermissionsTab: React.FC<PermissionsTabProps> = ({ settings, roles, onSave }) => {
   const [staffRoleId, setStaffRoleId] = useState(settings.staffRoleId || '');
+  const [webAuthRoleId, setWebAuthRoleId] = useState(settings.webAuthRoleId || '');
   const [isSaving, setIsSaving] = useState(false);
 
   const handleSave = async () => {
@@ -17,6 +18,7 @@ const PermissionsTab: React.FC<PermissionsTabProps> = ({ settings, roles, onSave
     try {
       await onSave({
         staffRoleId: staffRoleId || undefined,
+        webAuthRoleId: webAuthRoleId || undefined,
       });
     } finally {
       setIsSaving(false);
@@ -44,6 +46,27 @@ const PermissionsTab: React.FC<PermissionsTabProps> = ({ settings, roles, onSave
           className={styles.select}
           value={staffRoleId}
           onChange={(e) => setStaffRoleId(e.target.value)}
+        >
+          <option value="">-- 選択なし --</option>
+          {sortedRoles.map((role) => (
+            <option key={role.id} value={role.id}>
+              {role.name}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div className={styles.section}>
+        <label className={styles.label}>
+          <span className={styles.labelText}>WEB認証ロール</span>
+          <span className={styles.labelDescription}>
+            WEB認証時に自動的に付与されるロール
+          </span>
+        </label>
+        <select
+          className={styles.select}
+          value={webAuthRoleId}
+          onChange={(e) => setWebAuthRoleId(e.target.value)}
         >
           <option value="">-- 選択なし --</option>
           {sortedRoles.map((role) => (

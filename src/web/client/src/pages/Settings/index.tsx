@@ -83,6 +83,22 @@ const SettingsPage: React.FC = () => {
           onSave={handleSaveSettings}
         />
       )}
+      {activeTab === 'general' && (
+        <div className={styles.comingSoon}>
+          <div className={styles.comingSoonIcon}>🚧</div>
+          <h2>一般設定</h2>
+          <p>この機能は近日公開予定です</p>
+          <span className={styles.comingSoonText}>Coming Soon</span>
+        </div>
+      )}
+      {activeTab === 'moderation' && (
+        <div className={styles.comingSoon}>
+          <div className={styles.comingSoonIcon}>🛡️</div>
+          <h2>モデレーション</h2>
+          <p>この機能は近日公開予定です</p>
+          <span className={styles.comingSoonText}>Coming Soon</span>
+        </div>
+      )}
     </Layout>
   );
 };

@@ -9,6 +9,22 @@
   flex-direction: column;
 }
 
+.guildHeader {
+  padding: 20px 16px;
+  border-bottom: 1px solid #E0E0E0;
+  background: #F8F9FA;
+}
+
+.guildHeader h3 {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #202124;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .nav {
   padding: 16px 0;
   display: flex;
