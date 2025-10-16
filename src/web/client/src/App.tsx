@@ -7,13 +7,16 @@ import PrivateChatPage from './pages/PrivateChat';
 import RoleManagerPage from './pages/RoleManager';
 import StaffHelpPage from './pages/StaffHelp';
 import RankManagerPage from './pages/RankManager';
-import NotFoundPage from './pages/NotFound';
+import RankBoardHome from './pages/RankBoard/RankBoardHome';
+import RankBoardGuild from './pages/RankBoard/RankBoardGuild';
+import RankBoard from './pages/RankBoard';
 import TodoDashboard from './pages/Todo/TodoDashboard';
 import TodoSession from './pages/Todo/TodoSession';
 import UserProfile from './pages/Profile';
 import FeedbackPage from './pages/Feedback';
 import { useAuthGuard } from './hooks/useAuthGuard';
 import HomePage from './pages/Home';
+import NotFoundPage from './pages/NotFound';
 
 // Protected route component for staff access
 const StaffGuard: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -46,23 +49,25 @@ const App: React.FC = () => {
       <AppHeader />
       <main style={{ flex: 1 }}>
         <Routes>
-  <Route path="/" element={<HomePage />} />
-      <Route path="/profile" element={<UserProfile />} />
-      <Route path="/settings" element={<SettingsListPage />} />
-      <Route path="/settings/:guildId" element={<SettingsPage />} />
-      <Route path="/feedback" element={<FeedbackPage />} />
-  <Route path="/staff" element={<StaffGuard><StaffHelpPage /></StaffGuard>} />
-  <Route path="/staff/privatechat" element={<StaffGuard><PrivateChatPage /></StaffGuard>} />
-  <Route path="/staff/rolemanager" element={<StaffGuard><RoleManagerPage /></StaffGuard>} />
-  <Route path="/staff/rankmanager" element={<StaffGuard><RankManagerPage /></StaffGuard>} />
-  {/* Legacy/typo alias: accept /staff/privateChat (capital C) and redirect to canonical path */}
-  <Route path="/staff/privateChat" element={<Navigate to="/staff/privatechat" replace />} />
-      <Route path="/todo/:guildId" element={<TodoDashboard />} />
-      <Route path="/todo/:guildId/session/:sessionId" element={<TodoSession />} />
-      <Route path="/todo/shared/:token" element={<TodoSession />} />
-      <Route path="/404" element={<NotFoundPage />} />
-      <Route path="*" element={<Navigate to="/404" replace />} />
-    </Routes>
+          <Route path="/" element={<HomePage />} />
+          <Route path="/profile" element={<UserProfile />} />
+          <Route path="/settings" element={<SettingsListPage />} />
+          <Route path="/settings/:guildId" element={<SettingsPage />} />
+          <Route path="/feedback" element={<FeedbackPage />} />
+          <Route path="/rank" element={<RankBoardHome />} />
+          <Route path="/rank/:guildId" element={<RankBoardGuild />} />
+          <Route path="/rank/:guildId/:panelId" element={<RankBoard />} />
+          <Route path="/staff" element={<StaffGuard><StaffHelpPage /></StaffGuard>} />
+          <Route path="/staff/privatechat" element={<StaffGuard><PrivateChatPage /></StaffGuard>} />
+          <Route path="/staff/rolemanager" element={<StaffGuard><RoleManagerPage /></StaffGuard>} />
+          <Route path="/staff/rankmanager" element={<StaffGuard><RankManagerPage /></StaffGuard>} />
+          <Route path="/staff/privateChat" element={<Navigate to="/staff/privatechat" replace />} />
+          <Route path="/todo/:guildId" element={<TodoDashboard />} />
+          <Route path="/todo/:guildId/session/:sessionId" element={<TodoSession />} />
+          <Route path="/todo/shared/:token" element={<TodoSession />} />
+          <Route path="/404" element={<NotFoundPage />} />
+          <Route path="*" element={<Navigate to="/404" replace />} />
+        </Routes>
       </main>
     </div>
   );

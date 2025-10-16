@@ -34,8 +34,37 @@ export function createRankRoutes(
     // リーダーボード
     router.get('/leaderboard', (req, res) => controller.getLeaderboard(req, res));
 
+    // ウェブランキングボード用エンドポイント
+    router.get('/guilds', (req, res) => controller.getUserGuilds(req, res));
+    router.get('/guild/:id', (req, res) => controller.getGuildRankings(req, res));
+    router.get('/panels/:guildId', (req, res) => controller.getGuildPanels(req, res));
+    router.get('/panel/:guildId/:panelId', (req, res) => controller.getPanelLeaderboard(req, res));
+
     // XP操作
     router.post('/xp/add', (req, res) => controller.addUserXp(req, res));
+
+    return router;
+}
+
+/**
+ * ウェブランキングボード用ルートを作成（認証必須）
+ */
+export function createWebRankRoutes(
+    sessions: Map<string, SettingsSession>,
+    botClient: BotClient
+): Router {
+    const router = Router();
+    const controller = new RankController(botClient);
+
+    // すべてのルートで認証を要求
+    router.use(verifyAuth(sessions));
+
+    // ウェブランキングボード用エンドポイントのみ
+    router.get('/guilds', (req, res) => controller.getUserGuilds(req, res));
+    router.get('/guild/:id', (req, res) => controller.getGuildRankings(req, res));
+    router.get('/panels/:guildId', (req, res) => controller.getGuildPanels(req, res));
+    router.get('/panel/:guildId/:panelId', (req, res) => controller.getPanelLeaderboard(req, res));
+    router.get('/leaderboard/:guildId', (req, res) => controller.getLeaderboard(req, res));
 
     return router;
 }

@@ -1,6 +1,7 @@
-import { Client, Guild, TextChannel, EmbedBuilder } from 'discord.js';
+import { Client, Guild, TextChannel, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
 import { Database } from './Database.js';
 import { Logger } from '../utils/Logger.js';
+import { config } from '../config.js';
 
 /**
  * ランク帯の定義
@@ -519,14 +520,26 @@ export class RankManager {
 
         embed.setFooter({ text: `最終更新: ${new Date().toLocaleString('ja-JP')}` });
 
-        await message.edit({ embeds: [embed] });
+        // ウェブランキングへのリンクボタンを作成
+        const webUrl = config.WEB_BASE_URL;
+        const rankUrl = `${webUrl}/rank/${guild.id}/${panelId}`;
+        const row = new ActionRowBuilder<ButtonBuilder>()
+            .addComponents(
+                new ButtonBuilder()
+                    .setLabel('ウェブで詳細を見る')
+                    .setStyle(ButtonStyle.Link)
+                    .setURL(rankUrl)
+                    .setEmoji('🌐')
+            );
+
+        await message.edit({ embeds: [embed], components: [row] });
         panel.lastUpdate = new Date().toISOString();
     }
 
     /**
      * リーダーボードを取得
      */
-    async getLeaderboard(guildId: string, limit: number = 10, offset: number = 0): Promise<Array<{ userId: string; xp: number; rank: string }>> {
+    async getLeaderboard(guildId: string, limit: number = 10, offset: number = 0, presetName?: string): Promise<Array<{ userId: string; xp: number; rank: string }>> {
         const data = await this.getRankingData(guildId);
         
         const sorted = Object.entries(data.users)
@@ -534,7 +547,7 @@ export class RankManager {
             .slice(offset, offset + limit);
 
         return sorted.map(([userId, userData]) => {
-            const rank = this.getUserRank(data, userData.xp);
+            const rank = this.getUserRank(data, userData.xp, presetName);
             return {
                 userId,
                 xp: userData.xp,

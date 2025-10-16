@@ -10,8 +10,10 @@ import { CacheManager } from '../../utils/CacheManager.js';
  * ランク管理コントローラー
  */
 export class RankController {
-    constructor(_botClient: BotClient) {
-        // BotClient is provided for future use
+    private botClient: BotClient;
+
+    constructor(botClient: BotClient) {
+        this.botClient = botClient;
     }
 
     /**
@@ -455,6 +457,7 @@ export class RankController {
         const guildId = req.params.guildId || req.query.guildId as string;
         const limit = parseInt(req.query.limit as string) || 10;
         const offset = parseInt(req.query.offset as string) || 0;
+        const preset = req.query.preset as string;
 
         if (!guildId) {
             res.status(400).json({ error: 'guildId is required' });
@@ -462,8 +465,36 @@ export class RankController {
         }
 
         try {
-            const leaderboard = await rankManager.getLeaderboard(guildId, limit, offset);
-            res.json(leaderboard);
+            const leaderboard = await rankManager.getLeaderboard(guildId, limit, offset, preset);
+            
+            // ユーザー情報をエンリッチ（ユーザー名とアバターを取得）
+            const guild = this.botClient.client.guilds.cache.get(guildId);
+            const enrichedLeaderboard: Array<{userId: string, username: string, avatar: string | null, xp: number, rank: string}> = [];
+
+            for (const entry of leaderboard) {
+                try {
+                    const member = guild?.members.cache.get(entry.userId);
+                    const user = member?.user;
+                    enrichedLeaderboard.push({
+                        userId: entry.userId,
+                        username: member?.displayName || user?.username || entry.userId,
+                        avatar: user?.avatarURL() || user?.defaultAvatarURL || null,
+                        xp: entry.xp,
+                        rank: entry.rank
+                    });
+                } catch (error) {
+                    // ユーザー情報が取得できない場合は基本情報のみ
+                    enrichedLeaderboard.push({
+                        userId: entry.userId,
+                        username: entry.userId,
+                        avatar: null,
+                        xp: entry.xp,
+                        rank: entry.rank
+                    });
+                }
+            }
+
+            res.json({ leaderboard: enrichedLeaderboard });
         } catch (error) {
             Logger.error('Failed to get leaderboard:', error);
             res.status(500).json({ error: 'Failed to fetch leaderboard' });
@@ -506,6 +537,261 @@ export class RankController {
         } catch (error) {
             Logger.error('Failed to add XP:', error);
             res.status(500).json({ error: 'Failed to add XP' });
+        }
+    }
+
+    /**
+     * ユーザーの参加しているギルド一覧を取得（ウェブランキングボード用）
+     */
+    async getUserGuilds(req: Request, res: Response): Promise<void> {
+        const session = (req as any).session as SettingsSession;
+
+        try {
+            const guildIds = session.guildIds || [];
+            Logger.info(`getUserGuilds: session.guildIds = ${JSON.stringify(guildIds)}`);
+            const rankGuilds: Array<{id: string, name: string, icon: string | null, hasRankings: boolean}> = [];
+
+            for (const guildId of guildIds) {
+                try {
+                    const guild = this.botClient.client.guilds.cache.get(guildId);
+                    if (!guild) continue;
+
+                    // ランキングデータが存在するかチェック
+                    const rankingData = await rankManager.getRankingData(guildId);
+                    if (Object.keys(rankingData.users).length > 0 || rankingData.panels) {
+                        rankGuilds.push({
+                            id: guild.id,
+                            name: guild.name,
+                            icon: guild.iconURL(),
+                            hasRankings: true
+                        });
+                    }
+                } catch (error) {
+                    // ランキングデータがない場合はスキップ
+                    continue;
+                }
+            }
+
+            res.json({ guilds: rankGuilds });
+        } catch (error) {
+            Logger.error('Failed to get user guilds:', error);
+            res.status(500).json({ error: 'Failed to get user guilds' });
+        }
+    }
+
+    /**
+     * ギルドのランキング情報を取得（ウェブランキングボード用）
+     */
+    async getGuildRankings(req: Request, res: Response): Promise<void> {
+        const session = (req as any).session as SettingsSession;
+        const { id: guildId } = req.params;
+
+        if (!guildId) {
+            res.status(400).json({ error: 'guildId is required' });
+            return;
+        }
+
+        // ユーザーがこのギルドのメンバーかチェック
+        const isMember = session.guildIds?.includes(guildId);
+        if (!isMember) {
+            res.status(403).json({ error: 'Access denied' });
+            return;
+        }
+
+        try {
+            const rankingData = await rankManager.getRankingData(guildId);
+            const leaderboard = await rankManager.getLeaderboard(guildId, 50); // トップ50を取得
+
+            // ユーザー情報を取得
+            const guild = this.botClient.client.guilds.cache.get(guildId);
+            const enrichedLeaderboard: Array<{userId: string, username: string, avatar: string | null, xp: number, rank: string}> = [];
+
+            for (const entry of leaderboard) {
+                try {
+                    const member = guild?.members.cache.get(entry.userId);
+                    const user = member?.user;
+                    enrichedLeaderboard.push({
+                        userId: entry.userId,
+                        username: member?.displayName || user?.username || entry.userId,
+                        avatar: user?.avatarURL() || user?.defaultAvatarURL || null,
+                        xp: entry.xp,
+                        rank: entry.rank
+                    });
+                } catch (error) {
+                    // ユーザー情報が取得できない場合は基本情報のみ
+                    enrichedLeaderboard.push({
+                        userId: entry.userId,
+                        username: entry.userId,
+                        avatar: null,
+                        xp: entry.xp,
+                        rank: entry.rank
+                    });
+                }
+            }
+
+            const guildInfo = guild ? {
+                id: guild.id,
+                name: guild.name,
+                icon: guild.iconURL()
+            } : {
+                id: guildId,
+                name: 'Unknown Guild',
+                icon: null
+            };
+
+            res.json({
+                guild: guildInfo,
+                leaderboard: enrichedLeaderboard,
+                presets: rankingData.rankPresets,
+                panels: Object.entries(rankingData.panels || {}).map(([panelId, panel]) => ({
+                    id: panelId,
+                    channelId: panel.channelId,
+                    messageId: panel.messageId,
+                    preset: panel.preset,
+                    lastUpdate: panel.lastUpdate,
+                    topCount: panel.topCount
+                }))
+            });
+        } catch (error) {
+            Logger.error('Failed to get guild rankings:', error);
+            res.status(500).json({ error: 'Failed to get guild rankings' });
+        }
+    }
+
+    /**
+     * ギルドのパネル一覧を取得（ウェブランキングボード用）
+     */
+    async getGuildPanels(req: Request, res: Response): Promise<void> {
+        const session = (req as any).session as SettingsSession;
+        const { guildId } = req.params;
+
+        if (!guildId) {
+            res.status(400).json({ error: 'guildId is required' });
+            return;
+        }
+
+        // ユーザーがこのギルドのメンバーかチェック
+        const isMember = session.guildIds?.includes(guildId);
+        if (!isMember) {
+            res.status(403).json({ error: 'Access denied' });
+            return;
+        }
+
+        try {
+            const rankingData = await rankManager.getRankingData(guildId);
+            const panels = Object.entries(rankingData.panels || {}).map(([panelId, panel]) => ({
+                id: panelId,
+                name: `${panel.preset}ランキング`, // パネル名としてプリセット名を使用
+                preset: panel.preset,
+                channelId: panel.channelId,
+                topCount: panel.topCount || 10,
+                lastUpdate: panel.lastUpdate
+            }));
+
+            const guild = this.botClient.client.guilds.cache.get(guildId);
+            const guildInfo = guild ? {
+                id: guild.id,
+                name: guild.name,
+                icon: guild.iconURL()
+            } : {
+                id: guildId,
+                name: 'Unknown Guild',
+                icon: null
+            };
+
+            res.json({
+                guild: guildInfo,
+                panels
+            });
+        } catch (error) {
+            Logger.error('Failed to get guild panels:', error);
+            res.status(500).json({ error: 'Failed to get guild panels' });
+        }
+    }
+
+    /**
+     * パネルのリーダーボードを取得（ウェブランキングボード用）
+     */
+    async getPanelLeaderboard(req: Request, res: Response): Promise<void> {
+        const session = (req as any).session as SettingsSession;
+        const { guildId, panelId } = req.params;
+
+        if (!guildId || !panelId) {
+            res.status(400).json({ error: 'guildId and panelId are required' });
+            return;
+        }
+
+        // ユーザーがこのギルドのメンバーかチェック
+        const isMember = session.guildIds?.includes(guildId);
+        if (!isMember) {
+            res.status(403).json({ error: 'Access denied' });
+            return;
+        }
+
+        try {
+            const rankingData = await rankManager.getRankingData(guildId);
+            const panel = rankingData.panels?.[panelId];
+
+            if (!panel) {
+                res.status(404).json({ error: 'Panel not found' });
+                return;
+            }
+
+            const leaderboard = await rankManager.getLeaderboard(guildId, panel.topCount || 10, 0, panel.preset);
+
+            // ユーザー情報を取得
+            const guild = this.botClient.client.guilds.cache.get(guildId);
+            const enrichedLeaderboard: Array<{userId: string, username: string, avatar: string | null, xp: number, rank: string}> = [];
+
+            for (const entry of leaderboard) {
+                try {
+                    const member = guild?.members.cache.get(entry.userId);
+                    const user = member?.user;
+                    enrichedLeaderboard.push({
+                        userId: entry.userId,
+                        username: member?.displayName || user?.username || entry.userId,
+                        avatar: user?.avatarURL() || user?.defaultAvatarURL || null,
+                        xp: entry.xp,
+                        rank: entry.rank
+                    });
+                } catch (error) {
+                    // ユーザー情報が取得できない場合は基本情報のみ
+                    enrichedLeaderboard.push({
+                        userId: entry.userId,
+                        username: entry.userId,
+                        avatar: null,
+                        xp: entry.xp,
+                        rank: entry.rank
+                    });
+                }
+            }
+
+            const preset = rankingData.rankPresets.find(p => p.name === panel.preset) || rankingData.rankPresets[0];
+            const guildInfo = guild ? {
+                id: guild.id,
+                name: guild.name,
+                icon: guild.iconURL()
+            } : {
+                id: guildId,
+                name: 'Unknown Guild',
+                icon: null
+            };
+
+            res.json({
+                guild: guildInfo,
+                panel: {
+                    id: panelId,
+                    name: `${panel.preset}ランキング`,
+                    preset: panel.preset,
+                    topCount: panel.topCount || 10,
+                    lastUpdate: panel.lastUpdate || new Date().toISOString()
+                },
+                preset,
+                leaderboard: enrichedLeaderboard
+            });
+        } catch (error) {
+            Logger.error('Failed to get panel leaderboard:', error);
+            res.status(500).json({ error: 'Failed to get panel leaderboard' });
         }
     }
 }
