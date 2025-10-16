@@ -303,6 +303,20 @@ const StaffHelpPage: React.FC = () => {
                                             開く
                                         </button>
                                     </div>
+                                    
+                                    <div className={styles.serviceCard}>
+                                        <div className={styles.serviceIcon}>🏆</div>
+                                        <h3 className={styles.serviceTitle}>ランキング管理</h3>
+                                        <p className={styles.serviceDescription}>
+                                            サーバーのランク／XP設定、リーダーボード、パネル管理を行います
+                                        </p>
+                                        <button
+                                            className={styles.serviceButton}
+                                            onClick={() => navigate('/staff/rankmanager')}
+                                        >
+                                            開く
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
                         )}

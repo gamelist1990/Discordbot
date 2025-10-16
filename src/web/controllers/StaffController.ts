@@ -766,4 +766,104 @@ export class StaffController {
         };
         return typeMap[type] || 'UNKNOWN';
     }
+
+    /**
+     * ギルドのチャンネル一覧を取得
+     */
+    async getGuildChannels(req: Request, res: Response): Promise<void> {
+        const session = (req as any).session as SettingsSession;
+        const { guildId } = req.params;
+
+        if (!guildId) {
+            res.status(400).json({ error: 'guildId is required' });
+            return;
+        }
+
+        try {
+            // Check if user has access to this guild
+            const allowed = (session.guildIds || []).length === 0 
+                ? (session.guildId === guildId) 
+                : (session.guildIds || []).includes(guildId);
+            
+            if (!allowed) {
+                res.status(403).json({ error: 'Forbidden: session does not have access to this guild' });
+                return;
+            }
+
+            const guild = this.botClient.client.guilds.cache.get(guildId);
+            if (!guild) {
+                res.status(404).json({ error: 'Guild not found' });
+                return;
+            }
+
+            // Get text channels and voice channels
+            const channels = guild.channels.cache
+                .filter(channel => 
+                    channel.type === 0 || // TEXT
+                    channel.type === 2 || // VOICE
+                    channel.type === 5 || // ANNOUNCEMENT
+                    channel.type === 15   // FORUM
+                )
+                .map(channel => ({
+                    id: channel.id,
+                    name: channel.name,
+                    type: channel.type,
+                    position: 'position' in channel ? channel.position : 0
+                }))
+                .sort((a, b) => a.position - b.position);
+
+            res.json({ channels: Array.from(channels) });
+        } catch (error) {
+            console.error('Failed to get guild channels:', error);
+            res.status(500).json({ error: 'Failed to fetch guild channels' });
+        }
+    }
+
+    /**
+     * ギルドのロール一覧を取得
+     */
+    async getGuildRoles(req: Request, res: Response): Promise<void> {
+        const session = (req as any).session as SettingsSession;
+        const { guildId } = req.params;
+
+        if (!guildId) {
+            res.status(400).json({ error: 'guildId is required' });
+            return;
+        }
+
+        try {
+            // Check if user has access to this guild
+            const allowed = (session.guildIds || []).length === 0 
+                ? (session.guildId === guildId) 
+                : (session.guildIds || []).includes(guildId);
+            
+            if (!allowed) {
+                res.status(403).json({ error: 'Forbidden: session does not have access to this guild' });
+                return;
+            }
+
+            const guild = this.botClient.client.guilds.cache.get(guildId);
+            if (!guild) {
+                res.status(404).json({ error: 'Guild not found' });
+                return;
+            }
+
+            // Get all roles except @everyone
+            const roles = guild.roles.cache
+                .filter(role => role.id !== guild.id) // Exclude @everyone
+                .map(role => ({
+                    id: role.id,
+                    name: role.name,
+                    color: role.color,
+                    position: role.position,
+                    permissions: role.permissions.bitfield.toString()
+                }))
+                .sort((a, b) => b.position - a.position);
+
+            res.json({ roles: Array.from(roles) });
+        } catch (error) {
+            console.error('Failed to get guild roles:', error);
+            res.status(500).json({ error: 'Failed to fetch guild roles' });
+        }
+    }
 }

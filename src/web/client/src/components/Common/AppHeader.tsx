@@ -121,6 +121,10 @@ const AppHeader: React.FC<AppHeaderProps> = ({ user: userProp, onLogout }) => {
                                 <span className="material-icons">feedback</span>
                                 <span>フィードバック</span>
                             </button>
+                            <button className={styles.navBtn} onClick={() => navigate('/rank')}>
+                                <span className="material-icons">leaderboard</span>
+                                <span>ランキング</span>
+                            </button>
                         </>
                     )}
                 </nav>
@@ -179,6 +183,17 @@ const AppHeader: React.FC<AppHeaderProps> = ({ user: userProp, onLogout }) => {
                                         >
                                             <span className="material-icons">checklist</span>
                                             <span>TODO</span>
+                                        </button>
+
+                                        <button 
+                                            className={styles.appItem}
+                                            onClick={() => {
+                                                setShowAppMenu(false);
+                                                navigate('/rank');
+                                            }}
+                                        >
+                                            <span className="material-icons">leaderboard</span>
+                                            <span>ランキング</span>
                                         </button>
                                     </div>
                                 </div>
