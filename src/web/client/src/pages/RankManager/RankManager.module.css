@@ -1,0 +1,564 @@
+/* Google Material Design 3 - Rank Manager Styles */
+
+.container {
+    min-height: 100vh;
+    background: linear-gradient(135deg, #f5f7fa 0%, #e8eaf6 100%);
+    font-family: 'Roboto', 'Segoe UI', sans-serif;
+}
+
+/* Header */
+.header {
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(20px);
+    border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+    padding: 2rem;
+    margin-bottom: 2rem;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.headerContent {
+    max-width: 1400px;
+    margin: 0 auto;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 1.5rem;
+}
+
+.headerTitle {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+    color: #1c1b1f;
+}
+
+.headerTitle i {
+    font-size: 3rem;
+    color: #6750a4;
+}
+
+.headerTitle h1 {
+    font-size: 2rem;
+    font-weight: 400;
+    margin: 0;
+    letter-spacing: 0.5px;
+}
+
+.subtitle {
+    font-size: 0.9rem;
+    color: #666;
+    margin-top: 0.25rem;
+}
+
+.backButton {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    background: #6750a4;
+    color: white;
+    border: none;
+    padding: 0.875rem 1.75rem;
+    border-radius: 20px;
+    cursor: pointer;
+    font-size: 1rem;
+    font-weight: 500;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+}
+
+.backButton:hover {
+    background: #5c4194;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(103, 80, 164, 0.4);
+}
+
+/* Content */
+.content {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 0 2rem 3rem;
+}
+
+/* Guild Selector */
+.guildSelector {
+    background: white;
+    padding: 1.5rem;
+    border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    margin-bottom: 2rem;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.guildSelector label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-weight: 500;
+    color: #333;
+}
+
+.guildSelector label i {
+    color: #6750a4;
+}
+
+.select {
+    flex: 1;
+    padding: 0.75rem 1rem;
+    border: 1px solid #dadce0;
+    border-radius: 8px;
+    font-size: 1rem;
+    background: white;
+    cursor: pointer;
+    transition: border-color 0.2s;
+}
+
+.select:focus {
+    outline: none;
+    border-color: #6750a4;
+    box-shadow: 0 0 0 3px rgba(103, 80, 164, 0.1);
+}
+
+/* Summary Cards */
+.summaryGrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 1.5rem;
+    margin-bottom: 2rem;
+}
+
+.summaryCard {
+    background: white;
+    padding: 1.5rem;
+    border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.summaryCard:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+}
+
+.summaryCard i {
+    font-size: 3rem;
+    color: #6750a4;
+}
+
+.summaryLabel {
+    font-size: 0.875rem;
+    color: #666;
+    margin-bottom: 0.25rem;
+}
+
+.summaryValue {
+    font-size: 2rem;
+    font-weight: 500;
+    color: #333;
+}
+
+/* Sections */
+.section {
+    margin-bottom: 2.5rem;
+}
+
+.sectionHeader {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1.5rem;
+}
+
+.sectionHeader h2 {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    font-size: 1.5rem;
+    font-weight: 500;
+    color: #333;
+    margin: 0;
+}
+
+.sectionHeader h2 i {
+    color: #6750a4;
+}
+
+/* Buttons */
+.primaryButton {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    background: #6750a4;
+    color: white;
+    border: none;
+    padding: 0.75rem 1.5rem;
+    border-radius: 20px;
+    cursor: pointer;
+    font-size: 1rem;
+    font-weight: 500;
+    transition: all 0.3s;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+}
+
+.primaryButton:hover:not(:disabled) {
+    background: #5c4194;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(103, 80, 164, 0.4);
+}
+
+.primaryButton:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.secondaryButton {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    background: #f5f5f5;
+    color: #333;
+    border: 1px solid #dadce0;
+    padding: 0.75rem 1.5rem;
+    border-radius: 20px;
+    cursor: pointer;
+    font-size: 1rem;
+    font-weight: 500;
+    transition: all 0.3s;
+}
+
+.secondaryButton:hover {
+    background: #e8e8e8;
+}
+
+.iconButton {
+    background: transparent;
+    border: none;
+    padding: 0.5rem;
+    cursor: pointer;
+    color: #666;
+    border-radius: 50%;
+    transition: all 0.2s;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.iconButton:hover {
+    background: rgba(103, 80, 164, 0.1);
+    color: #6750a4;
+}
+
+.settingsButton {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.75rem;
+    background: white;
+    color: #6750a4;
+    border: 2px solid #6750a4;
+    padding: 1rem 2rem;
+    border-radius: 20px;
+    cursor: pointer;
+    font-size: 1rem;
+    font-weight: 500;
+    transition: all 0.3s;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.settingsButton:hover {
+    background: #6750a4;
+    color: white;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(103, 80, 164, 0.4);
+}
+
+/* Presets Grid */
+.presetsGrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+    gap: 1.5rem;
+}
+
+.presetCard {
+    background: white;
+    border-radius: 12px;
+    padding: 1.5rem;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.presetCard:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+}
+
+.presetHeader {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.75rem;
+}
+
+.presetHeader h3 {
+    font-size: 1.25rem;
+    font-weight: 500;
+    color: #333;
+    margin: 0;
+}
+
+.presetActions {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.presetDescription {
+    color: #666;
+    font-size: 0.9rem;
+    margin-bottom: 1rem;
+}
+
+.ranksList {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.rankBadge {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.5rem 0.75rem;
+    border-left: 3px solid;
+    background: #f9f9f9;
+    border-radius: 4px;
+}
+
+.rankBadge span:first-child {
+    font-weight: 500;
+}
+
+.xpRange {
+    font-size: 0.85rem;
+    color: #666;
+}
+
+/* Panels Grid */
+.panelsGrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+    gap: 1.5rem;
+}
+
+.panelCard {
+    background: white;
+    border-radius: 12px;
+    padding: 1.5rem;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.panelCard:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+}
+
+.panelHeader {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+
+.panelHeader h3 {
+    font-size: 1.125rem;
+    font-weight: 500;
+    color: #333;
+    margin: 0;
+}
+
+.panelInfo {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    font-size: 0.9rem;
+    color: #666;
+}
+
+.panelInfo div {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.panelInfo i {
+    font-size: 1.125rem;
+    color: #6750a4;
+}
+
+.panelInfo code {
+    background: #f5f5f5;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.85rem;
+}
+
+/* Loading & Empty States */
+.loading,
+.emptyState {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 4rem 2rem;
+    color: #666;
+    text-align: center;
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.loading i,
+.emptyState i {
+    font-size: 4rem;
+    margin-bottom: 1.5rem;
+    opacity: 0.6;
+    color: #6750a4;
+}
+
+.loading h2,
+.emptyState p {
+    margin: 0 0 1rem 0;
+    font-size: 1.125rem;
+}
+
+/* Modal */
+.modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    padding: 2rem;
+}
+
+.modalContent {
+    background: white;
+    border-radius: 16px;
+    max-width: 600px;
+    width: 100%;
+    max-height: 90vh;
+    overflow: auto;
+    box-shadow: 0 24px 48px rgba(0, 0, 0, 0.3);
+}
+
+.modalHeader {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1.5rem 2rem;
+    border-bottom: 1px solid #e8e8e8;
+}
+
+.modalHeader h2 {
+    font-size: 1.5rem;
+    font-weight: 500;
+    margin: 0;
+    color: #333;
+}
+
+.closeButton {
+    background: transparent;
+    border: none;
+    padding: 0.5rem;
+    cursor: pointer;
+    color: #666;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+}
+
+.closeButton:hover {
+    background: #f5f5f5;
+    color: #333;
+}
+
+.modalBody {
+    padding: 2rem;
+}
+
+.modalFooter {
+    display: flex;
+    justify-content: flex-end;
+    gap: 1rem;
+    padding: 1.5rem 2rem;
+    border-top: 1px solid #e8e8e8;
+}
+
+/* Form Groups */
+.formGroup {
+    margin-bottom: 1.5rem;
+}
+
+.formGroup label {
+    display: block;
+    margin-bottom: 0.5rem;
+    font-weight: 500;
+    color: #333;
+    font-size: 0.9rem;
+}
+
+.formGroup input,
+.formGroup textarea,
+.formGroup select {
+    width: 100%;
+    padding: 0.75rem 1rem;
+    border: 1px solid #dadce0;
+    border-radius: 8px;
+    font-size: 1rem;
+    transition: border-color 0.2s;
+}
+
+.formGroup input:focus,
+.formGroup textarea:focus,
+.formGroup select:focus {
+    outline: none;
+    border-color: #6750a4;
+    box-shadow: 0 0 0 3px rgba(103, 80, 164, 0.1);
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .headerContent {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .content {
+        padding: 0 1rem 2rem;
+    }
+
+    .summaryGrid {
+        grid-template-columns: 1fr;
+    }
+
+    .presetsGrid,
+    .panelsGrid {
+        grid-template-columns: 1fr;
+    }
+
+    .guildSelector {
+        flex-direction: column;
+        align-items: stretch;
+    }
+}
