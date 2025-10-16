@@ -1,4 +1,4 @@
-import { ChatInputCommandInteraction, PermissionFlagsBits, MessageFlags, EmbedBuilder, GuildMember } from 'discord.js';
+import { ChatInputCommandInteraction, PermissionFlagsBits, EmbedBuilder } from 'discord.js';
 import { SlashCommandSubcommandBuilder, SlashCommandUserOption, SlashCommandStringOption } from 'discord.js';
 import { database } from '../../../core/Database';
 
@@ -145,7 +145,9 @@ export default {
             console.error('Staff timeout command error:', err);
             if (interaction.replied || interaction.deferred) {
                 await interaction.editReply({ content: `❌ コマンド実行中にエラーが発生しました: ${err instanceof Error ? err.message : '不明なエラー'}` });
+            } else {
                 await interaction.reply({ content: `❌ コマンド実行中にエラーが発生しました: ${err instanceof Error ? err.message : '不明なエラー'}`, ephemeral: true });
+            }
         }
     }
 };
@@ -191,7 +193,7 @@ async function logAudit(interaction: ChatInputCommandInteraction, action: 'timeo
     };
 
     try {
-        const existingLogs: Array<typeof auditEntry> = await database.get(interaction.guildId!, 'staff-timeout-audit', []);
+        const existingLogs: Array<typeof auditEntry> = await database.get(interaction.guildId!, 'staff-timeout-audit', []) || [];
         existingLogs.push(auditEntry);
         await database.set(interaction.guildId!, 'staff-timeout-audit', existingLogs);
     } catch (error) {
