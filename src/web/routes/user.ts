@@ -230,36 +230,16 @@ export function createUserRoutes(
                     joinedAt,
                 });
             }
-            // 総統計を計算 - StatsManagerのグローバル集計を使用
+            // 総統計を計算 - 各サーバーの統計を合算
             let totalMessagesAll = 0;
             let totalLinksAll = 0;
             let totalMediaAll = 0;
 
-            // 各guildからの集計を試す（互換性のため）
-            try {
-                const persisted = (await import('../../core/Database.js')).database;
-                const globalUser = await persisted.get('', `User/${user.userId}`, null) as any;
-
-                if (globalUser && globalUser.guilds && typeof globalUser.guilds === 'object') {
-                    // Use guild-specific data from global structure
-                    for (const g of botGuilds) {
-                        if (globalUser.guilds[g.id] && userGuildIds && userGuildIds.includes(g.id)) {
-                            const guildData = globalUser.guilds[g.id];
-                            totalMessagesAll += guildData.totalMessages || 0;
-                            totalLinksAll += guildData.linkMessages || 0;
-                            totalMediaAll += guildData.mediaMessages || 0;
-                        }
-                    }
-                } else if (globalUser) {
-                    // Fallback to old flat structure
-                    totalMessagesAll = globalUser.totalMessages || 0;
-                    totalLinksAll = globalUser.linkMessages || 0;
-                    totalMediaAll = globalUser.mediaMessages || 0;
-                }
-            } catch (e) {
-                console.warn('Failed to load global user stats:', e);
-                // Fallback to API-based per-guild calculations
-                // ... existing fallback logic ...
+            // userGuilds から直接集計
+            for (const guild of userGuilds) {
+                totalMessagesAll += guild.totalMessages || 0;
+                totalLinksAll += guild.linkMessages || 0;
+                totalMediaAll += guild.mediaMessages || 0;
             }
 
             // Ensure totalStats is defined in this scope for the response
