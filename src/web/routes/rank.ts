@@ -1,13 +1,21 @@
 import { Router } from 'express';
 import { RankController } from '../controllers/RankController.js';
 import { BotClient } from '../../core/BotClient.js';
+import { SettingsSession } from '../types/index.js';
+import { verifyAuth } from '../middleware/auth.js';
 
 /**
  * ランク管理ルートを作成
  */
-export function createRankRoutes(botClient: BotClient): Router {
+export function createRankRoutes(
+    sessions: Map<string, SettingsSession>,
+    botClient: BotClient
+): Router {
     const router = Router();
     const controller = new RankController(botClient);
+
+    // すべてのルートで認証を要求
+    router.use(verifyAuth(sessions));
 
     // プリセット関連
     router.get('/presets', (req, res) => controller.getPresets(req, res));
