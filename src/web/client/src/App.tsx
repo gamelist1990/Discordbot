@@ -6,6 +6,7 @@ import SettingsListPage from './pages/SettingsList';
 import PrivateChatPage from './pages/PrivateChat';
 import RoleManagerPage from './pages/RoleManager';
 import StaffHelpPage from './pages/StaffHelp';
+import RankManagerPage from './pages/RankManager';
 import NotFoundPage from './pages/NotFound';
 import TodoDashboard from './pages/Todo/TodoDashboard';
 import TodoSession from './pages/Todo/TodoSession';
@@ -53,6 +54,7 @@ const App: React.FC = () => {
   <Route path="/staff" element={<StaffGuard><StaffHelpPage /></StaffGuard>} />
   <Route path="/staff/privatechat" element={<StaffGuard><PrivateChatPage /></StaffGuard>} />
   <Route path="/staff/rolemanager" element={<StaffGuard><RoleManagerPage /></StaffGuard>} />
+  <Route path="/staff/rankmanager" element={<StaffGuard><RankManagerPage /></StaffGuard>} />
   {/* Legacy/typo alias: accept /staff/privateChat (capital C) and redirect to canonical path */}
   <Route path="/staff/privateChat" element={<Navigate to="/staff/privatechat" replace />} />
       <Route path="/todo/:guildId" element={<TodoDashboard />} />
