@@ -66,6 +66,10 @@ export class CommandLoader {
             const fullPath = path.join(dir, entry.name);
             
             if (entry.isDirectory()) {
+                // staff/subcommands ディレクトリは除外（サブコマンドとしてstaffコマンドで管理されるため）
+                if (entry.name === 'subcommands' && path.basename(dir) === 'staff') {
+                    continue;
+                }
                 // サブディレクトリを再帰的に探索
                 const subFiles = await this.getCommandFiles(fullPath);
                 files.push(...subFiles);
