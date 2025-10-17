@@ -49,13 +49,22 @@ const LivePanel: React.FC<LivePanelProps> = ({ selectedTriggerId }) => {
 
     const connectWebSocket = () => {
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = `${protocol}//${window.location.host}`;
+        const wsUrl = `${protocol}//${window.location.host}/ws/trigger`;
 
         try {
             wsRef.current = new WebSocket(wsUrl);
 
             wsRef.current.onopen = () => {
+                console.log('[LivePanel] WebSocket connected to /ws/trigger');
                 setIsConnected(true);
+                
+                // 初期化メッセージを送信
+                if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+                    wsRef.current.send(JSON.stringify({
+                        type: 'subscribe',
+                        payload: { channel: 'trigger' }
+                    }));
+                }
             };
 
             wsRef.current.onmessage = event => {
@@ -64,6 +73,34 @@ const LivePanel: React.FC<LivePanelProps> = ({ selectedTriggerId }) => {
                 try {
                     const data = JSON.parse(event.data);
 
+                    // ハートビート/pong メッセージは無視
+                    if (data.type === 'pong') {
+                        return;
+                    }
+
+                    // triggerUpdate メッセージを処理
+                    if (data.type === 'triggerUpdate' && data.payload) {
+                        const { triggerId, triggerName, eventType, presetsFired, success, error, executionTime } = data.payload;
+                        
+                        const triggerEvent: TriggerEvent = {
+                            id: `event-${Date.now()}-${Math.random()}`,
+                            triggerId: triggerId || 'unknown',
+                            triggerName: triggerName || 'Unknown',
+                            eventType: eventType || 'unknown',
+                            timestamp: data.timestamp || Date.now(),
+                            success: success !== false,
+                            presetsFired: presetsFired || [],
+                            executionTime,
+                            error
+                        };
+
+                        setEvents(prev => {
+                            const updated = [triggerEvent, ...prev];
+                            return updated.slice(0, 100);
+                        });
+                    }
+                    
+                    // 後方互換性: trigger:fired メッセージ
                     if (data.type === 'trigger:fired') {
                         const triggerEvent: TriggerEvent = {
                             id: `event-${Date.now()}-${Math.random()}`,
@@ -83,20 +120,23 @@ const LivePanel: React.FC<LivePanelProps> = ({ selectedTriggerId }) => {
                         });
                     }
                 } catch (err) {
-                    console.error('Failed to parse WebSocket message:', err);
+                    console.error('[LivePanel] Failed to parse WebSocket message:', err);
                 }
             };
 
             wsRef.current.onclose = () => {
+                console.log('[LivePanel] WebSocket disconnected');
                 setIsConnected(false);
+                // 3秒後に再接続を試みる
                 setTimeout(connectWebSocket, 3000);
             };
 
-            wsRef.current.onerror = () => {
+            wsRef.current.onerror = (err) => {
+                console.error('[LivePanel] WebSocket error:', err);
                 setIsConnected(false);
             };
         } catch (err) {
-            console.error('WebSocket connection failed:', err);
+            console.error('[LivePanel] WebSocket connection failed:', err);
             setIsConnected(false);
         }
     };
