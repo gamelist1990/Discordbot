@@ -14,6 +14,7 @@ import TodoDashboard from './pages/Todo/TodoDashboard';
 import TodoSession from './pages/Todo/TodoSession';
 import UserProfile from './pages/Profile';
 import FeedbackPage from './pages/Feedback';
+import TriggerManager from './pages/TriggerManager';
 import { useAuthGuard } from './hooks/useAuthGuard';
 import HomePage from './pages/Home';
 import NotFoundPage from './pages/NotFound';
@@ -61,6 +62,7 @@ const App: React.FC = () => {
           <Route path="/staff/privatechat" element={<StaffGuard><PrivateChatPage /></StaffGuard>} />
           <Route path="/staff/rolemanager" element={<StaffGuard><RoleManagerPage /></StaffGuard>} />
           <Route path="/staff/rankmanager" element={<StaffGuard><RankManagerPage /></StaffGuard>} />
+          <Route path="/staff/triggermanager" element={<StaffGuard><TriggerManager /></StaffGuard>} />
           <Route path="/staff/privateChat" element={<Navigate to="/staff/privatechat" replace />} />
           <Route path="/todo/:guildId" element={<TodoDashboard />} />
           <Route path="/todo/:guildId/session/:sessionId" element={<TodoSession />} />
