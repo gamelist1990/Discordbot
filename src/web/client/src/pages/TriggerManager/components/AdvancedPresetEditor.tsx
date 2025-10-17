@@ -39,11 +39,13 @@ interface Preset {
 interface AdvancedPresetEditorProps {
     presets: Preset[];
     onPresetsChange: (presets: Preset[]) => void;
+    guildId?: string;
 }
 
 const AdvancedPresetEditor: React.FC<AdvancedPresetEditorProps> = ({
     presets,
-    onPresetsChange
+    onPresetsChange,
+    guildId
 }) => {
     const [expandedId, setExpandedId] = useState<string | null>(null);
 
@@ -492,6 +494,7 @@ const AdvancedPresetEditor: React.FC<AdvancedPresetEditorProps> = ({
                                                             reactEmoji: emoji
                                                         })
                                                     }
+                                                    guildId={guildId}
                                                 />
                                             </div>
 

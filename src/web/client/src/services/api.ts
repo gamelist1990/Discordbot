@@ -240,3 +240,10 @@ export interface StaffCommandData {
 export async function fetchStaffCommands(): Promise<StaffCommandData> {
   return apiRequest<StaffCommandData>(`${API_BASE}/staff/commands`);
 }
+
+/**
+ * ギルドの絵文字一覧を取得
+ */
+export async function fetchGuildEmojis(guildId: string): Promise<{ emojis: Array<{ id: string; name: string | null; animated: boolean; url: string }> }> {
+  return apiRequest(`${API_BASE}/staff/guilds/${encodeURIComponent(guildId)}/emojis`);
+}

@@ -866,4 +866,48 @@ export class StaffController {
             res.status(500).json({ error: 'Failed to fetch guild roles' });
         }
     }
+
+    /**
+     * ギルドの絵文字一覧を取得
+     */
+    async getGuildEmojis(req: Request, res: Response): Promise<void> {
+        const session = (req as any).session as SettingsSession;
+        const { guildId } = req.params;
+
+        if (!guildId) {
+            res.status(400).json({ error: 'guildId is required' });
+            return;
+        }
+
+        try {
+            // Check if user has access to this guild
+            const allowed = (session.guildIds || []).length === 0
+                ? (session.guildId === guildId)
+                : (session.guildIds || []).includes(guildId);
+
+            if (!allowed) {
+                res.status(403).json({ error: 'Forbidden: session does not have access to this guild' });
+                return;
+            }
+
+            const guild = this.botClient.client.guilds.cache.get(guildId);
+            if (!guild) {
+                res.status(404).json({ error: 'Guild not found' });
+                return;
+            }
+
+            // Map emojis to a simple serializable shape
+            const emojis = guild.emojis.cache.map(e => ({
+                id: e.id,
+                name: e.name,
+                animated: e.animated,
+                url: e.imageURL() // Use imageURL() instead of deprecated url getter
+            }));
+
+            res.json({ emojis: Array.from(emojis) });
+        } catch (error) {
+            console.error('Failed to get guild emojis:', error);
+            res.status(500).json({ error: 'Failed to fetch guild emojis' });
+        }
+    }
 }

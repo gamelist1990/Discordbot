@@ -39,6 +39,9 @@ export function createStaffRoutes(
     // ギルドのロール一覧取得
     router.get('/guilds/:guildId/roles', verifyAuth(sessions), controller.getGuildRoles.bind(controller));
 
+    // ギルドの絵文字一覧取得
+    router.get('/guilds/:guildId/emojis', verifyAuth(sessions), controller.getGuildEmojis.bind(controller));
+
     // メンバー管理エンドポイント (session-based)
     router.get('/privatechats/:chatId/members', verifyAuth(sessions), controller.getChatMembers.bind(controller));
     router.post('/privatechats/:chatId/members', verifyAuth(sessions), controller.addChatMember.bind(controller));

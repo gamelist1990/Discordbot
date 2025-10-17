@@ -109,7 +109,7 @@
     border-radius: 12px;
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
     width: 90%;
-    max-width: 500px;
+    max-width: 600px;
     max-height: 80vh;
     animation: slideUp 0.3s ease;
 }
@@ -249,6 +249,32 @@
 .noResults p {
     margin: 0;
     font-size: 0.95rem;
+}
+
+.customEmojiImg {
+    max-width: 100%;
+    max-height: 100%;
+    width: auto;
+    height: auto;
+    object-fit: contain;
+    display: block;
+}
+
+.customEmojiPreview {
+    max-width: 90%;
+    max-height: 90%;
+    width: auto;
+    height: auto;
+    object-fit: contain;
+}
+
+.loading {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem;
+    color: var(--text-secondary);
 }
 
 /* レスポンシブ */

@@ -286,19 +286,20 @@ const TriggerManager: React.FC = () => {
                 {/* Middle Column: Grid of cards OR Editor when editing/creating */}
                 <div className={styles.middleColumn}>
                     {selectedTrigger || isCreating ? (
-                        <TriggerEditor
-                            trigger={selectedTrigger}
-                            isCreating={isCreating}
-                            onSave={handleSave}
-                            onDelete={handleDelete}
-                            onCancel={() => {
-                                setSelectedTrigger(null);
-                                setIsCreating(false);
-                                // モバイルではサイドバーを開く
-                                if (window.innerWidth <= 768) {
-                                    setSidebarCollapsed(false);
-                                }
-                            }}
+                            <TriggerEditor
+                                trigger={selectedTrigger}
+                                isCreating={isCreating}
+                                onSave={handleSave}
+                                onDelete={handleDelete}
+                                onCancel={() => {
+                                    setSelectedTrigger(null);
+                                    setIsCreating(false);
+                                    // モバイルではサイドバーを開く
+                                    if (window.innerWidth <= 768) {
+                                        setSidebarCollapsed(false);
+                                    }
+                                }}
+                                guildId={guildId}
                         />
                     ) : (
                         <div className={styles.cardGrid}>

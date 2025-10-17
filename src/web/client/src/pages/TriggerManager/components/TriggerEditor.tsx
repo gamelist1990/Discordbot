@@ -22,6 +22,7 @@ interface TriggerEditorProps {
     onSave: (trigger: Trigger) => void;
     onDelete: (triggerId: string) => void;
     onCancel: () => void;
+    guildId?: string;
 }
 
 type EditorTab = 'basic' | 'conditions' | 'presets';
@@ -32,6 +33,7 @@ const TriggerEditor: React.FC<TriggerEditorProps> = ({
     onSave,
     onDelete,
     onCancel
+    , guildId
 }) => {
     const [tab, setTab] = useState<EditorTab>('basic');
     const [saving, setSaving] = useState(false);
@@ -241,6 +243,8 @@ const TriggerEditor: React.FC<TriggerEditorProps> = ({
                     <AdvancedPresetEditor
                         presets={formData.presets || []}
                         onPresetsChange={(presets: any[]) => setFormData({ ...formData, presets })}
+                        // pass guildId so EmojiPicker can fetch guild emojis
+                        guildId={guildId}
                     />
                 )}
             </div>
