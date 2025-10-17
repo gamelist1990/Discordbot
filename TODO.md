@@ -1,281 +1,163 @@
-# ランキングシステム実装 TODO
+# トリガー機能の実装
 
-目的: ギルド内アクティビティに基づくランク（XP）システムを追加し、スタッフがプリセットを作成・管理、ランクパネルをチャンネルに配置・定期更新できるようにする。
+説明:
+- Web 管理画面: /staff/triggerManager で管理可能
+- Discord の各種イベントに応じて、プリセットで定義したアクション(Embed / Text / Reply / Modal / Webhook / DM / React 等)を実行させる
+- プリセットは最大5つまで（レート制限対策）
+- イベントごとに複数プリセットを割り当て可能（UI上で順序/有効化切替）
 
-## 機能要件
+対応イベント（包括的一覧、拡張可能）:
+- guildMemberAdd (メンバー参加)
+- guildMemberRemove (メンバー退出)
+- messageCreate (メッセージ送信)
+- messageUpdate (メッセージ編集)
+- messageDelete (メッセージ削除)
+- interactionCreate (モーダル/ボタン/セレクト等のインタラクション)
+- messageReactionAdd / messageReactionRemove (リアクション追加/削除)
+- voiceStateUpdate (ボイス参加/退出/ミュート等)
+- presenceUpdate (ステータス更新)
+- guildMemberUpdate (ニックネーム/ロール変更)
+- channelCreate / channelDelete / channelUpdate
+- threadCreate / threadDelete
+- roleCreate / roleDelete / guildRoleUpdate
+- webhookEvent / customEvent (将来拡張用)
 
-1. 基本機能
-   - ユーザーのXPは主にテキストチャットメッセージ数（発言数）とVC接続時間に基づいて増加する。
-   - ギルドごとにランクプリセット（Rank Preset）を作成できる。プリセットは複数のランク帯（例: Bronze/1-999, Silver/1000-4999, Gold/5000+）を含む。
-   - 各ランク帯に到達した際の報酬（ロール付与、通知 チャンネル通知、カスタムアクション）を設定可能。
-   - `staff rank` コマンドでプリセットの管理（作成/編集/削除）と、チャネル内にランクパネル（Embed）を作成できる。
-   - ランクパネルは定期的に更新され、消されている場合はDB側でクリアする。
+重要: UI は既存の /rank ページと同様の CSS/レイアウトパターンを採用する（参照: [`src/web/client/src/pages/RankBoard/index.tsx`](src/web/client/src/pages/RankBoard/index.tsx:1), 共通スタイルは [`src/web/client/src/components/Layout/Layout.module.css`](src/web/client/src/components/Layout/Layout.module.css:1) をベースに）。
 
-2. Discord コマンド
-   - `/rank` : 自身の現在のXP、次のランクまでの必要XP、現在のランク、総メンバー内順位（オプション）をEmbedで表示。
-   - `staff rank` : スタッフ用サブコマンド群
-     - `staff rank preset create <name>` などプリセット管理サブコマンド
-     - `staff rank panel create <preset> <channel>` : 指定プリセットのランクパネルを指定チャンネルに生成
-     - `staff rank panel remove <panelId>` : パネル削除/停止
-     - `staff rank settings notify-channel <channel>` : ランクアップ通知チャンネル設定
+ユースケース例（拡張）:
+- ユーザーが退出したときに `{user}` を埋め込んだ Embed を特定チャンネルへ送る
+- 指定キーワードが含まれるメッセージが送信されたら自動で返信（Text または Reply）
+- ボタン押下で管理者宛 Modal を開き、入力に基づき Webhook を叩く
+- ボイスチャネル入退室で挨拶を送る / ロール変更時にDMで通知する
 
-3. パネル更新
-   - パネルは `RankManager` が管理し、定期的（config で指定可能。例: 5分）に更新される。
-   - パネルがDiscord上で削除されていた場合はDBから該当パネルエントリを削除し、ログを残す。
+仕様（詳細）:
+- Trigger エンティティ:
+  - id, guildId, name, description, enabled, eventType, priority, conditions[], presets[]（最大5）, createdBy, createdAt, updatedAt
+- Condition（複合可）:
+  - id, type (messageContent / authorId / authorRole / channelId / hasAttachment / mention / regex / presence / voiceState / custom), matchType (equals / contains / regex / startsWith / endsWith), value, negate, groupId (AND/OR グループ化用)
+- TriggerPreset（各トリガーに紐づくアクション、最大5）:
+  - id, triggerId, index (order), enabled, type (Embed / Text / Reply / Modal / Webhook / DM / React), template (string or JSON), fields (Embed のフィールド配列等), targetChannelId?, webhookUrl?, dmTargetUserId?, reactEmoji?, cooldownSeconds?
+  - type 詳細:
+    - Embed: title, description, color, fields[], imageUrl, footer
+    - Text: plain text or template with プレースホルダ
+    - Reply: replyToMessageId の参照を許可（メッセージに対する返信）
+    - Modal: modalId, modalFields[]（UI で設定可能。実行時にユーザーにモーダルを表示）
+    - Webhook: url, method, headers, bodyTemplate
+    - DM: targetUserId (or {author}), template
+    - React: emoji (unicode or custom), optionally removeAfterSeconds
+- プレースホルダ（利用可能なキー）:
+  - 基本: {user}, {user.name}, {user.tag}, {user.id}, {user.createdAt}, {guild.name}, {guild.id}, {guild.memberCount}, {channel.name}, {channel.id}, {channel.topic}, {message.content}, {message.id}, {message.length}, {message.words}, {attachments.count}, {time}, {mention}
+  - プレイヤー/権限: {author.roles}, {author.isBot}, {author.locale}
+  - ボイス/プレゼンス: {voice.channel}, {voice.channel.id}, {presence.status}
+  - ランダム/ユーティリティ: {random.int(min,max)}, {random.uuid}, {date.now}
+  - 環境/管理者限定: {env.VARIABLE}（管理者のみ使用可。サーバー設定で有効化）
+  - 注意:
+    - 出力は自動的にエスケープされ XSS を防止する（Embed のフィールド等は適切にサニタイズ）。
+    - 必要ならさらにカスタムプレースホルダを追加可能（運用ルールを設定）。
+  - スクリプト連携:
+    - Pseudo-JS（疑似スクリプト）を使った補助値は `{script.<key>}` で参照可能（例: `{script.greeting}`）。
+    - スクリプト実行結果は JSON で返却され、テンプレート内でキー単位で参照する設計とする。
 
-4. データ管理
-   - データ格納場所: `Data/Guild/<guildId>/rankings.json` または `Guild/<guildId>/rankings/*` の形で保存。
-   - 保存する主な情報:
-     - rankPresets: プリセット定義（name, ranks[], rewards[]）
-     - users: { userId: { xp: number, lastUpdated: ISO, vcAccumMs?: number } }
-     - panels: { panelId: { channelId, messageId, presetName, lastUpdate } }
-     - settings: notifyChannelId, updateIntervalMs
+ログ保存ポリシー:
+- 要件により、トリガー発火履歴は「永続的保存しない」設計とする。
+- 実行時のイベント情報はサーバー側で短時間インメモリ（例: FIFO buffer, 最大 N 件、デフォルト 100）に保持し、WebSocket（または SSE）を介して管理 UI にリアルタイム送信する。
+- 永続ログを残さないため、履歴は再起動で消えること、および監査が必要なら別途ログ保存モジュールを追加する旨を明記。
 
-5. Web UI
-   - `web/controllers/RankController.ts` を追加し、`web/modules/rankmanager` でプリセット編集、報酬設定、通知チャンネル、パネル管理が可能。
+リアルタイム同期設計（WS）:
+- サーバー: WebSocket 経路は既存の WebSocketManager を拡張し、イベント名 `trigger:fired` を発行する（payload: { triggerId, presetId, guildId, summary, renderedOutput, timestamp, success, error? }）。
+- クライアント: /staff/triggerManager の右カラムで WS を購読し、受信したエントリを時系列で表示。最大保持数は UI 側で制限（例: 200）。
+- UI 側では「リアルタイム表示（ライブ）」と「一時停止（キャプチャ停止）」を切替可能。
+- 実行履歴は DB に保存されないため、長期監査が必要な場合は別途エクスポート機能（Webhook へ送信など）を検討。
 
-6. イベント/バッチ
-   - メッセージ作成イベントでXPを小幅に増やす（例: 発言ごとに 5 XP、スパム対策のためのクールダウンを導入）。
-   - VC参加/離脱イベントで接続時間を計測し、一定単位（例: 1分ごとに 10 XP）で加算。
-   - 定期ジョブで未反映のVC時間を集計し、users データに反映。
+UI（/staff/triggerManager）の詳細（/rank のデザインを踏襲、コンポーネント設計込み）:
+- レイアウト: 3カラム（左: TriggerList, 中央: Editor, 右: Live Panel）を `/rank` と同じグリッド/幅比で実装。
+  - 参考: [`src/web/client/src/pages/RankBoard/RankBoardHome.tsx`](src/web/client/src/pages/RankBoard/RankBoardHome.tsx:1) のレイアウトをコピーして調整。
+- 左カラム - TriggerList:
+  - 検索バー + フィルタ（イベントタイプ、状態、有効/無効、作成者）
+  - 各アイテム: 名前、イベントタイプ、優先度バッジ、有効トグル、簡易編集ボタン
+  - ドラッグ&ドロップで順序変更（優先度更新 API 呼び出し）
+  - 新規ボタン（モーダルで Editor を開く）
+- 中央カラム - Editor（TriggerEditor コンポーネント）:
+  - 上部: 基本情報フォーム（名前、説明、enabled、priority）
+  - イベントタイプ選択ドロップダウン（対応イベント一覧）
+  - 条件エディタ（ConditionEditor コンポーネント）
+    - 条件行の追加、matchType 選択、値入力、グループ AND/OR 設定
+  - プリセットエリア（PresetEditorList）
+    - 最大5スロットを視覚的に表示（空スロットは「追加」ボタン）
+    - スロット内で type を選択し、タイプ別フォームを展開:
+      - Embed エディタ（タイトル/説明/フィールド/色/画像）
+      - Text エディタ（リッチプレースホルダ、文字数カウント）
+      - Reply（返信時のオプション）
+      - Modal（管理用モーダル定義フォーム: ラベル、種類、required）
+      - Webhook（URL、method、ヘッダ、body テンプレート）
+      - DM（ターゲットとテンプレート）
+      - React（絵文字選択）
+    - 各プリセットに cooldown 秒数入力、enable 切替、ドラッグで順序変更
+  - Preview ボタン（モックイベントを送ってプレビュー表示、但し実運用の送信は行わないオプション）
+  - Save / Cancel / Delete ボタン（サーバー API 連携）
+- 右カラム - Live Panel（TriggerLivePanel）:
+  - WebSocket 接続状態表示（接続中/切断）
+  - リアルタイムで受信したトリガー発火エントリのタイムライン表示（レンダリング済みプレビューを折りたたんで表示可能）
+  - フィルタ（eventType / triggerId / success only / errors only）
+  - 「キャプチャ一時停止」「クリア表示」ボタン
+  - 既定で保存しない仕様のため、ここで表示された履歴はサーバー再起動で消えることを明記
+- スタイル:
+  - `/rank` と同等の CSS モジュールを利用し、Class 名規約に従う（Module CSS）。必要なら `TriggerManager.module.css` を追加して既存クラスを流用。
+  - 参照ファイル:
+    - [`src/web/client/src/pages/RoleManager/RoleManager.module.css`](src/web/client/src/pages/RoleManager/RoleManager.module.css:1)
+    - [`src/web/client/src/pages/RankManager/RankManager.module.css`](src/web/client/src/pages/RankManager/RankManager.module.css:1)
+  - レスポンシブ: 幅が狭い場合は中→右の順でタブ化して切替表示
 
-7. 報酬処理
-   - ランクに到達したユーザーに対し、プリセットで指定したアクション（ロール付与、個別メッセージ、Webhook通知など）を実行。
-   - 報酬実行前にBotが必要な権限を持っているかチェック。
+API/エンドポイント（更新: リアルタイム用 WS を考慮）:
+- REST:
+  - GET /api/triggers?guildId=...
+  - GET /api/triggers/:id
+  - POST /api/triggers
+  - PUT /api/triggers/:id
+  - DELETE /api/triggers/:id
+  - POST /api/triggers/:id/test (モックイベントでのテスト実行、レスポンスはプレビューのみ)
+  - POST /api/triggers/import
+  - POST /api/triggers/export
+- WS / SSE:
+  - WS チャンネル: 'trigger:fired' をブロードキャスト
+  - サーバーは該当ギルドのクライアントのみへ送信（認証済み接続で guildId を基にフィルタ）
 
-8. 権限と設定
-   - `staff` レベル以上のユーザーのみプリセット/パネル設定が可能（既存の PermissionLevel.STAFF を利用）。
+データモデル（更新）:
+- Trigger: 変更なし（presets は TriggerPreset オブジェクト配列）
+- TriggerPreset: 詳細フィールドを追加（上記参照）
+- TriggerLog: 永続化しないポリシーのため DB スキーマは提供しない。必要ならオプションモジュールで実装。
 
-9. テスト
-   - `RankManager` のユニットテスト（XP算出、ランク判定、パネル生成ロジック）を用意。
+実装 TODO（詳細・優先順）:
+- [ ] DB スキーマ: Trigger / TriggerPreset（永続データのみ）
+- [ ] src/core/TriggerManager を追加:
+      - 条件評価エンジン（複合 AND/OR）
+      - プリセット実行 (Embed/Text/Reply/Modal/Webhook/DM/React)
+      - cooldown 管理（プリセット単位の最小間隔）
+      - 実行時に WS へ `trigger:fired` を送信（payload にレンダリング結果と要約を含む）
+      - 永続ログは行わない（インメモリ短期バッファのみ）
+- [ ] Discord イベントハンドラを拡張（src/core/EventHandler.ts / EventManager）
+- [ ] API 層: src/web/routes/triggers.ts, src/web/controllers/TriggerController.ts を実装
+- [ ] WebSocketManager の拡張: 認証されたクライアントへ `trigger:fired` を送信
+- [ ] フロントエンド:
+      - ページ: src/web/client/src/pages/TriggerManager/TriggerManager.tsx
+      - コンポーネント: TriggerList, TriggerEditor, ConditionEditor, PresetEditor, LivePanel
+      - CSS: src/web/client/src/pages/TriggerManager/TriggerManager.module.css（/rank に近いスタイル）
+      - services/api.ts / services/WebSocketService.ts へエンドポイントと購読実装を追加
+- [ ] 権限ミドルウェア: staff のみアクセス可にする
+- [ ] テンプレートレンダリングエンジン実装（安全にエスケープ、長さ制限）
+- [ ] 単体テスト & 統合テスト（モック Discord イベント + WS の受信検証）
+- [ ] ドキュメント: README と UI のヘルプ（/staff/triggerManager 内のヘルプパネル）
+- [ ] セキュリティ: Webhook URL 検証、外部 URL ブラックリスト、XSS 防止
 
-## データモデル（例）
+注意・運用メモ:
+- 履歴を永続化しないため、デバッグ用に「エクスポート」機能を用意して管理者が必要な時だけ履歴を外部に保存できるようにする（例: ZIP/JSON）。
+- Modal 実行は Discord の仕様に依存するため、権限や許可フローを明記する。
+- プリセット実行によるスパム防止は厳格に実装（最大5プリセット + cooldown + グローバルレート制御）。
+- UI は /rank のデザインガイドに従うことで統一感を保つ。
 
-{
-  "rankPresets": [
-    {
-      "name": "default",
-      "ranks": [
-        { "name": "Bronze", "minXp": 0, "maxXp": 999 },
-        { "name": "Silver", "minXp": 1000, "maxXp": 4999 },
-        { "name": "Gold", "minXp": 5000, "maxXp": 999999 }
-      ],
-      "rewards": [ { "rankName": "Silver", "giveRoleId": "...", "notify": true } ]
-    }
-  ],
-  "users": {
-    "123456789012345678": { "xp": 2345, "lastUpdated": "2025-10-16T00:00:00.000Z", "vcAccumMs": 3600000 }
-  },
-  "panels": {
-    "panel-1": { "channelId": "...", "messageId": "...", "preset": "default", "lastUpdate": "..." }
-  },
-  "settings": { "notifyChannelId": "...", "updateIntervalMs": 300000 }
-}
-
-## 必要なファイル/モジュール
-
-- `src/core/RankManager.ts` (メインロジック、DB操作、パネル更新、イベント購読)
-- `src/commands/staff/subcommands/rank.ts` (staff rank サブコマンドハンドラ)
-- `src/commands/any/rank.ts` (/rank コマンド)
-- `web/controllers/RankController.ts` (Web API エンドポイント)
-- `web/modules/rankmanager` (フロント側 UI)
-- テストファイル: `test/rankManager.test.ts`
-
-## 実装手順（高レベル）
-
-1. データモデルとDBスキーマ設計（このTODOに記載）
-2. `RankManager` の作成: DB 読み書き、パネル更新タイマー、XP計算API、報酬処理
-3. Discord イベントフック: メッセージとVCイベントを RankManager に接続
-4. Discord コマンド: `/rank` と `staff rank` を追加
-5. Web UI と API: `RankController` とフロントエンドの雛形を追加
-6. テストとCI: 単体テストとビルドチェックを追加
-
-## 進め方
-
-- まずは `RankManager` のコア部分を作成し、DB の読み書き、XP の蓄積、単純な `/rank` 表示を実装します。
-- 次にパネル・プリセット管理、Web UI を段階的に追加します。
-
-## マイグレーション / 既存データ
-
-- 既存のData構造は保持し、新しい `Guild/<guildId>/rankings.json` を追加する方式を推奨。
-
-## 参考/メモ
-
-- 既存の `Database` シングルトンを利用してデータ保存
-- パネル更新はRateLimitに注意（API呼び出し頻度）
-
-
-## Web UI: `staff/rankmanager` - Google Style レイアウト詳細
-
-目的: スタッフが直感的にランクプリセット/報酬/通知/パネルを管理できる管理画面を提供する。
-
-デザイン方針 (Google Material-ish / Google Style):
-- シンプルで読みやすいタイポグラフィ（Roboto 系フォント推奨）
-- カードベースのレイアウト。主要操作は上部ツールバーとカード内アクションに集約。
-- 一貫した色使い: ギルドのアクセントカラーをテーマに反映可能。
-- 明確なモーダルとトースト通知で操作結果をフィードバック。
-
-ページ構成:
-
-1) ダッシュボード（`/staff/rankmanager`）
-    - ヘッダー: プロジェクト名 + ギルド選択ドロップダウン + 保存ボタン
-    - サマリーカード: 総ユーザー数 / アクティブユーザー（24h）/ 総XP
-    - プリセット一覧: 各プリセットはカードで表示、編集/削除/複製ボタンを配置
-    - パネル一覧: 現在稼働中のパネルを一覧表示。メッセージプレビュー + 「更新」「停止」「表示先を開く」ボタン
-
-2) プリセット編集ページ（モーダル可）
-    - フィールド: プリセット名, 説明
-    - ランク定義リスト: 各ランク行で「ランク名 / minXp / maxXp / スタイル（色） / 表示アイコン」を編集可能
-    - 報酬タブ: ランク到達時のアクションを定義（ロール付与のドロップダウン、通知フラグ、Webhook URL フィールド、カスタムスクリプト（将来））
-    - 保存・キャンセル・プレビュー（Embed の見た目を即時プレビュー）
-
-3) パネル作成ウィザード
-    - ステップ1: 対象プリセット選択
-    - ステップ2: チャンネル選択（ボットが書き込み権限を持っていないチャンネルは選択不可）
-    - ステップ3: 更新間隔（分単位）と表示項目（上位 N 件、個人順位表示の有無）
-    - ステップ4: 確認 -> 作成
-
-4) 設定ページ
-    - 通知チャンネル設定、デフォルト更新間隔、XPレート（発言あたり・VC毎分）などの初期値を設定
-
-UI コンポーネント要件:
-- テーブル（検索・ソート・ページネーション）: ユーザーランキング一覧やプリセット内のランク一覧
-- トグル/スイッチ: 通知ON/OFF
-- モーダル: プリセット編集・パネル作成
-- カラーピッカー: ランクの色選択
-- トースト通知: 保存成功/失敗、権限不足などを表示
-
-アクセシビリティ:
-- キーボード操作に対応
-- カラーモード: 明・暗切替をサポート
-
-API エンドポイント（サーバー側: `web/controllers/RankController.ts`）
-
-- GET /api/staff/rankmanager/presets?guildId=:guildId
-   - 説明: プリセット一覧取得
-- POST /api/staff/rankmanager/presets
-   - 説明: 新規プリセット作成（body にプリセット定義）
-- PUT /api/staff/rankmanager/presets/:presetName
-   - 説明: プリセット更新
-- DELETE /api/staff/rankmanager/presets/:presetName
-   - 説明: プリセット削除
-- GET /api/staff/rankmanager/panels?guildId=:guildId
-   - 説明: パネル一覧取得
-- POST /api/staff/rankmanager/panels
-   - 説明: パネル作成（body に channelId, presetName, options）
-- DELETE /api/staff/rankmanager/panels/:panelId
-   - 説明: パネル削除/停止
-- PUT /api/staff/rankmanager/settings
-   - 説明: ギルド設定（notifyChannelId, updateIntervalMs, xpRates など）保存
-
-セキュリティ/バリデーション:
-- すべての API はスタッフ権限確認を行う（セッション/トークンで guildId と権限を検証）
-- 入力バリデーション: minXp < maxXp、重複したランク範囲が無いこと、チャンネルIDとロールIDの形式チェック
-
-運用メモ:
-- UI で「パネルの強制再作成」ボタンを置くと、消失時の迅速な復旧に便利
-
-## XPレート調整と高度設定（Webで編集可能）
-
-目的: ギルド管理者がチャット/VCでのXP付与ルールを細かく調整できるようにし、コミュニティの性質に合わせた成長ポリシーを設定できるようにする。
-
-主要設定項目（`settings.xpRates` として保存）:
-- `messageXp`: 1回の発言で付与される基本XP（例: 5）
-- `messageCooldownSec`: 同一ユーザーに対する発言ベースのクールダウン（秒）。クールダウン内の追加発言は無効化または減衰。例: 60秒
-- `vcXpPerMinute`: VCに接続していた1分あたりのXP（例: 10）
-- `vcIntervalSec`: VC時間計測の粒度（秒）。
-- `dailyXpCap`: ユーザーが1日で獲得できる最大XP（0で無制限）
-- `excludeChannels`: チャンネルIDの配列（ここではXP付与しない）
-- `excludeRoles`: ロールIDの配列（そのロールを持つユーザーにはXPを付与しない）
-- `globalMultiplier`: イベントやプロモーション期間用の倍率（例: 1.5）
-- `decay`: XPの減衰ルール（無効/週次で%減少など。オプション）
-- `customFormulaEnabled` + `customFormula`: 高度ユーザー向けに式を定義できる（例: "xp = base * log(messages+1) + vcMinutes*2"）
-
-UI 上の操作要素:
-- スライダー / 数値入力: `messageXp`, `vcXpPerMinute`, `dailyXpCap`
-- 数値 + スピンボタン: `messageCooldownSec`, `vcIntervalSec`
-- マルチセレクト: `excludeChannels`, `excludeRoles`
-- トグル: `customFormulaEnabled`, `decay.enabled`
-- テキストエリア（式エディタ）: `customFormula`（式のバリデーションとサンドボックス評価を実装）
-- プリセットのインポート/エクスポート: ギルド間で設定をコピー可能
-
-サーバー側のバリデーション（必須）:
-- `messageXp`, `vcXpPerMinute` >= 0
-- `messageCooldownSec`, `vcIntervalSec` は合理的な上限を設ける（例: 1 <= sec <= 86400）
-- `dailyXpCap` は正の整数または0
-- `customFormula` は危険な操作（ファイル/ネットワーク等）を行えないサンドボックスで評価
-
-API 拡張（設定関連）
-- GET /api/staff/rankmanager/settings?guildId=:guildId
-   - 説明: 現在の設定を取得（xpRates を含む）
-- PUT /api/staff/rankmanager/settings
-   - 説明: 設定更新。body には完全な settings オブジェクトを渡す。サーバー側で権限検査とバリデーションを行う。
-
-監査ログと変更履歴:
-- 設定変更は `Data/Guild/<guildId>/rankings_settings_audit.json` などに記録し、誰がいつどの値を変更したか追跡可能にする。
-
-運用上の注意:
-- カスタム式や倍率を無制限に開けるとスパムや運用負荷が生じる可能性があるため、UIにガイドラインと推奨値を明示する。
-- 設定変更は即時反映するが、パネル更新頻度との整合性を取るため、設定更新後にRankManagerの再計算をトリガーするボタンを用意することを推奨。
-
-## 外部API（サードパーティ連携）
-
-目的: 外部サービス（分析ツール、イベントシステム、ボット運用スクリプト）からランキングデータや操作を安全に行えるREST APIを提供する。
-
-基本方針:
-- API はギルド単位で権限分離を行う。APIキーまたは OAuth2 を利用して認可を行う。
-- 最小権限の原則: APIキーごとに許可できる操作を限定（例: read-only / xp-write / admin）。
-- すべての変更は監査ログに記録。
-- レート制限を厳格に設定し、濫用を防ぐ。
-
-推奨エンドポイント（`web/controllers/ExternalRankAPI.ts`）:
-
-- POST /api/external/:guildId/xp/add
-   - 説明: ユーザーにXPを付与する（body: { userId, xp, reason })
-   - 権限: `xp-write` 以上
-- POST /api/external/:guildId/xp/set
-   - 説明: ユーザーのXPを直接設定する（body: { userId, xp, reason })
-   - 権限: `admin`
-- GET /api/external/:guildId/leaderboard
-   - 説明: リーダーボードを取得（クエリ: limit, offset, presetName）
-   - 権限: `read-only`（公開可能）
-- POST /api/external/:guildId/panels/create
-   - 説明: パネルを作成（body: { channelId, presetName, options }）
-   - 権限: `admin` または `panel-manage`
-- POST /api/external/:guildId/panels/:panelId/update
-   - 説明: パネルの即時更新をトリガー
-   - 権限: `panel-manage`
-- POST /api/external/:guildId/presets/import
-   - 説明: プリセットをJSONでインポート
-   - 権限: `admin`
-- POST /api/external/:guildId/recalculate
-   - 説明: RankManager に対して全ユーザーの再計算をトリガー
-   - 権限: `admin`
-
-認証（APIキー方式 推奨）:
-- APIキーは `web/controllers/ApiKeyController.ts` で発行/無効化/一覧管理可能
-- APIキーはハッシュ化して保存（平文での保存は禁止）
-- リクエストは `Authorization: Bearer <API_KEY>` ヘッダで送る
-- キーごとに `scopes` を保存: e.g. `["read-only","xp-write"]`
-
-セキュリティ対策:
-- TLS (HTTPS) を必須にする
-- レート制限: ギルドごと/キーごとに秒間/分間レートを適用（デフォルト: 5 req/s, 500 req/day）
-- IP ホワイトリスト機能（オプション）
-- ペイロードサイズ制限、入力バリデーション
-- 監査ログ: すべての重要操作 (xp set, preset import, panel create/delete, recalculate) を `Data/Guild/<guildId>/external_api_audit.json` に記録
-
-運用UI:
-- `web/controllers/ApiKeyController.ts` と `web/modules/apikeys` を作成して、スタッフがキーの発行・権限付与・無効化を行えるようにする。
-
-利用例:
-- 外部イベントで獲得したXPを付与: 外部サービスが `POST /api/external/12345/xp/add` を呼ぶ
-- 外部分析ツールがリーダーボードを定期取得: `GET /api/external/12345/leaderboard?limit=100`
-
-注意点:
-- 外部APIは強力なので、`admin` 権限のキーは慎重に管理する。可能ならオフラインのキーやシークレット管理を行う。
-
-
----
-
-実行: 上記を `TODO.md` に書き込みました。次はこの機能の「RankManager」コアの実装に取りかかれます。もし続けて実装を開始してよければ、どのタスクから始めるか指示ください。
+マイルストーン案（詳細）:
+1. DB スキーマ + basic TriggerManager（条件評価・プリセット実行・WS 発行）
+2. 最小限 UI（一覧・編集・プリセット編集・WS ライブ表示）＋ REST API
+3. 主要イベント統合（member/message/interaction/reaction/voice）＋ テスト
+4. RateLimit 強化・セキュリティ対策（Webhook 検証等）
+5. ドキュメント整備・運用手順作成・エクスポート機能

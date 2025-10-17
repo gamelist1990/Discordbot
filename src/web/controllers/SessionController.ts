@@ -79,4 +79,22 @@ export class SessionController {
             res.status(500).json({ error: 'Failed to fetch guild info' });
         }
     }
+
+    /**
+     * 現在のセッション情報を返す
+     */
+    async getCurrent(req: Request, res: Response): Promise<void> {
+        const session = (req as any).session as SettingsSession | undefined;
+        if (!session) {
+            res.status(401).json({ error: 'Unauthorized' });
+            return;
+        }
+
+        res.json({
+            guildId: session.guildId,
+            guildIds: session.guildIds,
+            userId: session.userId,
+            permissionLevel: session.permissionLevel,
+        });
+    }
 }
