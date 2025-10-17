@@ -385,6 +385,12 @@ export class TriggerManager {
             embed.setTimestamp();
         }
         
+        // Embedが完全に空でないことを確認
+        const embedData = embed.toJSON();
+        if (!embedData.title && !embedData.description && (!embedData.fields || embedData.fields.length === 0)) {
+            throw new Error('Embedが空です。タイトル、説明、またはフィールドのいずれかを設定してください。');
+        }
+        
         await channel.send({ embeds: [embed] });
     }
 
@@ -403,6 +409,9 @@ export class TriggerManager {
         }
         
         const text = this.renderTemplate(preset.template || '', context.placeholders);
+        if (!text.trim()) {
+            throw new Error('メッセージが空です。テンプレートを確認してください。');
+        }
         await channel.send(text);
     }
 
@@ -424,7 +433,13 @@ export class TriggerManager {
         if (!text.trim()) {
             throw new Error('リプライメッセージが空です。テンプレートを確認してください。');
         }
-        await message.reply(text);
+        
+        // replyWithMention フラグに基づいてメンション動作を制御
+        const allowedMentions = preset.replyWithMention ? {} : { repliedUser: false };
+        await message.reply({
+            content: text,
+            allowedMentions: allowedMentions as any
+        });
     }
 
     /**
@@ -472,6 +487,9 @@ export class TriggerManager {
         
         const user = await this.client.users.fetch(userId);
         const text = this.renderTemplate(preset.template || '', context.placeholders);
+        if (!text.trim()) {
+            throw new Error('DMメッセージが空です。テンプレートを確認してください。');
+        }
         
         await user.send(text);
     }

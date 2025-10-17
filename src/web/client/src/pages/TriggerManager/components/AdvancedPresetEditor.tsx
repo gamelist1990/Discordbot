@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import styles from './AdvancedPresetEditor.module.css';
 import PlaceholderHint from './PlaceholderHint.js';
 import EmojiPicker from './EmojiPicker.js';
+import { handleTabCompletion } from '../utils/tabCompletion.js';
 
 interface Preset {
     id: string;
@@ -269,7 +270,24 @@ const AdvancedPresetEditor: React.FC<AdvancedPresetEditorProps> = ({
                                                             template: e.target.value
                                                         })
                                                     }
-                                                    placeholder="例: こんにちは {author.mention}！"
+                                                    onKeyDown={e => {
+                                                        if (e.key === 'Tab') {
+                                                            e.preventDefault();
+                                                            const textarea = e.currentTarget;
+                                                            const result = handleTabCompletion(textarea, e);
+                                                            if (result) {
+                                                                if (result.completed || result.newValue !== textarea.value) {
+                                                                    handleUpdatePreset(preset.id, {
+                                                                        template: result.newValue
+                                                                    });
+                                                                    setTimeout(() => {
+                                                                        textarea.setSelectionRange(result.newCursorPos, result.newCursorPos);
+                                                                    }, 0);
+                                                                }
+                                                            }
+                                                        }
+                                                    }}
+                                                    placeholder="例: こんにちは {author.mention}！ (Tabで補完)"
                                                     rows={4}
                                                     className={styles.textarea}
                                                 />
@@ -326,7 +344,27 @@ const AdvancedPresetEditor: React.FC<AdvancedPresetEditorProps> = ({
                                                             }
                                                         })
                                                     }
-                                                    placeholder="埋め込みの説明"
+                                                    onKeyDown={e => {
+                                                        if (e.key === 'Tab') {
+                                                            e.preventDefault();
+                                                            const textarea = e.currentTarget;
+                                                            const result = handleTabCompletion(textarea, e);
+                                                            if (result) {
+                                                                if (result.completed || result.newValue !== textarea.value) {
+                                                                    handleUpdatePreset(preset.id, {
+                                                                        embedConfig: {
+                                                                            ...(preset.embedConfig || {}),
+                                                                            description: result.newValue
+                                                                        }
+                                                                    });
+                                                                    setTimeout(() => {
+                                                                        textarea.setSelectionRange(result.newCursorPos, result.newCursorPos);
+                                                                    }, 0);
+                                                                }
+                                                            }
+                                                        }
+                                                    }}
+                                                    placeholder="埋め込みの説明 (Tabで補完)"
                                                     rows={4}
                                                     className={styles.textarea}
                                                 />
@@ -401,7 +439,24 @@ const AdvancedPresetEditor: React.FC<AdvancedPresetEditorProps> = ({
                                                             replyTemplate: e.target.value
                                                         })
                                                     }
-                                                    placeholder="リプライの内容を入力"
+                                                    onKeyDown={e => {
+                                                        if (e.key === 'Tab') {
+                                                            e.preventDefault();
+                                                            const textarea = e.currentTarget;
+                                                            const result = handleTabCompletion(textarea, e);
+                                                            if (result) {
+                                                                if (result.completed || result.newValue !== textarea.value) {
+                                                                    handleUpdatePreset(preset.id, {
+                                                                        replyTemplate: result.newValue
+                                                                    });
+                                                                    setTimeout(() => {
+                                                                        textarea.setSelectionRange(result.newCursorPos, result.newCursorPos);
+                                                                    }, 0);
+                                                                }
+                                                            }
+                                                        }
+                                                    }}
+                                                    placeholder="リプライの内容を入力 (Tabで補完)"
                                                     rows={4}
                                                     className={styles.textarea}
                                                 />
@@ -511,7 +566,26 @@ const AdvancedPresetEditor: React.FC<AdvancedPresetEditorProps> = ({
                                                             webhookConfig: newConfig
                                                         });
                                                     }}
-                                                    placeholder='{"event": "trigger", "author": "{author.id}", "message": "{template}"}'
+                                                    onKeyDown={e => {
+                                                        if (e.key === 'Tab') {
+                                                            e.preventDefault();
+                                                            const textarea = e.currentTarget;
+                                                            const result = handleTabCompletion(textarea, e);
+                                                            if (result) {
+                                                                if (result.completed || result.newValue !== textarea.value) {
+                                                                    const newConfig = { ...preset.webhookConfig };
+                                                                    newConfig.bodyTemplate = result.newValue;
+                                                                    handleUpdatePreset(preset.id, {
+                                                                        webhookConfig: newConfig
+                                                                    });
+                                                                    setTimeout(() => {
+                                                                        textarea.setSelectionRange(result.newCursorPos, result.newCursorPos);
+                                                                    }, 0);
+                                                                }
+                                                            }
+                                                        }
+                                                    }}
+                                                    placeholder='{"event": "trigger", "author": "{author.id}", "message": "{template}"} (Tabで補完)'
                                                     rows={4}
                                                     className={styles.textarea}
                                                 />
@@ -553,7 +627,24 @@ const AdvancedPresetEditor: React.FC<AdvancedPresetEditorProps> = ({
                                                             template: e.target.value
                                                         })
                                                     }
-                                                    placeholder="DM内容を入力"
+                                                    onKeyDown={e => {
+                                                        if (e.key === 'Tab') {
+                                                            e.preventDefault();
+                                                            const textarea = e.currentTarget;
+                                                            const result = handleTabCompletion(textarea, e);
+                                                            if (result) {
+                                                                if (result.completed || result.newValue !== textarea.value) {
+                                                                    handleUpdatePreset(preset.id, {
+                                                                        template: result.newValue
+                                                                    });
+                                                                    setTimeout(() => {
+                                                                        textarea.setSelectionRange(result.newCursorPos, result.newCursorPos);
+                                                                    }, 0);
+                                                                }
+                                                            }
+                                                        }
+                                                    }}
+                                                    placeholder="DM内容を入力 (Tabで補完)"
                                                     rows={4}
                                                     className={styles.textarea}
                                                 />
