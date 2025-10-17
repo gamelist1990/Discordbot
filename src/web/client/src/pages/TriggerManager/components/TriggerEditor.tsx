@@ -14,6 +14,10 @@ interface Trigger {
     presets: any[];
     createdAt: string;
     updatedAt: string;
+    // optional: logic connecting conditions
+    conditionLogic?: 'AND' | 'OR';
+    // execution mode for presets
+    runMode?: 'all' | 'random' | 'single';
 }
 
 interface TriggerEditorProps {
@@ -44,13 +48,22 @@ const TriggerEditor: React.FC<TriggerEditorProps> = ({
         eventType: 'messageCreate',
         priority: 0,
         conditions: [],
+        // 新しく追加: 条件の論理 (AND / OR)
+        // 保存時に trigger.conditionLogic として送信される
+        // 型は any で受け取るが 'AND'|'OR' の文字列を期待
+        conditionLogic: 'AND' as any,
+        // presets execution mode
+        runMode: 'all' as any,
         presets: []
     });
 
     useEffect(() => {
         if (trigger) {
             setFormData({
-                ...trigger
+                ...trigger,
+                // ensure defaults for fields that may be missing
+                conditionLogic: (trigger as any).conditionLogic || 'AND',
+                runMode: (trigger as any).runMode || 'all'
             });
         }
     }, [trigger, isCreating]);
@@ -63,7 +76,7 @@ const TriggerEditor: React.FC<TriggerEditorProps> = ({
 
         setSaving(true);
         try {
-            await onSave({
+            const payload = {
                 id: trigger?.id || `trigger-${Date.now()}`,
                 name: formData.name!,
                 description: formData.description || '',
@@ -71,10 +84,20 @@ const TriggerEditor: React.FC<TriggerEditorProps> = ({
                 eventType: formData.eventType || 'messageCreate',
                 priority: formData.priority ?? 0,
                 conditions: formData.conditions || [],
+                // persist condition logic (AND/OR)
+                conditionLogic: (formData as any).conditionLogic || 'AND',
+                // persist preset execution mode
+                runMode: (formData as any).runMode || 'all',
                 presets: formData.presets || [],
                 createdAt: trigger?.createdAt || new Date().toISOString(),
                 updatedAt: new Date().toISOString()
-            });
+            } as any;
+
+            // debug: show payload to console before sending
+            // eslint-disable-next-line no-console
+            console.log('DEBUG_SAVE_PAYLOAD', payload);
+
+            await onSave(payload);
         } finally {
             setSaving(false);
         }
@@ -234,6 +257,11 @@ const TriggerEditor: React.FC<TriggerEditorProps> = ({
                         onConditionsChange={(conditions: any[]) =>
                             setFormData({ ...formData, conditions })
                         }
+                        // pass and control the logic so it becomes part of formData
+                        conditionLogic={(formData as any).conditionLogic || 'AND'}
+                        onConditionLogicChange={(logic: 'AND' | 'OR') =>
+                            setFormData({ ...formData, conditionLogic: logic })
+                        }
                         eventType={formData.eventType || 'messageCreate'}
                     />
                 )}
@@ -245,6 +273,10 @@ const TriggerEditor: React.FC<TriggerEditorProps> = ({
                         onPresetsChange={(presets: any[]) => setFormData({ ...formData, presets })}
                         // pass guildId so EmojiPicker can fetch guild emojis
                         guildId={guildId}
+                        runMode={(formData as any).runMode || 'all'}
+                        onRunModeChange={(mode: 'all' | 'random' | 'single') =>
+                            setFormData({ ...formData, runMode: mode })
+                        }
                     />
                 )}
             </div>

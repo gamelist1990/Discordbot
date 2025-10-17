@@ -7,7 +7,9 @@ interface Preset {
     enabled: boolean;
     type: string;
     template: string;
+    // cooldownSeconds: time before reused; removeAfterSeconds: auto-delete sent message
     cooldownSeconds?: number;
+    removeAfterSeconds?: number;
 }
 
 interface PresetEditorProps {
@@ -39,7 +41,8 @@ const PresetEditor: React.FC<PresetEditorProps> = ({ presets, onChange }) => {
                 enabled: true,
                 type: 'Text',
                 template: '',
-                cooldownSeconds: 0
+                cooldownSeconds: 0,
+                removeAfterSeconds: 0
             }
         ]);
     };
@@ -135,6 +138,23 @@ const PresetEditor: React.FC<PresetEditorProps> = ({ presets, onChange }) => {
                                         updatePreset(
                                             index,
                                             'cooldownSeconds',
+                                            parseInt(e.target.value) || 0
+                                        )
+                                    }
+                                    min="0"
+                                    className={styles.input}
+                                />
+                            </div>
+
+                            <div className={styles.formGroup}>
+                                <label>自動削除時間（秒）</label>
+                                <input
+                                    type="number"
+                                    value={preset.removeAfterSeconds ?? 0}
+                                    onChange={e =>
+                                        updatePreset(
+                                            index,
+                                            'removeAfterSeconds',
                                             parseInt(e.target.value) || 0
                                         )
                                     }

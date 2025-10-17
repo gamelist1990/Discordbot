@@ -141,6 +141,7 @@ export interface TriggerPreset {
     template?: string; // テンプレート文字列
     targetChannelId?: string; // 送信先チャンネル
     cooldownSeconds?: number; // クールダウン（秒）
+    removeAfterSeconds?: number; // 自動削除 (秒) - 0で無効: Text/Reply/Embed/DMメッセージやリアクションを自動削除
     
     // Embed専用
     embedConfig?: EmbedConfig;
@@ -157,7 +158,6 @@ export interface TriggerPreset {
     
     // React専用
     reactEmoji?: string;
-    removeAfterSeconds?: number; // リアクション自動削除（秒後）
 }
 
 /**
@@ -176,6 +176,10 @@ export interface Trigger {
     createdBy: string; // ユーザーID
     createdAt: string; // ISO 8601
     updatedAt: string; // ISO 8601
+    // optional: condition combination logic between groups
+    conditionLogic?: 'AND' | 'OR';
+    // optional: how presets should run
+    runMode?: 'all' | 'random' | 'single';
 }
 
 /**

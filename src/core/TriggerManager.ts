@@ -132,7 +132,7 @@ export class TriggerManager {
             try {
                 // 条件評価
                 const context = await this.buildContext(trigger, eventType, eventData);
-                const conditionsMet = this.evaluateConditions(trigger.conditions, context);
+                const conditionsMet = this.evaluateConditions(trigger.conditions, context, (trigger as any).conditionLogic || 'OR');
                 
                 if (!conditionsMet) {
                     continue;
@@ -151,7 +151,7 @@ export class TriggerManager {
     /**
      * 条件評価エンジン
      */
-    private evaluateConditions(conditions: TriggerCondition[], context: TriggerExecutionContext): boolean {
+    private evaluateConditions(conditions: TriggerCondition[], context: TriggerExecutionContext, conditionLogic: 'AND' | 'OR' = 'OR'): boolean {
         if (conditions.length === 0) {
             return true; // 条件なし = 常に実行
         }
@@ -166,15 +166,21 @@ export class TriggerManager {
             groups.get(groupId)!.push(cond);
         });
         
-        // 各グループ内は AND、グループ間は OR
+        // 各グループ内は AND
+        const groupResults: boolean[] = [];
         for (const [_groupId, groupConditions] of groups) {
             const allMatch = groupConditions.every((cond) => this.evaluateSingleCondition(cond, context));
-            if (allMatch) {
-                return true; // 1つのグループでも全条件満たせばOK
-            }
+            groupResults.push(allMatch);
         }
-        
-        return false;
+
+        // グループ間の結合は conditionLogic に従う
+        if (conditionLogic === 'AND') {
+            // すべてのグループが true であれば OK
+            return groupResults.every(Boolean);
+        } else {
+            // OR: いずれかのグループが true であれば OK
+            return groupResults.some(Boolean);
+        }
     }
 
     /**
@@ -391,7 +397,18 @@ export class TriggerManager {
             throw new Error('Embedが空です。タイトル、説明、またはフィールドのいずれかを設定してください。');
         }
         
-        await channel.send({ embeds: [embed] });
+        const message = await channel.send({ embeds: [embed] });
+        
+        // 自動削除オプション
+        if (preset.removeAfterSeconds && preset.removeAfterSeconds > 0) {
+            setTimeout(async () => {
+                try {
+                    await message.delete();
+                } catch (error) {
+                    Logger.error('埋め込みメッセージ削除エラー:', error);
+                }
+            }, preset.removeAfterSeconds * 1000);
+        }
     }
 
     /**
@@ -412,7 +429,18 @@ export class TriggerManager {
         if (!text.trim()) {
             throw new Error('メッセージが空です。テンプレートを確認してください。');
         }
-        await channel.send(text);
+        const message = await channel.send(text);
+        
+        // 自動削除オプション
+        if (preset.removeAfterSeconds && preset.removeAfterSeconds > 0) {
+            setTimeout(async () => {
+                try {
+                    await message.delete();
+                } catch (error) {
+                    Logger.error('テキストメッセージ削除エラー:', error);
+                }
+            }, preset.removeAfterSeconds * 1000);
+        }
     }
 
     /**
@@ -436,10 +464,21 @@ export class TriggerManager {
         
         // replyWithMention フラグに基づいてメンション動作を制御
         const allowedMentions = preset.replyWithMention ? {} : { repliedUser: false };
-        await message.reply({
+        const replyMessage = await message.reply({
             content: text,
             allowedMentions: allowedMentions as any
         });
+        
+        // 自動削除オプション
+        if (preset.removeAfterSeconds && preset.removeAfterSeconds > 0) {
+            setTimeout(async () => {
+                try {
+                    await replyMessage.delete();
+                } catch (error) {
+                    Logger.error('リプライメッセージ削除エラー:', error);
+                }
+            }, preset.removeAfterSeconds * 1000);
+        }
     }
 
     /**
@@ -491,7 +530,18 @@ export class TriggerManager {
             throw new Error('DMメッセージが空です。テンプレートを確認してください。');
         }
         
-        await user.send(text);
+        const dmMessage = await user.send(text);
+        
+        // 自動削除オプション
+        if (preset.removeAfterSeconds && preset.removeAfterSeconds > 0) {
+            setTimeout(async () => {
+                try {
+                    await dmMessage.delete();
+                } catch (error) {
+                    Logger.error('DMメッセージ削除エラー:', error);
+                }
+            }, preset.removeAfterSeconds * 1000);
+        }
     }
 
     /**
@@ -515,7 +565,7 @@ export class TriggerManager {
         await message.react(preset.reactEmoji);
         
         // 自動削除オプション
-        if (preset.removeAfterSeconds) {
+        if (preset.removeAfterSeconds && preset.removeAfterSeconds > 0) {
             setTimeout(async () => {
                 try {
                     const reaction = message.reactions.cache.find((r) => r.emoji.name === preset.reactEmoji);

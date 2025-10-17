@@ -16,6 +16,7 @@ interface Trigger {
     presets: any[];
     createdAt: string;
     updatedAt: string;
+    conditionLogic?: 'AND' | 'OR';
 }
 
 const TriggerManager: React.FC = () => {

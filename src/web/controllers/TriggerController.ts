@@ -96,6 +96,10 @@ export class TriggerController {
                 eventType: body.eventType,
                 priority: body.priority || 0,
                 conditions: body.conditions || [],
+                // store condition logic (AND/OR)
+                conditionLogic: body.conditionLogic || 'AND',
+                // store preset run mode
+                runMode: body.runMode || 'all',
                 presets: (body.presets || []).map((p: any, index: number) => ({
                     ...p,
                     id: p.id || crypto.randomUUID(),

@@ -24,16 +24,23 @@ const MATCH_TYPE_LABELS: Record<string, string> = {
 interface AdvancedConditionEditorProps {
     conditions: Condition[];
     onConditionsChange: (conditions: Condition[]) => void;
+    // controlled logic (AND / OR). If omitted, defaults to 'AND'
+    conditionLogic?: 'AND' | 'OR';
+    onConditionLogicChange?: (logic: 'AND' | 'OR') => void;
     eventType: string;
 }
 
 const AdvancedConditionEditor: React.FC<AdvancedConditionEditorProps> = ({
     conditions,
     onConditionsChange,
+    conditionLogic: controlledLogic,
+    onConditionLogicChange,
     eventType: _eventType // 将来の使用のため保持
 }) => {
     const [expandedId, setExpandedId] = useState<string | null>(null);
-    const [conditionLogic, setConditionLogic] = useState<'AND' | 'OR'>('AND');
+    // use controlled prop if provided, otherwise default to internal local state
+    const [internalLogic, setInternalLogic] = useState<'AND' | 'OR'>('AND');
+    const conditionLogic = controlledLogic ?? internalLogic;
 
     const conditionTypes: Record<string, { label: string; matchTypes: string[] }> = {
         messageContent: {
@@ -111,7 +118,15 @@ const AdvancedConditionEditor: React.FC<AdvancedConditionEditorProps> = ({
                     <label>論理演算:</label>
                     <select
                         value={conditionLogic}
-                        onChange={e => setConditionLogic(e.target.value as 'AND' | 'OR')}
+                        onChange={e => {
+                            const v = e.target.value as 'AND' | 'OR';
+                            // prefer calling parent handler if provided
+                            if (onConditionLogicChange) {
+                                onConditionLogicChange(v);
+                            } else {
+                                setInternalLogic(v);
+                            }
+                        }}
                         className={styles.logicSelect}
                     >
                         <option value="AND">全て満たす (AND)</option>

@@ -40,12 +40,17 @@ interface AdvancedPresetEditorProps {
     presets: Preset[];
     onPresetsChange: (presets: Preset[]) => void;
     guildId?: string;
+    // execution mode for presets: 'all' | 'random' | 'single'
+    runMode?: 'all' | 'random' | 'single';
+    onRunModeChange?: (mode: 'all' | 'random' | 'single') => void;
 }
 
 const AdvancedPresetEditor: React.FC<AdvancedPresetEditorProps> = ({
     presets,
     onPresetsChange,
-    guildId
+    guildId,
+    runMode,
+    onRunModeChange
 }) => {
     const [expandedId, setExpandedId] = useState<string | null>(null);
 
@@ -170,6 +175,19 @@ const AdvancedPresetEditor: React.FC<AdvancedPresetEditorProps> = ({
             <div className={styles.editorHeader}>
                 <h3>実行アクション (最大5個)</h3>
                 <span className={styles.badge}>{presets.length}/5</span>
+            </div>
+
+            <div className={styles.formGroup}>
+                <label>プリセット実行モード:</label>
+                <select
+                    value={runMode || 'all'}
+                    onChange={e => onRunModeChange && onRunModeChange(e.target.value as any)}
+                    className={styles.input}
+                >
+                    <option value="all">全て実行 (デフォルト)</option>
+                    <option value="random">ランダムで1つ実行</option>
+                    <option value="single">任意で1つ実行 (上から順に選択可能)</option>
+                </select>
             </div>
 
             <div className={styles.presetsList}>
@@ -310,6 +328,23 @@ const AdvancedPresetEditor: React.FC<AdvancedPresetEditorProps> = ({
                                                     className={styles.input}
                                                 />
                                             </div>
+
+                                            <div className={styles.formGroup}>
+                                                <label>自動削除 (秒) - 0で無効:</label>
+                                                <input
+                                                    type="number"
+                                                    value={preset.removeAfterSeconds || 0}
+                                                    onChange={e =>
+                                                        handleUpdatePreset(preset.id, {
+                                                            removeAfterSeconds: parseInt(
+                                                                e.target.value
+                                                            ) || 0
+                                                        })
+                                                    }
+                                                    min="0"
+                                                    className={styles.input}
+                                                />
+                                            </div>
                                         </>
                                     )}
 
@@ -426,6 +461,23 @@ const AdvancedPresetEditor: React.FC<AdvancedPresetEditorProps> = ({
                                                     <span className={styles.checkboxText}>タイムスタンプを表示</span>
                                                 </label>
                                             </div>
+
+                                            <div className={styles.formGroup}>
+                                                <label>自動削除 (秒) - 0で無効:</label>
+                                                <input
+                                                    type="number"
+                                                    value={preset.removeAfterSeconds || 0}
+                                                    onChange={e =>
+                                                        handleUpdatePreset(preset.id, {
+                                                            removeAfterSeconds: parseInt(
+                                                                e.target.value
+                                                            ) || 0
+                                                        })
+                                                    }
+                                                    min="0"
+                                                    className={styles.input}
+                                                />
+                                            </div>
                                         </>
                                     )}
 
@@ -478,6 +530,23 @@ const AdvancedPresetEditor: React.FC<AdvancedPresetEditorProps> = ({
                                                     />
                                                     <span className={styles.checkboxText}>返信元のユーザーをメンションする</span>
                                                 </label>
+                                            </div>
+
+                                            <div className={styles.formGroup}>
+                                                <label>自動削除 (秒) - 0で無効:</label>
+                                                <input
+                                                    type="number"
+                                                    value={preset.removeAfterSeconds || 0}
+                                                    onChange={e =>
+                                                        handleUpdatePreset(preset.id, {
+                                                            removeAfterSeconds: parseInt(
+                                                                e.target.value
+                                                            ) || 0
+                                                        })
+                                                    }
+                                                    min="0"
+                                                    className={styles.input}
+                                                />
                                             </div>
                                         </>
                                     )}
@@ -665,6 +734,23 @@ const AdvancedPresetEditor: React.FC<AdvancedPresetEditorProps> = ({
                                                         })
                                                     }
                                                     placeholder="{author} または ユーザーID"
+                                                    className={styles.input}
+                                                />
+                                            </div>
+
+                                            <div className={styles.formGroup}>
+                                                <label>自動削除 (秒) - 0で無効:</label>
+                                                <input
+                                                    type="number"
+                                                    value={preset.removeAfterSeconds || 0}
+                                                    onChange={e =>
+                                                        handleUpdatePreset(preset.id, {
+                                                            removeAfterSeconds: parseInt(
+                                                                e.target.value
+                                                            ) || 0
+                                                        })
+                                                    }
+                                                    min="0"
                                                     className={styles.input}
                                                 />
                                             </div>
