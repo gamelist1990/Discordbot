@@ -1,0 +1,146 @@
+/* PlaceholderHint.module.css */
+
+:root {
+    --primary: #5865f2;
+    --primary-light: #7289da;
+    --text-primary: #2c2f33;
+    --text-secondary: #72767d;
+    --border: #dbdee1;
+    --surface: #ffffff;
+    --background: #f5f5f5;
+}
+
+.placeholderHint {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    margin-top: 1rem;
+}
+
+.toggleBtn {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    width: 100%;
+    padding: 0.75rem 1rem;
+    background: var(--background);
+    border: none;
+    cursor: pointer;
+    font-weight: 600;
+    color: var(--text-primary);
+    transition: all 0.2s ease;
+}
+
+.toggleBtn:hover {
+    background: #ebebeb;
+}
+
+.toggleBtn span.material-icons {
+    font-size: 1.25rem;
+}
+
+.title {
+    font-size: 0.95rem;
+    display: flex;
+    align-items: center;
+}
+
+.hintContent {
+    max-height: 500px;
+    overflow-y: auto;
+    border-top: 1px solid var(--border);
+}
+
+.placeholderList {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 1rem;
+    padding: 1rem;
+}
+
+.placeholderItem {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 0.75rem;
+    background: var(--background);
+    border-radius: 6px;
+    border-left: 3px solid var(--primary);
+}
+
+.placeholderName {
+    display: flex;
+    align-items: center;
+}
+
+.placeholderName code {
+    font-family: 'Courier New', monospace;
+    font-size: 0.9rem;
+    background: var(--surface);
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    color: var(--primary);
+    font-weight: 600;
+}
+
+.placeholderInfo {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.description {
+    margin: 0;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    line-height: 1.4;
+}
+
+.example {
+    margin: 0;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+
+.example code {
+    font-family: 'Courier New', monospace;
+    font-size: 0.75rem;
+    background: var(--surface);
+    padding: 0.15rem 0.3rem;
+    border-radius: 3px;
+    color: #666;
+}
+
+/* スクロールバーのスタイル */
+.hintContent::-webkit-scrollbar {
+    width: 8px;
+}
+
+.hintContent::-webkit-scrollbar-track {
+    background: var(--background);
+}
+
+.hintContent::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 4px;
+}
+
+.hintContent::-webkit-scrollbar-thumb:hover {
+    background: var(--primary-light);
+}
+
+/* レスポンシブ */
+@media (max-width: 768px) {
+    .placeholderList {
+        grid-template-columns: 1fr;
+    }
+
+    .toggleBtn {
+        padding: 0.65rem 0.85rem;
+    }
+
+    .title {
+        font-size: 0.9rem;
+    }
+}

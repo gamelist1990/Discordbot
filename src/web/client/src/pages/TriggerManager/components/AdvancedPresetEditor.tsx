@@ -1,12 +1,14 @@
 import React, { useState } from 'react';
 import styles from './AdvancedPresetEditor.module.css';
+import PlaceholderHint from './PlaceholderHint.js';
+import EmojiPicker from './EmojiPicker.js';
 
 interface Preset {
     id: string;
     triggerId: string;
     index: number;
     enabled: boolean;
-    type: 'Embed' | 'Text' | 'Reply' | 'Modal' | 'Webhook' | 'DM' | 'React';
+    type: 'Embed' | 'Text' | 'Reply' | 'Webhook' | 'DM' | 'React';
     template?: string;
     targetChannelId?: string;
     cooldownSeconds?: number;
@@ -20,20 +22,10 @@ interface Preset {
         footer?: { text: string; iconUrl?: string };
         timestamp?: boolean;
     };
-    replyToMessageId?: string;
-    modalId?: string;
-    modalTitle?: string;
-    modalFields?: Array<{
-        id: string;
-        label: string;
-        type: 'short' | 'paragraph';
-        required?: boolean;
-        placeholder?: string;
-        minLength?: number;
-        maxLength?: number;
-    }>;
+    replyTemplate?: string;
+    replyWithMention?: boolean;
     webhookConfig?: {
-        url: string;
+        url?: string;
         method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
         headers?: Record<string, string>;
         bodyTemplate?: string;
@@ -58,7 +50,6 @@ const AdvancedPresetEditor: React.FC<AdvancedPresetEditorProps> = ({
         Text: 'テキスト応答',
         Embed: '埋め込みメッセージ',
         Reply: 'リプライ応答',
-        Modal: 'モーダルダイアログ',
         Webhook: 'Webhook通知',
         DM: 'ダイレクトメッセージ',
         React: 'リアクション追加'
@@ -162,6 +153,8 @@ const AdvancedPresetEditor: React.FC<AdvancedPresetEditorProps> = ({
                                     <span className={styles.description}>
                                         {preset.template ||
                                             preset.embedConfig?.title ||
+                                            preset.replyTemplate ||
+                                            preset.webhookConfig?.url ||
                                             preset.reactEmoji ||
                                             '(未設定)'}
                                     </span>
@@ -218,9 +211,7 @@ const AdvancedPresetEditor: React.FC<AdvancedPresetEditorProps> = ({
                                                     rows={4}
                                                     className={styles.textarea}
                                                 />
-                                                <small>
-                                                    💡 使用可能なプレースホルダ: {'{author.mention}'}, {'{author.id}'}, {'{channel.name}'}, {'{guild.name}'}
-                                                </small>
+                                                <PlaceholderHint />
                                             </div>
 
                                             <div className={styles.formGroup}>
@@ -277,6 +268,7 @@ const AdvancedPresetEditor: React.FC<AdvancedPresetEditorProps> = ({
                                                     rows={4}
                                                     className={styles.textarea}
                                                 />
+                                                <PlaceholderHint />
                                             </div>
 
                                             <div className={styles.formGroup}>
@@ -316,7 +308,7 @@ const AdvancedPresetEditor: React.FC<AdvancedPresetEditorProps> = ({
                                             </div>
 
                                             <div className={styles.formGroup}>
-                                                <label className={styles.checkboxLabel}>
+                                                <label>
                                                     <input
                                                         type="checkbox"
                                                         checked={preset.embedConfig?.timestamp || false}
@@ -329,7 +321,43 @@ const AdvancedPresetEditor: React.FC<AdvancedPresetEditorProps> = ({
                                                             })
                                                         }
                                                     />
-                                                    <span>タイムスタンプを表示</span>
+                                                    <span className={styles.checkboxText}>タイムスタンプを表示</span>
+                                                </label>
+                                            </div>
+                                        </>
+                                    )}
+
+                                    {/* Reply Preset */}
+                                    {preset.type === 'Reply' && (
+                                        <>
+                                            <div className={styles.formGroup}>
+                                                <label>リプライメッセージ:</label>
+                                                <textarea
+                                                    value={preset.replyTemplate || ''}
+                                                    onChange={e =>
+                                                        handleUpdatePreset(preset.id, {
+                                                            replyTemplate: e.target.value
+                                                        })
+                                                    }
+                                                    placeholder="リプライの内容を入力"
+                                                    rows={4}
+                                                    className={styles.textarea}
+                                                />
+                                                <PlaceholderHint />
+                                            </div>
+
+                                            <div className={styles.formGroup}>
+                                                <label>
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={preset.replyWithMention || false}
+                                                        onChange={e =>
+                                                            handleUpdatePreset(preset.id, {
+                                                                replyWithMention: e.target.checked
+                                                            })
+                                                        }
+                                                    />
+                                                    <span className={styles.checkboxText}>返信元のユーザーをメンションする</span>
                                                 </label>
                                             </div>
                                         </>
@@ -340,16 +368,13 @@ const AdvancedPresetEditor: React.FC<AdvancedPresetEditorProps> = ({
                                         <>
                                             <div className={styles.formGroup}>
                                                 <label>リアクション絵文字:</label>
-                                                <input
-                                                    type="text"
+                                                <EmojiPicker
                                                     value={preset.reactEmoji || ''}
-                                                    onChange={e =>
+                                                    onChange={(emoji) =>
                                                         handleUpdatePreset(preset.id, {
-                                                            reactEmoji: e.target.value
+                                                            reactEmoji: emoji
                                                         })
                                                     }
-                                                    placeholder="👍"
-                                                    className={styles.input}
                                                 />
                                             </div>
 
@@ -372,6 +397,88 @@ const AdvancedPresetEditor: React.FC<AdvancedPresetEditorProps> = ({
                                         </>
                                     )}
 
+                                    {/* Webhook Preset */}
+                                    {preset.type === 'Webhook' && (
+                                        <>
+                                            <div className={styles.formGroup}>
+                                                <label>Webhook URL:</label>
+                                                <input
+                                                    type="text"
+                                                    value={preset.webhookConfig?.url || ''}
+                                                    onChange={e =>
+                                                        handleUpdatePreset(preset.id, {
+                                                            webhookConfig: {
+                                                                ...(preset.webhookConfig || { method: 'POST', headers: {}, bodyTemplate: '' }),
+                                                                url: e.target.value
+                                                            }
+                                                        })
+                                                    }
+                                                    placeholder="https://webhook.example.com/..."
+                                                    className={styles.input}
+                                                />
+                                            </div>
+
+                                            <div className={styles.formGroup}>
+                                                <label>HTTPメソッド:</label>
+                                                <select
+                                                    value={preset.webhookConfig?.method || 'POST'}
+                                                    onChange={e => {
+                                                        const newConfig = { ...preset.webhookConfig };
+                                                        newConfig.method = e.target.value as 'GET' | 'POST' | 'PUT' | 'DELETE';
+                                                        handleUpdatePreset(preset.id, {
+                                                            webhookConfig: newConfig
+                                                        });
+                                                    }}
+                                                    className={styles.input}
+                                                >
+                                                    <option value="GET">GET</option>
+                                                    <option value="POST">POST</option>
+                                                    <option value="PUT">PUT</option>
+                                                    <option value="DELETE">DELETE</option>
+                                                </select>
+                                            </div>
+
+                                            <div className={styles.formGroup}>
+                                                <label>リクエストボディテンプレート (JSON):</label>
+                                                <textarea
+                                                    value={preset.webhookConfig?.bodyTemplate || ''}
+                                                    onChange={e => {
+                                                        const newConfig = { ...preset.webhookConfig };
+                                                        newConfig.bodyTemplate = e.target.value;
+                                                        handleUpdatePreset(preset.id, {
+                                                            webhookConfig: newConfig
+                                                        });
+                                                    }}
+                                                    placeholder='{"event": "trigger", "author": "{author.id}", "message": "{template}"}'
+                                                    rows={4}
+                                                    className={styles.textarea}
+                                                />
+                                            </div>
+
+                                            <div className={styles.formGroup}>
+                                                <label>カスタムヘッダー (JSON):</label>
+                                                <textarea
+                                                    value={JSON.stringify(preset.webhookConfig?.headers || {}, null, 2)}
+                                                    onChange={e => {
+                                                        try {
+                                                            const headers = JSON.parse(e.target.value);
+                                                            const newConfig = { ...preset.webhookConfig };
+                                                            newConfig.headers = headers;
+                                                            handleUpdatePreset(preset.id, {
+                                                                webhookConfig: newConfig
+                                                            });
+                                                        } catch {
+                                                            // JSON解析失敗時は無視
+                                                        }
+                                                    }}
+                                                    placeholder='{"Authorization": "Bearer token", "Content-Type": "application/json"}'
+                                                    rows={3}
+                                                    className={styles.textarea}
+                                                />
+                                            </div>
+                                        </>
+                                    )}
+
                                     {/* DM Preset */}
                                     {preset.type === 'DM' && (
                                         <>
@@ -388,6 +495,7 @@ const AdvancedPresetEditor: React.FC<AdvancedPresetEditorProps> = ({
                                                     rows={4}
                                                     className={styles.textarea}
                                                 />
+                                                <PlaceholderHint />
                                             </div>
 
                                             <div className={styles.formGroup}>

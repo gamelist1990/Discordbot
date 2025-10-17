@@ -62,7 +62,6 @@ export type PresetActionType =
     | 'Embed'
     | 'Text'
     | 'Reply'
-    | 'Modal'
     | 'Webhook'
     | 'DM'
     | 'React';
@@ -122,7 +121,7 @@ export interface ModalField {
  * Webhook設定
  */
 export interface WebhookConfig {
-    url: string;
+    url?: string;
     method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
     headers?: Record<string, string>;
     bodyTemplate?: string;
@@ -147,12 +146,8 @@ export interface TriggerPreset {
     embedConfig?: EmbedConfig;
     
     // Reply専用
-    replyToMessageId?: string;
-    
-    // Modal専用
-    modalId?: string;
-    modalTitle?: string;
-    modalFields?: ModalField[];
+    replyTemplate?: string;
+    replyWithMention?: boolean;
     
     // Webhook専用
     webhookConfig?: WebhookConfig;
