@@ -138,13 +138,64 @@ export class TriggerManager {
                     continue;
                 }
                 
-                // プリセット実行（有効なものを順番に）
-                for (const preset of trigger.presets.filter((p) => p.enabled)) {
+                // プリセット実行モードに基づいて実行するプリセットを決定
+                const presetsToExecute = this.selectPresetsToExecute(trigger);
+                
+                for (const preset of presetsToExecute) {
                     await this.executePreset(trigger, preset, context);
                 }
             } catch (error) {
                 Logger.error(`❌ トリガー実行エラー [${trigger.id}]:`, error);
             }
+        }
+    }
+
+    /**
+     * runMode に基づいて実行するプリセットを選択
+     */
+    private selectPresetsToExecute(trigger: Trigger): TriggerPreset[] {
+        const enabledPresets = trigger.presets.filter((p) => p.enabled);
+        const runMode = trigger.runMode || 'all';
+
+        switch (runMode) {
+            case 'all':
+                // すべてのプリセットを実行
+                return enabledPresets;
+
+            case 'random':
+                // ランダムに1つ選択
+                if (enabledPresets.length === 0) return [];
+                const randomIndex = Math.floor(Math.random() * enabledPresets.length);
+                return [enabledPresets[randomIndex]];
+
+            case 'single':
+                // 最初のプリセット（またはピン留めされたもの）を1つ実行
+                const pinnedPreset = enabledPresets.find((p) => p.isPinned);
+                if (pinnedPreset) {
+                    return [pinnedPreset];
+                }
+                // ピン留めがなければ最初のものを実行
+                return enabledPresets.length > 0 ? [enabledPresets[0]] : [];
+
+            case 'pinned-random':
+                // ピン留めプリセット + 選択外からランダム選択
+                const pinnedPresets = enabledPresets.filter((p) => p.isPinned);
+                const unpinnedPresets = enabledPresets.filter((p) => !p.isPinned);
+                
+                const randomCount = Math.min(
+                    trigger.randomCount || 1,
+                    unpinnedPresets.length
+                );
+                
+                // ランダムに N 個のプリセットを選択
+                const shuffled = [...unpinnedPresets].sort(() => Math.random() - 0.5);
+                const randomPresets = shuffled.slice(0, randomCount);
+                
+                // ピン留め + ランダムを返す
+                return [...pinnedPresets, ...randomPresets];
+
+            default:
+                return enabledPresets;
         }
     }
 

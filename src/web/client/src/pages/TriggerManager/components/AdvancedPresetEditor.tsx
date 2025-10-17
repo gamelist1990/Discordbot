@@ -9,6 +9,7 @@ interface Preset {
     triggerId: string;
     index: number;
     enabled: boolean;
+    isPinned?: boolean;
     type: 'Embed' | 'Text' | 'Reply' | 'Webhook' | 'DM' | 'React';
     template?: string;
     targetChannelId?: string;
@@ -40,9 +41,11 @@ interface AdvancedPresetEditorProps {
     presets: Preset[];
     onPresetsChange: (presets: Preset[]) => void;
     guildId?: string;
-    // execution mode for presets: 'all' | 'random' | 'single'
-    runMode?: 'all' | 'random' | 'single';
-    onRunModeChange?: (mode: 'all' | 'random' | 'single') => void;
+    // execution mode for presets: 'all' | 'random' | 'single' | 'pinned-random'
+    runMode?: 'all' | 'random' | 'single' | 'pinned-random';
+    onRunModeChange?: (mode: 'all' | 'random' | 'single' | 'pinned-random') => void;
+    randomCount?: number;
+    onRandomCountChange?: (count: number) => void;
 }
 
 const AdvancedPresetEditor: React.FC<AdvancedPresetEditorProps> = ({
@@ -50,7 +53,9 @@ const AdvancedPresetEditor: React.FC<AdvancedPresetEditorProps> = ({
     onPresetsChange,
     guildId,
     runMode,
-    onRunModeChange
+    onRunModeChange,
+    randomCount,
+    onRandomCountChange
 }) => {
     const [expandedId, setExpandedId] = useState<string | null>(null);
 
@@ -186,9 +191,24 @@ const AdvancedPresetEditor: React.FC<AdvancedPresetEditorProps> = ({
                 >
                     <option value="all">全て実行 (デフォルト)</option>
                     <option value="random">ランダムで1つ実行</option>
-                    <option value="single">任意で1つ実行 (上から順に選択可能)</option>
+                    <option value="single">任意で1つ実行 (ピン留めされたプリセットを実行)</option>
+                    <option value="pinned-random">絶対 + ランダム (ピン留めプリセット + 選択外からランダム)</option>
                 </select>
             </div>
+
+            {runMode === 'pinned-random' && (
+                <div className={styles.formGroup}>
+                    <label>ランダム選択数 (ピン留め以外から):</label>
+                    <input
+                        type="number"
+                        value={randomCount || 1}
+                        onChange={e => onRandomCountChange && onRandomCountChange(parseInt(e.target.value) || 1)}
+                        min="1"
+                        max={Math.max(1, presets.filter(p => !p.isPinned).length)}
+                        className={styles.input}
+                    />
+                </div>
+            )}
 
             <div className={styles.presetsList}>
                 {presets.length === 0 ? (
@@ -243,6 +263,30 @@ const AdvancedPresetEditor: React.FC<AdvancedPresetEditorProps> = ({
                                 </div>
 
                                 <div className={styles.presetActions}>
+                                    {runMode === 'single' || runMode === 'pinned-random' ? (
+                                        <button
+                                            className={`${styles.iconButton} ${
+                                                preset.isPinned ? styles.pinned : ''
+                                            }`}
+                                            onClick={e => {
+                                                e.stopPropagation();
+                                                handleUpdatePreset(preset.id, {
+                                                    isPinned: !preset.isPinned
+                                                });
+                                            }}
+                                            title={
+                                                preset.isPinned
+                                                    ? 'ピン留めを解除'
+                                                    : 'ピン留めする'
+                                            }
+                                        >
+                                            <span className="material-icons">
+                                                {preset.isPinned
+                                                    ? 'star'
+                                                    : 'star_outline'}
+                                            </span>
+                                        </button>
+                                    ) : null}
                                     <span
                                         className={`material-icons ${styles.icon}`}
                                     >

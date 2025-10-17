@@ -136,6 +136,7 @@ export interface TriggerPreset {
     index: number; // 実行順序
     enabled: boolean;
     type: PresetActionType;
+    isPinned?: boolean; // ピン留めフラグ（ランダム実行モードで常に実行）
     
     // 共通設定
     template?: string; // テンプレート文字列
@@ -179,7 +180,12 @@ export interface Trigger {
     // optional: condition combination logic between groups
     conditionLogic?: 'AND' | 'OR';
     // optional: how presets should run
-    runMode?: 'all' | 'random' | 'single';
+    // all: すべてのプリセットを実行
+    // random: ランダムに1つのプリセットを実行
+    // single: 指定したプリセットを1つだけ実行
+    // pinned-random: ピン留めプリセット + 選択外からランダムN個を実行
+    runMode?: 'all' | 'random' | 'single' | 'pinned-random';
+    randomCount?: number; // pinned-random モード時のランダム選択数（デフォルト: 1）
 }
 
 /**

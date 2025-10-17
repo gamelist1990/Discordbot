@@ -100,6 +100,7 @@ export class TriggerController {
                 conditionLogic: body.conditionLogic || 'AND',
                 // store preset run mode
                 runMode: body.runMode || 'all',
+                randomCount: body.randomCount || 1,
                 presets: (body.presets || []).map((p: any, index: number) => ({
                     ...p,
                     id: p.id || crypto.randomUUID(),

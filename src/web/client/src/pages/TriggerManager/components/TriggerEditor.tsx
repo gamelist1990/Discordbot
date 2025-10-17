@@ -17,7 +17,8 @@ interface Trigger {
     // optional: logic connecting conditions
     conditionLogic?: 'AND' | 'OR';
     // execution mode for presets
-    runMode?: 'all' | 'random' | 'single';
+    runMode?: 'all' | 'random' | 'single' | 'pinned-random';
+    randomCount?: number;
 }
 
 interface TriggerEditorProps {
@@ -54,6 +55,7 @@ const TriggerEditor: React.FC<TriggerEditorProps> = ({
         conditionLogic: 'AND' as any,
         // presets execution mode
         runMode: 'all' as any,
+        randomCount: 1,
         presets: []
     });
 
@@ -63,7 +65,8 @@ const TriggerEditor: React.FC<TriggerEditorProps> = ({
                 ...trigger,
                 // ensure defaults for fields that may be missing
                 conditionLogic: (trigger as any).conditionLogic || 'AND',
-                runMode: (trigger as any).runMode || 'all'
+                runMode: (trigger as any).runMode || 'all',
+                randomCount: (trigger as any).randomCount || 1
             });
         }
     }, [trigger, isCreating]);
@@ -88,6 +91,7 @@ const TriggerEditor: React.FC<TriggerEditorProps> = ({
                 conditionLogic: (formData as any).conditionLogic || 'AND',
                 // persist preset execution mode
                 runMode: (formData as any).runMode || 'all',
+                randomCount: (formData as any).randomCount || 1,
                 presets: formData.presets || [],
                 createdAt: trigger?.createdAt || new Date().toISOString(),
                 updatedAt: new Date().toISOString()
@@ -274,8 +278,12 @@ const TriggerEditor: React.FC<TriggerEditorProps> = ({
                         // pass guildId so EmojiPicker can fetch guild emojis
                         guildId={guildId}
                         runMode={(formData as any).runMode || 'all'}
-                        onRunModeChange={(mode: 'all' | 'random' | 'single') =>
+                        onRunModeChange={(mode: 'all' | 'random' | 'single' | 'pinned-random') =>
                             setFormData({ ...formData, runMode: mode })
+                        }
+                        randomCount={(formData as any).randomCount || 1}
+                        onRandomCountChange={(count: number) =>
+                            setFormData({ ...formData, randomCount: count })
                         }
                     />
                 )}
