@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import styles from '../TriggerManager.module.css';
+import styles from './TriggerEditor.module.css';
 import ConditionEditor from './ConditionEditor.js';
 import PresetEditor from './PresetEditor.js';
 

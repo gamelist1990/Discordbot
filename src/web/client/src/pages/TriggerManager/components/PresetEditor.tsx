@@ -1,5 +1,5 @@
 import React from 'react';
-import styles from '../TriggerManager.module.css';
+import styles from './PresetEditor.module.css';
 
 interface Preset {
     id: string;

@@ -132,14 +132,19 @@ async function main() {
         // SettingsServer を client に注入（コマンドから参照できるようにする）
         (botClient.client as any).settingsServer = settingsServer;
 
-        // TriggerManager に WebSocketManager のエミッタを接続
-        const { wsManager } = await import('./web/services/WebSocketManager.js');
+        // TriggerManager に WebSocket のエミッタを接続
+        // 注意: WebSocket サーバーは UnifiedWebSocketManager を使っているため、そちらへブロードキャストする
+        const { unifiedWsManager } = await import('./web/services/UnifiedWebSocketManager.js');
         triggerManager.setWebSocketEmitter((event: string, data: any) => {
-            wsManager.broadcast('trigger', {
-                type: event,
-                timestamp: Date.now(),
-                payload: data
-            });
+            try {
+                unifiedWsManager.broadcast('trigger', {
+                    type: event,
+                    timestamp: Date.now(),
+                    payload: data
+                });
+            } catch (err) {
+                Logger.error('Failed to emit WS event via unifiedWsManager:', err);
+            }
         });
         Logger.info('🔗 TriggerManager と WebSocketManager を接続しました');
         

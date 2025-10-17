@@ -1,0 +1,156 @@
+/* TriggerManager.module.css - Main Container & Layout */
+
+.container {
+    display: flex;
+    height: calc(100vh - 64px);
+    background: white;
+    gap: 0;
+}
+
+/* 3-Column Layout */
+.container > div:nth-child(1) {
+    flex: 0 0 300px;
+}
+
+.container > div:nth-child(2) {
+    flex: 1;
+}
+
+.container > div:nth-child(3) {
+    flex: 0 0 350px;
+}
+
+/* Responsive Design */
+@media (max-width: 1200px) {
+    .container {
+        height: auto;
+        flex-direction: column;
+    }
+
+    .container > div {
+        width: 100% !important;
+        height: auto;
+        max-height: 50vh;
+    }
+}
+
+@media (max-width: 992px) {
+    .container {
+        flex-direction: column;
+    }
+
+    .container > div:nth-child(1),
+    .container > div:nth-child(2),
+    .container > div:nth-child(3) {
+        max-height: 60vh;
+        border: 1px solid #e0e0e0;
+        margin-bottom: 0.5rem;
+    }
+}
+
+@media (max-width: 768px) {
+    .container {
+        height: auto;
+    }
+
+    .container > div {
+        max-height: 50vh;
+    }
+}
+
+/* Utility Classes */
+.hidden {
+    display: none !important;
+}
+
+.truncate {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.noSelect {
+    user-select: none;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+}
+
+/* Animation Keyframes */
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+
+@keyframes slideUp {
+    from {
+        transform: translateY(10px);
+        opacity: 0;
+    }
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
+
+@keyframes slideDown {
+    from {
+        transform: translateY(-10px);
+        opacity: 0;
+    }
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
+
+/* Fade-in on mount */
+.container {
+    animation: fadeIn 0.3s ease-in;
+}
+
+/* Header and main layout wrappers referenced by index.tsx */
+.header {
+    background: #ffffff;
+    border-bottom: 1px solid #e6e6e6;
+    padding: 1rem 1.5rem;
+}
+
+.headerContent h1 {
+    margin: 0;
+    font-size: 1.25rem;
+    color: #202124;
+}
+
+.headerContent p {
+    margin: 0;
+    color: #5f6368;
+    font-size: 0.9rem;
+}
+
+.mainLayout {
+    display: flex;
+    flex: 1;
+    min-height: 0; /* keep children flex scrollable */
+}
+
+.leftColumn {
+    flex: 0 0 300px;
+    border-right: 1px solid #e6e6e6;
+    overflow: auto;
+}
+
+.middleColumn {
+    flex: 1 1 0;
+    overflow: auto;
+}
+
+.rightColumn {
+    flex: 0 0 350px;
+    border-left: 1px solid #e6e6e6;
+    overflow: auto;
+}

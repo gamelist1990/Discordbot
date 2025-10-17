@@ -1,0 +1,250 @@
+/* PresetEditor.module.css - Preset Editor Modal */
+
+.editorModal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+}
+
+.modalContent {
+    background: white;
+    border-radius: 16px;
+    max-width: 750px;
+    width: 95%;
+    max-height: 90vh;
+    overflow: auto;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+}
+
+.modalHeader {
+    padding: 1.5rem 2rem;
+    border-bottom: 1px solid #e0e0e0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.modalTitle {
+    margin: 0;
+    font-size: 1.25rem;
+    font-weight: 500;
+    color: #202124;
+}
+
+.closeButton {
+    background: transparent;
+    border: none;
+    padding: 0.5rem;
+    cursor: pointer;
+    color: #5f6368;
+    border-radius: 50%;
+    transition: all 0.2s;
+}
+
+.closeButton:hover {
+    background: #f1f3f4;
+}
+
+.modalBody {
+    padding: 2rem;
+}
+
+.typeSelectionSection {
+    margin-bottom: 2rem;
+}
+
+.typeSectionLabel {
+    font-weight: 600;
+    color: #202124;
+    margin-bottom: 1rem;
+    font-size: 0.95rem;
+}
+
+.presetTypeList {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 1rem;
+    margin-bottom: 2rem;
+}
+
+.presetTypeCard {
+    border: 2px solid #dadce0;
+    border-radius: 8px;
+    padding: 1rem;
+    cursor: pointer;
+    transition: all 0.2s;
+    background: white;
+    text-align: center;
+}
+
+.presetTypeCard:hover {
+    border-color: #1a73e8;
+    box-shadow: 0 2px 8px rgba(26, 115, 232, 0.12);
+}
+
+.presetTypeCard.selected {
+    border-color: #1a73e8;
+    background: #e8f0fe;
+    box-shadow: 0 2px 8px rgba(26, 115, 232, 0.2);
+}
+
+.presetTypeIcon {
+    font-size: 1.5rem;
+    margin-bottom: 0.5rem;
+}
+
+.presetTypeName {
+    font-weight: 500;
+    font-size: 0.9rem;
+    color: #202124;
+}
+
+.presetFields {
+    background: #f8f9fa;
+    padding: 1.5rem;
+    border-radius: 8px;
+    margin-bottom: 1.5rem;
+}
+
+.addBtn {
+    background: #1a73e8;
+    color: white;
+    border: none;
+    padding: 0.6rem 1rem;
+    border-radius: 8px;
+    cursor: pointer;
+    display: inline-flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.presetsList {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.presetItem {
+    padding: 1rem;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    background: white;
+}
+
+.presetHeader {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.presetIndex {
+    font-weight: 700;
+    color: #5f6368;
+}
+
+.toggleBtn {
+    background: transparent;
+    border: 1px solid #dadce0;
+    padding: 0.25rem 0.5rem;
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+.textarea {
+    width: 100%;
+    padding: 0.75rem;
+    border: 1px solid #dadce0;
+    border-radius: 8px;
+    background: white;
+    color: #202124;
+    box-sizing: border-box;
+}
+
+.formGroup {
+    margin-bottom: 1.5rem;
+}
+
+.formGroup:last-child {
+    margin-bottom: 0;
+}
+
+.formGroup label {
+    display: block;
+    font-weight: 600;
+    color: #202124;
+    margin-bottom: 0.5rem;
+    font-size: 0.95rem;
+}
+
+.input,
+.select,
+.textarea {
+    width: 100%;
+    padding: 0.75rem;
+    border: 1px solid #dadce0;
+    border-radius: 8px;
+    font-size: 0.9rem;
+    background: white;
+    color: #202124;
+    box-sizing: border-box;
+    font-family: inherit;
+}
+
+.textarea {
+    min-height: 100px;
+    resize: vertical;
+}
+
+.input:focus,
+.select:focus,
+.textarea:focus {
+    outline: none;
+    border-color: #1a73e8;
+    box-shadow: 0 0 0 2px rgba(26, 115, 232, 0.1);
+}
+
+.modalFooter {
+    padding: 1.5rem 2rem;
+    border-top: 1px solid #e0e0e0;
+    display: flex;
+    gap: 1rem;
+    justify-content: flex-end;
+    background: #f8f9fa;
+}
+
+.buttonPrimary {
+    background: #1a73e8;
+    color: white;
+    border: none;
+    padding: 0.625rem 1.25rem;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: 600;
+    transition: all 0.2s;
+}
+
+.buttonPrimary:hover {
+    background: #1557b0;
+}
+
+.buttonSecondary {
+    background: white;
+    color: #202124;
+    border: 1px solid #dadce0;
+    padding: 0.625rem 1.25rem;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: 600;
+    transition: all 0.2s;
+}
+
+.buttonSecondary:hover {
+    background: #f8f9fa;
+}

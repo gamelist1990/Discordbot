@@ -1,0 +1,195 @@
+/* TriggerList.module.css - Left Panel Styles */
+
+.listPanel {
+    display: flex;
+    flex-direction: column;
+    width: 300px;
+    border-right: 1px solid #e0e0e0;
+    background: #f8f9fa;
+    overflow: hidden;
+}
+
+.listHeader {
+    padding: 1.5rem;
+    border-bottom: 1px solid #e0e0e0;
+    background: white;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.listHeader h2 {
+    margin: 0;
+    font-size: 1.125rem;
+    font-weight: 500;
+    color: #202124;
+}
+
+.createBtn {
+    background: #1a73e8;
+    color: white;
+    border: none;
+    padding: 0.5rem 1rem;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: 500;
+    transition: all 0.2s;
+}
+
+.createBtn:hover {
+    background: #1557b0;
+}
+
+.searchBar {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem 1rem;
+    margin: 0.75rem;
+    border: 1px solid #dadce0;
+    border-radius: 8px;
+    background: white;
+}
+
+.searchInput {
+    flex: 1;
+    border: none;
+    background: transparent;
+    color: #202124;
+    outline: none;
+}
+
+.filterGroup {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0 1rem;
+    margin-bottom: 0.75rem;
+}
+
+.filterSelect {
+    flex: 1;
+    padding: 0.5rem;
+    border: 1px solid #dadce0;
+    border-radius: 6px;
+    background: white;
+}
+
+.triggerListContainer {
+    flex: 1;
+    overflow-y: auto;
+}
+
+.triggerListContainer::-webkit-scrollbar {
+    width: 8px;
+}
+
+.triggerListContainer::-webkit-scrollbar-thumb {
+    background: #ccc;
+    border-radius: 4px;
+}
+
+.triggerListItem {
+    padding: 1rem;
+    margin: 0.5rem 0.75rem;
+    border-radius: 8px;
+    background: white;
+    border: 1px solid transparent;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.triggerListItem:hover {
+    background: #f8f9fa;
+    border-color: #dadce0;
+}
+
+.triggerListItem.selected {
+    background: #e8f0fe;
+    border-color: #1a73e8;
+}
+
+.itemHeader {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.5rem;
+}
+
+.itemHeader h4 {
+    margin: 0;
+    font-size: 0.95rem;
+    font-weight: 500;
+    color: #202124;
+}
+
+.badge {
+    padding: 0.25rem 0.75rem;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    background: #e6f4ea;
+    color: #137333;
+}
+
+.badge.disabled {
+    background: #fce8e6;
+    color: #c5221f;
+}
+
+.itemMeta {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 0.75rem;
+    flex-wrap: wrap;
+}
+
+.eventType, .priority {
+    font-size: 0.75rem;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    background: #f1f3f4;
+    color: #5f6368;
+}
+
+/* Missing/alias classes used by TSX */
+.emptyState {
+    padding: 2rem;
+    text-align: center;
+    color: #5f6368;
+}
+
+.createBtnPrimary {
+    background: #1a73e8;
+    color: white;
+    border: none;
+    padding: 0.5rem 1rem;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: 600;
+    display: inline-flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.itemDescription {
+    margin: 0;
+    color: #5f6368;
+    font-size: 0.85rem;
+}
+
+.presetCount {
+    font-size: 0.75rem;
+    color: #5f6368;
+}
+
+/* simple enabled/disabled classes used for badge toggles */
+.enabled {
+    background: #e6f4ea;
+    color: #137333;
+}
+
+.disabled {
+    background: #fce8e6;
+    color: #c5221f;
+}

@@ -1,5 +1,5 @@
 import React from 'react';
-import styles from '../TriggerManager.module.css';
+import styles from './ConditionEditor.module.css';
 
 interface Condition {
     id: string;

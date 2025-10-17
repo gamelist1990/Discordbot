@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import styles from '../TriggerManager.module.css';
+import styles from './LivePanel.module.css';
 
 interface TriggerEvent {
     id: string;
@@ -31,6 +31,7 @@ const LivePanel: React.FC<LivePanelProps> = ({ selectedTriggerId }) => {
     const [expandedEventId, setExpandedEventId] = useState<string | null>(null);
     const eventsEndRef = useRef<HTMLDivElement>(null);
     const wsRef = useRef<WebSocket | null>(null);
+    const [debugLogs, setDebugLogs] = useState<string[]>([]);
 
     useEffect(() => {
         connectWebSocket();
@@ -56,18 +57,31 @@ const LivePanel: React.FC<LivePanelProps> = ({ selectedTriggerId }) => {
 
             wsRef.current.onopen = () => {
                 console.log('[LivePanel] WebSocket connected to /ws/trigger');
+                setDebugLogs(l => [`OPEN ${new Date().toISOString()}`, ...l].slice(0, 50));
                 setIsConnected(true);
-                
-                // 初期化メッセージを送信
-                if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-                    wsRef.current.send(JSON.stringify({
-                        type: 'subscribe',
-                        payload: { channel: 'trigger' }
-                    }));
-                }
+
+                // 少し待ってから subscribe を送る（接続ハンドシェイクの安定化）
+                setTimeout(() => {
+                    try {
+                        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+                            const subscribeMsg = { type: 'subscribe', payload: { channel: 'trigger' } };
+                            console.log('[LivePanel] Sending subscribe message:', subscribeMsg);
+                            setDebugLogs(l => [`SEND ${new Date().toISOString()} ${JSON.stringify(subscribeMsg)}`, ...l].slice(0, 50));
+                            wsRef.current.send(JSON.stringify(subscribeMsg));
+                        }
+                    } catch (e) {
+                        console.warn('[LivePanel] Failed to send subscribe:', e);
+                        setDebugLogs(l => [`ERROR SEND ${new Date().toISOString()} ${String(e)}`, ...l].slice(0, 50));
+                    }
+                }, 200);
             };
 
             wsRef.current.onmessage = event => {
+                // Log raw frame for debugging (visible in-page)
+                const raw = String(event.data);
+                console.log('[LivePanel] Raw WS frame received:', raw);
+                setDebugLogs(l => [`RECV ${new Date().toISOString()} ${raw}`, ...l].slice(0, 50));
+
                 if (isPaused) return;
 
                 try {
@@ -75,11 +89,15 @@ const LivePanel: React.FC<LivePanelProps> = ({ selectedTriggerId }) => {
 
                     // ハートビート/pong メッセージは無視
                     if (data.type === 'pong') {
+                        console.log('[LivePanel] Received pong');
+                        setDebugLogs(l => [`PONG ${new Date().toISOString()}`, ...l].slice(0, 50));
                         return;
                     }
 
                     // triggerUpdate メッセージを処理
                     if (data.type === 'triggerUpdate' && data.payload) {
+                        console.log('[LivePanel] Received triggerUpdate');
+                        setDebugLogs(l => [`UPDATE ${new Date().toISOString()} ${JSON.stringify(data.payload)}`, ...l].slice(0, 50));
                         const { triggerId, triggerName, eventType, presetsFired, success, error, executionTime } = data.payload;
                         
                         const triggerEvent: TriggerEvent = {
@@ -98,37 +116,52 @@ const LivePanel: React.FC<LivePanelProps> = ({ selectedTriggerId }) => {
                             const updated = [triggerEvent, ...prev];
                             return updated.slice(0, 100);
                         });
+                        return;
                     }
                     
                     // 後方互換性: trigger:fired メッセージ
                     if (data.type === 'trigger:fired') {
+                        console.log('[LivePanel] Received trigger:fired');
+                        setDebugLogs(l => [`FIRED ${new Date().toISOString()} ${JSON.stringify(data)}`, ...l].slice(0, 50));
+                        // サーバー側は payload にイベントを入れて送る場合がある
+                        const payload = data.payload || data;
+
                         const triggerEvent: TriggerEvent = {
                             id: `event-${Date.now()}-${Math.random()}`,
-                            triggerId: data.triggerId,
-                            triggerName: data.triggerName || 'Unknown',
-                            eventType: data.eventType || 'unknown',
-                            timestamp: Date.now(),
-                            success: data.success !== false,
-                            presetsFired: data.presetsFired || [],
-                            executionTime: data.executionTime,
-                            error: data.error
+                            triggerId: payload.triggerId || payload.id || 'unknown',
+                            triggerName: payload.triggerName || payload.summary || 'Unknown',
+                            eventType: payload.eventType || 'unknown',
+                            timestamp: data.timestamp || payload.timestamp || Date.now(),
+                            success: payload.success !== false,
+                            presetsFired: payload.presetsFired || payload.presets || [],
+                            executionTime: payload.executionTime,
+                            error: payload.error
                         };
 
                         setEvents(prev => {
                             const updated = [triggerEvent, ...prev];
                             return updated.slice(0, 100);
                         });
+                        return;
                     }
+
+                    // その他のメッセージ型のデバッグ出力
+                    console.log('[LivePanel] Unhandled WS message type:', data.type || '(no type)', data);
+                    setDebugLogs(l => [`UNHANDLED ${new Date().toISOString()} ${JSON.stringify(data)}`, ...l].slice(0, 50));
                 } catch (err) {
-                    console.error('[LivePanel] Failed to parse WebSocket message:', err);
+                    console.error('[LivePanel] Failed to parse WebSocket message:', err, 'raw:', event.data);
+                    setDebugLogs(l => [`PARSE_ERR ${new Date().toISOString()} ${String(err)} raw:${String(event.data)}`, ...l].slice(0, 50));
                 }
             };
 
-            wsRef.current.onclose = () => {
-                console.log('[LivePanel] WebSocket disconnected');
+            wsRef.current.onclose = (ev) => {
+                const code = (ev && (ev as CloseEvent).code) || null;
+                const reason = (ev && (ev as CloseEvent).reason) || null;
+                console.log('[LivePanel] WebSocket disconnected', { code, reason });
+                setDebugLogs(l => [`CLOSE ${new Date().toISOString()} code:${code} reason:${reason}`, ...l].slice(0, 50));
                 setIsConnected(false);
-                // 3秒後に再接続を試みる
-                setTimeout(connectWebSocket, 3000);
+                // 少し遅めに再接続（バックオフ）
+                setTimeout(() => connectWebSocket(), 3000 + Math.floor(Math.random() * 2000));
             };
 
             wsRef.current.onerror = (err) => {
@@ -235,6 +268,18 @@ const LivePanel: React.FC<LivePanelProps> = ({ selectedTriggerId }) => {
             </div>
 
             <div className={styles.eventsContainer}>
+                {/* On-page WS debug logs */}
+                <div style={{ marginBottom: 8 }}>
+                    <div className={styles.wsDebug}>
+                        {debugLogs.length === 0 ? (
+                            <div className={styles.wsDebugItem}>WS デバッグ: まだログがありません</div>
+                        ) : (
+                            debugLogs.map((l, idx) => (
+                                <div key={idx} className={styles.wsDebugItem}>{l}</div>
+                            ))
+                        )}
+                    </div>
+                </div>
                 {filteredEvents.length === 0 ? (
                     <div className={styles.emptyEvents}>
                         <p>イベントはまだ表示されていません</p>

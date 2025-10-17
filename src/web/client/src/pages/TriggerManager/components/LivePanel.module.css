@@ -1,0 +1,300 @@
+/* LivePanel.module.css - Live Event Panel */
+
+.rightPanel {
+    width: 350px;
+    background: #f8f9fa;
+    border-left: 1px solid #dadce0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.liveHeader {
+    padding: 1rem 1.25rem;
+    border-bottom: 1px solid #dadce0;
+    background: white;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.liveTitle {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 600;
+    color: #202124;
+    flex: 1;
+}
+
+.statusIndicator {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    animation: pulse 2s ease-in-out infinite;
+}
+
+.statusIndicator.connected {
+    background: #34a853;
+}
+
+.statusIndicator.disconnected {
+    background: #ea4335;
+    animation: none;
+}
+
+@keyframes pulse {
+    0%, 100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.5;
+    }
+}
+
+.clearButton {
+    background: transparent;
+    border: 1px solid #dadce0;
+    padding: 0.375rem 0.75rem;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    color: #5f6368;
+    transition: all 0.2s;
+}
+
+.clearButton:hover {
+    background: white;
+    border-color: #1a73e8;
+    color: #1a73e8;
+}
+
+.eventsList {
+    flex: 1;
+    overflow-y: auto;
+    padding: 0;
+}
+
+.eventItem {
+    padding: 0.75rem 1.25rem;
+    border-bottom: 1px solid #e0e0e0;
+    background: white;
+    display: flex;
+    gap: 0.75rem;
+    align-items: flex-start;
+    border-left: 3px solid transparent;
+    transition: all 0.2s;
+}
+
+.eventItem:hover {
+    background: #f8f9fa;
+}
+
+.eventItem.success {
+    border-left-color: #34a853;
+}
+
+.eventItem.error {
+    border-left-color: #ea4335;
+}
+
+.eventItem.warning {
+    border-left-color: #fbbc04;
+}
+
+.eventItem.info {
+    border-left-color: #1a73e8;
+}
+
+.eventIcon {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    font-size: 0.75rem;
+    color: white;
+    margin-top: 0.15rem;
+}
+
+.eventItem.success .eventIcon {
+    background: #34a853;
+}
+
+.eventItem.error .eventIcon {
+    background: #ea4335;
+}
+
+.eventItem.warning .eventIcon {
+    background: #fbbc04;
+}
+
+.eventItem.info .eventIcon {
+    background: #1a73e8;
+}
+
+.eventContent {
+    flex: 1;
+    min-width: 0;
+}
+
+.eventType {
+    font-weight: 600;
+    color: #202124;
+    font-size: 0.85rem;
+    margin-bottom: 0.25rem;
+}
+
+.eventMessage {
+    font-size: 0.8rem;
+    color: #5f6368;
+    word-break: break-word;
+    margin-bottom: 0.25rem;
+}
+
+.eventTime {
+    font-size: 0.75rem;
+    color: #9aa0a6;
+}
+
+/* Aliases and additional classes referenced in TSX */
+.livePanel {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+/* Debug log box (visible on-page) */
+.wsDebug {
+    background: rgba(0,0,0,0.03);
+    border: 1px solid rgba(0,0,0,0.06);
+    padding: 8px;
+    font-size: 12px;
+    color: #202124;
+    max-height: 140px;
+    overflow: auto;
+    border-radius: 6px;
+}
+
+.wsDebugItem {
+    margin-bottom: 6px;
+    white-space: pre-wrap;
+}
+
+.livePanelHeader {
+    padding: 1rem 1.25rem;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    background: white;
+    border-bottom: 1px solid #e0e0e0;
+}
+
+.statusBadge {
+    display: inline-flex;
+    gap: 0.5rem;
+    align-items: center;
+    color: #5f6368;
+    font-size: 0.9rem;
+}
+
+.livePanelControls {
+    padding: 0.75rem 1rem;
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    background: #f8f9fa;
+    border-bottom: 1px solid #eaeaea;
+}
+
+.pauseBtn, .clearBtn {
+    background: white;
+    border: 1px solid #dadce0;
+    padding: 0.4rem 0.6rem;
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+.eventsContainer {
+    flex: 1;
+    overflow-y: auto;
+    padding: 0.5rem 0;
+}
+
+.emptyEvents {
+    padding: 1.5rem;
+    color: #5f6368;
+    text-align: center;
+}
+
+.eventSuccess {
+    border-left-color: #34a853;
+}
+
+.eventError {
+    border-left-color: #ea4335;
+}
+
+.eventItemHeader {
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+    cursor: pointer;
+}
+
+.eventSummary {
+    flex: 1;
+    min-width: 0;
+}
+
+.eventMeta {
+    display: block;
+    color: #9aa0a6;
+    font-size: 0.8rem;
+}
+
+.expandIcon {
+    color: #5f6368;
+}
+
+.eventDetails {
+    padding: 0.75rem 1.25rem;
+    background: #fafafa;
+    border-top: 1px solid #eee;
+}
+
+.successText {
+    color: #137333;
+    font-weight: 600;
+}
+
+.errorText {
+    color: #c5221f;
+    font-weight: 600;
+}
+
+.output {
+    background: #1717170a;
+    padding: 0.5rem;
+    border-radius: 6px;
+    overflow: auto;
+    max-height: 160px;
+}
+
+.eventsList::-webkit-scrollbar {
+    width: 8px;
+}
+
+.eventsList::-webkit-scrollbar-track {
+    background: #f8f9fa;
+}
+
+.eventsList::-webkit-scrollbar-thumb {
+    background: #dadce0;
+    border-radius: 4px;
+}
+
+.eventsList::-webkit-scrollbar-thumb:hover {
+    background: #bdc1c6;
+}
