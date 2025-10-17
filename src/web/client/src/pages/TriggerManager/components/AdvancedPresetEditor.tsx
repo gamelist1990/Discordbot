@@ -78,6 +78,67 @@ const AdvancedPresetEditor: React.FC<AdvancedPresetEditorProps> = ({
         );
     };
 
+    // タイプ変更時に不要なフィールドをクリア/初期化して混在を防ぐ
+    const handleChangePresetType = (id: string, newType: Preset['type']) => {
+        const preset = presets.find(p => p.id === id);
+        if (!preset) return;
+
+        const base: Preset = { ...preset, type: newType } as Preset;
+
+        switch (newType) {
+            case 'React':
+                // リアクションは絵文字のみ
+                base.template = undefined;
+                base.replyTemplate = undefined;
+                base.webhookConfig = undefined;
+                base.dmTargetUserId = undefined;
+                base.embedConfig = undefined;
+                base.reactEmoji = preset.reactEmoji || '';
+                base.removeAfterSeconds = preset.removeAfterSeconds || 0;
+                break;
+            case 'Text':
+                base.template = preset.template || '';
+                base.replyTemplate = undefined;
+                base.webhookConfig = undefined;
+                base.embedConfig = undefined;
+                base.reactEmoji = undefined;
+                break;
+            case 'Embed':
+                base.embedConfig = preset.embedConfig || { title: '', description: '', color: '' };
+                base.template = undefined;
+                base.replyTemplate = undefined;
+                base.webhookConfig = undefined;
+                base.reactEmoji = undefined;
+                break;
+            case 'Reply':
+                base.replyTemplate = preset.replyTemplate || '';
+                base.replyWithMention = preset.replyWithMention || false;
+                base.template = undefined;
+                base.webhookConfig = undefined;
+                base.embedConfig = undefined;
+                base.reactEmoji = undefined;
+                break;
+            case 'Webhook':
+                base.webhookConfig = preset.webhookConfig || { url: '', method: 'POST', headers: {}, bodyTemplate: '' };
+                base.template = undefined;
+                base.replyTemplate = undefined;
+                base.embedConfig = undefined;
+                base.reactEmoji = undefined;
+                break;
+            case 'DM':
+                base.template = preset.template || '';
+                base.dmTargetUserId = preset.dmTargetUserId || '{author}';
+                base.replyTemplate = undefined;
+                base.embedConfig = undefined;
+                base.reactEmoji = undefined;
+                break;
+            default:
+                break;
+        }
+
+        handleUpdatePreset(id, base);
+    };
+
     const handleMovePreset = (id: string, direction: 'up' | 'down') => {
         const index = presets.findIndex(p => p.id === id);
         if (
@@ -179,9 +240,10 @@ const AdvancedPresetEditor: React.FC<AdvancedPresetEditorProps> = ({
                                         <select
                                             value={preset.type}
                                             onChange={e =>
-                                                handleUpdatePreset(preset.id, {
-                                                    type: e.target.value as any
-                                                })
+                                                handleChangePresetType(
+                                                    preset.id,
+                                                    e.target.value as Preset['type']
+                                                )
                                             }
                                             className={styles.input}
                                         >

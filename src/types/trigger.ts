@@ -234,6 +234,11 @@ export interface PlaceholderContext {
     
     // 権限・ロール
     author?: {
+        id: string;
+        name: string;
+        displayName?: string;
+        tag: string;
+        mention: string;
         roles?: string[];
         isBot?: boolean;
         locale?: string;

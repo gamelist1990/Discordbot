@@ -251,7 +251,7 @@ export class TriggerManager {
      */
     private matchString(input: string, pattern: string, matchType: ConditionMatchType): boolean {
         switch (matchType) {
-            case 'equals':
+            case 'exactly':
                 return input === pattern;
             case 'contains':
                 return input.includes(pattern);
@@ -305,9 +305,6 @@ export class TriggerManager {
                     break;
                 case 'Reply':
                     await this.executeReplyPreset(preset, context);
-                    break;
-                case 'Modal':
-                    await this.executeModalPreset(preset, context);
                     break;
                 case 'Webhook':
                     await this.executeWebhookPreset(preset, context);
@@ -413,7 +410,7 @@ export class TriggerManager {
      * Replyプリセット実行
      */
     private async executeReplyPreset(preset: TriggerPreset, context: TriggerExecutionContext): Promise<void> {
-        const messageId = preset.replyToMessageId || context.placeholders.message?.id;
+        const messageId = context.placeholders.message?.id;
         const channelId = context.placeholders.channel?.id;
         
         if (!messageId || !channelId) {
@@ -423,20 +420,16 @@ export class TriggerManager {
         const channel = await this.client.channels.fetch(channelId) as TextChannel;
         const message = await channel.messages.fetch(messageId);
         
-        const text = this.renderTemplate(preset.template || '', context.placeholders);
+        const text = this.renderTemplate(preset.replyTemplate || '', context.placeholders);
+        if (!text.trim()) {
+            throw new Error('リプライメッセージが空です。テンプレートを確認してください。');
+        }
         await message.reply(text);
     }
 
     /**
      * Modalプリセット実行（現在は未実装）
      */
-    private async executeModalPreset(_preset: TriggerPreset, _context: TriggerExecutionContext): Promise<void> {
-        // Modalの実行はインタラクションが必要なため、通常のイベントからは直接実行できない
-        // ボタンやセレクトメニューからの呼び出しを想定
-        Logger.warn('⚠️ Modal実行は現在未対応です');
-        throw new Error('Modal実行は現在未対応です');
-    }
-
     /**
      * Webhookプリセット実行
      */
@@ -531,6 +524,13 @@ export class TriggerManager {
         result = result.replace(/{user\.id}/g, context.user?.id || '');
         result = result.replace(/{user\.createdAt}/g, context.user?.createdAt || '');
         
+        result = result.replace(/{author}/g, context.author?.name || 'Unknown');
+        result = result.replace(/{author\.name}/g, context.author?.name || 'Unknown');
+        result = result.replace(/{author\.displayName}/g, context.author?.displayName || context.author?.name || 'Unknown');
+        result = result.replace(/{author\.mention}/g, context.author?.mention || '<@' + (context.author?.id || '') + '>');
+        result = result.replace(/{author\.id}/g, context.author?.id || '');
+        result = result.replace(/{author\.tag}/g, context.author?.tag || 'Unknown#0000');
+        
         result = result.replace(/{guild\.name}/g, context.guild?.name || 'Unknown');
         result = result.replace(/{guild\.id}/g, context.guild?.id || '');
         result = result.replace(/{guild\.memberCount}/g, String(context.guild?.memberCount || 0));
@@ -538,6 +538,7 @@ export class TriggerManager {
         result = result.replace(/{channel\.name}/g, context.channel?.name || 'Unknown');
         result = result.replace(/{channel\.id}/g, context.channel?.id || '');
         result = result.replace(/{channel\.topic}/g, context.channel?.topic || '');
+        result = result.replace(/{channel\.mention}/g, '<#' + (context.channel?.id || '') + '>');
         
         result = result.replace(/{message\.content}/g, context.message?.content || '');
         result = result.replace(/{message\.id}/g, context.message?.id || '');
@@ -555,6 +556,8 @@ export class TriggerManager {
         
         // ランダム・日付
         result = result.replace(/{date\.now}/g, new Date().toISOString());
+        result = result.replace(/{timestamp}/g, new Date().toISOString());
+        result = result.replace(/{timestamp\.unix}/g, String(Math.floor(Date.now() / 1000)));
         
         // XSSエスケープ（簡易版）
         result = this.escapeHtml(result);
@@ -604,6 +607,16 @@ export class TriggerManager {
                 tag: message.author.tag,
                 createdAt: message.author.createdAt ? (message.author.createdAt.toISOString ? message.author.createdAt.toISOString() : String(message.author.createdAt)) : undefined,
                 isBot: message.author.bot,
+            };
+            placeholders.author = {
+                id: message.author.id,
+                name: message.author.username,
+                displayName: message.member?.displayName || message.author.username,
+                tag: message.author.tag,
+                mention: `<@${message.author.id}>`,
+                roles: message.member?.roles?.cache?.map(role => role.id) || [],
+                isBot: message.author.bot,
+                locale: message.author.locale,
             };
             placeholders.channel = {
                 id: message.channel.id,

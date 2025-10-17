@@ -10,6 +10,15 @@ interface EmojiPickerProps {
 const EmojiPicker: React.FC<EmojiPickerProps> = ({ value, onChange }) => {
     const [isOpen, setIsOpen] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
+    const isSingleEmoji = (v: string) => {
+        if (!v) return false;
+        try {
+            // Unicode property escape for Emoji; fallback to simple length check
+            return /^\p{Emoji}(?:\uFE0F)?$/u.test(v);
+        } catch {
+            return v.trim().length <= 2;
+        }
+    };
 
     const handleEmojiSelect = (emoji: string) => {
         onChange(emoji);
@@ -36,7 +45,7 @@ const EmojiPicker: React.FC<EmojiPickerProps> = ({ value, onChange }) => {
                 <input
                     type="text"
                     placeholder="直接入力: 😀 または :emoji_name:"
-                    value={value}
+                    value={isSingleEmoji(value) ? '' : value}
                     onChange={e => onChange(e.target.value)}
                     className={styles.input}
                 />
