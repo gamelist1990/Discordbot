@@ -74,6 +74,18 @@ export class EventHandler {
             }
         });
 
+        // メンバー参加時
+        this.botClient.client.on(Events.GuildMemberAdd, async (member) => {
+            // トリガー処理
+            try {
+                const { getTriggerManager } = await import('./TriggerManager.js');
+                const triggerManager = getTriggerManager();
+                await triggerManager.handleEvent('guildMemberAdd', member.guild.id, { member });
+            } catch (error) {
+                Logger.debug('Failed to handle trigger on guildMemberAdd:', error);
+            }
+        });
+
         // メンバー退出時: 参加していたプライベートチャットから削除し、通知を行う
         this.botClient.client.on(Events.GuildMemberRemove, async (member) => {
             try {
@@ -96,6 +108,15 @@ export class EventHandler {
                 }
             } catch (error) {
                 Logger.error('Error handling GuildMemberRemove:', error);
+            }
+
+            // トリガー処理
+            try {
+                const { getTriggerManager } = await import('./TriggerManager.js');
+                const triggerManager = getTriggerManager();
+                await triggerManager.handleEvent('guildMemberRemove', member.guild.id, { member });
+            } catch (error) {
+                Logger.debug('Failed to handle trigger on guildMemberRemove:', error);
             }
         });
     }
@@ -190,6 +211,17 @@ export class EventHandler {
                 });
 
                 await command.execute(interaction);
+
+                // トリガー処理（interactionCreate）
+                if (interaction.guild) {
+                    try {
+                        const { getTriggerManager } = await import('./TriggerManager.js');
+                        const triggerManager = getTriggerManager();
+                        await triggerManager.handleEvent('interactionCreate', interaction.guild.id, { interaction });
+                    } catch (error) {
+                        Logger.debug('Failed to handle trigger on interactionCreate:', error);
+                    }
+                }
             } catch (error) {
                 Logger.error(`❌ コマンド実行エラー [/${interaction.commandName}]:`, error);
                 
@@ -239,7 +271,7 @@ export class EventHandler {
     }
 
     /**
-     * メッセージイベント（XP付与用）
+     * メッセージイベント（XP付与用 + トリガー処理）
      */
     private registerMessageEvents(): void {
         this.botClient.client.on(Events.MessageCreate, async (message) => {
@@ -250,26 +282,36 @@ export class EventHandler {
             if (!message.guild) return;
 
             try {
+                // Rank XP 処理
                 const { rankManager } = await import('./RankManager.js');
                 const member = message.member;
-                if (!member) return;
-
-                const roleIds = Array.from(member.roles.cache.keys());
-                await rankManager.handleMessageXp(
-                    message.guild.id,
-                    message.author.id,
-                    message.channel.id,
-                    roleIds
-                );
+                if (member) {
+                    const roleIds = Array.from(member.roles.cache.keys());
+                    await rankManager.handleMessageXp(
+                        message.guild.id,
+                        message.author.id,
+                        message.channel.id,
+                        roleIds
+                    );
+                }
             } catch (error) {
                 // XP付与エラーは無視（ログに記録のみ）
                 Logger.debug('Failed to add message XP:', error);
+            }
+
+            // トリガー処理
+            try {
+                const { getTriggerManager } = await import('./TriggerManager.js');
+                const triggerManager = getTriggerManager();
+                await triggerManager.handleEvent('messageCreate', message.guild.id, { message });
+            } catch (error) {
+                Logger.debug('Failed to handle trigger on messageCreate:', error);
             }
         });
     }
 
     /**
-     * ボイスチャンネルイベント（XP付与用）
+     * ボイスチャンネルイベント（XP付与用 + トリガー処理）
      */
     private registerVoiceEvents(): void {
         this.botClient.client.on(Events.VoiceStateUpdate, async (oldState, newState) => {
@@ -298,6 +340,15 @@ export class EventHandler {
             } catch (error) {
                 // XP付与エラーは無視（ログに記録のみ）
                 Logger.debug('Failed to handle VC XP:', error);
+            }
+
+            // トリガー処理
+            try {
+                const { getTriggerManager } = await import('./TriggerManager.js');
+                const triggerManager = getTriggerManager();
+                await triggerManager.handleEvent('voiceStateUpdate', newState.guild.id, { oldState, newState });
+            } catch (error) {
+                Logger.debug('Failed to handle trigger on voiceStateUpdate:', error);
             }
         });
     }

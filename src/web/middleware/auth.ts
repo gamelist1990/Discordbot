@@ -79,3 +79,40 @@ export function verifyAuth(sessions: Map<string, SettingsSession>) {
 export function getCurrentUser(req: Request) {
     return (req as any).session;
 }
+
+/**
+ * STAFF権限を要求するミドルウェア
+ */
+export function requireStaffAuth(sessions: Map<string, SettingsSession>) {
+    return (req: Request, res: Response, next: NextFunction): void => {
+        const token = req.cookies?.sessionId;
+
+        if (!token) {
+            res.status(401).json({ error: 'Unauthorized' });
+            return;
+        }
+
+        const session = sessions.get(token);
+
+        if (!session) {
+            res.status(401).json({ error: 'Session not found' });
+            return;
+        }
+
+        if (Date.now() > session.expiresAt) {
+            sessions.delete(token);
+            res.status(401).json({ error: 'Session expired' });
+            return;
+        }
+
+        // STAFF権限チェック
+        if (session.permissionLevel !== 'STAFF' && session.permissionLevel !== 'ADMIN' && session.permissionLevel !== 'OP') {
+            res.status(403).json({ error: 'Forbidden: STAFF permission required' });
+            return;
+        }
+
+        // セッション情報をリクエストに追加
+        (req as any).session = session;
+        next();
+    };
+}

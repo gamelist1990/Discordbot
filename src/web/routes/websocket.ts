@@ -13,9 +13,16 @@ export function setupWebSocketServer(
     server: HTTPServer,
     sessions: Map<string, SettingsSession>
 ): void {
+    // Feedback用WebSocketサーバー
     const wss = new WebSocketServer({ 
         server,
         path: '/ws/feedback'
+    });
+    
+    // Trigger用WebSocketサーバー
+    const wssTrigger = new WebSocketServer({ 
+        server,
+        path: '/ws/trigger'
     });
 
     wss.on('connection', (ws: WebSocket, req) => {
@@ -57,7 +64,43 @@ export function setupWebSocketServer(
         }
     });
 
-    // WebSocketManagerのメッセージハンドラーを設定
+    // Trigger WebSocket接続ハンドラー
+    wssTrigger.on('connection', (ws: WebSocket, req) => {
+        try {
+            const rawCookie = req.headers.cookie;
+            const cookies = rawCookie ? parseCookie(rawCookie) : {};
+            const sessionToken = cookies['sessionId'] || cookies['connect.sid'] || cookies['session'];
+
+            if (!sessionToken) {
+                console.warn('[WebSocket/Trigger] No session token found, closing connection');
+                ws.close(1008, 'Unauthorized: No session token');
+                return;
+            }
+
+            const session = sessions.get(sessionToken);
+            if (!session) {
+                console.warn('[WebSocket/Trigger] Invalid session token, closing connection');
+                ws.close(1008, 'Unauthorized: Invalid session');
+                return;
+            }
+
+            // Trigger用チャンネルに接続を登録
+            const connectionId = wsManager.addConnection(ws, 'trigger', {
+                userId: session.userId,
+                username: session.username,
+                avatar: session.avatar,
+                guildId: session.guildId // ギルドIDもメタデータに含める
+            });
+
+            console.log(`[WebSocket/Trigger] Client connected: ${connectionId} (User: ${session.username})`);
+
+        } catch (error) {
+            console.error('[WebSocket/Trigger] Connection error:', error);
+            try { ws.close(1011, 'Internal server error'); } catch (e) { /* ignore */ }
+        }
+    });
+
+    // WebSocketManagerのメッセージハンドラーを設定（Feedback）
     wsManager.onMessage('feedback', async (connection, message) => {
         try {
             // クライアントからのメッセージを処理
@@ -88,5 +131,33 @@ export function setupWebSocketServer(
         }
     });
 
-    console.log('[WebSocket] Server setup complete on path: /ws/feedback');
+    // WebSocketManagerのメッセージハンドラーを設定（Trigger）
+    wsManager.onMessage('trigger', async (connection, message) => {
+        try {
+            switch (message.type) {
+                case 'ping':
+                    wsManager.sendToConnection(connection.id, {
+                        type: 'pong',
+                        timestamp: Date.now()
+                    });
+                    break;
+
+                case 'subscribe':
+                    console.log(`[WebSocket/Trigger] ${connection.id} subscribed to:`, message.payload);
+                    break;
+
+                default:
+                    console.warn(`[WebSocket/Trigger] Unknown message type: ${message.type}`);
+            }
+        } catch (error) {
+            console.error('[WebSocket/Trigger] Message handler error:', error);
+            wsManager.sendToConnection(connection.id, {
+                type: 'error',
+                timestamp: Date.now(),
+                payload: { error: 'Failed to process message' }
+            });
+        }
+    });
+
+    console.log('[WebSocket] Server setup complete on paths: /ws/feedback, /ws/trigger');
 }

@@ -10,3 +10,4 @@ export * from './mod.js';
 export * from './feedback.js';
 export * from './rolepreset.js';
 export * from './rank.js';
+export * from './triggers.js';
