@@ -137,6 +137,7 @@ async function main() {
         const { unifiedWsManager } = await import('./web/services/UnifiedWebSocketManager.js');
         triggerManager.setWebSocketEmitter((event: string, data: any) => {
             try {
+                Logger.debug(`[TriggerEmitter] event=${event} guild=${data?.guildId || data?.guild || 'unknown'}`);
                 unifiedWsManager.broadcast('trigger', {
                     type: event,
                     timestamp: Date.now(),

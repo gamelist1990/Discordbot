@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import { BotClient } from '../../core/BotClient.js';
 import { getTriggerManager } from '../../core/TriggerManager.js';
 import { Logger } from '../../utils/Logger.js';
-import { Trigger, TriggerPreset } from '../../types/trigger.js';
+import { Trigger } from '../../types/trigger.js';
 import crypto from 'crypto';
 
 /**
@@ -10,10 +10,8 @@ import crypto from 'crypto';
  * トリガー機能のREST APIエンドポイントを処理
  */
 export class TriggerController {
-    private botClient: BotClient;
-
-    constructor(botClient: BotClient) {
-        this.botClient = botClient;
+    constructor(_botClient: BotClient) {
+        // botClient not required by current controller implementation
     }
 
     /**
@@ -197,7 +195,7 @@ export class TriggerController {
         try {
             const { id } = req.params;
             const guildId = req.query.guildId as string;
-            const mockEvent = req.body.mockEvent;
+            // mockEvent currently unused; kept for future extension
 
             if (!guildId) {
                 res.status(400).json({ error: 'guildId is required' });
@@ -291,7 +289,7 @@ export class TriggerController {
      * GET /api/triggers/live-buffer
      * ライブバッファ（実行履歴）を取得
      */
-    async getLiveBuffer(req: Request, res: Response): Promise<void> {
+    async getLiveBuffer(_req: Request, res: Response): Promise<void> {
         try {
             const triggerManager = getTriggerManager();
             const buffer = triggerManager.getLiveBuffer();
@@ -307,7 +305,7 @@ export class TriggerController {
      * DELETE /api/triggers/live-buffer
      * ライブバッファをクリア
      */
-    async clearLiveBuffer(req: Request, res: Response): Promise<void> {
+    async clearLiveBuffer(_req: Request, res: Response): Promise<void> {
         try {
             const triggerManager = getTriggerManager();
             triggerManager.clearLiveBuffer();

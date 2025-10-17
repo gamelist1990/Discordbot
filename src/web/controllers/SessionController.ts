@@ -94,7 +94,7 @@ export class SessionController {
             guildId: session.guildId,
             guildIds: session.guildIds,
             userId: session.userId,
-            permissionLevel: session.permissionLevel,
+            permissionLevel: session.permission,
         });
     }
 }

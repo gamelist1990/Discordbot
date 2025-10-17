@@ -1,14 +1,4 @@
-import {
-    Client,
-    EmbedBuilder,
-    TextChannel,
-    User,
-    Message,
-    GuildMember,
-    ActionRowBuilder,
-    ButtonBuilder,
-    ButtonStyle,
-} from 'discord.js';
+import { Client, EmbedBuilder, TextChannel } from 'discord.js';
 import { Database } from './Database.js';
 import { Logger } from '../utils/Logger.js';
 import {
@@ -19,9 +9,7 @@ import {
     TriggerFiredEvent,
     TriggerExecutionContext,
     PlaceholderContext,
-    ConditionType,
     ConditionMatchType,
-    PresetActionType,
 } from '../types/trigger.js';
 import axios from 'axios';
 
@@ -179,7 +167,7 @@ export class TriggerManager {
         });
         
         // 各グループ内は AND、グループ間は OR
-        for (const [groupId, groupConditions] of groups) {
+        for (const [_groupId, groupConditions] of groups) {
             const allMatch = groupConditions.every((cond) => this.evaluateSingleCondition(cond, context));
             if (allMatch) {
                 return true; // 1つのグループでも全条件満たせばOK
@@ -442,7 +430,7 @@ export class TriggerManager {
     /**
      * Modalプリセット実行（現在は未実装）
      */
-    private async executeModalPreset(preset: TriggerPreset, context: TriggerExecutionContext): Promise<void> {
+    private async executeModalPreset(_preset: TriggerPreset, _context: TriggerExecutionContext): Promise<void> {
         // Modalの実行はインタラクションが必要なため、通常のイベントからは直接実行できない
         // ボタンやセレクトメニューからの呼び出しを想定
         Logger.warn('⚠️ Modal実行は現在未対応です');
@@ -603,7 +591,7 @@ export class TriggerManager {
         
         // イベントタイプ別にコンテキストを構築
         if (eventType === 'messageCreate' && eventData.message) {
-            const message = eventData.message as Message;
+            const message: any = eventData.message;
             placeholders.message = {
                 id: message.id,
                 content: message.content,
@@ -614,7 +602,7 @@ export class TriggerManager {
                 id: message.author.id,
                 name: message.author.username,
                 tag: message.author.tag,
-                createdAt: message.author.createdAt.toISOString(),
+                createdAt: message.author.createdAt ? (message.author.createdAt.toISOString ? message.author.createdAt.toISOString() : String(message.author.createdAt)) : undefined,
                 isBot: message.author.bot,
             };
             placeholders.channel = {

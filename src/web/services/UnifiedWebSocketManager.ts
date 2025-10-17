@@ -217,8 +217,13 @@ export class UnifiedWebSocketManager {
     public broadcast(channel: string, data: any): void {
         const connections = this.connections.get(channel);
         if (!connections) return;
-
         const payload = JSON.stringify(data);
+        try {
+            console.log(`[UnifiedWebSocketManager] Broadcasting to channel=${channel} connections=${connections.size} type=${data?.type || '(no type)'}`);
+        } catch (e) {
+            // ignore
+        }
+
         connections.forEach((ws) => {
             try {
                 if (ws.readyState === ws.OPEN) {

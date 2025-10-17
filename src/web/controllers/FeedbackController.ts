@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import { SettingsSession } from '../types/index.js';
 import { FeedbackManager, FeedbackType, FeedbackStatus } from '../../core/FeedbackManager.js';
-import { wsManager } from '../services/WebSocketManager.js';
+import { unifiedWsManager } from '../services/UnifiedWebSocketManager.js';
 import { isOwner } from '../../config.js';
 import { CacheManager } from '../../utils/CacheManager.js';
 
@@ -114,7 +114,7 @@ export class FeedbackController {
             );
 
             // WebSocket経由でリアルタイム通知
-            wsManager.broadcast('feedback', {
+            unifiedWsManager.broadcast('feedback', {
                 type: 'feedbackCreated',
                 timestamp: Date.now(),
                 payload: feedback
@@ -168,7 +168,7 @@ export class FeedbackController {
             }
 
             // WebSocket経由でリアルタイム通知
-            wsManager.broadcast('feedback', {
+            unifiedWsManager.broadcast('feedback', {
                 type: 'feedbackUpdated',
                 timestamp: Date.now(),
                 payload: updatedFeedback
@@ -214,7 +214,7 @@ export class FeedbackController {
             }
 
             // WebSocket経由でリアルタイム通知
-            wsManager.broadcast('feedback', {
+            unifiedWsManager.broadcast('feedback', {
                 type: 'feedbackDeleted',
                 timestamp: Date.now(),
                 payload: { id }
@@ -247,7 +247,7 @@ export class FeedbackController {
             }
 
             // WebSocket経由でリアルタイム通知
-            wsManager.broadcast('feedback', {
+            unifiedWsManager.broadcast('feedback', {
                 type: 'feedbackUpvoted',
                 timestamp: Date.now(),
                 payload: feedback
@@ -292,7 +292,7 @@ export class FeedbackController {
             const feedback = await FeedbackManager.getFeedbackById(id);
 
             // WebSocket経由でリアルタイム通知
-            wsManager.broadcast('feedback', {
+            unifiedWsManager.broadcast('feedback', {
                 type: 'commentAdded',
                 timestamp: Date.now(),
                 payload: { feedbackId: id, comment, feedback }
@@ -343,7 +343,7 @@ export class FeedbackController {
             const updatedFeedback = await FeedbackManager.getFeedbackById(id);
 
             // WebSocket経由でリアルタイム通知
-            wsManager.broadcast('feedback', {
+            unifiedWsManager.broadcast('feedback', {
                 type: 'commentDeleted',
                 timestamp: Date.now(),
                 payload: { feedbackId: id, commentId, feedback: updatedFeedback }
