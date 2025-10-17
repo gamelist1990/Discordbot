@@ -116,6 +116,7 @@ export function createAuthRoutes(
                 user: {
                     userId: session.userId,
                     guildId: session.guildId || (session.guildIds && session.guildIds.length > 0 ? session.guildIds[0] : undefined), // 後方互換性
+                    guildIds: session.guildIds || [], // 全ギルドID
                     username: session.username || session.userId,
                     avatar: (session as any).avatar || null,
                     permissions: session.permissions || [],

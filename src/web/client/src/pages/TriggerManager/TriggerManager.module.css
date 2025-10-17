@@ -1,4 +1,5 @@
 /* TriggerManager.module.css */
+
 .container {
     min-height: 100vh;
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -14,11 +15,104 @@
 .header h1 {
     font-size: 2.5rem;
     margin-bottom: 0.5rem;
+    font-weight: 700;
 }
 
 .header p {
     font-size: 1.1rem;
     opacity: 0.9;
+}
+
+.headerContent {
+    max-width: 1400px;
+    margin: 0 auto;
+}
+
+/* 3-Column Layout */
+.mainLayout {
+    max-width: 1400px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 1fr 1.5fr 1fr;
+    gap: 1.5rem;
+    background: white;
+    border-radius: 12px;
+    padding: 2rem;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+}
+
+.leftColumn,
+.middleColumn,
+.rightColumn {
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    max-height: calc(100vh - 300px);
+    border-radius: 8px;
+    background: #f9f9f9;
+}
+
+.leftColumn {
+    border: 1px solid #e0e0e0;
+}
+
+.middleColumn {
+    border: 1px solid #e0e0e0;
+}
+
+.rightColumn {
+    border: 1px solid #e0e0e0;
+}
+
+/* Loading, Error, Empty States */
+.loadingContainer,
+.errorContainer {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 60vh;
+    gap: 1rem;
+}
+
+.loadingContainer span,
+.errorContainer span {
+    font-size: 3rem;
+    color: #667eea;
+}
+
+.errorContainer span {
+    color: #f44336;
+}
+
+.loadingContainer p,
+.errorContainer p {
+    font-size: 1.1rem;
+    color: #666;
+}
+
+.spinner {
+    width: 40px;
+    height: 40px;
+    border: 4px solid #f3f3f3;
+    border-top: 4px solid #667eea;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+.emptySection {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 3rem 1rem;
+    gap: 1rem;
+    color: #999;
 }
 
 .content {
@@ -30,10 +124,12 @@
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
 }
 
+/* Toolbar */
 .toolbar {
     display: flex;
     gap: 1rem;
     margin-bottom: 2rem;
+    flex-wrap: wrap;
 }
 
 .createButton,
@@ -42,6 +138,7 @@
     border: none;
     border-radius: 8px;
     font-size: 1rem;
+    font-weight: 500;
     cursor: pointer;
     display: flex;
     align-items: center;
@@ -57,6 +154,7 @@
 .createButton:hover {
     background: #5568d3;
     transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(102, 126, 234, 0.4);
 }
 
 .refreshButton {
@@ -66,8 +164,10 @@
 
 .refreshButton:hover {
     background: #e0e0e0;
+    transform: rotate(360deg);
 }
 
+/* Trigger List */
 .triggerList {
     display: flex;
     flex-direction: column;
@@ -79,11 +179,13 @@
     border-radius: 8px;
     padding: 1.5rem;
     transition: all 0.3s ease;
+    background: white;
 }
 
 .triggerCard:hover {
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
     transform: translateY(-2px);
+    border-color: #667eea;
 }
 
 .triggerHeader {
@@ -91,27 +193,46 @@
     justify-content: space-between;
     align-items: center;
     margin-bottom: 1rem;
+    flex-wrap: wrap;
+    gap: 1rem;
 }
 
 .triggerHeader h3 {
     font-size: 1.3rem;
     margin: 0;
     color: #333;
+    flex: 1;
+    min-width: 200px;
 }
 
 .actions {
     display: flex;
     gap: 0.5rem;
+    align-items: center;
 }
 
+.editButton,
 .toggleEnabled,
-.toggleDisabled {
+.toggleDisabled,
+.deleteButton {
     padding: 0.5rem 1rem;
     border: none;
     border-radius: 6px;
     font-size: 0.9rem;
     cursor: pointer;
     transition: all 0.3s ease;
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+}
+
+.editButton {
+    background: #2196f3;
+    color: white;
+}
+
+.editButton:hover {
+    background: #1976d2;
 }
 
 .toggleEnabled {
@@ -133,16 +254,12 @@
 }
 
 .deleteButton {
-    padding: 0.5rem;
-    border: none;
-    border-radius: 6px;
     background: #ff5252;
     color: white;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
+    padding: 0.5rem;
+    width: 40px;
+    height: 40px;
     justify-content: center;
-    transition: all 0.3s ease;
 }
 
 .deleteButton:hover {
@@ -158,6 +275,7 @@
 .description {
     color: #666;
     margin: 0;
+    font-size: 0.95rem;
 }
 
 .meta {
@@ -169,10 +287,11 @@
 .badge,
 .presetCount,
 .priority {
-    padding: 0.25rem 0.75rem;
+    padding: 0.35rem 0.75rem;
     border-radius: 4px;
-    font-size: 0.85rem;
+    font-size: 0.8rem;
     font-weight: 500;
+    display: inline-block;
 }
 
 .badge {
@@ -190,15 +309,24 @@
     color: #f57c00;
 }
 
+/* Loading, Error, Empty States */
 .loading,
 .error,
-.empty {
+.empty,
+.emptySection {
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
     padding: 3rem;
     text-align: center;
+}
+
+.emptySection {
+    padding: 2rem;
+    background: #f5f5f5;
+    border-radius: 8px;
+    border: 2px dashed #ddd;
 }
 
 .spinner {
@@ -217,7 +345,8 @@
 
 .loading p,
 .error p,
-.empty p {
+.empty p,
+.emptySection p {
     margin-top: 1rem;
     font-size: 1.1rem;
     color: #666;
@@ -243,9 +372,413 @@
     font-size: 1rem;
     cursor: pointer;
     transition: all 0.3s ease;
+    font-weight: 500;
 }
 
 .createFirstButton:hover {
     background: #5568d3;
     transform: translateY(-2px);
+}
+
+/* Modal Styles */
+.modalOverlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    padding: 1rem;
+}
+
+.modal {
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+    max-width: 600px;
+    width: 100%;
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
+    animation: slideUp 0.3s ease;
+}
+
+@keyframes slideUp {
+    from {
+        transform: translateY(20px);
+        opacity: 0;
+    }
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
+
+.modalHeader {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1.5rem;
+    border-bottom: 1px solid #e0e0e0;
+}
+
+.modalHeader h2 {
+    margin: 0;
+    font-size: 1.5rem;
+    color: #333;
+}
+
+.closeButton {
+    background: none;
+    border: none;
+    font-size: 1.5rem;
+    cursor: pointer;
+    color: #999;
+    transition: color 0.3s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.closeButton:hover {
+    color: #333;
+}
+
+/* Modal Tabs */
+.modalTabs {
+    display: flex;
+    gap: 0;
+    border-bottom: 2px solid #e0e0e0;
+    padding: 0 1.5rem;
+}
+
+.tabButton {
+    background: none;
+    border: none;
+    padding: 1rem 1.5rem;
+    cursor: pointer;
+    font-size: 1rem;
+    color: #999;
+    font-weight: 500;
+    transition: all 0.3s ease;
+    border-bottom: 3px solid transparent;
+    margin-bottom: -2px;
+}
+
+.tabButton:hover {
+    color: #667eea;
+}
+
+.tabButton.activeTab {
+    color: #667eea;
+    border-bottom-color: #667eea;
+}
+
+/* Modal Content */
+.modalContent {
+    flex: 1;
+    overflow-y: auto;
+    padding: 1.5rem;
+}
+
+.formSection {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.sectionDescription {
+    color: #666;
+    font-size: 0.95rem;
+    margin: 0;
+    padding: 1rem;
+    background: #f5f5f5;
+    border-radius: 6px;
+    border-left: 3px solid #667eea;
+}
+
+/* Form Styles */
+.formGroup {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.formGroup label {
+    font-weight: 600;
+    color: #333;
+    font-size: 0.95rem;
+}
+
+.formGroup input,
+.formGroup textarea,
+.formGroup select {
+    padding: 0.75rem;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    font-size: 0.95rem;
+    font-family: inherit;
+    transition: all 0.3s ease;
+}
+
+.formGroup input:focus,
+.formGroup textarea:focus,
+.formGroup select:focus {
+    outline: none;
+    border-color: #667eea;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+.formRow {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+}
+
+@media (max-width: 600px) {
+    .formRow {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Conditions */
+.conditionsList {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.conditionItem {
+    padding: 1rem;
+    border: 1px solid #e0e0e0;
+    border-radius: 6px;
+    background: #f9f9f9;
+}
+
+.conditionRow {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1.5fr auto;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+@media (max-width: 800px) {
+    .conditionRow {
+        grid-template-columns: 1fr;
+    }
+}
+
+.conditionType,
+.matchType,
+.conditionValue {
+    padding: 0.5rem;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 0.85rem;
+}
+
+/* Presets */
+.presetsList {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.presetItem {
+    padding: 1rem;
+    border: 1px solid #e0e0e0;
+    border-radius: 6px;
+    background: #f9f9f9;
+}
+
+.presetHeader {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+    align-items: center;
+}
+
+.presetIndex {
+    display: inline-block;
+    background: #667eea;
+    color: white;
+    padding: 0.3rem 0.6rem;
+    border-radius: 4px;
+    font-weight: 600;
+    font-size: 0.8rem;
+}
+
+.presetType {
+    flex: 1;
+    padding: 0.5rem;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 0.9rem;
+}
+
+.toggleButton {
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: #667eea;
+    font-size: 1.2rem;
+    transition: color 0.3s ease;
+}
+
+.toggleButton:hover {
+    color: #5568d3;
+}
+
+.removeButton {
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: #f44336;
+    font-size: 1.2rem;
+    transition: color 0.3s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.removeButton:hover {
+    color: #d32f2f;
+}
+
+.presetTemplate {
+    width: 100%;
+    padding: 0.75rem;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-family: 'Courier New', monospace;
+    font-size: 0.85rem;
+    resize: vertical;
+}
+
+/* Add Buttons */
+.addButton {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1.5rem;
+    background: #f0f0f0;
+    border: 2px dashed #ddd;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.95rem;
+    font-weight: 500;
+    transition: all 0.3s ease;
+    color: #666;
+}
+
+.addButton:hover {
+    background: #e8e8e8;
+    border-color: #667eea;
+    color: #667eea;
+}
+
+/* Modal Footer */
+.modalFooter {
+    display: flex;
+    gap: 1rem;
+    padding: 1.5rem;
+    border-top: 1px solid #e0e0e0;
+    justify-content: flex-end;
+}
+
+.cancelButton,
+.saveButton {
+    padding: 0.75rem 1.5rem;
+    border: none;
+    border-radius: 6px;
+    font-size: 1rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.cancelButton {
+    background: #f0f0f0;
+    color: #333;
+}
+
+.cancelButton:hover {
+    background: #e0e0e0;
+}
+
+.saveButton {
+    background: #667eea;
+    color: white;
+}
+
+.saveButton:hover:not(:disabled) {
+    background: #5568d3;
+    transform: translateY(-2px);
+}
+
+.saveButton:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    .container {
+        padding: 1rem;
+    }
+
+    .mainLayout {
+        grid-template-columns: 1fr;
+        gap: 1rem;
+        padding: 1rem;
+    }
+
+    .leftColumn,
+    .middleColumn,
+    .rightColumn {
+        max-height: auto;
+    }
+
+    .content {
+        padding: 1rem;
+    }
+
+    .header h1 {
+        font-size: 2rem;
+    }
+
+    .modal {
+        max-height: 95vh;
+    }
+
+    .triggerHeader {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .actions {
+        width: 100%;
+        justify-content: flex-start;
+    }
+
+    .formRow {
+        grid-template-columns: 1fr;
+    }
+
+    .conditionRow {
+        grid-template-columns: 1fr;
+    }
+
+    .modalFooter {
+        flex-direction: column-reverse;
+    }
+
+    .cancelButton,
+    .saveButton {
+        width: 100%;
+    }
 }

@@ -16,13 +16,15 @@ export function setupWebSocketServer(
     // Feedback用WebSocketサーバー
     const wss = new WebSocketServer({ 
         server,
-        path: '/ws/feedback'
+        path: '/ws/feedback',
+        perMessageDeflate: false
     });
     
     // Trigger用WebSocketサーバー
     const wssTrigger = new WebSocketServer({ 
         server,
-        path: '/ws/trigger'
+        path: '/ws/trigger',
+        perMessageDeflate: false
     });
 
     wss.on('connection', (ws: WebSocket, req) => {
@@ -38,14 +40,18 @@ export function setupWebSocketServer(
 
             if (!sessionToken) {
                 console.warn('[WebSocket] No session token found in cookies, closing connection');
-                ws.close(1008, 'Unauthorized: No session token');
+                if (ws.readyState === ws.OPEN) {
+                    ws.close(1008, 'Unauthorized: No session token');
+                }
                 return;
             }
 
             const session = sessions.get(sessionToken);
             if (!session) {
                 console.warn('[WebSocket] Invalid session token, closing connection');
-                ws.close(1008, 'Unauthorized: Invalid session');
+                if (ws.readyState === ws.OPEN) {
+                    ws.close(1008, 'Unauthorized: Invalid session');
+                }
                 return;
             }
 
