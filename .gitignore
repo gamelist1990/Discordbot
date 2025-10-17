@@ -12,3 +12,4 @@ config.json
 /.config.json
 .history
 Data
+.roo/mcp.json

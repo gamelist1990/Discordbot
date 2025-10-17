@@ -1,35 +1,201 @@
-## AI agent guide for this repository (concise)
+# Copilot Instructions for Discord Bot
 
-Work target: help contributors and automated agents make safe, type-correct changes to this TypeScript Discord bot.
+This guide helps AI agents understand the architecture and development patterns of this TypeScript Discord Bot project.
 
-Key facts (read these files first):
-- Entry point: `src/index.ts` — loads `config.json`, bootstraps `BotClient`, `CommandLoader`, registers events, and starts `SettingsServer`.
-- Command shape: `src/types/command.ts` — follow `Command` / `SlashCommand` interfaces (exported objects must match these types).
-- Static commands: files under `src/commands` (and `src/modules/*`). Add static commands by creating `src/modules/<Name>/index.ts` and adding an import to `src/modules/import.ts`.
-- Dynamic plugins: `plugins/` (loaded by `src/modules/static-loader.ts` / `src/index.ts`) — support CJS (`.js`) and ESM (`.mjs`) modules exporting `default` or `exports.command`.
+## Architecture Overview
 
-Build / run notes:
-- Project uses Bun in CI and package scripts (e.g. `bun build`, `bun --watch run src/index.ts`). Local dev may use `bun`, `npm`, or `ts-node-dev`, but confirm runtime differences (Bun vs Node) when running builds.
-- `package.json` scripts of interest: `dev`, `start`, `web`, `auto`, and platform build scripts. Use `bun install` or `npm install` to restore deps.
-- Runtime requires a `config.json` in the repository root with a valid `token` (Discord bot token) and `openai` settings for the OpenAI integrations. Never commit real secrets — use dummy values for tests.
+### Core Stack
+- **Runtime**: Bun (with Node.js compatibility for local dev)
+- **Language**: TypeScript with ESM modules
+- **Framework**: Discord.js v14
+- **Web UI**: Vite + React
+- **Database**: JSON file-based (no external DB required)
 
-OpenAI & RAG specifics (project-unique):
-- `src/core/OpenAIChatManager.ts` — wrapper around OpenAI Chat completions, supports streaming and tool-calls. Tools are registered with `registerTool(def, handler)` and executed via `handleToolCalls`.
-- `src/core/PdfRAGManager.ts` — simple PDF indexer + in-repo vector store at `Data/pdf_vectors.json`. Indexing calls OpenAI embeddings endpoint defined in `config`.
-- Many commands (e.g. `src/commands/staff/subcommands/ai.ts`) use streaming, tool registration, and safe reply fallbacks (`safeRespond`). When editing, preserve streaming/update semantics and interaction fallback behavior.
+### Major Components
 
-Conventions and gotchas for automated changes:
-- Type-first: prefer TypeScript-correct edits; update `src/types/command.ts` usages when changing command signatures.
-- Config handling: `src/index.ts` strips BOM and supports JSON with comments — but logs mask `token` when printing. Avoid exposing tokens in logs or commit.
-- Long-running / async: commands that call external APIs (OpenAI, PDF parsing) use try/catch and call `safeRespond` or followUp. Preserve these patterns when adding similar features.
-- Data persistence: runtime JSON stores live under `Data/`. Tests or offline runs should use temporary/dummy paths.
+#### 1. **Bootstrap & Lifecycle** (`src/index.ts`)
+- Loads `config.json` (token masked in logs automatically)
+- Initializes `BotClient`, `CommandLoader`, `EventHandler`, and `SettingsServer`
+- Flow: `index.ts` → `BotClient.login()` → commands auto-load → event handlers registered
 
-What to check in PRs (automated reviewer checklist):
-- Exports match `SlashCommand` / `Command` types and are registered (e.g. `src/modules/import.ts`).
-- No secrets committed; `config.json` changes must be dummy or omitted.
-- Long-running handlers preserve interaction defer/reply/fallback logic (see `ai.ts` for examples).
-- When adding OpenAI usage, ensure `config.openai` keys are read from `src/config.ts` or `config.json` and that streaming/tool patterns follow `OpenAIChatManager`.
+#### 2. **Command System** (`src/core/CommandLoader.ts`, `src/commands/`)
+- **Auto-discovery pattern**: `CommandLoader` recursively scans `src/commands/` for `.ts`/`.js` files
+- **Command interface** (`src/types/command.ts`): 
+  - Implement `SlashCommand` with `data` (SlashCommandBuilder) and `execute(interaction)`
+  - Optional: `permissionLevel`, `cooldown` fields
+- **Subcommands**: Nested in `subcommands/` folders (e.g., `src/commands/staff/subcommands/`)
+- **Permission levels**: ANY, STAFF, ADMIN, OP (defined in `src/web/types/permission.ts`)
 
-If you need more context, read these files next: `src/index.ts`, `src/core/OpenAIChatManager.ts`, `src/core/PdfRAGManager.ts`, `src/types/command.ts`, and a representative command like `src/commands/staff/subcommands/ai.ts`.
+#### 3. **Event System** (`src/core/EventHandler.ts`, `src/core/EventManager.ts`)
+- **EventHandler**: Maps Discord.js events to command execution and handlers
+- **EventManager**: Unified custom event system (caution: not strictly typed for custom events)
+- **Key events**: `guildCreate` (auto-deploy commands), `interactionCreate` (route to command execute)
 
-If anything here is unclear or you want additional examples (e.g. how to add a plugin, create a command, or run the web client), tell me which area to expand.
+#### 4. **Data Persistence** (`src/core/Database.ts`, `Data/` folder)
+- **JSON-backed**: Stores all data in `Data/` as JSON files
+- **Cache layer**: In-memory cache to reduce file I/O
+- **API**: `database.set(guildId, key, data)` and `database.get(guildId, key, defaultValue)`
+- **Pattern**: File paths auto-created; supports nested directories (e.g., `Guild/{guildId}/settings.json`)
+
+#### 5. **Web Dashboard** (`src/web/SettingsServer.ts`, `src/web/client/`)
+- **Express server** on configurable port (default 3000)
+- **Session-based auth**: `SessionService` manages tokens (stored in `Data/Auth/`)
+- **Routes structure**: `src/web/routes/` organizes endpoints (feedback, settings, rank, etc.)
+- **Frontend**: Vite + React; built to `src/web/client/dist/`
+
+### Data Flow: Command Execution
+```
+User types slash command
+  ↓
+Discord → Bot (interactionCreate event)
+  ↓
+EventHandler routes to CommandRegistry
+  ↓
+CommandRegistry looks up command from BotClient.commands Collection
+  ↓
+Command.execute(interaction) runs
+  ↓
+Often reads/writes to Database → JSON in Data/
+```
+
+---
+
+## Project-Specific Patterns & Conventions
+
+### 1. Command Registration
+All commands must export default a `SlashCommand` object:
+```typescript
+const myCommand: SlashCommand = {
+    data: new SlashCommandBuilder()
+        .setName('mycommand')
+        .setDescription('Does something'),
+    permissionLevel: PermissionLevel.STAFF,  // Optional
+    cooldown: 5,  // Optional (seconds)
+    async execute(interaction: ChatInputCommandInteraction) {
+        // Command logic
+    }
+};
+export default myCommand;
+```
+- Avoid static imports; `CommandLoader` discovers files automatically.
+- Place command files under `src/commands/{category}/` (e.g., `any`, `staff`, `admin`, `owner`).
+
+### 2. Permission System
+- Stored in web settings, retrieved via `SessionService` or database.
+- Levels: 0 = ANY, 1+ = STAFF, 2+ = ADMIN, 3+ = OP.
+- Check in command: compare `permissionLevel` field (web layer enforces during route handling).
+
+### 3. Cooldown Handling
+- Use `cooldownManager` singleton from `src/utils/CooldownManager.ts`.
+- Pattern: Set `cooldown` field on command, EventHandler checks automatically.
+- Fallback: Manually call `cooldownManager.check(commandName, userId, seconds)`.
+
+### 4. Database Patterns
+- **Always validate JSON** before reading/writing to `Data/` (handle corrupted files).
+- **Guild-scoped data**: Store as `{guildId}_{key}.json` or nested under `Guild/{guildId}/`.
+- **Global data**: Use `Global/` prefix or absolute paths (e.g., `Global/feedback.json`).
+- **Use cache**: `Database.get()` caches results; call `.set()` to persist changes.
+
+### 5. Event Manager Usage
+- Custom events defined in `src/types/events.ts` (e.g., `Event.READY`, `Event.COMMAND_EXECUTED`).
+- Register: `eventManager.register(Event.SOME_EVENT, handler, { once: true })`.
+- Emit: `eventManager.emit(Event.SOME_EVENT, payload)`.
+
+### 6. Web Routes & Controllers
+- Routes live in `src/web/routes/`; controllers in `src/web/controllers/`.
+- Controllers handle business logic; call DB, managers, etc.
+- Example: `FeedbackController.ts` interacts with feedback data in `Data/Global/Feedback.json`.
+
+### 7. Logger Usage
+- Use `Logger` from `src/utils/Logger.ts` (console + color output).
+- Methods: `Logger.info()`, `Logger.warn()`, `Logger.error()`, `Logger.success()`.
+- Tokens are already masked in startup logs.
+
+### 8. File I/O and Module Imports
+- Use ESM imports (`import ... from ...`); no CommonJS.
+- Always use `.js` extension in import paths (even for `.ts` sources) for Bun compatibility.
+- Example: `import { BotClient } from './core/BotClient.js';`
+
+---
+
+## Development Workflow
+
+### Local Development
+```bash
+# Install dependencies
+npm install
+
+# Run bot + web dev server together (watch mode)
+npm run dev
+
+# Run bot alone
+bun run src/index.ts
+
+# Type-check only
+npx tsc --noEmit
+```
+
+### Build & Deployment
+```bash
+# Cross-platform binary builds (uses Bun)
+npm run auto              # All targets
+npm run windows-64        # Windows
+npm run linux             # Linux x64
+# etc.
+
+# Web client only
+npm run web
+```
+
+### Configuration
+- **Required**: `config.json` with `token` field (repo root, ignored by git).
+- Example: `config.example.json` provided.
+- Tip: No clientId, guildId, or deployGlobal fields needed—auto-detected.
+
+---
+
+## Critical Review Checkpoints
+
+When reviewing code changes:
+
+1. **Type safety** (`src/types/command.ts`): Ensure exported commands match `SlashCommand` interface.
+2. **No secrets leaked**: Confirm `config.json` is not committed; tokens are masked in logs.
+3. **Long-running handlers**: Guard with try/catch; don't block event loop.
+4. **File I/O**: Validate JSON before parsing; handle `ENOENT` errors.
+5. **Database updates**: Always call `.set()` after mutations; verify cache invalidation.
+6. **Permission checks**: Enforce via `SessionService` or command `permissionLevel` field.
+
+---
+
+## Key Files Reference
+
+| File/Dir | Purpose |
+|----------|---------|
+| `src/index.ts` | Bootstrap; loads config, initializes services |
+| `src/core/BotClient.ts` | Discord client wrapper; manages guild limits (MAX_GUILDS=50) |
+| `src/core/CommandLoader.ts` | Auto-discovers and registers commands |
+| `src/core/EventHandler.ts` | Routes Discord events to handlers |
+| `src/core/Database.ts` | JSON persistence layer with cache |
+| `src/types/command.ts` | Command interface definitions |
+| `src/web/SettingsServer.ts` | Express server for web dashboard |
+| `src/web/client/` | Vite + React frontend |
+| `Data/` | Runtime JSON data (Git-ignored) |
+| `CLAUDE.md` | Additional AI guidance (referenced by CI) |
+
+---
+
+## Common Pitfalls
+
+- **ESM imports**: Always include `.js` extension; forget and Bun bundler fails.
+- **Database not persisted**: Must call `.set()` to write to disk; `.get()` only reads.
+- **Command not discovered**: File must be under `src/commands/` and default-export a `SlashCommand`.
+- **Token leaked**: Config values in logs → check logs are masked in `src/index.ts:39-55`.
+- **Guild limit exceeded**: Bot auto-exits if guild count > 50; owner receives DM.
+
+---
+
+## Notes for AI Agents
+
+- **CI enforces Japanese**: PR review comments from workflows use Japanese (see `.github/workflows/claude-code-review.yml`).
+- **Bun vs Node**: Confirm runtime choice before invoking build scripts; Bun is primary for cross-target binaries.
+- **Refer to CLAUDE.md**: Comprehensive guidance is also in `CLAUDE.md`; keep both files in sync.
