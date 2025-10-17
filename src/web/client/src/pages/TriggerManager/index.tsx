@@ -35,10 +35,13 @@ const TriggerManager: React.FC = () => {
     // Editor state
     const [selectedTrigger, setSelectedTrigger] = useState<Trigger | null>(null);
     const [isCreating, setIsCreating] = useState(false);
+    const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
     // Search and filters
     const [searchQuery, setSearchQuery] = useState('');
     const [filterEventType, setFilterEventType] = useState('');
+    const [filterStatus, setFilterStatus] = useState<'all' | 'enabled' | 'disabled'>('all');
+
 
     useEffect(() => {
         // Get session info
@@ -100,6 +103,8 @@ const TriggerManager: React.FC = () => {
         setIsCreating(true);
         setSelectedTrigger(null);
     };
+
+    const toggleSidebar = () => setSidebarCollapsed(s => !s);
 
     const handleSelectTrigger = (trigger: Trigger) => {
         setIsCreating(false);
@@ -163,13 +168,41 @@ const TriggerManager: React.FC = () => {
         }
     };
 
+    const handleToggleTrigger = async (trigger: Trigger) => {
+        try {
+            const updated = { ...trigger, enabled: !trigger.enabled };
+            const res = await fetch(
+                `/api/triggers/${trigger.id}?guildId=${guildId}`,
+                {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    credentials: 'include',
+                    body: JSON.stringify(updated)
+                }
+            );
+
+            if (!res.ok) {
+                throw new Error('Failed to toggle trigger');
+            }
+
+            await fetchTriggers(guildId);
+        } catch (err) {
+            console.error('Failed to toggle trigger:', err);
+            addToast?.('トグルに失敗しました', 'error');
+        }
+    };
+
     const filteredTriggers = triggers.filter(t => {
         const matchesSearch =
             t.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
             (t.description?.toLowerCase().includes(searchQuery.toLowerCase()) ?? false);
         const matchesEventType =
             !filterEventType || t.eventType === filterEventType;
-        return matchesSearch && matchesEventType;
+        const matchesStatus =
+            filterStatus === 'all' || (filterStatus === 'enabled' ? t.enabled : !t.enabled);
+        return matchesSearch && matchesEventType && matchesStatus;
     });
 
     if (loading) {
@@ -200,39 +233,98 @@ const TriggerManager: React.FC = () => {
             {/* Header */}
             <div className={styles.header}>
                 <div className={styles.headerContent}>
-                    <h1>🎯 トリガー管理</h1>
-                    <p>Discord イベントに応じて自動アクションを実行</p>
+                    <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between'}}>
+                        <div>
+                            <h1>🎯 トリガー管理</h1>
+                            <p>Discord イベントに応じて自動アクションを実行</p>
+                        </div>
+                        <div>
+                            <button className={styles.hamburger} onClick={toggleSidebar} title="サイドバーを切り替え">
+                                <span className={styles.hamburgerIcon}>menu</span>
+                            </button>
+                        </div>
+                    </div>
                 </div>
             </div>
 
-            {/* Main Layout: 3 Columns */}
+            {/* Main Layout: Sidebar + Content Grid + LivePanel */}
             <div className={styles.mainLayout}>
-                {/* Left Column: Trigger List */}
-                <div className={styles.leftColumn}>
+                {/* Left Column: Trigger List (collapsible sidebar) */}
+                <div className={`${styles.leftColumn} ${sidebarCollapsed ? styles.collapsed : ''}`}>
                     <TriggerList
                         triggers={filteredTriggers}
                         selectedTrigger={selectedTrigger}
                         searchQuery={searchQuery}
                         filterEventType={filterEventType}
+                        filterStatus={filterStatus}
                         onSearchChange={setSearchQuery}
                         onFilterEventTypeChange={setFilterEventType}
+                        onFilterStatusChange={setFilterStatus}
                         onSelectTrigger={handleSelectTrigger}
                         onCreateNew={handleCreateNew}
+                        onToggleTrigger={handleToggleTrigger}
                     />
                 </div>
 
-                {/* Middle Column: Editor */}
+                {/* Middle Column: Grid of cards OR Editor when editing/creating */}
                 <div className={styles.middleColumn}>
-                    <TriggerEditor
-                        trigger={selectedTrigger}
-                        isCreating={isCreating}
-                        onSave={handleSave}
-                        onDelete={handleDelete}
-                        onCancel={() => {
-                            setSelectedTrigger(null);
-                            setIsCreating(false);
-                        }}
-                    />
+                    {selectedTrigger || isCreating ? (
+                        <TriggerEditor
+                            trigger={selectedTrigger}
+                            isCreating={isCreating}
+                            onSave={handleSave}
+                            onDelete={handleDelete}
+                            onCancel={() => {
+                                setSelectedTrigger(null);
+                                setIsCreating(false);
+                            }}
+                        />
+                    ) : (
+                        <div className={styles.cardGrid}>
+                            <div className={styles.gridHeader}>
+                                <h2>トリガー一覧</h2>
+                                <button className={styles.btnPrimary} onClick={handleCreateNew}>
+                                    + 新規トリガー
+                                </button>
+                            </div>
+
+                            <div className={styles.grid}>
+                                {filteredTriggers.length === 0 ? (
+                                    <div className={styles.emptyState}>トリガーが見つかりません</div>
+                                ) : (
+                                    filteredTriggers.map(t => (
+                                        <div key={t.id} className={styles.card}>
+                                            <div className={styles.cardHeader}>
+                                                <div className={styles.cardTitle}>{t.name}</div>
+                                                <div
+                                                    className={`${styles.cardBadge} ${
+                                                        t.enabled ? styles.badgeEnabled : styles.badgeDisabled
+                                                    }`}
+                                                >
+                                                    {t.enabled ? '有効' : '無効'}
+                                                </div>
+                                            </div>
+                                            <div className={styles.cardBody}>
+                                                <div className={styles.cardDesc}>{t.description || '説明なし'}</div>
+                                                <div className={styles.cardMeta}>{t.eventType} • 優先度 {t.priority}</div>
+                                            </div>
+                                            <div className={styles.cardActions}>
+                                                <button className={styles.actionBtn} onClick={() => handleSelectTrigger(t)}>
+                                                    編集
+                                                </button>
+                                                <button
+                                                    className={`${styles.actionBtn} ${styles.toggleBtn}`}
+                                                    onClick={() => handleToggleTrigger(t)}
+                                                >
+                                                    {t.enabled ? '無効化' : '有効化'}
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ))
+                                )}
+                            </div>
+                        </div>
+                    )}
                 </div>
 
                 {/* Right Column: Live Panel */}

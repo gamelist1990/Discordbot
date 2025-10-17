@@ -19,10 +19,13 @@ interface TriggerListProps {
     selectedTrigger: Trigger | null;
     searchQuery: string;
     filterEventType: string;
+    filterStatus: 'all' | 'enabled' | 'disabled';
     onSearchChange: (query: string) => void;
     onFilterEventTypeChange: (type: string) => void;
+    onFilterStatusChange: (status: 'all' | 'enabled' | 'disabled') => void;
     onSelectTrigger: (trigger: Trigger) => void;
     onCreateNew: () => void;
+    onToggleTrigger: (trigger: Trigger) => void;
 }
 
 const TriggerList: React.FC<TriggerListProps> = ({
@@ -30,10 +33,13 @@ const TriggerList: React.FC<TriggerListProps> = ({
     selectedTrigger,
     searchQuery,
     filterEventType,
+    filterStatus,
     onSearchChange,
     onFilterEventTypeChange,
+    onFilterStatusChange,
     onSelectTrigger,
-    onCreateNew
+    onCreateNew,
+    onToggleTrigger
 }) => {
     const eventTypes = [
         { value: 'messageCreate', label: 'メッセージ作成' },
@@ -49,7 +55,7 @@ const TriggerList: React.FC<TriggerListProps> = ({
     return (
         <div className={styles.listPanel}>
             <div className={styles.listHeader}>
-                <h2>トリガー一覧</h2>
+                <h3>フィルター</h3>
                 <button
                     className={styles.createBtn}
                     onClick={onCreateNew}
@@ -88,6 +94,20 @@ const TriggerList: React.FC<TriggerListProps> = ({
                 </select>
             </div>
 
+            {/* Status Filter */}
+            <div className={styles.filterGroup}>
+                <label>ステータス:</label>
+                <select
+                    value={filterStatus}
+                    onChange={e => onFilterStatusChange(e.target.value as 'all' | 'enabled' | 'disabled')}
+                    className={styles.filterSelect}
+                >
+                    <option value="all">すべて</option>
+                    <option value="enabled">有効のみ</option>
+                    <option value="disabled">無効のみ</option>
+                </select>
+            </div>
+
             {/* List Items */}
             <div className={styles.triggerListContainer}>
                 {triggers.length === 0 ? (
@@ -109,32 +129,50 @@ const TriggerList: React.FC<TriggerListProps> = ({
                             className={`${styles.triggerListItem} ${
                                 selectedTrigger?.id === trigger.id ? styles.selected : ''
                             }`}
-                            onClick={() => onSelectTrigger(trigger)}
                         >
-                            <div className={styles.itemHeader}>
-                                <h4>{trigger.name}</h4>
-                                <span
-                                    className={`${styles.badge} ${
-                                        trigger.enabled ? styles.enabled : styles.disabled
-                                    }`}
-                                >
-                                    {trigger.enabled ? '有効' : '無効'}
-                                </span>
+                            <div
+                                className={styles.itemContent}
+                                onClick={() => onSelectTrigger(trigger)}
+                            >
+                                <div className={styles.itemHeader}>
+                                    <h4>{trigger.name}</h4>
+                                    <span
+                                        className={`${styles.badge} ${
+                                            trigger.enabled ? styles.enabled : styles.disabled
+                                        }`}
+                                    >
+                                        {trigger.enabled ? '有効' : '無効'}
+                                    </span>
+                                </div>
+                                <p className={styles.itemDescription}>
+                                    {trigger.description || '説明なし'}
+                                </p>
+                                <div className={styles.itemMeta}>
+                                    <span className={styles.eventType}>
+                                        {trigger.eventType}
+                                    </span>
+                                    <span className={styles.priority}>
+                                        優先度: {trigger.priority}
+                                    </span>
+                                    <span className={styles.presetCount}>
+                                        {trigger.presets?.length || 0} プリセット
+                                    </span>
+                                </div>
                             </div>
-                            <p className={styles.itemDescription}>
-                                {trigger.description || '説明なし'}
-                            </p>
-                            <div className={styles.itemMeta}>
-                                <span className={styles.eventType}>
-                                    {trigger.eventType}
+                            <button
+                                className={`${styles.toggleBtn} ${
+                                    trigger.enabled ? styles.toggleActive : ''
+                                }`}
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onToggleTrigger(trigger);
+                                }}
+                                title={trigger.enabled ? '無効化' : '有効化'}
+                            >
+                                <span className="material-icons">
+                                    {trigger.enabled ? 'toggle_on' : 'toggle_off'}
                                 </span>
-                                <span className={styles.priority}>
-                                    優先度: {trigger.priority}
-                                </span>
-                                <span className={styles.presetCount}>
-                                    {trigger.presets?.length || 0} プリセット
-                                </span>
-                            </div>
+                            </button>
                         </div>
                     ))
                 )}

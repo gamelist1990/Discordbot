@@ -32,7 +32,7 @@ export type TriggerEventType =
  * 条件のマッチタイプ
  */
 export type ConditionMatchType =
-    | 'equals'
+    | 'exactly'
     | 'contains'
     | 'regex'
     | 'startsWith'

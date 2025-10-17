@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import styles from './TriggerEditor.module.css';
-import ConditionEditor from './ConditionEditor.js';
-import PresetEditor from './PresetEditor.js';
+import AdvancedConditionEditor from './AdvancedConditionEditor.js';
+import AdvancedPresetEditor from './AdvancedPresetEditor.js';
 
 interface Trigger {
     id: string;
@@ -227,19 +227,20 @@ const TriggerEditor: React.FC<TriggerEditorProps> = ({
 
                 {/* Conditions Tab */}
                 {tab === 'conditions' && (
-                    <ConditionEditor
+                    <AdvancedConditionEditor
                         conditions={formData.conditions || []}
-                        onChange={(conditions: any[]) =>
+                        onConditionsChange={(conditions: any[]) =>
                             setFormData({ ...formData, conditions })
                         }
+                        eventType={formData.eventType || 'messageCreate'}
                     />
                 )}
 
                 {/* Presets Tab */}
                 {tab === 'presets' && (
-                    <PresetEditor
+                    <AdvancedPresetEditor
                         presets={formData.presets || []}
-                        onChange={(presets: any[]) => setFormData({ ...formData, presets })}
+                        onPresetsChange={(presets: any[]) => setFormData({ ...formData, presets })}
                     />
                 )}
             </div>

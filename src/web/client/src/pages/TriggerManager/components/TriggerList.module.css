@@ -1,43 +1,72 @@
-/* TriggerList.module.css - Left Panel Styles */
+/* ============================================
+   TriggerList - Sidebar Component Styles
+   ============================================ */
+
+:root {
+    --primary: #5865f2;
+    --primary-dark: #4752c4;
+    --text-primary: #2c2f33;
+    --text-secondary: #72767d;
+    --border: #dbdee1;
+    --surface: #ffffff;
+    --background: #f5f5f5;
+}
 
 .listPanel {
     display: flex;
     flex-direction: column;
-    width: 300px;
-    border-right: 1px solid #e0e0e0;
-    background: #f8f9fa;
+    width: 100%;
+    height: 100%;
+    background: var(--surface);
     overflow: hidden;
 }
 
 .listHeader {
     padding: 1.5rem;
-    border-bottom: 1px solid #e0e0e0;
-    background: white;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
     display: flex;
     justify-content: space-between;
     align-items: center;
+    flex-shrink: 0;
 }
 
 .listHeader h2 {
     margin: 0;
-    font-size: 1.125rem;
-    font-weight: 500;
-    color: #202124;
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.listHeader h3 {
+    margin: 0;
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--text-primary);
 }
 
 .createBtn {
-    background: #1a73e8;
+    background: var(--primary);
     color: white;
     border: none;
-    padding: 0.5rem 1rem;
+    width: 36px;
+    height: 36px;
     border-radius: 8px;
     cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     font-weight: 500;
-    transition: all 0.2s;
+    transition: all 0.2s ease;
 }
 
 .createBtn:hover {
-    background: #1557b0;
+    background: var(--primary-dark);
+    transform: scale(1.05);
+}
+
+.createBtn:active {
+    transform: scale(0.98);
 }
 
 .searchBar {
@@ -46,150 +75,249 @@
     gap: 0.75rem;
     padding: 0.75rem 1rem;
     margin: 0.75rem;
-    border: 1px solid #dadce0;
+    border: 1px solid var(--border);
     border-radius: 8px;
-    background: white;
+    background: var(--background);
+    transition: all 0.2s ease;
+}
+
+.searchBar:focus-within {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(88, 101, 242, 0.1);
 }
 
 .searchInput {
     flex: 1;
     border: none;
     background: transparent;
-    color: #202124;
+    color: var(--text-primary);
     outline: none;
+    font-size: 0.95rem;
+}
+
+.searchInput::placeholder {
+    color: var(--text-secondary);
 }
 
 .filterGroup {
     display: flex;
-    align-items: center;
-    gap: 0.75rem;
+    flex-direction: column;
+    gap: 0.5rem;
     padding: 0 1rem;
     margin-bottom: 0.75rem;
 }
 
+.filterGroup label {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
 .filterSelect {
-    flex: 1;
-    padding: 0.5rem;
-    border: 1px solid #dadce0;
+    width: 100%;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--border);
     border-radius: 6px;
-    background: white;
+    background: var(--background);
+    color: var(--text-primary);
+    font-size: 0.9rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.filterSelect:hover {
+    border-color: var(--primary);
+}
+
+.filterSelect:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(88, 101, 242, 0.1);
 }
 
 .triggerListContainer {
     flex: 1;
     overflow-y: auto;
+    padding: 0.5rem;
 }
 
 .triggerListContainer::-webkit-scrollbar {
-    width: 8px;
+    width: 6px;
+}
+
+.triggerListContainer::-webkit-scrollbar-track {
+    background: transparent;
 }
 
 .triggerListContainer::-webkit-scrollbar-thumb {
     background: #ccc;
-    border-radius: 4px;
+    border-radius: 3px;
+}
+
+.triggerListContainer::-webkit-scrollbar-thumb:hover {
+    background: #999;
 }
 
 .triggerListItem {
-    padding: 1rem;
-    margin: 0.5rem 0.75rem;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem;
+    margin-bottom: 0.5rem;
     border-radius: 8px;
-    background: white;
+    background: var(--background);
     border: 1px solid transparent;
     cursor: pointer;
-    transition: all 0.2s;
+    transition: all 0.2s ease;
 }
 
 .triggerListItem:hover {
-    background: #f8f9fa;
-    border-color: #dadce0;
+    background: #f0f0f0;
+    border-color: var(--border);
 }
 
 .triggerListItem.selected {
-    background: #e8f0fe;
-    border-color: #1a73e8;
+    background: #ede9fe;
+    border-color: var(--primary);
+}
+
+.itemContent {
+    flex: 1;
+    min-width: 0;
+    cursor: pointer;
 }
 
 .itemHeader {
     display: flex;
     justify-content: space-between;
-    align-items: center;
-    margin-bottom: 0.5rem;
+    align-items: flex-start;
+    gap: 0.5rem;
+    margin-bottom: 0.35rem;
 }
 
 .itemHeader h4 {
     margin: 0;
     font-size: 0.95rem;
-    font-weight: 500;
-    color: #202124;
+    font-weight: 600;
+    color: var(--text-primary);
+    word-break: break-word;
+    flex: 1;
 }
 
 .badge {
-    padding: 0.25rem 0.75rem;
-    border-radius: 12px;
-    font-size: 0.75rem;
+    padding: 0.25rem 0.65rem;
+    border-radius: 6px;
+    font-size: 0.7rem;
     font-weight: 600;
-    background: #e6f4ea;
-    color: #137333;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.badge.enabled {
+    background: #dbeafe;
+    color: #0369a1;
 }
 
 .badge.disabled {
-    background: #fce8e6;
-    color: #c5221f;
+    background: #fee2e2;
+    color: #991b1b;
+}
+
+.itemDescription {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    line-height: 1.3;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: -webkit-box;
+    -webkit-line-clamp: 1;
+    line-clamp: 1;
+    -webkit-box-orient: vertical;
 }
 
 .itemMeta {
     display: flex;
     gap: 0.5rem;
-    margin-top: 0.75rem;
+    margin-top: 0.35rem;
     flex-wrap: wrap;
-}
-
-.eventType, .priority {
     font-size: 0.75rem;
-    padding: 0.25rem 0.5rem;
-    border-radius: 4px;
-    background: #f1f3f4;
-    color: #5f6368;
+    color: #999;
 }
 
-/* Missing/alias classes used by TSX */
+.eventType,
+.priority,
+.presetCount {
+    font-size: 0.75rem;
+    color: #999;
+}
+
+.toggleBtn {
+    flex-shrink: 0;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    color: var(--text-secondary);
+    font-size: 20px;
+    transition: all 0.2s ease;
+    padding: 0.25rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.toggleBtn:hover {
+    color: var(--primary);
+    transform: scale(1.1);
+}
+
+.toggleBtn.toggleActive {
+    color: var(--primary);
+}
+
 .emptyState {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1rem;
     padding: 2rem;
     text-align: center;
-    color: #5f6368;
+    color: var(--text-secondary);
 }
 
 .createBtnPrimary {
-    background: #1a73e8;
+    background: var(--primary);
     color: white;
     border: none;
-    padding: 0.5rem 1rem;
+    padding: 0.65rem 1.25rem;
     border-radius: 8px;
     cursor: pointer;
     font-weight: 600;
     display: inline-flex;
     gap: 0.5rem;
     align-items: center;
+    transition: all 0.2s ease;
 }
 
-.itemDescription {
-    margin: 0;
-    color: #5f6368;
-    font-size: 0.85rem;
+.createBtnPrimary:hover {
+    background: var(--primary-dark);
+    transform: translateY(-2px);
 }
 
-.presetCount {
-    font-size: 0.75rem;
-    color: #5f6368;
-}
+/* ============================================
+   Responsive Design
+   ============================================ */
 
-/* simple enabled/disabled classes used for badge toggles */
-.enabled {
-    background: #e6f4ea;
-    color: #137333;
-}
-
-.disabled {
-    background: #fce8e6;
-    color: #c5221f;
+@media (max-width: 768px) {
+    .listPanel {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 100%;
+        height: 100%;
+        z-index: 40;
+    }
 }
