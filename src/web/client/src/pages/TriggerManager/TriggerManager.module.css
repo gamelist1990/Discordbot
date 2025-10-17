@@ -1,5 +1,5 @@
 /* ============================================
-   TriggerManager - Modern Clean UI
+   TriggerManager - Mobile Responsive UI
    ============================================ */
 
 /* Color Variables */
@@ -46,15 +46,16 @@
    Header Section
    ============================================ */
 
-.header {
-    background: var(--surface);
-    border-bottom: 1px solid var(--border);
-    padding: 1.25rem 1.75rem;
-    box-shadow: var(--shadow-sm);
-    position: sticky;
-    top: 0;
-    z-index: 100;
-}
+    .header {
+        background: var(--surface);
+        border-bottom: 1px solid var(--border);
+        padding: 1.25rem 1.75rem;
+        box-shadow: var(--shadow-sm);
+        position: sticky;
+        top: 0;
+        /* Raise header above sidebar and dropdowns */
+        z-index: 1100;
+    }
 
 .headerContent {
     display: flex;
@@ -95,6 +96,9 @@
     color: var(--text-secondary);
     font-size: 24px;
     transition: all 0.2s ease;
+    padding: 0;
+    flex-shrink: 0;
+    margin-left: auto;
 }
 
 .hamburger:hover {
@@ -102,8 +106,11 @@
     color: var(--text-primary);
 }
 
-.hamburgerIcon {
-    font-size: 20px;
+.hamburger svg {
+    width: 24px;
+    height: 24px;
+    stroke-linecap: round;
+    stroke-linejoin: round;
 }
 
 /* ============================================
@@ -412,38 +419,74 @@
 
 @media (max-width: 1200px) {
     .rightColumn {
-        flex-basis: 250px;
+        flex: 0 0 250px;
+    }
+
+    .cardGrid {
+        padding: 1.5rem;
     }
 
     .grid {
         grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
     }
+
+    .headerContent h1 {
+        font-size: 1.25rem;
+    }
 }
 
-@media (max-width: 992px) {
-    .leftColumn {
-        flex-basis: 280px;
-    }
-
-    .rightColumn {
-        flex-basis: 0;
-        width: 0;
-        border-left: none;
-        overflow: hidden;
-    }
-
+@media (max-width: 1024px) {
     .hamburger {
         display: flex;
     }
 
-    .grid {
-        grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    .mainLayout {
+        gap: 0;
     }
-}
 
-@media (max-width: 768px) {
-    .header {
-        padding: 1rem;
+    .rightColumn {
+        display: none;
+    }
+
+    .cardGrid {
+        padding: 1.25rem;
+    }
+
+    .gridHeader {
+        flex-direction: column;
+        align-items: stretch;
+        margin-bottom: 1.5rem;
+        gap: 0.75rem;
+    }
+
+    .gridHeader h2 {
+        font-size: 1.25rem;
+    }
+
+    .btnPrimary {
+        width: 100%;
+        justify-content: center;
+    }
+
+    .grid {
+        grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+        gap: 1rem;
+    }
+
+    .leftColumn {
+        flex: 0 0 280px;
+        background: var(--surface);
+        border-right: 1px solid var(--border);
+        overflow-y: auto;
+        transition: all 0.3s ease;
+    }
+
+    .leftColumn.collapsed {
+        flex-basis: 0;
+        width: 0;
+        padding: 0;
+        border-right: none;
+        overflow: hidden;
     }
 
     .headerContent h1 {
@@ -454,24 +497,88 @@
         display: none;
     }
 
+    .card {
+        min-height: auto;
+        padding: 1rem;
+    }
+
+    .cardTitle {
+        font-size: 0.95rem;
+    }
+
+    .cardDesc {
+        font-size: 0.85rem;
+        -webkit-line-clamp: 2;
+        line-clamp: 2;
+    }
+
+    .cardMeta {
+        font-size: 0.75rem;
+    }
+
+    .cardActions {
+        gap: 0.5rem;
+    }
+
+    .actionBtn {
+        font-size: 0.8rem;
+        padding: 0.4rem 0.75rem;
+        min-height: 30px;
+    }
+}
+
+@media (max-width: 768px) {
+    .container {
+        height: calc(100vh - 64px);
+    }
+
+    .header {
+        padding: 0.75rem 1rem;
+    }
+
+    .headerContent h1 {
+        font-size: 1.15rem;
+    }
+
+    .hamburger {
+        display: flex;
+        width: 36px;
+        height: 36px;
+    }
+
+    .hamburgerIcon {
+        font-size: 18px;
+    }
+
+    .mainLayout {
+        flex-direction: column;
+        gap: 0;
+    }
+
     .leftColumn {
-        flex-basis: 0;
-        width: 0;
-        position: absolute;
+        position: fixed;
         left: 0;
-        top: 0;
-        height: 100%;
-        z-index: 50;
+        top: 64px;
+        height: calc(100vh - 64px);
+        width: 280px;
+        /* Lower z-index so global header and its dropdowns render above the sidebar */
+        z-index: 5;
         box-shadow: var(--shadow-lg);
+        transform: translateX(-100%);
+        transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     }
 
     .leftColumn:not(.collapsed) {
-        flex-basis: 280px;
-        width: 280px;
+        transform: translateX(0);
     }
 
     .middleColumn {
         flex: 1;
+        overflow-y: auto;
+    }
+
+    .rightColumn {
+        display: none;
     }
 
     .cardGrid {
@@ -479,38 +586,382 @@
     }
 
     .gridHeader {
-        margin-bottom: 1rem;
-    }
-
-    .grid {
-        grid-template-columns: 1fr;
-    }
-
-    .card {
-        min-height: 120px;
-    }
-}
-
-@media (max-width: 480px) {
-    .gridHeader {
         flex-direction: column;
         align-items: stretch;
+        margin-bottom: 1rem;
+        gap: 0.5rem;
+    }
+
+    .gridHeader h2 {
+        font-size: 1.1rem;
+        margin: 0;
     }
 
     .btnPrimary {
         width: 100%;
+        padding: 0.6rem 1rem;
+        font-size: 0.9rem;
+    }
+
+    .grid {
+        grid-template-columns: 1fr;
+        gap: 0.75rem;
+    }
+
+    .card {
+        padding: 0.9rem;
+        min-height: auto;
+    }
+
+    .cardHeader {
+        gap: 0.5rem;
+        align-items: center;
+    }
+
+    .cardTitle {
+        font-size: 0.9rem;
+        font-weight: 600;
+    }
+
+    .cardBadge {
+        font-size: 0.7rem;
+        padding: 0.3rem 0.5rem;
+    }
+
+    .cardBody {
+        gap: 0.4rem;
+    }
+
+    .cardDesc {
+        font-size: 0.8rem;
+        line-height: 1.3;
+        -webkit-line-clamp: 2;
+        line-clamp: 2;
+    }
+
+    .cardMeta {
+        font-size: 0.7rem;
+    }
+
+    .cardActions {
+        gap: 0.4rem;
+    }
+
+    .actionBtn {
+        flex: 1;
+        font-size: 0.75rem;
+        padding: 0.35rem 0.5rem;
+        min-height: 28px;
+    }
+
+    .emptyState {
+        min-height: 250px;
+        font-size: 0.95rem;
+    }
+}
+
+@media (max-width: 600px) {
+    .container {
+        height: calc(100vh - 52px);
+    }
+
+    .header {
+        padding: 0.6rem 0.75rem;
+    }
+
+    .headerContent {
+        gap: 0.5rem;
+    }
+
+    .headerContent h1 {
+        font-size: 1rem;
+        gap: 0.5rem;
+    }
+
+    .hamburger {
+        width: 32px;
+        height: 32px;
+        flex-shrink: 0;
+    }
+
+    .hamburgerIcon {
+        font-size: 16px;
+    }
+
+    .leftColumn {
+        width: 100%;
+        top: 52px;
+        height: calc(100vh - 52px);
+    }
+
+    .cardGrid {
+        padding: 0.75rem;
+    }
+
+    .gridHeader {
+        margin-bottom: 0.75rem;
+        gap: 0.4rem;
+    }
+
+    .gridHeader h2 {
+        font-size: 1rem;
+    }
+
+    .btnPrimary {
+        font-size: 0.85rem;
+        padding: 0.5rem 0.75rem;
+    }
+
+    .grid {
+        gap: 0.6rem;
     }
 
     .card {
         padding: 0.75rem;
+        min-height: auto;
+        gap: 0.4rem;
+    }
+
+    .cardHeader {
+        gap: 0.3rem;
+        flex-direction: row;
+    }
+
+    .cardTitle {
+        font-size: 0.85rem;
+    }
+
+    .cardBadge {
+        font-size: 0.65rem;
+        padding: 0.25rem 0.4rem;
+        border-radius: 4px;
+    }
+
+    .cardBody {
+        gap: 0.3rem;
+    }
+
+    .cardDesc {
+        font-size: 0.75rem;
+        -webkit-line-clamp: 2;
+        line-clamp: 2;
+    }
+
+    .cardMeta {
+        font-size: 0.65rem;
     }
 
     .cardActions {
-        flex-direction: column;
+        gap: 0.3rem;
     }
 
     .actionBtn {
-        min-width: auto;
+        font-size: 0.7rem;
+        padding: 0.3rem 0.4rem;
+        min-height: 26px;
+    }
+
+    .emptyState {
+        min-height: 200px;
+        font-size: 0.85rem;
+        padding: 1rem;
+    }
+
+    .loadingContainer {
+        min-height: 200px;
+    }
+
+    .spinner {
+        width: 32px;
+        height: 32px;
+    }
+}
+
+@media (max-width: 480px) {
+    .container {
+        height: calc(100vh - 48px);
+    }
+
+    .header {
+        padding: 0.5rem 0.5rem;
+    }
+
+    .headerContent {
+        gap: 0.25rem;
+    }
+
+    .headerContent h1 {
+        font-size: 0.95rem;
+        gap: 0.3rem;
+    }
+
+    .hamburger {
+        width: 28px;
+        height: 28px;
+    }
+
+    .hamburgerIcon {
+        font-size: 14px;
+    }
+
+    .leftColumn {
+        top: 48px;
+        height: calc(100vh - 48px);
+    }
+
+    .cardGrid {
+        padding: 0.5rem;
+    }
+
+    .gridHeader {
+        flex-direction: column;
+        margin-bottom: 0.5rem;
+        gap: 0.35rem;
+    }
+
+    .gridHeader h2 {
+        font-size: 0.95rem;
+    }
+
+    .btnPrimary {
+        font-size: 0.8rem;
+        padding: 0.45rem 0.6rem;
+    }
+
+    .grid {
+        gap: 0.5rem;
+    }
+
+    .card {
+        padding: 0.6rem;
+        gap: 0.3rem;
+    }
+
+    .cardHeader {
+        gap: 0.25rem;
+    }
+
+    .cardTitle {
+        font-size: 0.8rem;
+    }
+
+    .cardBadge {
+        font-size: 0.6rem;
+        padding: 0.2rem 0.3rem;
+    }
+
+    .cardDesc {
+        font-size: 0.7rem;
+        -webkit-line-clamp: 2;
+        line-clamp: 2;
+    }
+
+    .cardMeta {
+        font-size: 0.6rem;
+    }
+
+    .cardActions {
+        gap: 0.25rem;
+    }
+
+    .actionBtn {
+        font-size: 0.65rem;
+        padding: 0.25rem 0.3rem;
+        min-height: 24px;
+    }
+
+    .emptyState {
+        min-height: 150px;
+        font-size: 0.8rem;
+        padding: 0.75rem;
+    }
+
+    .loadingContainer {
+        min-height: 150px;
+        gap: 0.75rem;
+    }
+
+    .spinner {
+        width: 28px;
+        height: 28px;
+        border-width: 3px;
+    }
+}
+
+@media (max-width: 360px) {
+    .header {
+        padding: 0.4rem 0.4rem;
+    }
+
+    .headerContent h1 {
+        font-size: 0.85rem;
+        gap: 0.2rem;
+    }
+
+    .hamburger {
+        width: 24px;
+        height: 24px;
+    }
+
+    .hamburgerIcon {
+        font-size: 12px;
+    }
+
+    .cardGrid {
+        padding: 0.4rem;
+    }
+
+    .gridHeader h2 {
+        font-size: 0.9rem;
+    }
+
+    .btnPrimary {
+        font-size: 0.75rem;
+        padding: 0.4rem 0.5rem;
+    }
+
+    .grid {
+        gap: 0.4rem;
+    }
+
+    .card {
+        padding: 0.5rem;
+        gap: 0.25rem;
+    }
+
+    .cardTitle {
+        font-size: 0.75rem;
+    }
+
+    .cardBadge {
+        font-size: 0.55rem;
+        padding: 0.15rem 0.25rem;
+    }
+
+    .cardDesc {
+        font-size: 0.65rem;
+        -webkit-line-clamp: 1;
+        line-clamp: 1;
+    }
+
+    .cardMeta {
+        font-size: 0.55rem;
+    }
+
+    .cardActions {
+        gap: 0.2rem;
+    }
+
+    .actionBtn {
+        font-size: 0.6rem;
+        padding: 0.2rem 0.25rem;
+        min-height: 22px;
+    }
+
+    .emptyState {
+        min-height: 120px;
+        font-size: 0.75rem;
+        padding: 0.5rem;
     }
 }
 

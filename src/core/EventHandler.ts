@@ -5,6 +5,7 @@ import { EnhancedSlashCommand } from '../types/enhanced-command.js';
 import { cooldownManager } from '../utils/CooldownManager.js';
 import { Logger } from '../utils/Logger.js';
 import { Event } from '../types/events.js';
+import { executeModalHandler } from '../utils/Modal.js';
 
 /**
  * Discord イベントハンドラー
@@ -126,6 +127,12 @@ export class EventHandler {
      */
     private registerInteractionCreateEvent(): void {
         this.botClient.client.on(Events.InteractionCreate, async (interaction: Interaction) => {
+            // Handle Modal submissions (staff info など)
+            if (interaction.isModalSubmit()) {
+                await executeModalHandler(interaction);
+                return;
+            }
+
             // Handle SelectMenu and Button interactions (role panel)
             if (interaction.isStringSelectMenu() || interaction.isButton()) {
                 await this.handleInteraction(interaction);
@@ -353,3 +360,4 @@ export class EventHandler {
         });
     }
 }
+

@@ -102,6 +102,10 @@ const TriggerManager: React.FC = () => {
     const handleCreateNew = () => {
         setIsCreating(true);
         setSelectedTrigger(null);
+        // モバイルではサイドバーを自動的に閉じる
+        if (window.innerWidth <= 768) {
+            setSidebarCollapsed(true);
+        }
     };
 
     const toggleSidebar = () => setSidebarCollapsed(s => !s);
@@ -109,6 +113,10 @@ const TriggerManager: React.FC = () => {
     const handleSelectTrigger = (trigger: Trigger) => {
         setIsCreating(false);
         setSelectedTrigger(trigger);
+        // モバイルではサイドバーを自動的に閉じる
+        if (window.innerWidth <= 768) {
+            setSidebarCollapsed(true);
+        }
     };
 
     const handleSave = async (trigger: Trigger) => {
@@ -137,6 +145,10 @@ const TriggerManager: React.FC = () => {
             addToast?.(isNew ? 'トリガーを作成しました' : 'トリガーを更新しました', 'success');
             setIsCreating(false);
             setSelectedTrigger(null);
+            // モバイルではサイドバーを開く
+            if (window.innerWidth <= 768) {
+                setSidebarCollapsed(false);
+            }
             await fetchTriggers(guildId);
         } catch (err) {
             console.error('Failed to save trigger:', err);
@@ -161,6 +173,11 @@ const TriggerManager: React.FC = () => {
 
             addToast?.('トリガーを削除しました', 'success');
             setSelectedTrigger(null);
+            setIsCreating(false);
+            // モバイルではサイドバーを開く
+            if (window.innerWidth <= 768) {
+                setSidebarCollapsed(false);
+            }
             await fetchTriggers(guildId);
         } catch (err) {
             console.error('Failed to delete trigger:', err);
@@ -233,17 +250,17 @@ const TriggerManager: React.FC = () => {
             {/* Header */}
             <div className={styles.header}>
                 <div className={styles.headerContent}>
-                    <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between'}}>
-                        <div>
-                            <h1>🎯 トリガー管理</h1>
-                            <p>Discord イベントに応じて自動アクションを実行</p>
-                        </div>
-                        <div>
-                            <button className={styles.hamburger} onClick={toggleSidebar} title="サイドバーを切り替え">
-                                <span className={styles.hamburgerIcon}>menu</span>
-                            </button>
-                        </div>
+                    <div>
+                        <h1>🎯 トリガー管理</h1>
+                        <p>Discord イベントに応じて自動アクションを実行</p>
                     </div>
+                    <button className={styles.hamburger} onClick={toggleSidebar} title="サイドバーを切り替え">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <line x1="3" y1="6" x2="21" y2="6" />
+                            <line x1="3" y1="12" x2="21" y2="12" />
+                            <line x1="3" y1="18" x2="21" y2="18" />
+                        </svg>
+                    </button>
                 </div>
             </div>
 
@@ -277,6 +294,10 @@ const TriggerManager: React.FC = () => {
                             onCancel={() => {
                                 setSelectedTrigger(null);
                                 setIsCreating(false);
+                                // モバイルではサイドバーを開く
+                                if (window.innerWidth <= 768) {
+                                    setSidebarCollapsed(false);
+                                }
                             }}
                         />
                     ) : (

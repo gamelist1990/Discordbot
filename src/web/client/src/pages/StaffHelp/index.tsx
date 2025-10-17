@@ -317,6 +317,20 @@ const StaffHelpPage: React.FC = () => {
                                             開く
                                         </button>
                                     </div>
+
+                                    <div className={styles.serviceCard}>
+                                        <div className={styles.serviceIcon}>⚡</div>
+                                        <h3 className={styles.serviceTitle}>トリガー管理</h3>
+                                        <p className={styles.serviceDescription}>
+                                            自動応答トリガー、リアクション、DM送信などの自動化設定を管理
+                                        </p>
+                                        <button
+                                            className={styles.serviceButton}
+                                            onClick={() => navigate('/staff/triggermanager')}
+                                        >
+                                            開く
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
                         )}
