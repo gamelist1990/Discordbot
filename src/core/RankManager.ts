@@ -607,6 +607,36 @@ export class RankManager {
     }
 
     /**
+     * Bot起動時にすべてのギルドのパネルタイマーを再開
+     */
+    async restorePanelUpdateTimers(): Promise<void> {
+        if (!this.client) return;
+
+        try {
+            const guilds = this.client.guilds.cache;
+            Logger.info(`📊 ${guilds.size} ギルドのパネルタイマーを復元します...`);
+
+            for (const [guildId, guild] of guilds) {
+                try {
+                    const data = await this.getRankingData(guildId);
+                    
+                    // パネルが存在する場合のみタイマーを開始
+                    if (Object.keys(data.panels).length > 0) {
+                        await this.startPanelUpdateTimer(guildId);
+                        Logger.info(`✅ ギルド ${guild.name} (${guildId}) のパネルタイマーを復元しました（${Object.keys(data.panels).length}個のパネル）`);
+                    }
+                } catch (error) {
+                    Logger.error(`ギルド ${guildId} のパネルタイマー復元に失敗:`, error);
+                }
+            }
+
+            Logger.success('✅ すべてのパネルタイマーの復元が完了しました');
+        } catch (error) {
+            Logger.error('パネルタイマー復元中にエラーが発生:', error);
+        }
+    }
+
+    /**
      * すべてのパネルを更新
      */
     async updateAllPanels(guildId: string): Promise<void> {

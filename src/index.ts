@@ -102,6 +102,9 @@ async function main() {
         rankManager.setClient(botClient.client);
         Logger.info('📊 RankManager を初期化しました');
 
+        // Bot起動時にすべてのパネルタイマーを復元
+        await rankManager.restorePanelUpdateTimers();
+
         // StatsManager を初期化
         const { statsManagerSingleton } = await import('./core/StatsManager.js');
         statsManagerSingleton.init(botClient.client);
