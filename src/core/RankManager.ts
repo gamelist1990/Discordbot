@@ -394,13 +394,30 @@ export class RankManager {
                 try {
                     const channel = guild.channels.cache.get(data.settings.notifyChannelId) as TextChannel;
                     if (channel) {
+                        // プレースホルダーの置換
+                        const user = await guild.members.fetch(userId).catch(() => null);
+                        const userName = user?.user.username || `User${userId}`;
+                        const now = new Date();
+                        
+                        let description = reward.customMessage || 
+                            `<@${userId}> が **${newRank.name}** ランクに到達しました！`;
+                        
+                        // プレースホルダーの置換（複数の形式に対応）
+                        description = description
+                            .replace(/{rank}/g, newRank.name)
+                            .replace(/{user}/g, userName)
+                            .replace(/{oldRank}/g, oldRank.name)
+                            .replace(/{newRank}/g, newRank.name)
+                            .replace(/{userId}/g, userId)
+                            .replace(/{date}/g, now.toLocaleDateString('ja-JP'))
+                            .replace(/{time}/g, now.toLocaleTimeString('ja-JP'))
+                            .replace(/{timestamp}/g, now.toISOString())
+                            .replace(/{emoji}/g, '🎉');
+
                         const embed = new EmbedBuilder()
                             .setColor((newRank.color as any) || '#FFD700')
                             .setTitle('🎉 ランクアップ！')
-                            .setDescription(
-                                reward.customMessage || 
-                                `<@${userId}> が **${newRank.name}** ランクに到達しました！`
-                            )
+                            .setDescription(description)
                             .addFields(
                                 { name: '前のランク', value: oldRank.name, inline: true },
                                 { name: '新しいランク', value: newRank.name, inline: true }
@@ -417,6 +434,23 @@ export class RankManager {
             // Webhook 送信
             if (reward.webhookUrl) {
                 try {
+                    // プレースホルダーの置換
+                    const user = await guild.members.fetch(userId).catch(() => null);
+                    const userName = user?.user.username || `User${userId}`;
+                    const now = new Date();
+                    let customMsg = reward.customMessage || `User ${userId} ranked up to ${newRank.name}`;
+                    
+                    customMsg = customMsg
+                        .replace(/{rank}/g, newRank.name)
+                        .replace(/{user}/g, userName)
+                        .replace(/{oldRank}/g, oldRank.name)
+                        .replace(/{newRank}/g, newRank.name)
+                        .replace(/{userId}/g, userId)
+                        .replace(/{date}/g, now.toLocaleDateString('ja-JP'))
+                        .replace(/{time}/g, now.toLocaleTimeString('ja-JP'))
+                        .replace(/{timestamp}/g, now.toISOString())
+                        .replace(/{emoji}/g, '🎉');
+
                     const webhookPayload = {
                         event: 'rank-up',
                         guildId,
@@ -424,7 +458,7 @@ export class RankManager {
                         oldRank: oldRank.name,
                         newRank: newRank.name,
                         timestamp: new Date().toISOString(),
-                        customMessage: reward.customMessage || `User ${userId} ranked up to ${newRank.name}`
+                        customMessage: customMsg
                     };
 
                     const response = await fetch(reward.webhookUrl, {
