@@ -6,6 +6,7 @@ interface UserInfo {
     userId: string;
     username: string;
     avatar?: string | null;
+    permissionLevel?: number;
 }
 
 interface AppHeaderProps {
@@ -195,6 +196,20 @@ const AppHeader: React.FC<AppHeaderProps> = ({ user: userProp, onLogout }) => {
                                             <span className="material-icons">leaderboard</span>
                                             <span>ランキング</span>
                                         </button>
+
+                                        {/* スタッフ権限以上の場合のみ表示 */}
+                                        {user && user.permissionLevel && user.permissionLevel >= 1 && (
+                                            <button 
+                                                className={styles.appItem}
+                                                onClick={() => {
+                                                    setShowAppMenu(false);
+                                                    navigate('/staff');
+                                                }}
+                                            >
+                                                <span className="material-icons">admin_panel_settings</span>
+                                                <span>スタッフ</span>
+                                            </button>
+                                        )}
                                     </div>
                                 </div>
                             )}

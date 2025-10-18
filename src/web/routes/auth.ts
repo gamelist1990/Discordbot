@@ -111,6 +111,20 @@ export function createAuthRoutes(
             const owners: string[] = Array.isArray((config as any).owner) ? (config as any).owner : [];
             const isOwner = owners.includes(session.userId);
 
+            // Calculate max permission level across all guilds
+            let maxPermissionLevel = 0;
+            if (session.permissions) {
+                for (const perm of session.permissions) {
+                    if (perm.level > maxPermissionLevel) {
+                        maxPermissionLevel = perm.level;
+                    }
+                }
+            }
+            // If user is owner, set max permission level
+            if (isOwner) {
+                maxPermissionLevel = 3; // OWNER level
+            }
+
             res.json({
                 authenticated: true,
                 user: {
@@ -120,6 +134,7 @@ export function createAuthRoutes(
                     username: session.username || session.userId,
                     avatar: (session as any).avatar || null,
                     permissions: session.permissions || [],
+                    permissionLevel: maxPermissionLevel,
                     isOwner,
                     owners
                 }

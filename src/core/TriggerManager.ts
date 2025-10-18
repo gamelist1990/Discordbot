@@ -37,6 +37,13 @@ export class TriggerManager {
     }
 
     /**
+     * ギルドのトリガー保存キーを取得
+     */
+    private getTriggersKey(guildId: string): string {
+        return `Guild/${guildId}/triggers`;
+    }
+
+    /**
      * WebSocketエミッターを設定
      */
     setWebSocketEmitter(emitter: (event: string, data: any) => void): void {
@@ -47,7 +54,7 @@ export class TriggerManager {
      * 全トリガーをギルドIDから取得
      */
     async getTriggersForGuild(guildId: string): Promise<Trigger[]> {
-        const data = await this.database.get<Trigger[]>(guildId, 'triggers', []);
+        const data = await this.database.get<Trigger[]>(guildId, this.getTriggersKey(guildId), []);
         return data || [];
     }
 
@@ -71,7 +78,7 @@ export class TriggerManager {
         }
         
         triggers.push(trigger);
-        await this.database.set(trigger.guildId, 'triggers', triggers);
+        await this.database.set(trigger.guildId, this.getTriggersKey(trigger.guildId), triggers);
         Logger.info(`✅ トリガー作成: ${trigger.name} (${trigger.id})`);
         return trigger;
     }
@@ -93,7 +100,7 @@ export class TriggerManager {
         }
         
         triggers[index] = { ...triggers[index], ...updates, updatedAt: new Date().toISOString() };
-        await this.database.set(guildId, 'triggers', triggers);
+        await this.database.set(guildId, this.getTriggersKey(guildId), triggers);
         Logger.info(`✅ トリガー更新: ${triggers[index].name} (${triggerId})`);
         return triggers[index];
     }
@@ -109,7 +116,7 @@ export class TriggerManager {
             return false; // 削除対象が見つからなかった
         }
         
-        await this.database.set(guildId, 'triggers', filtered);
+        await this.database.set(guildId, this.getTriggersKey(guildId), filtered);
         Logger.info(`🗑️ トリガー削除: ${triggerId}`);
         return true;
     }
