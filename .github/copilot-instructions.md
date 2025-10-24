@@ -47,155 +47,50 @@ This guide helps AI agents understand the architecture and development patterns 
 ```
 User types slash command
   ↓
-Discord → Bot (interactionCreate event)
-  ↓
-EventHandler routes to CommandRegistry
-  ↓
-CommandRegistry looks up command from BotClient.commands Collection
-  ↓
-Command.execute(interaction) runs
-  ↓
-Often reads/writes to Database → JSON in Data/
+## .github/copilot-instructions.md — Discordbot 簡潔ガイド
+
+目的: AI エージェントがこのリポジトリで素早く安全に変更を加えられるよう、運用ルールとプロジェクト固有の慣習を短くまとめます。
+
+重要ポイント（短く）:
+
+- ランタイム: Bun（Node 互換）。TypeScript + ESM。インポートは必ず `.js` で終える（例: `import { BotClient } from './core/BotClient.js';`）。
+- エントリ: `src/index.ts` — `config.json` を読み、`BotClient`/`CommandLoader`/`EventHandler`/`SettingsServer` を初期化する。
+- コマンド: `src/core/CommandLoader.ts` が `src/commands/` を再帰検出。各コマンドは default export の `SlashCommand` を実装（`data`, `execute(interaction)`、任意で `permissionLevel` と `cooldown`）。
+- 永続化: `src/core/Database.ts` が JSON（`Data/`）を管理。必ず `database.set()` を呼んで永続化。読み取りのみの `get()` は保存されない。
+- イベント: `src/core/EventHandler.ts` / `src/core/EventManager.ts` により `interactionCreate`（コマンド）や `guildCreate`（自動デプロイ/参加上限）が処理される。
+- Web: `src/web/SettingsServer.ts`（Express） + `src/web/client/`（Vite/React）。セッションは `Data/Auth/` に保存。
+
+頻繁に使うコマンド:
+
+- 依存関係: `npm install` または `bun install`
+- 開発: `npm run dev`（Vite + Bot を同時起動するスクリプト）
+- Bot 単体: `bun run src/index.ts`
+- 型チェック: `npx tsc --noEmit`
+
+必ず確認する PR 前チェックリスト:
+
+1. 追加したコマンドは default export の `SlashCommand` になっているか（`src/commands/...`）。
+2. DB を変更するコードは `database.set()` を呼んでいるか。
+3. すべての ESM import が `.js` で終わっているか。
+4. `config.json` にトークンをコミットしていないか。
+
+代表的ファイル参照（短縮）:
+
+- `src/index.ts` — ブートストラップ
+- `src/core/CommandLoader.ts` — 自動検出ロジック
+- `src/core/Database.ts` — JSON 永続化 + キャッシュ
+- `src/core/EventHandler.ts` — イベントルーティング
+- `src/web/SettingsServer.ts` — Web 管理
+- `src/utils/Logger.ts`, `src/utils/CooldownManager.ts`, `src/utils/PermissionManager.ts`
+
+実装例（インポート形式）:
+
+import を間違えないでください:
+```ts
+// 正: ESM + .js 拡張子
+import { BotClient } from './core/BotClient.js';
 ```
 
----
+フィードバックのお願い:
 
-## Project-Specific Patterns & Conventions
-
-### 1. Command Registration
-All commands must export default a `SlashCommand` object:
-```typescript
-const myCommand: SlashCommand = {
-    data: new SlashCommandBuilder()
-        .setName('mycommand')
-        .setDescription('Does something'),
-    permissionLevel: PermissionLevel.STAFF,  // Optional
-    cooldown: 5,  // Optional (seconds)
-    async execute(interaction: ChatInputCommandInteraction) {
-        // Command logic
-    }
-};
-export default myCommand;
-```
-- Avoid static imports; `CommandLoader` discovers files automatically.
-- Place command files under `src/commands/{category}/` (e.g., `any`, `staff`, `admin`, `owner`).
-
-### 2. Permission System
-- Stored in web settings, retrieved via `SessionService` or database.
-- Levels: 0 = ANY, 1+ = STAFF, 2+ = ADMIN, 3+ = OP.
-- Check in command: compare `permissionLevel` field (web layer enforces during route handling).
-
-### 3. Cooldown Handling
-- Use `cooldownManager` singleton from `src/utils/CooldownManager.ts`.
-- Pattern: Set `cooldown` field on command, EventHandler checks automatically.
-- Fallback: Manually call `cooldownManager.check(commandName, userId, seconds)`.
-
-### 4. Database Patterns
-- **Always validate JSON** before reading/writing to `Data/` (handle corrupted files).
-- **Guild-scoped data**: Store as `{guildId}_{key}.json` or nested under `Guild/{guildId}/`.
-- **Global data**: Use `Global/` prefix or absolute paths (e.g., `Global/feedback.json`).
-- **Use cache**: `Database.get()` caches results; call `.set()` to persist changes.
-
-### 5. Event Manager Usage
-- Custom events defined in `src/types/events.ts` (e.g., `Event.READY`, `Event.COMMAND_EXECUTED`).
-- Register: `eventManager.register(Event.SOME_EVENT, handler, { once: true })`.
-- Emit: `eventManager.emit(Event.SOME_EVENT, payload)`.
-
-### 6. Web Routes & Controllers
-- Routes live in `src/web/routes/`; controllers in `src/web/controllers/`.
-- Controllers handle business logic; call DB, managers, etc.
-- Example: `FeedbackController.ts` interacts with feedback data in `Data/Global/Feedback.json`.
-
-### 7. Logger Usage
-- Use `Logger` from `src/utils/Logger.ts` (console + color output).
-- Methods: `Logger.info()`, `Logger.warn()`, `Logger.error()`, `Logger.success()`.
-- Tokens are already masked in startup logs.
-
-### 8. File I/O and Module Imports
-- Use ESM imports (`import ... from ...`); no CommonJS.
-- Always use `.js` extension in import paths (even for `.ts` sources) for Bun compatibility.
-- Example: `import { BotClient } from './core/BotClient.js';`
-
----
-
-## Development Workflow
-
-### Local Development
-```bash
-# Install dependencies
-npm install
-
-# Run bot + web dev server together (watch mode)
-npm run dev
-
-# Run bot alone
-bun run src/index.ts
-
-# Type-check only
-npx tsc --noEmit
-```
-
-### Build & Deployment
-```bash
-# Cross-platform binary builds (uses Bun)
-npm run auto              # All targets
-npm run windows-64        # Windows
-npm run linux             # Linux x64
-# etc.
-
-# Web client only
-npm run web
-```
-
-### Configuration
-- **Required**: `config.json` with `token` field (repo root, ignored by git).
-- Example: `config.example.json` provided.
-- Tip: No clientId, guildId, or deployGlobal fields needed—auto-detected.
-
----
-
-## Critical Review Checkpoints
-
-When reviewing code changes:
-
-1. **Type safety** (`src/types/command.ts`): Ensure exported commands match `SlashCommand` interface.
-2. **No secrets leaked**: Confirm `config.json` is not committed; tokens are masked in logs.
-3. **Long-running handlers**: Guard with try/catch; don't block event loop.
-4. **File I/O**: Validate JSON before parsing; handle `ENOENT` errors.
-5. **Database updates**: Always call `.set()` after mutations; verify cache invalidation.
-6. **Permission checks**: Enforce via `SessionService` or command `permissionLevel` field.
-
----
-
-## Key Files Reference
-
-| File/Dir | Purpose |
-|----------|---------|
-| `src/index.ts` | Bootstrap; loads config, initializes services |
-| `src/core/BotClient.ts` | Discord client wrapper; manages guild limits (MAX_GUILDS=50) |
-| `src/core/CommandLoader.ts` | Auto-discovers and registers commands |
-| `src/core/EventHandler.ts` | Routes Discord events to handlers |
-| `src/core/Database.ts` | JSON persistence layer with cache |
-| `src/types/command.ts` | Command interface definitions |
-| `src/web/SettingsServer.ts` | Express server for web dashboard |
-| `src/web/client/` | Vite + React frontend |
-| `Data/` | Runtime JSON data (Git-ignored) |
-| `CLAUDE.md` | Additional AI guidance (referenced by CI) |
-
----
-
-## Common Pitfalls
-
-- **ESM imports**: Always include `.js` extension; forget and Bun bundler fails.
-- **Database not persisted**: Must call `.set()` to write to disk; `.get()` only reads.
-- **Command not discovered**: File must be under `src/commands/` and default-export a `SlashCommand`.
-- **Token leaked**: Config values in logs → check logs are masked in `src/index.ts:39-55`.
-- **Guild limit exceeded**: Bot auto-exits if guild count > 50; owner receives DM.
-
----
-
-## Notes for AI Agents
-
-- **CI enforces Japanese**: PR review comments from workflows use Japanese (see `.github/workflows/claude-code-review.yml`).
-- **Bun vs Node**: Confirm runtime choice before invoking build scripts; Bun is primary for cross-target binaries.
-- **Refer to CLAUDE.md**: Comprehensive guidance is also in `CLAUDE.md`; keep both files in sync.
+この短縮版で足りない具体例（例: コマンド登録のフルサンプル、Database の回復例、EventManager の使い方）を教えてください。受け取った内容に基づき追記してマージします。

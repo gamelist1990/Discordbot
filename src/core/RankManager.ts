@@ -169,6 +169,31 @@ export class RankManager {
     }
 
     /**
+     * テキスト内の {emoji:ID} プレースホルダーをギルド絵文字に展開する
+     * 見つからない場合は元のプレースホルダーを残す
+     */
+    private replaceEmojiPlaceholders(text: string, guild: Guild): string {
+        if (!text) return text;
+
+        // {emoji:123456789012345678}
+        text = text.replace(/\{emoji:([0-9]+)\}/g, (match, id) => {
+            try {
+                const emoji = guild.emojis.cache.get(id);
+                if (emoji) {
+                    const animatedFlag = emoji.animated ? 'a' : '';
+                    return `<${animatedFlag}:${emoji.name}:${id}>`;
+                }
+            } catch (e) {
+                // ignore
+            }
+            return match;
+        });
+
+        // 従来の {emoji} 単体は汎用絵文字にフォールバック
+        return text.replace(/\{emoji\}/g, '🎉');
+    }
+
+    /**
      * 指定された XpRates からメッセージXPをランダムに計算する
      */
     private computeRandomXpForMessage(xpRates: XpRates): number {
@@ -399,13 +424,15 @@ export class RankManager {
                         const userName = user?.user.username || `User${userId}`;
                         const now = new Date();
                         
-                        let description = reward.customMessage || 
-                            `<@${userId}> が **${newRank.name}** ランクに到達しました！`;
-                        
+                        // デフォルトではメンションを含める（埋め込み内のメンションは通知されないため、content に明示的にメンションを入れる）
+                        let description = reward.customMessage || `<@${userId}> が **${newRank.name}** ランクに到達しました！`;
+
                         // プレースホルダーの置換（複数の形式に対応）
+                        // {mention} を追加してメンション表現をテンプレートで使えるようにする
                         description = description
                             .replace(/{rank}/g, newRank.name)
                             .replace(/{user}/g, userName)
+                            .replace(/{mention}/g, (member && member.toString()) || `<@${userId}>`)
                             .replace(/{oldRank}/g, oldRank.name)
                             .replace(/{newRank}/g, newRank.name)
                             .replace(/{userId}/g, userId)
@@ -413,6 +440,9 @@ export class RankManager {
                             .replace(/{time}/g, now.toLocaleTimeString('ja-JP'))
                             .replace(/{timestamp}/g, now.toISOString())
                             .replace(/{emoji}/g, '🎉');
+
+                        // ギルド絵文字（{emoji:ID}）を展開
+                        description = this.replaceEmojiPlaceholders(description, guild);
 
                         const embed = new EmbedBuilder()
                             .setColor((newRank.color as any) || '#FFD700')
@@ -424,7 +454,12 @@ export class RankManager {
                             )
                             .setTimestamp();
 
-                        await channel.send({ embeds: [embed] });
+                        // content にメンションを付けるかどうかを判断する。
+                        // 埋め込み内のメンションは通知されないため、ユーザーが明示的にメンションを望む場合は content に入れる。
+                        const wantsMention = !reward.customMessage || /<@|\{mention\}|\{userId\}/.test(reward.customMessage);
+                        const content = wantsMention ? (member ? member.toString() : `<@${userId}>`) : undefined;
+
+                        await channel.send({ content, embeds: [embed], allowedMentions: { users: content ? [userId] : [] } });
                     }
                 } catch (error) {
                     Logger.error('Failed to send rank up notification:', error);
@@ -450,6 +485,9 @@ export class RankManager {
                         .replace(/{time}/g, now.toLocaleTimeString('ja-JP'))
                         .replace(/{timestamp}/g, now.toISOString())
                         .replace(/{emoji}/g, '🎉');
+
+                    // ギルド絵文字（{emoji:ID}）を展開
+                    customMsg = this.replaceEmojiPlaceholders(customMsg, guild);
 
                     const webhookPayload = {
                         event: 'rank-up',

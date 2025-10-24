@@ -108,7 +108,7 @@ export const subcommandHandler = {
 
                 // 最新の会話履歴を取得して含める（連続投稿が5件必要、という厳しい条件は廃止）
                 // 過度に長くならないよう、最大メッセージ数と最大文字数で切り詰める
-                const MAX_HISTORY_MESSAGES = 10;
+                const MAX_HISTORY_MESSAGES = 20;
                 const MAX_HISTORY_CHARS = 1500;
 
                 const historySlice = recentMessages.slice(-MAX_HISTORY_MESSAGES);
