@@ -13,3 +13,4 @@ config.json
 .history
 Data
 .roo/mcp.json
+.claude/settings.local.json
