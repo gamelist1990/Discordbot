@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { Suspense } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import AppHeader from './components/Common/AppHeader';
 import SettingsPage from './pages/Settings';
@@ -16,7 +16,7 @@ import UserProfile from './pages/Profile';
 import FeedbackPage from './pages/Feedback';
 import TriggerManager from './pages/TriggerManager';
 import ToolsHub from './pages/Tools/ToolsHub';
-import MinecraftViewer from './pages/Tools/MinecraftViewer/MinecraftViewer';
+const MinecraftViewer = React.lazy(() => import('./pages/Tools/MinecraftViewer/MinecraftViewer'));
 import { useAuthGuard } from './hooks/useAuthGuard';
 import HomePage from './pages/Home';
 import NotFoundPage from './pages/NotFound';
@@ -67,7 +67,7 @@ const App: React.FC = () => {
           <Route path="/staff/triggermanager" element={<StaffGuard><TriggerManager /></StaffGuard>} />
           <Route path="/staff/privateChat" element={<Navigate to="/staff/privatechat" replace />} />
           <Route path="/tools" element={<ToolsHub />} />
-          <Route path="/tools/minecraft" element={<MinecraftViewer />} />
+          <Route path="/tools/minecraft" element={<Suspense fallback={<div style={{padding:20}}>読み込み中...</div>}><MinecraftViewer /></Suspense>} />
           <Route path="/todo/:guildId" element={<TodoDashboard />} />
           <Route path="/todo/:guildId/session/:sessionId" element={<TodoSession />} />
           <Route path="/todo/shared/:token" element={<TodoSession />} />

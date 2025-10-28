@@ -56,11 +56,115 @@ const MinecraftViewerEnhanced = () => {
     thumb?: string;
     createdAt: string;
   };
+
+  // Import frames JSON (array of frames) and merge into current frames
+  const importFrames = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const parsed = JSON.parse(e.target?.result as string);
+        const toAdd: Frame[] = [];
+        if (Array.isArray(parsed)) {
+          parsed.forEach((item: any) => {
+            if (!item || typeof item !== 'object') return;
+            // basic validation: must have pose and camera
+            if (!item.pose || !item.camera) return;
+            toAdd.push({
+              id: item.id || (Date.now().toString() + Math.random().toString(36).slice(2)),
+              pose: item.pose,
+              camera: item.camera,
+              background: item.background || { type: 'preset', preset: 'white' },
+              thumb: item.thumb,
+              createdAt: item.createdAt || new Date().toISOString()
+            });
+          });
+        } else if (parsed && typeof parsed === 'object') {
+          // single frame object
+          const item = parsed;
+          if (item.pose && item.camera) {
+            toAdd.push({
+              id: item.id || (Date.now().toString() + Math.random().toString(36).slice(2)),
+              pose: item.pose,
+              camera: item.camera,
+              background: item.background || { type: 'preset', preset: 'white' },
+              thumb: item.thumb,
+              createdAt: item.createdAt || new Date().toISOString()
+            });
+          }
+        }
+
+        if (toAdd.length === 0) {
+          setError('インポートされたファイルに有効なフレームが含まれていません');
+        } else {
+          setFrames(prev => [...prev, ...toAdd]);
+          setError(null);
+        }
+      } catch (err) {
+        console.error('importFrames failed', err);
+        setError('フレームのインポートに失敗しました');
+      }
+    };
+    reader.readAsText(file);
+    // reset input
+    event.target.value = '';
+  };
+
+  // Clear all frames
+  const clearAllFrames = () => {
+    if (!confirm('全てのコマを削除しますか？この操作は取り消せません。')) return;
+    setFrames([]);
+    setActiveFrameIndex(0);
+  };
+
+  // Preview (play) frames sequentially
+  const playPreview = async () => {
+    if (!viewerRef.current || frames.length === 0) return;
+    if (isPlayingRef.current) return; // already playing
+    isPlayingRef.current = true;
+    setIsPlaying(true);
+    const fps = exportFPS || 30;
+    const delay = Math.max(50, Math.round(1000 / fps));
+    try {
+      for (let i = 0; i < frames.length; i++) {
+        if (!isPlayingRef.current) break;
+        const f = frames[i];
+        try { if (f.camera) viewerRef.current?.setCameraState?.(f.camera); } catch (e) {}
+        try { if (f.pose) viewerRef.current?.setPoseState?.(f.pose); } catch (e) {}
+        try {
+          if (f.background && f.background.type === 'preset' && f.background.preset) {
+            const presetColor = backgroundPresets[f.background.preset as keyof typeof backgroundPresets];
+            if (presetColor) viewerRef.current?.setBackgroundColor?.(presetColor.color);
+          }
+        } catch (e) {}
+        setActiveFrameIndex(i);
+        // wait for rendering
+        await new Promise(r => setTimeout(r, delay));
+      }
+    } catch (e) {
+      console.error('playPreview failed', e);
+    }
+    isPlayingRef.current = false;
+    setIsPlaying(false);
+  };
+
+  const stopPreview = () => {
+    isPlayingRef.current = false;
+    setIsPlaying(false);
+  };
   const [frames, setFrames] = useState<Frame[]>([]);
-  const [activeFrameIndex, setActiveFrameIndex] = useState<number>(0);
+  const [, setActiveFrameIndex] = useState<number>(0);
+  // UI for large frame lists
+  // Show clamped (scroll) list already when 3 or more frames to avoid UI overflow on narrow layouts
+  const FRAME_SCROLL_THRESHOLD = 3; // above this, clamp list and show "もっと見る"
+  const [showFullScreenFrames, setShowFullScreenFrames] = useState<boolean>(false);
   const [exportFormat, setExportFormat] = useState<'webm'|'json'>('webm');
   const [exportFPS, setExportFPS] = useState<15|30>(30);
   const workerRef = useRef<Worker | null>(null);
+  // Preview / playback state
+  const [isPlaying, setIsPlaying] = useState<boolean>(false);
+  const isPlayingRef = useRef<boolean>(false);
 
   useEffect(() => {
     try {
@@ -95,68 +199,8 @@ const MinecraftViewerEnhanced = () => {
   };
 
   // フレームを更新
-  const updateFrame = (idx: number, data: Partial<Frame>) => {
-    setFrames(prev => prev.map((f, i) => i === idx ? { ...f, ...data } : f));
-  };
 
   // サムネ生成（各フレームの状態を適用してスクリーンショットを取得）
-  const generateThumb = async (frame: Frame) => {
-    if (!viewerRef.current) return null;
-    try {
-      const canvasArea = containerRef.current;
-      if (!canvasArea) return null;
-      const canvas = canvasArea.querySelector('canvas') as HTMLCanvasElement | null;
-      if (!canvas) return null;
-
-      // apply frame state briefly
-      const prevCamera = viewerRef.current.getCameraState?.();
-      const prevPose = viewerRef.current.getPoseState?.();
-      try { if (frame.camera) viewerRef.current.setCameraState?.(frame.camera); } catch {}
-      try { if (frame.pose) viewerRef.current.setPoseState?.(frame.pose); } catch {}
-
-      // create ImageBitmap (async, non-blocking) and send to worker
-      const imgBitmap = await createImageBitmap(canvas);
-      if (workerRef.current) {
-        const w = workerRef.current;
-        const result = await new Promise<string|null>((resolve) => {
-          const onmsg = (ev: MessageEvent) => {
-            const data = ev.data || {};
-            if (data.error) { resolve(null); return; }
-            const blob = data.blob as Blob | undefined;
-            if (blob) {
-              const url = URL.createObjectURL(blob);
-              resolve(url);
-            } else {
-              resolve(null);
-            }
-          };
-          w.addEventListener('message', onmsg, { once: true });
-          try {
-            // Transfer the ImageBitmap to worker
-            w.postMessage({ bitmap: imgBitmap, width: 128, height: 128 }, [imgBitmap]);
-          } catch (err) {
-            console.debug('postMessage to worker failed', err);
-            resolve(null);
-          }
-        });
-
-        // restore viewer state
-        try { if (prevCamera) viewerRef.current.setCameraState?.(prevCamera); } catch {}
-        try { if (prevPose) viewerRef.current.setPoseState?.(prevPose); } catch {}
-        return result;
-      } else {
-        // fallback: use existing synchronous screenshot method
-        await new Promise(r => requestAnimationFrame(() => setTimeout(r, 80)));
-        const dataUrl = await viewerRef.current.takeScreenshot?.();
-        try { if (prevCamera) viewerRef.current.setCameraState?.(prevCamera); } catch {}
-        try { if (prevPose) viewerRef.current.setPoseState?.(prevPose); } catch {}
-        return dataUrl || null;
-      }
-    } catch (e) {
-      console.debug('generateThumb failed', e);
-      return null;
-    }
-  };
 
   // コマ削除
   const removeFrame = (idx: number) => {
@@ -813,28 +857,68 @@ const MinecraftViewerEnhanced = () => {
                     まだコマが追加されていません
                   </p>
                 ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    {frames.map((frame, idx) => (
-                      <div key={frame.id} style={{
-                        padding: '10px',
-                        border: '1px solid var(--border)',
-                        borderRadius: '6px',
-                        background: 'var(--surface)',
-                        display: 'flex', alignItems: 'center', gap: 8
-                      }}>
-                        <div style={{ width: 60, height: 60, background: '#eee', borderRadius: 4, overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                          {frame.thumb ? <img src={frame.thumb} alt="thumb" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <span style={{ color: '#bbb', fontSize: 12 }}>No Image</span>}
-                        </div>
-                        <div style={{ flex: 1 }}>
-                          <div style={{ fontSize: 13, color: 'var(--text)' }}>Frame {idx + 1}</div>
-                          <div style={{ fontSize: 11, color: 'var(--muted)' }}>{new Date(frame.createdAt).toLocaleString()}</div>
-                        </div>
-                        <button className="btn btn-secondary btn-small" style={{ fontSize: 13 }} onClick={() => moveFrame(idx, idx-1)} disabled={idx===0}>↑</button>
-                        <button className="btn btn-secondary btn-small" style={{ fontSize: 13 }} onClick={() => moveFrame(idx, idx+1)} disabled={idx===frames.length-1}>↓</button>
-                        <button className="btn btn-danger btn-small" style={{ fontSize: 13 }} onClick={() => removeFrame(idx)}>🗑️</button>
+                  <>
+                    {/* Clamp list into a scrollable area when many frames */}
+                    <div className={`frame-list ${frames.length > FRAME_SCROLL_THRESHOLD ? 'clamped' : ''}`}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        {frames.map((frame, idx) => (
+                          <div key={frame.id} className="frame-list-item">
+                            <div className="frame-thumb">
+                              {frame.thumb ? <img src={frame.thumb} alt="thumb" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <span style={{ color: '#bbb', fontSize: 12 }}>No Image</span>}
+                            </div>
+                            <div className="frame-meta">
+                              <div className="frame-meta-title">Frame {idx + 1}</div>
+                              <div className="frame-meta-date">{new Date(frame.createdAt).toLocaleString()}</div>
+                            </div>
+                            <div className="frame-actions">
+                              <button className="btn btn-secondary btn-small" style={{ fontSize: 13 }} onClick={() => moveFrame(idx, idx-1)} disabled={idx===0}>↑</button>
+                              <button className="btn btn-secondary btn-small" style={{ fontSize: 13 }} onClick={() => moveFrame(idx, idx+1)} disabled={idx===frames.length-1}>↓</button>
+                              <button className="btn btn-danger btn-small" style={{ fontSize: 13 }} onClick={() => removeFrame(idx)}>🗑️</button>
+                            </div>
+                          </div>
+                        ))}
                       </div>
-                    ))}
-                  </div>
+                    </div>
+
+                    {/* Show 'もっと見る' when list is long */}
+                    {frames.length > FRAME_SCROLL_THRESHOLD && (
+                      <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
+                        <button className="btn btn-secondary" onClick={() => setShowFullScreenFrames(true)} style={{ flex: 1 }}>もっと見る</button>
+                      </div>
+                    )}
+
+                    {/* Fullscreen modal for frame management */}
+                    {showFullScreenFrames && (
+                      <div className="frame-modal">
+                        <div className="frame-modal-content">
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                            <h3 style={{ margin: 0 }}>コマ一覧（全画面プレビュー）</h3>
+                            <div style={{ display: 'flex', gap: 8 }}>
+                              <button className="btn btn-secondary" onClick={() => setShowFullScreenFrames(false)}>閉じる</button>
+                            </div>
+                          </div>
+                          <div className="frame-modal-grid">
+                            {frames.map((frame, idx) => (
+                              <div key={frame.id} className="frame-list-item">
+                                <div className="frame-thumb" style={{ width: 96, height: 96 }}>
+                                  {frame.thumb ? <img src={frame.thumb} alt="thumb" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <span style={{ color: '#bbb', fontSize: 12 }}>No Image</span>}
+                                </div>
+                                <div className="frame-meta">
+                                  <div className="frame-meta-title">Frame {idx + 1}</div>
+                                  <div className="frame-meta-date">{new Date(frame.createdAt).toLocaleString()}</div>
+                                </div>
+                                <div className="frame-actions">
+                                  <button className="btn btn-secondary btn-small" onClick={() => { moveFrame(idx, idx-1); }} disabled={idx===0}>↑</button>
+                                  <button className="btn btn-secondary btn-small" onClick={() => { moveFrame(idx, idx+1); }} disabled={idx===frames.length-1}>↓</button>
+                                  <button className="btn btn-danger btn-small" onClick={() => { removeFrame(idx); }} >🗑️</button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
               <div style={{ marginBottom: 16 }}>
@@ -848,6 +932,19 @@ const MinecraftViewerEnhanced = () => {
                       <option value={15}>15 FPS</option>
                     </select>
                   </div>
+                <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                  <input type="file" accept=".json" onChange={importFrames} style={{ flex: 1 }} />
+                  <button className="btn btn-danger" onClick={clearAllFrames} disabled={frames.length===0}>一括クリア</button>
+                </div>
+
+                <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                  {isPlaying ? (
+                    <button className="btn btn-secondary" style={{ flex: 1 }} onClick={stopPreview}>停止</button>
+                  ) : (
+                    <button className="btn btn-primary" style={{ flex: 1 }} onClick={playPreview} disabled={frames.length===0}>プレビュー再生</button>
+                  )}
+                </div>
+
                 <button className="btn btn-primary" style={{ width: '100%' }} onClick={exportFrames} disabled={frames.length===0}>
                   エクスポート
                 </button>

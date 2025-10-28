@@ -10,6 +10,41 @@
   margin-bottom: 8px;
   box-shadow: 0 2px 8px rgba(16,24,40,0.04);
 }
+.frame-list {
+  display: block;
+  max-height: none;
+}
+.frame-list.clamped {
+  /* clamp height and allow scrolling when many frames. lowered to fit tighter sidebars */
+  max-height: 220px;
+  overflow-y: auto;
+  padding-right: 8px; /* room for scrollbar */
+}
+
+/* Fullscreen modal for frames */
+.frame-modal {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15,23,42,0.6);
+  z-index: 1200;
+}
+.frame-modal-content {
+  width: min(1100px, 96vw);
+  max-height: 90vh;
+  overflow: auto;
+  background: var(--surface);
+  border-radius: 12px;
+  padding: 18px;
+  box-shadow: var(--surface-shadow);
+}
+.frame-modal-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+}
 .frame-thumb {
   width: 64px;
   height: 64px;
@@ -108,9 +143,10 @@
 .control-section h3 { margin: 0 0 12px 0; color: var(--primary); font-size: 14px; display:flex; align-items:center; gap:8px }
 .control-section h4, .control-section h5 { margin: 0; color: var(--text); }
 
-/* Tabs */
-.tabs { display:flex; gap:8px; margin-bottom:12px }
-.tab { flex:1; padding:8px 10px; border-radius:8px; background:#f6f9ff; border:1px solid transparent; cursor:pointer; font-weight:600; color:var(--primary); }
+.tabs { display:flex; gap:8px; margin-bottom:12px; /* allow horizontal scroll when tabs overflow */
+  overflow-x: auto; -webkit-overflow-scrolling: touch; }
+/* Ensure each tab keeps its intrinsic size and can scroll horizontally when needed */
+.tabs .tab { flex: 0 0 auto; padding:8px 10px; border-radius:8px; background:#f6f9ff; border:1px solid transparent; cursor:pointer; font-weight:600; color:var(--primary); }
 .tab.active { background: linear-gradient(180deg,var(--primary),var(--primary-variant)); color:#fff; box-shadow:0 6px 18px rgba(26,115,232,0.08); }
 .tab-panel { display:flex; flex-direction:column; gap:12px }
 
