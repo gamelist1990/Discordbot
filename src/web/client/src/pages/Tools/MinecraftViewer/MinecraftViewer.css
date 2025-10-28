@@ -1,3 +1,78 @@
+/* コマドリUI強化: カード感・gap・タッチ領域・スマホ最適化 */
+.frame-list-item {
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+  box-shadow: 0 2px 8px rgba(16,24,40,0.04);
+}
+.frame-thumb {
+  width: 64px;
+  height: 64px;
+  background: #eee;
+  border-radius: 6px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.frame-meta {
+  flex: 1;
+  min-width: 0;
+}
+.frame-meta-title {
+  font-size: 14px;
+  color: var(--text);
+  font-weight: 600;
+}
+.frame-meta-date {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+.frame-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.frame-actions .btn { min-width: 36px; min-height: 36px; padding: 0; font-size: 16px; }
+
+@media (max-width: 768px) {
+  .frame-list-item { padding: 8px; gap: 8px; }
+  .frame-thumb { width: 48px; height: 48px; }
+  .frame-actions .btn { min-width: 32px; min-height: 32px; font-size: 15px; }
+}
+
+/* タブ下部固定ナビ（モバイル） */
+@media (max-width: 768px) {
+  .tabs {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    width: 100vw;
+    background: var(--surface);
+    box-shadow: 0 -2px 12px rgba(16,24,40,0.08);
+    z-index: 100;
+    flex-direction: row !important;
+    gap: 0 !important;
+    border-radius: 0;
+    padding: 0;
+  }
+  .tab {
+    flex: 1;
+    border-radius: 0;
+    min-height: 48px;
+    font-size: 15px;
+    border: none;
+    border-right: 1px solid var(--border);
+    margin: 0;
+  }
+  .tab:last-child { border-right: none; }
+}
 :root{
   --bg: #f5f7fb;
   --surface: #ffffff;

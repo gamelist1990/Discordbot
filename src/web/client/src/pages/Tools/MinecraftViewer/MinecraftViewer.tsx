@@ -46,7 +46,208 @@ const MinecraftViewerEnhanced = () => {
   const viewerRef = useRef<any>(null);
   const [fileName, setFileName] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'viewer'|'controls'|'pose'|'presets'>('viewer');
+  const [activeTab, setActiveTab] = useState<'viewer'|'controls'|'pose'|'presets'|'frames'>('viewer');
+  // コマドリ用state
+  type Frame = {
+    id: string;
+    pose: any;
+    camera: any;
+    background: { type: string; preset?: string; customUrl?: string };
+    thumb?: string;
+    createdAt: string;
+  };
+  const [frames, setFrames] = useState<Frame[]>([]);
+  const [activeFrameIndex, setActiveFrameIndex] = useState<number>(0);
+  const [exportFormat, setExportFormat] = useState<'webm'|'json'>('webm');
+  const [exportFPS, setExportFPS] = useState<15|30>(30);
+  const workerRef = useRef<Worker | null>(null);
+
+  useEffect(() => {
+    try {
+      // Vite-compatible worker URL
+      const w = new Worker(new URL('./thumbnailWorker.js', import.meta.url), { type: 'module' });
+      workerRef.current = w;
+    } catch (e) {
+      // fallback: worker may not be available
+      console.debug('Failed to create thumbnail worker', e);
+      workerRef.current = null;
+    }
+    return () => {
+      try { workerRef.current?.terminate(); } catch (e) {}
+      workerRef.current = null;
+    };
+  }, []);
+
+  // コマ追加
+  const addFrame = async () => {
+    if (!viewerRef.current) return;
+    try {
+      const pose = viewerRef.current.getPoseState?.();
+      const camera = viewerRef.current.getCameraState?.();
+      const thumb = await viewerRef.current.takeScreenshot?.();
+      const background = { type: backgroundType, preset: backgroundType === 'preset' ? selectedPreset : undefined, customUrl: backgroundType !== 'preset' ? backgroundFileName : undefined };
+      const frame: Frame = {
+        id: Date.now().toString() + Math.random().toString(36).slice(2),
+        pose, camera, background, thumb, createdAt: new Date().toISOString()
+      };
+      setFrames(prev => [...prev, frame]);
+    } catch (e) { setError('コマ追加に失敗しました'); }
+  };
+
+  // フレームを更新
+  const updateFrame = (idx: number, data: Partial<Frame>) => {
+    setFrames(prev => prev.map((f, i) => i === idx ? { ...f, ...data } : f));
+  };
+
+  // サムネ生成（各フレームの状態を適用してスクリーンショットを取得）
+  const generateThumb = async (frame: Frame) => {
+    if (!viewerRef.current) return null;
+    try {
+      const canvasArea = containerRef.current;
+      if (!canvasArea) return null;
+      const canvas = canvasArea.querySelector('canvas') as HTMLCanvasElement | null;
+      if (!canvas) return null;
+
+      // apply frame state briefly
+      const prevCamera = viewerRef.current.getCameraState?.();
+      const prevPose = viewerRef.current.getPoseState?.();
+      try { if (frame.camera) viewerRef.current.setCameraState?.(frame.camera); } catch {}
+      try { if (frame.pose) viewerRef.current.setPoseState?.(frame.pose); } catch {}
+
+      // create ImageBitmap (async, non-blocking) and send to worker
+      const imgBitmap = await createImageBitmap(canvas);
+      if (workerRef.current) {
+        const w = workerRef.current;
+        const result = await new Promise<string|null>((resolve) => {
+          const onmsg = (ev: MessageEvent) => {
+            const data = ev.data || {};
+            if (data.error) { resolve(null); return; }
+            const blob = data.blob as Blob | undefined;
+            if (blob) {
+              const url = URL.createObjectURL(blob);
+              resolve(url);
+            } else {
+              resolve(null);
+            }
+          };
+          w.addEventListener('message', onmsg, { once: true });
+          try {
+            // Transfer the ImageBitmap to worker
+            w.postMessage({ bitmap: imgBitmap, width: 128, height: 128 }, [imgBitmap]);
+          } catch (err) {
+            console.debug('postMessage to worker failed', err);
+            resolve(null);
+          }
+        });
+
+        // restore viewer state
+        try { if (prevCamera) viewerRef.current.setCameraState?.(prevCamera); } catch {}
+        try { if (prevPose) viewerRef.current.setPoseState?.(prevPose); } catch {}
+        return result;
+      } else {
+        // fallback: use existing synchronous screenshot method
+        await new Promise(r => requestAnimationFrame(() => setTimeout(r, 80)));
+        const dataUrl = await viewerRef.current.takeScreenshot?.();
+        try { if (prevCamera) viewerRef.current.setCameraState?.(prevCamera); } catch {}
+        try { if (prevPose) viewerRef.current.setPoseState?.(prevPose); } catch {}
+        return dataUrl || null;
+      }
+    } catch (e) {
+      console.debug('generateThumb failed', e);
+      return null;
+    }
+  };
+
+  // コマ削除
+  const removeFrame = (idx: number) => {
+    setFrames(prev => prev.filter((_, i) => i !== idx));
+  };
+
+  // コマ順序入替
+  const moveFrame = (from: number, to: number) => {
+    setFrames(prev => {
+      if (to < 0 || to >= prev.length) return prev;
+      const arr = [...prev];
+      const [f] = arr.splice(from, 1);
+      arr.splice(to, 0, f);
+      return arr;
+    });
+  };
+
+  // コマエクスポート（json仮）
+  const exportFrames = async () => {
+    if (frames.length === 0) return;
+    if (exportFormat === 'json') {
+      const dataStr = JSON.stringify(frames, null, 2);
+      const dataUri = 'data:application/json;charset=utf-8,' + encodeURIComponent(dataStr);
+      const exportFileDefaultName = `frames_${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+      const linkElement = document.createElement('a');
+      linkElement.setAttribute('href', dataUri);
+      linkElement.setAttribute('download', exportFileDefaultName);
+      linkElement.click();
+      return;
+    }
+
+    // WebM export via MediaRecorder by applying frames sequentially and recording the canvas
+    try {
+      const canvasArea = containerRef.current;
+      if (!canvasArea) { setError('キャンバスが見つかりません'); return; }
+      const canvas = canvasArea.querySelector('canvas') as HTMLCanvasElement | null;
+      if (!canvas) { setError('Canvas要素が見つかりません'); return; }
+
+  const fps = exportFPS || 30;
+  const stream = (canvas as any).captureStream ? (canvas as any).captureStream(fps) : null;
+      if (!stream) { setError('ブラウザがMediaRecorderをサポートしていません'); return; }
+
+      const options: any = { mimeType: 'video/webm;codecs=vp9' };
+      let recordedChunks: BlobPart[] = [];
+      const mr = new MediaRecorder(stream, options);
+      mr.ondataavailable = (e) => { if (e.data && e.data.size > 0) recordedChunks.push(e.data); };
+
+  const frameDelay = Math.max(50, Math.round(1000 / (exportFPS || 30))); // ms per frame ~ 1000/fps
+      mr.start();
+
+      // apply each frame and wait
+      for (let i = 0; i < frames.length; i++) {
+        const f = frames[i];
+        try { if (f.camera) viewerRef.current?.setCameraState?.(f.camera); } catch {}
+        try { if (f.pose) viewerRef.current?.setPoseState?.(f.pose); } catch {}
+        try {
+          if (f.background && f.background.type === 'preset' && f.background.preset) {
+            const presetColor = backgroundPresets[f.background.preset as keyof typeof backgroundPresets];
+            if (presetColor) viewerRef.current?.setBackgroundColor?.(presetColor.color);
+          }
+        } catch {}
+
+        // wait for rendering (RAF + frameDelay)
+        await new Promise(r => requestAnimationFrame(() => setTimeout(r, frameDelay)));
+      }
+
+      // stop recorder after a short buffer
+      await new Promise(r => setTimeout(r, 200));
+      mr.stop();
+
+      const blob = await new Promise<Blob | null>((resolve) => {
+        mr.onstop = () => {
+          if (recordedChunks.length === 0) return resolve(null);
+          resolve(new Blob(recordedChunks, { type: 'video/webm' }));
+        };
+      });
+
+      if (!blob) { setError('録画データの生成に失敗しました'); return; }
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `minecraft_frames_${new Date().toISOString().slice(0,19).replace(/:/g,'-')}.webm`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error('exportFrames failed', e);
+      setError('エクスポートに失敗しました');
+    }
+  };
   const [zoom, setZoomState] = useState<number>(0.73);
   // rotation via slider removed per request
   const [autoRotate, setAutoRotateState] = useState<boolean>(false);
@@ -587,8 +788,72 @@ const MinecraftViewerEnhanced = () => {
             <button className={`tab ${activeTab === 'viewer' ? 'active' : ''}`} onClick={() => setActiveTab('viewer')}>Image</button>
             <button className={`tab ${activeTab === 'controls' ? 'active' : ''}`} onClick={() => setActiveTab('controls')}>View</button>
             <button className={`tab ${activeTab === 'pose' ? 'active' : ''}`} onClick={() => setActiveTab('pose')}>Pose</button>
+            <button className={`tab ${activeTab === 'frames' ? 'active' : ''}`} onClick={() => setActiveTab('frames')}>コマドリ</button>
             <button className={`tab ${activeTab === 'presets' ? 'active' : ''}`} onClick={() => setActiveTab('presets')}>Presets</button>
           </div>
+          {activeTab === 'frames' && (
+            <div className="tab-panel">
+              <div style={{ padding: '12px 0' }}>
+                <p style={{ margin: 0, color: 'var(--muted)', fontSize: 13 }}>
+                  🎬 <strong>コマドリ（アニメーション用フレーム）</strong><br />
+                  ポーズ・カメラ・背景を「コマ」として保存し、後でmp4/gif化できます（エクスポートはjson仮）
+                </p>
+              </div>
+              <div style={{ marginBottom: 16 }}>
+                <button className="btn btn-primary" style={{ width: '100%' }} onClick={addFrame}>
+                  ＋ 現在の状態をコマとして追加
+                </button>
+              </div>
+              <div style={{ marginBottom: 16 }}>
+                <h4 style={{ margin: '0 0 8px 0', color: 'var(--text)', fontSize: '14px' }}>
+                  コマリスト（{frames.length}）
+                </h4>
+                {frames.length === 0 ? (
+                  <p style={{ margin: 0, color: 'var(--muted)', fontSize: '13px' }}>
+                    まだコマが追加されていません
+                  </p>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    {frames.map((frame, idx) => (
+                      <div key={frame.id} style={{
+                        padding: '10px',
+                        border: '1px solid var(--border)',
+                        borderRadius: '6px',
+                        background: 'var(--surface)',
+                        display: 'flex', alignItems: 'center', gap: 8
+                      }}>
+                        <div style={{ width: 60, height: 60, background: '#eee', borderRadius: 4, overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          {frame.thumb ? <img src={frame.thumb} alt="thumb" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <span style={{ color: '#bbb', fontSize: 12 }}>No Image</span>}
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 13, color: 'var(--text)' }}>Frame {idx + 1}</div>
+                          <div style={{ fontSize: 11, color: 'var(--muted)' }}>{new Date(frame.createdAt).toLocaleString()}</div>
+                        </div>
+                        <button className="btn btn-secondary btn-small" style={{ fontSize: 13 }} onClick={() => moveFrame(idx, idx-1)} disabled={idx===0}>↑</button>
+                        <button className="btn btn-secondary btn-small" style={{ fontSize: 13 }} onClick={() => moveFrame(idx, idx+1)} disabled={idx===frames.length-1}>↓</button>
+                        <button className="btn btn-danger btn-small" style={{ fontSize: 13 }} onClick={() => removeFrame(idx)}>🗑️</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div style={{ marginBottom: 16 }}>
+                  <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                    <select value={exportFormat} onChange={(e) => setExportFormat(e.target.value as any)} style={{ flex: 1, padding: '8px', borderRadius: 8, border: '1px solid var(--border)' }}>
+                      <option value="webm">WebM (動画)</option>
+                      <option value="json">JSON (フレーム単位のデータ)</option>
+                    </select>
+                    <select value={exportFPS} onChange={(e) => setExportFPS(Number(e.target.value) as 15|30)} style={{ width: 100, padding: '8px', borderRadius: 8, border: '1px solid var(--border)' }}>
+                      <option value={30}>30 FPS</option>
+                      <option value={15}>15 FPS</option>
+                    </select>
+                  </div>
+                <button className="btn btn-primary" style={{ width: '100%' }} onClick={exportFrames} disabled={frames.length===0}>
+                  エクスポート
+                </button>
+              </div>
+            </div>
+          )}
 
           {activeTab === 'viewer' && (
             <div className="tab-panel">
