@@ -15,6 +15,8 @@ import TodoSession from './pages/Todo/TodoSession';
 import UserProfile from './pages/Profile';
 import FeedbackPage from './pages/Feedback';
 import TriggerManager from './pages/TriggerManager';
+import ToolsHub from './pages/Tools/ToolsHub';
+import MinecraftViewer from './pages/Tools/MinecraftViewer/MinecraftViewer';
 import { useAuthGuard } from './hooks/useAuthGuard';
 import HomePage from './pages/Home';
 import NotFoundPage from './pages/NotFound';
@@ -64,6 +66,8 @@ const App: React.FC = () => {
           <Route path="/staff/rankmanager" element={<StaffGuard><RankManagerPage /></StaffGuard>} />
           <Route path="/staff/triggermanager" element={<StaffGuard><TriggerManager /></StaffGuard>} />
           <Route path="/staff/privateChat" element={<Navigate to="/staff/privatechat" replace />} />
+          <Route path="/tools" element={<ToolsHub />} />
+          <Route path="/tools/minecraft" element={<MinecraftViewer />} />
           <Route path="/todo/:guildId" element={<TodoDashboard />} />
           <Route path="/todo/:guildId/session/:sessionId" element={<TodoSession />} />
           <Route path="/todo/shared/:token" element={<TodoSession />} />

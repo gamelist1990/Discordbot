@@ -9,7 +9,7 @@ import path from 'path';
 import { Logger } from '../utils/Logger.js';
 import { BotClient } from '../core/BotClient.js';
 import { SessionService } from './services/SessionService.js';
-import { createStatusRoutes, createSessionRoutes, createSettingsRoutes, createStaffRoutes, createAuthRoutes, createTodoRoutes, createUserRoutes, createModRoutes, createFeedbackRoutes, createRolePresetRoutes, createRankRoutes, createWebRankRoutes, createPublicRankRoutes, createTriggerRoutes } from './routes/index.js';
+import { createStatusRoutes, createSessionRoutes, createSettingsRoutes, createStaffRoutes, createAuthRoutes, createTodoRoutes, createUserRoutes, createModRoutes, createFeedbackRoutes, createRolePresetRoutes, createRankRoutes, createWebRankRoutes, createPublicRankRoutes, createTriggerRoutes, createToolRoutes } from './routes/index.js';
 import { createGuildRoutes } from './routes/guild.js';
 import { setupWebSocketServer } from './routes/websocket.js';
 import { previewHandler } from './preview/PreviewController.js';
@@ -141,6 +141,7 @@ export class SettingsServer {
         this.app.use('/api', createGuildRoutes(sessions, this.botClient));
         this.app.use('/api', createFeedbackRoutes(sessions));
         this.app.use('/api', createTriggerRoutes(sessions, this.botClient));
+        this.app.use('/api/tools', createToolRoutes(sessions, this.botClient));
 
     // Temporary debug route to inspect StatsManager buffer
         this.app.get('/__debug/stats-buffer', (_req, res) => {

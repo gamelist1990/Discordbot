@@ -197,6 +197,17 @@ const AppHeader: React.FC<AppHeaderProps> = ({ user: userProp, onLogout }) => {
                                             <span>ランキング</span>
                                         </button>
 
+                                        <button 
+                                            className={styles.appItem}
+                                            onClick={() => {
+                                                setShowAppMenu(false);
+                                                navigate('/tools');
+                                            }}
+                                        >
+                                            <span className="material-icons">gamepad</span>
+                                            <span>Tools</span>
+                                        </button>
+
                                         {/* スタッフ権限以上の場合のみ表示 */}
                                         {user && user.permissionLevel && user.permissionLevel >= 1 && (
                                             <button 

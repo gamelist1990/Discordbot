@@ -1,0 +1,407 @@
+:root {
+  /* Google Material Design 3 Color Palette */
+  --md-sys-color-primary: #0b57d0;
+  --md-sys-color-on-primary: #ffffff;
+  --md-sys-color-primary-container: #dbe1ff;
+  --md-sys-color-on-primary-container: #00164f;
+  --md-sys-color-secondary: #565f71;
+  --md-sys-color-on-secondary: #ffffff;
+  --md-sys-color-secondary-container: #dae2f9;
+  --md-sys-color-on-secondary-container: #131c2b;
+  --md-sys-color-tertiary: #705575;
+  --md-sys-color-on-tertiary: #ffffff;
+  --md-sys-color-tertiary-container: #fbd7fc;
+  --md-sys-color-on-tertiary-container: #28132e;
+  --md-sys-color-error: #ba1a1a;
+  --md-sys-color-on-error: #ffffff;
+  --md-sys-color-error-container: #ffdad6;
+  --md-sys-color-on-error-container: #410002;
+  --md-sys-color-outline: #74777f;
+  --md-sys-color-background: #fdfbff;
+  --md-sys-color-on-background: #1a1c1e;
+  --md-sys-color-surface: #fdfbff;
+  --md-sys-color-on-surface: #1a1c1e;
+  --md-sys-color-surface-variant: #e7e0ec;
+  --md-sys-color-on-surface-variant: #49454f;
+  --md-sys-color-inverse-surface: #2f3033;
+  --md-sys-color-inverse-on-surface: #f1f0f4;
+  --md-sys-color-inverse-primary: #b4c5ff;
+
+  /* Typography */
+  --md-sys-typescale-display-large-font: 'Google Sans', 'Roboto', system-ui, -apple-system, sans-serif;
+  --md-sys-typescale-headline-large-font: 'Google Sans', 'Roboto', system-ui, -apple-system, sans-serif;
+  --md-sys-typescale-title-large-font: 'Google Sans', 'Roboto', system-ui, -apple-system, sans-serif;
+  --md-sys-typescale-body-large-font: 'Google Sans', 'Roboto', system-ui, -apple-system, sans-serif;
+
+  /* Spacing (Material Design 8px grid) */
+  --md-sys-spacing-0: 0px;
+  --md-sys-spacing-1: 4px;
+  --md-sys-spacing-2: 8px;
+  --md-sys-spacing-3: 12px;
+  --md-sys-spacing-4: 16px;
+  --md-sys-spacing-5: 20px;
+  --md-sys-spacing-6: 24px;
+  --md-sys-spacing-7: 28px;
+  --md-sys-spacing-8: 32px;
+  --md-sys-spacing-9: 36px;
+  --md-sys-spacing-10: 40px;
+  --md-sys-spacing-11: 44px;
+  --md-sys-spacing-12: 48px;
+  --md-sys-spacing-13: 52px;
+  --md-sys-spacing-14: 56px;
+  --md-sys-spacing-15: 60px;
+  --md-sys-spacing-16: 64px;
+
+  /* Elevation */
+  --md-sys-elevation-level-0: 0px 0px 0px 0px rgba(0, 0, 0, 0.00), 0px 0px 0px 0px rgba(0, 0, 0, 0.00), 0px 0px 0px 0px rgba(0, 0, 0, 0.00);
+  --md-sys-elevation-level-1: 0px 1px 2px 0px rgba(0, 0, 0, 0.05), 0px 1px 3px 1px rgba(0, 0, 0, 0.10), 0px 1px 3px 0px rgba(0, 0, 0, 0.10);
+  --md-sys-elevation-level-2: 0px 1px 2px 0px rgba(0, 0, 0, 0.08), 0px 2px 6px 2px rgba(0, 0, 0, 0.15), 0px 1px 4px 0px rgba(0, 0, 0, 0.15);
+  --md-sys-elevation-level-3: 0px 1px 3px 0px rgba(0, 0, 0, 0.08), 0px 4px 8px 3px rgba(0, 0, 0, 0.15), 0px 1px 5px 0px rgba(0, 0, 0, 0.15);
+  --md-sys-elevation-level-4: 0px 2px 3px 0px rgba(0, 0, 0, 0.08), 0px 5px 10px 4px rgba(0, 0, 0, 0.15), 0px 2px 6px 0px rgba(0, 0, 0, 0.15);
+  --md-sys-elevation-level-5: 0px 4px 4px 0px rgba(0, 0, 0, 0.08), 0px 3px 14px 3px rgba(0, 0, 0, 0.15), 0px 4px 8px 0px rgba(0, 0, 0, 0.15);
+
+  /* Border radius */
+  --md-sys-shape-corner-extra-small: 4px;
+  --md-sys-shape-corner-small: 8px;
+  --md-sys-shape-corner-medium: 12px;
+  --md-sys-shape-corner-large: 16px;
+  --md-sys-shape-corner-extra-large: 28px;
+
+  /* State layers */
+  --md-sys-state-hover-state-layer-opacity: 0.08;
+  --md-sys-state-focus-state-layer-opacity: 0.12;
+  --md-sys-state-pressed-state-layer-opacity: 0.12;
+  --md-sys-state-dragged-state-layer-opacity: 0.16;
+}
+
+.tools-hub {
+  min-height: 100vh;
+  background: var(--md-sys-color-background);
+  padding: var(--md-sys-spacing-8) var(--md-sys-spacing-6);
+}
+
+@media (min-width: 600px) {
+  .tools-hub {
+    padding: var(--md-sys-spacing-10) var(--md-sys-spacing-8);
+  }
+}
+
+@media (min-width: 1240px) {
+  .tools-hub {
+    padding: var(--md-sys-spacing-12) var(--md-sys-spacing-10);
+  }
+}
+
+.tools-hub-header {
+  text-align: center;
+  margin-bottom: var(--md-sys-spacing-10);
+  max-width: 800px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.tools-hub-header h1 {
+  font-family: var(--md-sys-typescale-display-large-font);
+  font-size: 2.125rem;
+  font-weight: 400;
+  line-height: 2.5rem;
+  letter-spacing: 0;
+  color: var(--md-sys-color-on-background);
+  margin: 0 0 var(--md-sys-spacing-3) 0;
+}
+
+@media (min-width: 600px) {
+  .tools-hub-header h1 {
+    font-size: 2.5rem;
+    line-height: 3rem;
+  }
+}
+
+.tools-hub-header p {
+  font-family: var(--md-sys-typescale-body-large-font);
+  font-size: 1rem;
+  font-weight: 400;
+  line-height: 1.5rem;
+  letter-spacing: 0.03125rem;
+  color: var(--md-sys-color-on-surface-variant);
+  margin: 0;
+  max-width: 600px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.tools-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: var(--md-sys-spacing-6);
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+@media (min-width: 600px) {
+  .tools-grid {
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: var(--md-sys-spacing-8);
+  }
+}
+
+@media (min-width: 1240px) {
+  .tools-grid {
+    grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+  }
+}
+
+.tool-card {
+  background: var(--md-sys-color-surface);
+  border: 1px solid var(--md-sys-color-outline);
+  border-radius: var(--md-sys-shape-corner-large);
+  padding: var(--md-sys-spacing-6);
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: var(--md-sys-elevation-level-1);
+  position: relative;
+  overflow: hidden;
+  text-decoration: none;
+  color: inherit;
+}
+
+.tool-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--md-sys-color-primary);
+  opacity: 0;
+  transition: opacity 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  pointer-events: none;
+}
+
+.tool-card:hover {
+  box-shadow: var(--md-sys-elevation-level-3);
+  transform: translateY(-2px);
+}
+
+.tool-card:hover::before {
+  opacity: var(--md-sys-state-hover-state-layer-opacity);
+}
+
+.tool-card:focus-visible {
+  outline: 2px solid var(--md-sys-color-primary);
+  outline-offset: 2px;
+  box-shadow: var(--md-sys-elevation-level-2);
+}
+
+.tool-card:focus-visible::before {
+  opacity: var(--md-sys-state-focus-state-layer-opacity);
+}
+
+.tool-card:active {
+  box-shadow: var(--md-sys-elevation-level-2);
+  transform: translateY(0);
+}
+
+.tool-card:active::before {
+  opacity: var(--md-sys-state-pressed-state-layer-opacity);
+}
+
+.tool-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: var(--md-sys-shape-corner-medium);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--md-sys-color-primary-container);
+  color: var(--md-sys-color-on-primary-container);
+  font-size: 24px;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 1;
+}
+
+.tool-card:hover .tool-icon {
+  background: var(--md-sys-color-primary);
+  color: var(--md-sys-color-on-primary);
+}
+
+.tool-body {
+  flex: 1;
+  position: relative;
+  z-index: 1;
+}
+
+.tool-body h3 {
+  font-family: var(--md-sys-typescale-title-large-font);
+  font-size: 1.125rem;
+  font-weight: 500;
+  line-height: 1.5rem;
+  letter-spacing: 0.009375rem;
+  color: var(--md-sys-color-on-surface);
+  margin: 0 0 var(--md-sys-spacing-2) 0;
+}
+
+.tool-body p {
+  font-family: var(--md-sys-typescale-body-large-font);
+  font-size: 0.875rem;
+  font-weight: 400;
+  line-height: 1.25rem;
+  letter-spacing: 0.025rem;
+  color: var(--md-sys-color-on-surface-variant);
+  margin: 0;
+}
+
+.tool-cta {
+  display: flex;
+  align-items: center;
+  gap: var(--md-sys-spacing-1);
+  font-family: var(--md-sys-typescale-body-large-font);
+  font-size: 0.875rem;
+  font-weight: 500;
+  line-height: 1.25rem;
+  letter-spacing: 0.025rem;
+  color: var(--md-sys-color-primary);
+  position: relative;
+  z-index: 1;
+  transition: color 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.tool-card:hover .tool-cta {
+  color: var(--md-sys-color-on-primary);
+}
+
+.tool-cta::after {
+  content: 'arrow_forward';
+  font-family: 'Material Icons';
+  font-size: 1rem;
+  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.tool-card:hover .tool-cta::after {
+  transform: translateX(2px);
+}
+
+/* Responsive Design */
+@media (max-width: 599px) {
+  .tools-hub {
+    padding: var(--md-sys-spacing-4) var(--md-sys-spacing-4);
+  }
+
+  .tools-hub-header {
+    margin-bottom: var(--md-sys-spacing-8);
+  }
+
+  .tools-hub-header h1 {
+    font-size: 1.875rem;
+    line-height: 2.25rem;
+  }
+
+  .tools-hub-header p {
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+  }
+
+  .tools-grid {
+    grid-template-columns: 1fr;
+    gap: var(--md-sys-spacing-4);
+  }
+
+  .tool-card {
+    padding: var(--md-sys-spacing-5);
+    flex-direction: column;
+    text-align: center;
+    gap: var(--md-sys-spacing-4);
+  }
+
+  .tool-icon {
+    width: 48px;
+    height: 48px;
+    font-size: 20px;
+  }
+
+  .tool-body h3 {
+    font-size: 1rem;
+    line-height: 1.5rem;
+  }
+
+  .tool-body p {
+    font-size: 0.8125rem;
+    line-height: 1.25rem;
+  }
+
+  .tool-cta {
+    justify-content: center;
+    font-size: 0.8125rem;
+  }
+}
+
+/* Accessibility */
+@media (prefers-reduced-motion: reduce) {
+  .tool-card,
+  .tool-card::before,
+  .tool-cta::after,
+  .tool-card:hover .tool-cta {
+    transition: none;
+  }
+
+  .tool-card:hover {
+    transform: none;
+  }
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  .tool-card {
+    border-width: 2px;
+  }
+
+  .tool-card:focus-visible {
+    outline-width: 3px;
+  }
+}
+
+/* Disabled/Coming Soon State */
+.tool-card.disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.tool-card.disabled .tool-icon {
+  background: var(--md-sys-color-on-surface);
+  opacity: 0.38;
+  color: var(--md-sys-color-surface);
+}
+
+.tool-card.disabled .tool-body h3,
+.tool-card.disabled .tool-body p {
+  color: var(--md-sys-color-on-surface);
+  opacity: 0.38;
+}
+
+.tool-card.disabled .tool-cta {
+  color: var(--md-sys-color-on-surface);
+  opacity: 0.38;
+}
+
+.tool-card.disabled:hover {
+  box-shadow: var(--md-sys-elevation-level-1);
+  transform: none;
+}
+
+.tool-card.disabled:hover::before {
+  opacity: 0;
+}
+
+/* Loading state */
+.tools-hub-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 50vh;
+  font-family: var(--md-sys-typescale-body-large-font);
+  font-size: 1rem;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
