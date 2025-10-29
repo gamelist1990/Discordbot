@@ -1,0 +1,455 @@
+/**
+ * controls.css - UI controls styling
+ * - Buttons
+ * - Sliders
+ * - Inputs
+ * - Tabs
+ * - Form controls
+ */
+
+/* ============================================
+   Tabs Navigation
+   ============================================ */
+.tabs {
+  display: flex;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+  /* Allow horizontal scroll when tabs overflow */
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border) transparent;
+}
+
+.tabs::-webkit-scrollbar {
+  height: 4px;
+}
+
+.tabs::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.tabs::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: var(--radius-full);
+}
+
+/* Each tab keeps its intrinsic size */
+.tab {
+  flex: 0 0 auto;
+  padding: var(--space-2) 10px;
+  border-radius: var(--radius-md);
+  background: #f6f9ff;
+  border: 1px solid transparent;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: var(--font-size-sm);
+  color: var(--color-primary);
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+}
+
+.tab:hover {
+  background: #eef3ff;
+}
+
+.tab.active {
+  background: linear-gradient(180deg, var(--color-primary), var(--color-primary-variant));
+  color: #fff;
+  box-shadow: 0 4px 12px rgba(26, 115, 232, 0.2);
+}
+
+.tab:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+/* Dark mode tabs */
+@media (prefers-color-scheme: dark) {
+  .tab {
+    background: rgba(59, 130, 246, 0.1);
+  }
+  
+  .tab:hover {
+    background: rgba(59, 130, 246, 0.15);
+  }
+}
+
+/* ============================================
+   Tab Panel Content
+   ============================================ */
+.tab-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.tab-panel > * + * {
+  margin-top: 0;
+}
+
+/* ============================================
+   Buttons
+   ============================================ */
+.btn {
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  font-weight: 500;
+  font-size: var(--font-size-sm);
+  border: none;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  white-space: nowrap;
+}
+
+.btn:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+.btn:active {
+  transform: translateY(0);
+}
+
+.btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none !important;
+}
+
+.btn:disabled:hover {
+  box-shadow: none;
+}
+
+/* Button variants */
+.btn-primary {
+  background: var(--color-primary);
+  color: #fff;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--color-primary-variant);
+}
+
+.btn-secondary {
+  background: #fff;
+  border: 1px solid var(--color-border);
+  color: var(--color-primary);
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: #f8f9fa;
+  border-color: var(--color-border-strong);
+}
+
+.btn-danger {
+  background: #fff5f5;
+  border: 1px solid rgba(255, 82, 82, 0.12);
+  color: var(--color-error);
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: #ffebee;
+  border-color: rgba(255, 82, 82, 0.2);
+}
+
+/* Button sizes */
+.btn-small {
+  padding: 6px 10px;
+  font-size: var(--font-size-xs);
+}
+
+.btn-large {
+  padding: 12px 18px;
+  font-size: var(--font-size-base);
+}
+
+/* Full width button utility */
+.w-full {
+  display: block;
+  width: 100%;
+}
+
+/* ============================================
+   Sliders
+   ============================================ */
+.slider-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  position: relative;
+}
+
+.slider-group label {
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 500;
+}
+
+.slider-group input[type="range"] {
+  width: 100%;
+  height: 6px;
+  border-radius: var(--radius-full);
+  background: var(--color-border);
+  outline: none;
+  -webkit-appearance: none;
+  appearance: none;
+  cursor: pointer;
+}
+
+.slider-group input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--color-primary);
+  cursor: pointer;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  transition: transform var(--transition-fast);
+}
+
+.slider-group input[type="range"]::-webkit-slider-thumb:hover {
+  transform: scale(1.1);
+}
+
+.slider-group input[type="range"]::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--color-primary);
+  cursor: pointer;
+  border: none;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  transition: transform var(--transition-fast);
+}
+
+.slider-group input[type="range"]::-moz-range-thumb:hover {
+  transform: scale(1.1);
+}
+
+/* Number input for slider values */
+.slider-group input[type="number"] {
+  width: 60px;
+  margin-left: var(--space-2);
+  padding: 2px 4px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  text-align: center;
+  background: var(--color-surface);
+  color: var(--color-text);
+  transition: border-color var(--transition-fast);
+}
+
+.slider-group input[type="number"]:focus {
+  border-color: var(--color-primary);
+  background: #fff;
+}
+
+/* ============================================
+   Radio Buttons
+   ============================================ */
+.radio-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: var(--space-3);
+}
+
+.radio-group label {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  padding: var(--space-1);
+  border-radius: var(--radius-sm);
+  transition: background-color var(--transition-fast);
+}
+
+.radio-group label:hover {
+  background: rgba(0, 0, 0, 0.02);
+}
+
+.radio-group input[type="radio"] {
+  margin: 0;
+  width: 16px;
+  height: 16px;
+  accent-color: var(--color-primary);
+  cursor: pointer;
+}
+
+/* ============================================
+   Checkboxes
+   ============================================ */
+.part-toggle-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 6px 10px;
+  border-radius: var(--radius-md);
+  background: rgba(15, 23, 42, 0.02);
+  border: 1px solid rgba(15, 23, 42, 0.03);
+  cursor: pointer;
+  user-select: none;
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+  transition: all var(--transition-fast);
+}
+
+.part-toggle-label:hover {
+  background: rgba(15, 23, 42, 0.04);
+  border-color: rgba(15, 23, 42, 0.06);
+}
+
+.part-toggle-checkbox {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--color-primary);
+  cursor: pointer;
+}
+
+.part-toggle-name {
+  text-transform: capitalize;
+  font-weight: 500;
+}
+
+.part-toggle-checkbox:checked + .part-toggle-name {
+  font-weight: 700;
+  color: var(--color-primary);
+}
+
+/* ============================================
+   Select Dropdown
+   ============================================ */
+select {
+  width: 100%;
+  padding: var(--space-2) 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  transition: border-color var(--transition-fast);
+}
+
+select:hover {
+  border-color: var(--color-border-strong);
+}
+
+select:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px rgba(26, 115, 232, 0.1);
+}
+
+/* ============================================
+   Text Input
+   ============================================ */
+input[type="text"],
+input[type="email"],
+input[type="password"],
+textarea {
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+  font-family: inherit;
+  transition: border-color var(--transition-fast);
+}
+
+input[type="text"]:hover,
+input[type="email"]:hover,
+input[type="password"]:hover,
+textarea:hover {
+  border-color: var(--color-border-strong);
+}
+
+input[type="text"]:focus,
+input[type="email"]:focus,
+input[type="password"]:focus,
+textarea:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px rgba(26, 115, 232, 0.1);
+}
+
+input:invalid {
+  border-color: var(--color-error);
+}
+
+/* ============================================
+   Responsive Controls
+   ============================================ */
+@media (max-width: 768px) {
+  .tabs {
+    /* Mobile: tabs at bottom with fixed nav */
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    width: 100vw;
+    background: var(--color-surface);
+    box-shadow: 0 -2px 12px rgba(16, 24, 40, 0.08);
+    z-index: 100;
+    flex-direction: row !important;
+    gap: 0 !important;
+    border-radius: 0;
+    padding: 0;
+    margin-bottom: 0;
+  }
+  
+  .tab {
+    flex: 1;
+    border-radius: 0;
+    min-height: 48px;
+    font-size: 15px;
+    border: none;
+    border-right: 1px solid var(--color-border);
+    margin: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  
+  .tab:last-child {
+    border-right: none;
+  }
+  
+  .btn {
+    min-height: 44px;
+  }
+  
+  .slider-group {
+    gap: 6px;
+  }
+}
+
+@media (max-width: 480px) {
+  .part-toggle-label {
+    padding: 6px 8px;
+    font-size: 12px;
+  }
+  
+  .part-toggle-checkbox {
+    width: 14px;
+    height: 14px;
+  }
+  
+  .slider-group input[type="number"] {
+    width: 50px;
+    margin-left: 4px;
+  }
+}

@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createSkin3dViewer } from './skin3dWrapper.js';
-import './MinecraftViewer.css';
+import './styles/index.css';
 
 const PRESETS_STORAGE_KEY = 'minecraft-viewer-presets';
 
