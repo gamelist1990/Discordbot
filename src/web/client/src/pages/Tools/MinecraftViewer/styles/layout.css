@@ -1,0 +1,180 @@
+/**
+ * layout.css - Page structure and responsive grid
+ * - Main container layout
+ * - Grid system
+ * - Responsive breakpoints
+ */
+
+/* ============================================
+   Main Container
+   ============================================ */
+.minecraft-viewer {
+  padding: var(--space-6);
+  background: var(--color-bg);
+  min-height: calc(100vh - 72px);
+}
+
+/* ============================================
+   Header Section
+   ============================================ */
+.viewer-header {
+  text-align: left;
+  margin-bottom: var(--space-4);
+  max-width: 1200px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.viewer-header h1 {
+  margin: 0;
+  font-size: var(--font-size-xl);
+}
+
+.viewer-header p {
+  margin: 6px 0 0 0;
+  color: var(--color-muted);
+  font-size: var(--font-size-sm);
+}
+
+/* ============================================
+   Main Layout Grid
+   ============================================ */
+.viewer-container {
+  display: grid;
+  grid-template-columns: 1fr 380px;
+  gap: var(--space-4);
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+/* ============================================
+   Canvas Area (3D Viewer)
+   ============================================ */
+.canvas-area {
+  width: 100%;
+  height: 600px;
+  background: var(--color-surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  /* Prevent touch gestures from interfering with 3D controls */
+  touch-action: none;
+}
+
+.canvas-area canvas,
+.canvas-area > div {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.viewer-canvas {
+  width: 100%;
+  height: 100%;
+  min-height: 320px;
+}
+
+/* ============================================
+   Control Section (Sidebar)
+   ============================================ */
+.control-section {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-3);
+  box-shadow: var(--shadow-md);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+/* ============================================
+   Responsive Breakpoints
+   ============================================ */
+
+/* Tablet and below: Stack vertically */
+@media (max-width: 1200px) {
+  .viewer-container {
+    grid-template-columns: 1fr;
+  }
+  
+  .control-section {
+    /* On tablet, allow control section to be scrollable if content is tall */
+    max-height: none;
+  }
+}
+
+/* Mobile: Reduce padding and adjust heights */
+@media (max-width: 768px) {
+  .minecraft-viewer {
+    padding: var(--space-4);
+  }
+  
+  .viewer-container {
+    gap: var(--space-3);
+  }
+  
+  .canvas-area {
+    height: 400px;
+  }
+  
+  .control-section {
+    padding: var(--space-3);
+    /* Allow scrolling on mobile to keep controls accessible */
+    max-height: 36vh;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  
+  .viewer-header h1 {
+    font-size: var(--font-size-lg);
+  }
+  
+  .viewer-header p {
+    font-size: 12px;
+  }
+}
+
+/* Small mobile: Further optimizations */
+@media (max-width: 480px) {
+  .minecraft-viewer {
+    padding: var(--space-3);
+  }
+  
+  .canvas-area {
+    height: 300px;
+  }
+  
+  .control-section {
+    padding: 10px;
+  }
+  
+  .viewer-header h1 {
+    font-size: var(--font-size-md);
+  }
+}
+
+/* ============================================
+   Print Styles
+   ============================================ */
+@media print {
+  .minecraft-viewer {
+    background: white !important;
+    color: black !important;
+  }
+  
+  .control-section,
+  .tabs,
+  .btn {
+    display: none !important;
+  }
+  
+  .canvas-area {
+    box-shadow: none !important;
+    border: 1px solid #ccc !important;
+  }
+}

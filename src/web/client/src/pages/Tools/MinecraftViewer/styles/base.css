@@ -1,0 +1,184 @@
+/**
+ * base.css - Foundation styles
+ * - CSS custom properties (color tokens)
+ * - Typography
+ * - Reset/normalize
+ */
+
+/* ============================================
+   Color Tokens & Theme Variables
+   ============================================ */
+:root {
+  /* Primary colors - Minecraft-inspired but modern */
+  --color-primary: #1a73e8;
+  --color-primary-variant: #185abc;
+  --color-primary-light: #4a90e2;
+  
+  /* Surface colors */
+  --color-bg: #f5f7fb;
+  --color-surface: #ffffff;
+  --color-surface-elevated: #fafbfc;
+  
+  /* Text colors */
+  --color-text: #0f172a;
+  --color-text-secondary: #475569;
+  --color-muted: #6b7280;
+  
+  /* Border colors */
+  --color-border: rgba(16, 24, 40, 0.06);
+  --color-border-strong: rgba(16, 24, 40, 0.12);
+  
+  /* Feedback colors */
+  --color-success: #2e7d32;
+  --color-warning: #f57c00;
+  --color-error: #d32f2f;
+  --color-info: #1976d2;
+  
+  /* Minecraft accent colors (optional) */
+  --color-minecraft-green: #7cc576;
+  --color-minecraft-brown: #8b6914;
+  
+  /* Shadows */
+  --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.04);
+  --shadow-md: 0 4px 12px rgba(16, 24, 40, 0.08);
+  --shadow-lg: 0 6px 18px rgba(16, 24, 40, 0.12);
+  --shadow-xl: 0 12px 24px rgba(16, 24, 40, 0.16);
+  
+  /* Border radius */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-full: 9999px;
+  
+  /* Spacing scale */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  
+  /* Typography */
+  --font-family: 'Roboto', system-ui, -apple-system, 'Segoe UI', 'Noto Sans JP', sans-serif;
+  --font-size-xs: 11px;
+  --font-size-sm: 13px;
+  --font-size-base: 14px;
+  --font-size-md: 16px;
+  --font-size-lg: 18px;
+  --font-size-xl: 22px;
+  
+  /* Transitions */
+  --transition-fast: 0.15s ease;
+  --transition-base: 0.2s ease;
+  --transition-slow: 0.3s ease;
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-bg: #0f172a;
+    --color-surface: #1e293b;
+    --color-surface-elevated: #334155;
+    --color-text: #f1f5f9;
+    --color-text-secondary: #cbd5e1;
+    --color-muted: #94a3b8;
+    --color-border: rgba(148, 163, 184, 0.1);
+    --color-border-strong: rgba(148, 163, 184, 0.2);
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.2);
+    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.3);
+    --shadow-lg: 0 6px 18px rgba(0, 0, 0, 0.4);
+    --shadow-xl: 0 12px 24px rgba(0, 0, 0, 0.5);
+  }
+}
+
+/* ============================================
+   Reset & Base Styles
+   ============================================ */
+.minecraft-viewer * {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+.minecraft-viewer {
+  font-family: var(--font-family);
+  font-size: var(--font-size-base);
+  line-height: 1.5;
+  color: var(--color-text);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ============================================
+   Typography
+   ============================================ */
+.minecraft-viewer h1,
+.minecraft-viewer h2,
+.minecraft-viewer h3,
+.minecraft-viewer h4 {
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--color-text);
+}
+
+.minecraft-viewer h1 {
+  font-size: var(--font-size-xl);
+}
+
+.minecraft-viewer h2 {
+  font-size: var(--font-size-lg);
+}
+
+.minecraft-viewer h3 {
+  font-size: var(--font-size-md);
+}
+
+.minecraft-viewer h4 {
+  font-size: var(--font-size-base);
+}
+
+.minecraft-viewer p {
+  margin: 0;
+  line-height: 1.6;
+}
+
+.minecraft-viewer strong {
+  font-weight: 600;
+}
+
+.minecraft-viewer small {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+/* ============================================
+   Links
+   ============================================ */
+.minecraft-viewer a {
+  color: var(--color-primary);
+  text-decoration: none;
+  transition: color var(--transition-fast);
+}
+
+.minecraft-viewer a:hover {
+  color: var(--color-primary-variant);
+  text-decoration: underline;
+}
+
+/* ============================================
+   Focus States (Accessibility)
+   ============================================ */
+.minecraft-viewer *:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+/* ============================================
+   Selection
+   ============================================ */
+.minecraft-viewer ::selection {
+  background-color: var(--color-primary-light);
+  color: white;
+}
