@@ -535,6 +535,7 @@ const MinecraftViewerEnhanced = () => {
 
   // Background presets
   const backgroundPresets = {
+    transparent: { name: '透過', color: 'transparent' as const },
     white: { name: '白', color: 0xffffff },
     black: { name: '黒', color: 0x000000 },
     gray: { name: 'グレー', color: 0x808080 },
