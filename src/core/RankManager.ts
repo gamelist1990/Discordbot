@@ -455,8 +455,11 @@ export class RankManager {
                             .setTimestamp();
 
                         // content にメンションを付けるかどうかを判断する。
-                        // 埋め込み内のメンションは通知されないため、ユーザーが明示的にメンションを望む場合は content に入れる。
-                        const wantsMention = !reward.customMessage || /<@|\{mention\}|\{userId\}/.test(reward.customMessage);
+                        // 注意: 埋め込み内に {mention} 等のプレースホルダーを入れている場合、
+                        // content 側に再度メンションを入れると二重メンションになるため、
+                        // カスタムメッセージが指定されている場合は content 側でのメンションを行わないようにする。
+                        // （デフォルトメッセージの場合のみ content にメンションを含める）
+                        const wantsMention = !reward.customMessage;
                         const content = wantsMention ? (member ? member.toString() : `<@${userId}>`) : undefined;
 
                         await channel.send({ content, embeds: [embed], allowedMentions: { users: content ? [userId] : [] } });

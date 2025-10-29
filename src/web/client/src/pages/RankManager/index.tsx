@@ -1342,7 +1342,7 @@ const RankManagerPage: React.FC = () => {
                               placeholder="例: おめでとうございます！{rank}に到達しました！"
                               rows={2}
                             />
-                            <span className={styles.helpText}>変数: {`{rank}`} = ランク名, {`{user}`} = ユーザー名</span>
+                            <span className={styles.helpText}>変数: {`{rank}`} = ランク名, {`{user}`} = ユーザー名, {`{mention}`} = メンション, {`{oldRank}`} = 前のランク, {`{newRank}`} = 新しいランク, {`{userId}`} = ユーザーID, {`{date}`} = 日付, {`{time}`} = 時刻, {`{timestamp}`} = ISO日時, {`{emoji}`} = 絵文字</span>
                           </div>
                           <div className={styles.formGroup}>
                             <label>Webhook URL</label>
