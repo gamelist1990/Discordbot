@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createSkin3dViewer } from './skin3dWrapper.js';
-import './MinecraftViewer.css';
+import './styles/index.css';
 
 const PRESETS_STORAGE_KEY = 'minecraft-viewer-presets';
 
@@ -535,6 +535,7 @@ const MinecraftViewerEnhanced = () => {
 
   // Background presets
   const backgroundPresets = {
+    transparent: { name: '透過', color: 'transparent' as const },
     white: { name: '白', color: 0xffffff },
     black: { name: '黒', color: 0x000000 },
     gray: { name: 'グレー', color: 0x808080 },

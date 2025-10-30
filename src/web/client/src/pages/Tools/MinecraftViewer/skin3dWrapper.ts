@@ -22,7 +22,9 @@ export type SkinViewerHandle = {
   // Pose mode: disable model rotation/zoom, enable part picking
   setPoseMode?: (enabled: boolean) => void;
   // Background settings
-  setBackgroundColor?: (color: number) => void;
+  // color may be a numeric RGB (0xRRGGBB), or the string 'transparent' / null to request
+  // a clear/transparent background when supported by the renderer.
+  setBackgroundColor?: (color: number | 'transparent' | null) => void;
   loadBackground?: (url: string) => Promise<void>;
   loadPanorama?: (url: string) => Promise<void>;
   // Screenshot functionality
@@ -253,8 +255,9 @@ export async function createSkin3dViewer(container: HTMLElement, opts?: { skin?:
         // common three.js/WebGL option
         preserveDrawingBuffer: true,
         // some wrappers accept nested attributes
-        contextAttributes: { preserveDrawingBuffer: true },
-        rendererOptions: { preserveDrawingBuffer: true }
+        // ask for alpha in the GL context and renderer so transparent clear is possible
+        contextAttributes: { preserveDrawingBuffer: true, alpha: true },
+        rendererOptions: { preserveDrawingBuffer: true, alpha: true }
       };
       viewer = new View(viewOptions as any);
       setStatus('viewer 初期化 OK', 'info');
@@ -578,9 +581,37 @@ export async function createSkin3dViewer(container: HTMLElement, opts?: { skin?:
   }
 
   // Background settings
-  function setBackgroundColor(color: number) {
+  function setBackgroundColor(color: number | 'transparent' | null) {
     try {
-      if (viewer) viewer.background = color;
+      if (!viewer) return;
+      const anyViewer: any = viewer;
+
+      // Attempt to locate the renderer object (various wrappers use different properties)
+      const renderer = anyViewer.renderer || anyViewer._renderer || (anyViewer.view && anyViewer.view.renderer) || null;
+
+      // Transparent request: set clear color alpha to 0 when possible
+      if (color === 'transparent' || color === null) {
+        try {
+          if (renderer && typeof renderer.setClearColor === 'function') {
+            // Use black with 0 alpha as neutral transparent clear color
+            renderer.setClearColor(0x000000, 0);
+            // ensure DOM canvas has transparent background
+            if (renderer.domElement && renderer.domElement.style) renderer.domElement.style.background = 'transparent';
+          }
+        } catch (e) { /* non-fatal */ }
+        try { anyViewer.background = null; } catch (e) { /* ignore */ }
+        return;
+      }
+
+      // Numeric color path: restore opaque clear color and set viewer.background when possible
+      try {
+        if (renderer && typeof renderer.setClearColor === 'function') {
+          // ensure alpha = 1 for opaque backgrounds
+          renderer.setClearColor(color as number, 1);
+          if (renderer.domElement && renderer.domElement.style) renderer.domElement.style.background = '';
+        }
+      } catch (e) { /* ignore */ }
+      try { anyViewer.background = color as number; } catch (e) { /* ignore */ }
     } catch (e) {
       console.debug('setBackgroundColor failed', e);
     }

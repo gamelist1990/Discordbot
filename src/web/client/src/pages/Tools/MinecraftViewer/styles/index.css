@@ -1,0 +1,21 @@
+/**
+ * index.css - Main CSS entry point for MinecraftViewer
+ * 
+ * This file imports all modular CSS components in the correct order:
+ * 1. base.css - Foundation (tokens, typography, reset)
+ * 2. layout.css - Page structure and grid
+ * 3. viewer.css - 3D viewer specific styles
+ * 4. controls.css - UI controls (buttons, sliders, tabs)
+ * 5. thumbnails.css - Frame list and thumbnails
+ * 6. utilities.css - Utility classes
+ * 
+ * Usage: Import this file in MinecraftViewer.tsx:
+ *   import './styles/index.css';
+ */
+
+@import './base.css';
+@import './layout.css';
+@import './viewer.css';
+@import './controls.css';
+@import './thumbnails.css';
+@import './utilities.css';

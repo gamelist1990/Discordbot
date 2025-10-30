@@ -1,0 +1,346 @@
+/**
+ * thumbnails.css - Frame list and thumbnail grid styling
+ * - Frame list items
+ * - Thumbnail grids
+ * - Frame modal/fullscreen view
+ */
+
+/* ============================================
+   Frame List Container
+   ============================================ */
+.frame-list {
+  display: block;
+  max-height: none;
+}
+
+.frame-list.clamped {
+  /* Clamp height and allow scrolling when many frames */
+  max-height: 220px;
+  overflow-y: auto;
+  padding-right: var(--space-2);
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border) transparent;
+}
+
+.frame-list.clamped::-webkit-scrollbar {
+  width: 6px;
+}
+
+.frame-list.clamped::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.frame-list.clamped::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: var(--radius-full);
+}
+
+/* ============================================
+   Frame List Item
+   ============================================ */
+.frame-list-item {
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-surface);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-2);
+  box-shadow: var(--shadow-sm);
+  transition: all var(--transition-fast);
+}
+
+.frame-list-item:hover {
+  box-shadow: var(--shadow-md);
+  border-color: var(--color-border-strong);
+}
+
+.frame-list-item:last-child {
+  margin-bottom: 0;
+}
+
+/* ============================================
+   Frame Thumbnail
+   ============================================ */
+.frame-thumb {
+  width: 64px;
+  height: 64px;
+  background: #eee;
+  border-radius: 6px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border: 1px solid var(--color-border);
+}
+
+.frame-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* Dark mode adjustments */
+@media (prefers-color-scheme: dark) {
+  .frame-thumb {
+    background: #2a2a2a;
+  }
+}
+
+/* ============================================
+   Frame Metadata
+   ============================================ */
+.frame-meta {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.frame-meta-title {
+  font-size: var(--font-size-base);
+  color: var(--color-text);
+  font-weight: 600;
+  margin-bottom: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.frame-meta-date {
+  font-size: var(--font-size-xs);
+  color: var(--color-muted);
+  margin-top: 2px;
+}
+
+/* ============================================
+   Frame Actions
+   ============================================ */
+.frame-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.frame-actions .btn {
+  min-width: 36px;
+  min-height: 36px;
+  padding: 0;
+  font-size: 16px;
+}
+
+/* ============================================
+   Fullscreen Modal for Frames
+   ============================================ */
+.frame-modal {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15, 23, 42, 0.6);
+  z-index: 1200;
+  backdrop-filter: blur(2px);
+  animation: modalFadeIn 0.2s ease;
+}
+
+@keyframes modalFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.frame-modal-content {
+  width: min(1100px, 96vw);
+  max-height: 90vh;
+  overflow: auto;
+  background: var(--color-surface);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
+  box-shadow: var(--shadow-xl);
+  animation: modalSlideUp 0.3s ease;
+}
+
+@keyframes modalSlideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.frame-modal-content h3 {
+  margin: 0 0 var(--space-3) 0;
+  font-size: var(--font-size-lg);
+  color: var(--color-text);
+}
+
+/* ============================================
+   Frame Grid (for modal view)
+   ============================================ */
+.frame-modal-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--space-3);
+}
+
+/* In grid view, make thumbnails larger */
+.frame-modal-grid .frame-list-item {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.frame-modal-grid .frame-thumb {
+  width: 100%;
+  height: 160px;
+}
+
+.frame-modal-grid .frame-meta {
+  flex: none;
+  width: 100%;
+}
+
+.frame-modal-grid .frame-actions {
+  flex-direction: row;
+  width: 100%;
+  gap: var(--space-2);
+}
+
+.frame-modal-grid .frame-actions .btn {
+  flex: 1;
+  min-height: 32px;
+}
+
+/* ============================================
+   Preset Items (similar styling to frames)
+   ============================================ */
+.preset-item {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 10px;
+  margin-bottom: var(--space-2);
+  transition: all var(--transition-fast);
+}
+
+.preset-item:hover {
+  border-color: var(--color-border-strong);
+  box-shadow: var(--shadow-md);
+}
+
+.preset-item.active {
+  border-color: rgba(26, 115, 232, 0.14);
+  box-shadow: 0 4px 12px rgba(26, 115, 232, 0.12);
+}
+
+/* ============================================
+   Preset Header
+   ============================================ */
+.preset-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-3);
+}
+
+.preset-header h3 {
+  margin: 0;
+  color: var(--color-text);
+  font-size: var(--font-size-md);
+}
+
+.preset-count {
+  background: #eef6ff;
+  color: var(--color-primary);
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* Dark mode preset count */
+@media (prefers-color-scheme: dark) {
+  .preset-count {
+    background: rgba(59, 130, 246, 0.2);
+    color: #93c5fd;
+  }
+}
+
+/* ============================================
+   Preset Hint Box
+   ============================================ */
+.preset-hint {
+  background: #f6f9ff;
+  border: 1px solid rgba(26, 115, 232, 0.06);
+  padding: 10px;
+  border-radius: 6px;
+  color: var(--color-muted);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+}
+
+/* Dark mode preset hint */
+@media (prefers-color-scheme: dark) {
+  .preset-hint {
+    background: rgba(59, 130, 246, 0.05);
+    border-color: rgba(59, 130, 246, 0.1);
+  }
+}
+
+/* ============================================
+   Responsive Adjustments
+   ============================================ */
+@media (max-width: 768px) {
+  .frame-list-item {
+    padding: var(--space-2);
+    gap: var(--space-2);
+  }
+  
+  .frame-thumb {
+    width: 48px;
+    height: 48px;
+  }
+  
+  .frame-actions .btn {
+    min-width: 32px;
+    min-height: 32px;
+    font-size: 15px;
+  }
+  
+  .frame-modal-content {
+    padding: var(--space-3);
+  }
+  
+  .frame-modal-grid {
+    grid-template-columns: 1fr;
+    gap: var(--space-2);
+  }
+}
+
+@media (max-width: 480px) {
+  .frame-list-item {
+    padding: var(--space-2);
+  }
+  
+  .frame-thumb {
+    width: 40px;
+    height: 40px;
+  }
+  
+  .frame-meta-title {
+    font-size: var(--font-size-sm);
+  }
+  
+  .frame-modal-grid .frame-thumb {
+    height: 120px;
+  }
+}
