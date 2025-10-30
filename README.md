@@ -1,3 +1,176 @@
+# Discordbot — モジュール構造版 (更新済)
+
+モジュール化された TypeScript 製の Discord Bot（Bun / Node 互換）です。
+主要機能: スラッシュコマンド、自動コマンド登録、JSON ベースの簡易 DB、Express を使った Web ダッシュボード、Playwright による UI レイアウト検査。
+
+## 主な特徴
+
+- ランタイム: Bun を想定（npm / npx と併用可能）
+- TypeScript + ESM（実行時インポートは `.js` 拡張子で書く慣習）
+- コマンドは `src/commands/` に配置し、`src/core/CommandLoader.ts` が再帰的に読み込みます
+- 永続化は `Data/` 配下の JSON ファイル（`src/core/Database.ts` を通して操作）
+- Web 管理画面: `src/web/SettingsServer.ts`
+- Web 単体デバッグ: `src/web/webDebug.ts`（Discord 接続不要で UI テストが可能）
+
+## 目次
+
+1. クイックスタート
+2. 必要な設定（config.json）
+3. スクリプトと開発コマンド
+4. webDebug と Playwright テスト
+5. コマンド追加方法
+6. 永続化と Data フォルダ
+7. 開発時の注意点（Bun / .js import 等）
+8. 貢献ガイドと PR チェックリスト
+
+---
+
+## 1. クイックスタート
+
+前提: `config.json` をルートに作成し、Discord Bot トークンを設定します（例は次節）。
+
+PowerShell の例（依存関係のインストール → フロントエンドビルド → Bot 起動）:
+
+```powershell
+# 依存関係
+bun install
+# または npm を使う場合
+# npm install
+
+# フロントエンドをビルド
+cd src/web/client
+npx vite build
+cd ../../
+
+# Bot を開発モードで起動
+bun run src/index.ts
+```
+
+補足: `package.json` のスクリプトを使うと便利です（例: `npm run dev`, `npm run webDebug`）。
+
+---
+
+## 2. 必要な設定（`config.json` の例）
+
+ルートに `config.json` を作成してください。必須は `token`（Bot トークン）のみです。例:
+
+```json
+{
+  "token": "YOUR_DISCORD_BOT_TOKEN",
+  "BASE_URL": "http://localhost:3000",
+  "owner": ["123456789012345678"]
+}
+```
+
+注意: 実動環境にトークンをコミットしないでください。`.gitignore` で `config.json` と `Data/` は除外されています。
+
+---
+
+## 3. 主要スクリプト
+
+主要な npm スクリプト（`package.json` を参照）:
+
+- `npm run dev` — フロントエンドのビルドと Bot の監視起動（開発用）
+- `npm run start` — フロントエンドをビルドして Bot を起動
+- `npm run web` — フロントエンドのビルド（`src/web/client`）
+- `npm run webDebug` — webDebug を起動（フロントエンドをビルドしてから `src/web/webDebug.ts` を実行）
+- `npm run test:playwright` — Playwright による UI テストを実行
+
+Bun を使ったネイティブバイナリのビルドも `package.json` に用意されています（`npm run auto` / `npm run windows-64` 等）。
+
+---
+
+## 4. webDebug と Playwright テスト
+
+`webDebug` は Discord OAuth を必要としない軽量モードです。CI やローカルでフロントエンドのレイアウト検査を行う際に便利です。
+
+PowerShell での起動例（テスト用セッションの自動生成を許可）:
+
+```powershell
+$env:WEB_DEBUG_BYPASS_AUTH = '1'
+$env:WEB_DEBUG_NO_PERSIST = '1'   # ディスク永続化を無効化
+$env:WEB_DEBUG_PORT = '3001'
+
+npm run webDebug
+```
+
+Playwright 流れ:
+1. `webDebug` を上記の通り起動
+2. テストは `GET /__debug/create-session` で取得したセッション cookie を注入してページにアクセスします
+3. `npm run test:playwright` でテストを実行
+
+注意: `WEB_DEBUG_BYPASS_AUTH` は開発用フラグです。本番環境で有効にしないでください。
+
+---
+
+## 5. 新しいコマンドの追加方法
+
+1. `src/commands/` 配下に新しいファイルを作成します（例: `src/commands/example/hello.ts`）。
+2. `SlashCommandBuilder` ベースで `data` と `execute` を実装します。
+3. Bot を再起動すると `CommandLoader` により自動検出されます。
+
+短いテンプレート:
+
+```ts
+import { ChatInputCommandInteraction, SlashCommandBuilder } from 'discord.js';
+import { SlashCommand } from '../../types/command.js';
+
+export const command: SlashCommand = {
+  data: new SlashCommandBuilder().setName('hello').setDescription('挨拶します'),
+  async execute(interaction: ChatInputCommandInteraction) {
+    await interaction.reply('こんにちは！');
+  }
+};
+
+export default command;
+```
+
+---
+
+## 6. 永続化（Data フォルダ）
+
+永続化は `Data/` 以下に JSON ファイルとして保存されます。`src/core/Database.ts` を通じて読み書きしてください。テスト実行中は `WEB_DEBUG_NO_PERSIST=1` によってディスク書き込みを抑止できます。
+
+---
+
+## 7. 開発時の注意点 / よくある落とし穴
+
+- 実行時の ESM import は `.js` 拡張子を使う慣習があります（例: `import { BotClient } from './core/BotClient.js';`）。TypeScript → 実行時に解決される点に注意してください。
+- Bun を推奨しますが、npm / node での実行も可能です（README では両方の例を提示しています）。どちらを標準にするかはリポジトリ方針で統一してください。
+- `config.json` と `Data/` を誤ってコミットしないでください（トークン漏洩の危険）。
+
+---
+
+## 8. 貢献 & PR チェックリスト
+
+必ず確認してください:
+
+- 追加した実行時 import は `.js` で終わっているか
+- DB を変更するコードは `database.set()` を呼んで永続化しているか
+- デバッグフラグ（`WEB_DEBUG_BYPASS_AUTH` 等）は README と PR に明記され、本番で無効化される設計か
+
+---
+
+## 主要ファイル（参照用）
+
+- `src/index.ts` — Bot のエントリ
+- `src/config.ts` — 設定ローダ（必須キーを確認）
+- `src/core/BotClient.ts` — Discord クライアントと起動処理
+- `src/core/CommandLoader.ts` — コマンド自動読み込み
+- `src/core/Database.ts` — JSON 永続化レイヤ
+- `src/web/SettingsServer.ts` — Express ベースの Web ダッシュボード
+- `src/web/webDebug.ts` — Web 単体デバッグ用エントリ
+- `test/playwright/layout.spec.ts` — Playwright テスト例
+
+---
+
+## ライセンス
+
+MIT
+
+---
+
+もし README の文言や「Bun をデフォルトにする／しない」などポリシー面で決めたいことがあれば教えてください。決定に合わせて README をさらに調整します。
 # Discord Bot - モジュール構造版
 
 TypeScript で実装された Discord Bot のモジュール化されたプロジェクトです。スラッシュコマンドと JSON ベースのデータベースシステムを使用しています。
