@@ -37,25 +37,47 @@
 
 ## プロジェクト構造
 
-- **`src/`**: ソースコードのルート。
-    - **`core/`**: ボットのコア機能。
-        - `BotClient.ts`: Discordクライアントの管理、コマンドの登録とデプロイ。
-        - `CommandLoader.ts`, `CommandRegistry.ts`: コマンドの読み込みと管理。
-        - `Database.ts`: データベース（SQLite）の管理。
-        - `EventHandler.ts`, `EventManager.ts`: Discordイベントの処理。
-        - その他、`RankManager.ts`, `TriggerManager.ts`など、各機能の管理クラス。
-    - **`commands/`**: スラッシュコマンドの定義。
-        - `admin/`, `any/`, `staff/` のように、対象ユーザーごとに整理されています。
-    - **`web/`**: Webダッシュボードの関連ファイル。
-        - `SettingsServer.ts`: Expressサーバーのメインファイル。
+以下に、主要なディレクトリとファイルの概要を記します。
+
+- **`.github/`**: GitHub関連の設定ファイルが格納されています。
+    - `workflows/`: GitHub Actionsのワークフロー定義ファイル（例: CI/CD、コードレビュー）。
+- **`ChangeLogMD/`**: プロジェクトの変更履歴や実装に関するメモが格納されています。
+- **`docs/`**: 各機能に関する詳細なドキュメントが格納されています。
+- **`src/`**: 全てのソースコードが含まれるメインディレクトリです。
+    - **`commands/`**: Discordのスラッシュコマンドの定義が格納されています。
+        - `admin/`: サーバー管理者向けのコマンド。
+        - `any/`: 全てのユーザーが利用できるコマンド。
+        - `staff/`: スタッフ（モデレーター）向けのコマンド。
+            - `subcommands/`: スタッフコマンドのサブコマンド。
+    - **`core/`**: ボットの根幹をなすコア機能のクラス群です。
+        - `BotClient.ts`: Discordクライアントの初期化と管理。
+        - `CommandLoader.ts`: `commands`ディレクトリからコマンドを動的に読み込みます。
+        - `CommandRegistry.ts`: 読み込んだコマンドを登録・管理します。
+        - `Database.ts`: SQLiteデータベースの接続と操作を管理します。
+        - `EventHandler.ts`, `EventManager.ts`: Discord APIから送られるイベントを処理します。
+        - `RankManager.ts`, `TriggerManager.ts`など: 各機能の主要なロジックを管理するクラス。
+    - **`types/`**: プロジェクト全体で使用されるTypeScriptの型定義です。
+    - **`utils/`**: 汎用的な補助機能（ロガー、キャッシュ管理など）が格納されています。
+    - **`web/`**: Webダッシュボードのバックエンド（Express）とフロントエンド（React）のソースコードです。
+        - `assets/`: アイコンなどの静的ファイル。
         - `client/`: Reactで構築されたフロントエンドのソースコード。
-            - `src/App.tsx`: フロントエンドのルーティング定義。
-            - `pages/`: 各ページのコンポーネント。
-        - `controllers/`, `routes/`, `services/`: WebサーバーのAPI関連のロジック。
-    - **`utils/`**: ロガーやキャッシュマネージャーなどのユーティリティ。
-- **`docs/`**: 機能に関するドキュメント。
-- **`ChangeLogMD/`**: 変更履歴や実装に関するメモ。
-- **`config.json` (ルートディレクトリに手動で作成)**: ボットのトークンやAPIキーなどの設定ファイル。
+            - `src/`:
+                - `components/`: 再利用可能なReactコンポーネント。
+                - `hooks/`: カスタムReactフック。
+                - `pages/`: 各URLに対応するページコンポーネント。
+                - `services/`: APIクライアントやWebSocket接続などのサービス。
+                - `styles/`: グローバルCSSやコンポーネント固有のスタイルシート。
+        - `controllers/`: APIリクエストを処理し、レスポンスを返すロジック。
+        - `middleware/`: 認証など、リクエスト処理の中間で実行される処理。
+        - `routes/`: Expressのルーティング定義。
+        - `services/`: Webサーバー固有のサービスロジック。
+        - `SettingsServer.ts`: Expressサーバーを起動し、APIとフロントエンドを提供するメインファイル。
+- **`test/`**: テストコードが格納されています。
+    - `playwright/`: Playwrightを使用したE2Eテスト。
+
+- **`bun.lock`**: パッケージの正確なバージョンをロックするファイル。
+- **`package.json`**: プロジェクトの情報と依存関係を定義するファイル。
+- **`tsconfig.json`**: TypeScriptのコンパイラ設定。
 
 ## 起動プロセス
 
