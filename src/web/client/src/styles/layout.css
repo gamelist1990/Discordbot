@@ -1,0 +1,71 @@
+:root {
+  /* small set of layout variables for responsive behavior and mobile controls */
+  --fab-size: 56px;
+  --bottom-nav-height: calc(var(--fab-size) + 12px);
+  --breakpoint-sm: 480px;
+  --breakpoint-md: 768px;
+  --breakpoint-lg: 1024px;
+}
+
+/* Bottom navigation (mobile) */
+.bottomNav {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: var(--bottom-nav-height);
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  background: white;
+  border-top: 1px solid var(--grey-300, #DADCE0);
+  box-shadow: 0 -6px 18px rgba(0,0,0,0.06);
+  z-index: 10000;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.bottomNavBtn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary, #5F6368);
+  font-size: 12px;
+  padding: 6px 8px;
+  min-width: 44px; /* touch target */
+}
+
+.bottomNavBtn:active {
+  transform: translateY(1px);
+}
+
+/* Floating Action Button (FAB) */
+.fab {
+  position: fixed;
+  right: 16px;
+  bottom: calc(var(--bottom-nav-height) + 8px);
+  width: var(--fab-size);
+  height: var(--fab-size);
+  border-radius: 50%;
+  background: var(--google-blue, #4285F4);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 26px;
+  box-shadow: 0 8px 24px rgba(66,133,244,0.24);
+  border: none;
+  z-index: 10001;
+  cursor: pointer;
+}
+
+.fab:active { transform: scale(0.98); }
+
+/* hide mobile UI on larger screens */
+@media (min-width: 1025px) {
+  .bottomNav { display: none; }
+  .fab { display: none; }
+}

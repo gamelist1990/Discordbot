@@ -337,6 +337,27 @@ const StaffHelpPage: React.FC = () => {
                     </main>
                 </div>
             </div>
+            {/* Mobile bottom navigation and FAB (displayed via global CSS layout.css) */}
+            <nav className="bottomNav" role="navigation" aria-label="モバイルナビ">
+                <button className="bottomNavBtn" onClick={() => setActiveTab('help')} aria-label="コマンドヘルプ">
+                    <span>📚</span>
+                    <span>ヘルプ</span>
+                </button>
+                <button className="bottomNavBtn" onClick={() => setActiveTab('services')} aria-label="サービス">
+                    <span>⚙️</span>
+                    <span>サービス</span>
+                </button>
+                <button className="bottomNavBtn" onClick={() => navigate('/staff/privatechat')} aria-label="プライベートチャット">
+                    <span>💬</span>
+                    <span>チャット</span>
+                </button>
+                <button className="bottomNavBtn" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} aria-label="トップへ">
+                    <span>⬆️</span>
+                    <span>トップ</span>
+                </button>
+            </nav>
+
+            <button className="fab" aria-label="新規チャット作成" onClick={() => navigate('/staff/privatechat')}>＋</button>
         </div>
     );
 };
