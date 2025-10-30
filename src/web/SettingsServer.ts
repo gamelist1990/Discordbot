@@ -161,6 +161,31 @@ export class SettingsServer {
             }
         });
 
+        // Debug helper: create a test session and set cookie (only when explicitly enabled)
+        this.app.get('/__debug/create-session', (req: Request, res: Response) => {
+            try {
+                if (process.env.WEB_DEBUG_BYPASS_AUTH !== '1') {
+                    return res.status(403).json({ error: 'debug session not enabled' });
+                }
+
+                const guildId = (req.query.guildId as string) || 'debug-guild';
+                const userId = (req.query.userId as string) || 'debug-user';
+                const token = this.sessionService.createSession(guildId, userId);
+
+                // Set session cookie
+                res.cookie('sessionId', token, {
+                    httpOnly: true,
+                    maxAge: 30 * 60 * 1000,
+                    sameSite: 'lax'
+                });
+
+                res.json({ success: true, sessionId: token, userId, guildId });
+            } catch (e) {
+                console.error('Failed to create debug session:', e);
+                res.status(500).json({ error: 'failed' });
+            }
+        });
+
     // Generic preview handler (mount before static files so crawlers see OG meta)
     // The handler consults a registry populated by modules (e.g., feedback route registers itself).
     // Use a RegExp for the preview path to avoid path-to-regexp parameter parsing issues.

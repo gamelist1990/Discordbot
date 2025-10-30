@@ -81,6 +81,58 @@ bun run auto           # 全プラットフォーム
 bun run windows-64     # Windows x64
 ```
 
+## 🔎 Web の単体デバッグ (webDebug)
+
+開発や CI で「Discord OAuth にログインできない環境」からでも Web UI のレイアウト検査を行うための軽量モードです。
+
+ポイント:
+- `src/web/webDebug.ts` を追加し、軽量な Bot スタブで `SettingsServer` を単体起動します。
+- デバッグ用に `GET /__debug/create-session` を用意しており、環境変数 `WEB_DEBUG_BYPASS_AUTH=1` を設定するとテスト用セッションを生成し `sessionId` クッキーを返します。
+- テスト実行中にディスクへ書き込みたくない場合は `WEB_DEBUG_NO_PERSIST=1` を設定してください（セッションの永続化を無効化します）。
+
+推奨の起動例（PowerShell）:
+```powershell
+# 環境変数を設定して webDebug を起動
+$env:WEB_DEBUG_BYPASS_AUTH = '1'
+$env:WEB_DEBUG_NO_PERSIST = '1'
+$env:WEB_DEBUG_PORT = '3001'
+
+# フロントエンドをビルドして server を起動
+npm run webDebug
+```
+
+手動でセッションを作成するには（Playwright 等のテストランナーから）:
+
+1. `GET http://localhost:3001/__debug/create-session` を叩く
+2. レスポンスに Set-Cookie ヘッダが含まれるので、Playwright の context に設定してページを開くと認証済み状態でテストが可能
+
+注意: `/__debug/create-session` は開発専用です。絶対に本番環境で `WEB_DEBUG_BYPASS_AUTH=1` を設定しないでください。
+
+## 🧪 Playwright によるレイアウト検査（簡易手順）
+
+1. 依存関係をインストール（初回のみ）:
+```powershell
+npm install
+npx playwright install --with-deps
+```
+
+2. webDebug を別ターミナルで起動（上の PowerShell 例を参照）
+
+3. Playwright テストを実行:
+```powershell
+npm run test:playwright
+```
+
+テストの実行方針:
+- テスト先頭で `GET /__debug/create-session` を実行して session cookie を取得し、ブラウザコンテキストに注入します。
+- デスクトップ幅とモバイル幅で主要な要素（ヘッダー、サイドバー、主要フォーム）が表示されるかを確認します。
+- 必要に応じてスクリーンショット差分を CI に保存し、レイアウトの重大な崩れを検出します。
+
+CI での注意点:
+- `npx playwright install --with-deps` を必ず含めてください。
+- テストはヘッドレスで実行するのが安定します。失敗時にスクリーンショットをアーティファクトとして保存する設定が便利です。
+
+
 ## 🎯 機能
 
 ### ✅ 実装済み機能

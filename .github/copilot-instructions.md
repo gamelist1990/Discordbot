@@ -1,52 +1,90 @@
-# Copilot Instructions for Discord Bot
+# Copilot / Contributor Guide — Discordbot
 
-This guide helps AI agents understand the architecture and development patterns of this TypeScript Discord Bot project.
+この文書は、このリポジトリに対して AI エージェント（Copilot 等）や開発者が安全かつ効率的に変更を加えられるように、重要な設計方針・開発慣習・デバッグ手順を簡潔にまとめたものです。
 
-## Architecture Overview
+## 重要ポイント（先に読む）
+- ランタイム: Bun（Node 互換）。TypeScript + ESM。すべての実行時 import は `.js` 拡張子で終えること（例: `import { BotClient } from './core/BotClient.js';`）。
+- エントリ: `src/index.ts` がフル Bot の起動エントリ。Web UI は `src/web/SettingsServer.ts` が担う。
+- Web-only デバッグ: `src/web/webDebug.ts` を追加済み。Bot を起動せず Web サーバー単体で動作／Playwright によるレイアウト検査が可能。
+- 永続化: Data フォルダ（`Data/`）に JSON ファイルで保存。テスト／デバッグ時は `WEB_DEBUG_NO_PERSIST=1` を使いディスク書き込みを抑制できる。
 
-### Core Stack
-- **Runtime**: Bun (with Node.js compatibility for local dev)
-- **Language**: TypeScript with ESM modules
-- **Framework**: Discord.js v14
-- **Web UI**: Vite + React
-- **Database**: JSON file-based (no external DB required)
+## アーキテクチャ概要
 
-### Major Components
+### コア技術
+- Bun（実行）
+- TypeScript（ESM）
+- Discord.js v14（Bot）
+- Express（Web API）
+- Vite + React（フロントエンド）
 
-#### 1. **Bootstrap & Lifecycle** (`src/index.ts`)
-- Loads `config.json` (token masked in logs automatically)
-- Initializes `BotClient`, `CommandLoader`, `EventHandler`, and `SettingsServer`
-- Flow: `index.ts` → `BotClient.login()` → commands auto-load → event handlers registered
+### 要点
+- コマンドは `src/commands/` に置き、`src/core/CommandLoader.ts` が再帰的に読み込みます。
+- Web は `src/web/` 配下で構築。`SettingsServer` が Express アプリを組み立て、`dist/web` にビルドされたクライアントを配信します。
+- セッションは `src/web/services/SessionService.ts` が管理し、トークン・権限・期限情報を保持します。
 
-#### 2. **Command System** (`src/core/CommandLoader.ts`, `src/commands/`)
-- **Auto-discovery pattern**: `CommandLoader` recursively scans `src/commands/` for `.ts`/`.js` files
-- **Command interface** (`src/types/command.ts`): 
-  - Implement `SlashCommand` with `data` (SlashCommandBuilder) and `execute(interaction)`
-  - Optional: `permissionLevel`, `cooldown` fields
-- **Subcommands**: Nested in `subcommands/` folders (e.g., `src/commands/staff/subcommands/`)
-- **Permission levels**: ANY, STAFF, ADMIN, OP (defined in `src/web/types/permission.ts`)
+## Web デバッグ（webDebug）の使い方
 
-#### 3. **Event System** (`src/core/EventHandler.ts`, `src/core/EventManager.ts`)
-- **EventHandler**: Maps Discord.js events to command execution and handlers
-- **EventManager**: Unified custom event system (caution: not strictly typed for custom events)
-- **Key events**: `guildCreate` (auto-deploy commands), `interactionCreate` (route to command execute)
+目的: クラウド上の Agent や CI から「Discord OAuth にログインできない環境」でも Web レイアウトや UI を検査できるようにするための軽量モード。
 
-#### 4. **Data Persistence** (`src/core/Database.ts`, `Data/` folder)
-- **JSON-backed**: Stores all data in `Data/` as JSON files
-- **Cache layer**: In-memory cache to reduce file I/O
-- **API**: `database.set(guildId, key, data)` and `database.get(guildId, key, defaultValue)`
-- **Pattern**: File paths auto-created; supports nested directories (e.g., `Guild/{guildId}/settings.json`)
+- 新しいエントリ: `src/web/webDebug.ts` — 軽量な Bot スタブを用いて `SettingsServer` を起動します。
+- デバッグ用エンドポイント: `/__debug/create-session` を実装。環境変数 `WEB_DEBUG_BYPASS_AUTH=1` を設定した状態で呼ぶと、テスト用セッションを作成して `sessionId` クッキーを返します。
+- セッションの永続化を抑制: 環境変数 `WEB_DEBUG_NO_PERSIST=1` を設定すると、`SessionService` はディスクの読み書きを行いません（CI / テスト向け）。
 
-#### 5. **Web Dashboard** (`src/web/SettingsServer.ts`, `src/web/client/`)
-- **Express server** on configurable port (default 3000)
-- **Session-based auth**: `SessionService` manages tokens (stored in `Data/Auth/`)
-- **Routes structure**: `src/web/routes/` organizes endpoints (feedback, settings, rank, etc.)
-- **Frontend**: Vite + React; built to `src/web/client/dist/`
-
-### Data Flow: Command Execution
+推奨の起動例（PowerShell）:
+```powershell
+$env:WEB_DEBUG_BYPASS_AUTH = '1'
+$env:WEB_DEBUG_NO_PERSIST = '1'
+$env:WEB_DEBUG_PORT = '3001'
+npm run webDebug
 ```
-User types slash command
-  ↓
+
+webDebug の挙動:
+- フロントエンドを `cd src/web/client && vite build` でビルドしてから `src/web/webDebug.ts` を起動します。
+- Playwright 等の E2E ツールは `/__debug/create-session` を叩いて取得した `Set-Cookie` をテスト用ブラウザにセットすれば、認証済みの状態で UI を検査できます。
+
+## OAuth とセキュリティの注意点
+- `/__debug/create-session` と OAuth バイパスは開発専用です。絶対に本番環境で `WEB_DEBUG_BYPASS_AUTH=1` を設定しないでください。
+- デバッグ機能は環境変数で明示的に有効にする必要があります。公開環境で誤って有効化されないよう、デプロイ手順にチェックを入れてください。
+
+## package.json のスクリプト（参照）
+- 既存: `start`, `dev`, `web` など。
+- 追加: `webDebug` スクリプトを用意しました（フロントエンドビルド → `src/web/webDebug.ts` 起動）。
+
+例（PowerShell）:
+```powershell
+# Webだけ起動して手動確認
+$env:WEB_DEBUG_BYPASS_AUTH = '1'
+$env:WEB_DEBUG_NO_PERSIST = '1'
+npm run webDebug
+```
+
+## テスト / Playwright の導入ガイダンス
+- devDependencies に `@playwright/test` を追加しました。
+- テスト戦略:
+  - 起動: `webDebug` を起動し、`/__debug/create-session` でセッションを作る
+  - Cookie を Playwright の context にセットしてページにアクセス
+  - レイアウトの主要要素（ヘッダー、ナビ、主要フォーム）の存在とレスポンシブ表示を検証
+  - 必要に応じてスクリーンショットを取り、差分チェックで重大な崩壊を検知できます
+
+CI での実行ポイント:
+- `npx playwright install --with-deps` を CI のセットアップステップに入れてください。
+- 可能ならヘッドレスで実行し、必要に応じて失敗時にスクリーンショットを保存してアーティファクトに添付します。
+
+## 開発時の PR チェックリスト
+1. 追加したコマンド/ルートは `src/commands/...` / `src/web/routes/...` の慣習に従っているか。
+2. 永続化を行う変更がある場合は `database.set()` を呼んでいるか（DB 変更は明示的に）。
+3. すべての実行時 import は `.js` 拡張子で終わっているか（例: `./core/BotClient.js`）。
+4. `config.json` にトークンやシークレットがベタ書きされていないか。
+5. デバッグ用フラグ（`WEB_DEBUG_BYPASS_AUTH` 等）は README / PR に明記され、プロダクションで無効化される設計になっているか。
+
+## よくある変更パターン（短く）
+- Webだけの確認をしたい: `npm run webDebug` を使い、Playwright テストを作る。
+- OAuth を回避して UI を取得したい: `WEB_DEBUG_BYPASS_AUTH=1` で `/__debug/create-session` を使う。
+- テストでディスクを書きたくない: `WEB_DEBUG_NO_PERSIST=1` を使用。
+
+---
+このファイルに追加してほしい具体的サンプル（例: Playwright のテスト雛形、webDebug の自動 session 注入コード）を教えてください。要望があれば私がそのままファイルを作成して差分を出します。
+
 ## .github/copilot-instructions.md — Discordbot 簡潔ガイド
 
 目的: AI エージェントがこのリポジトリで素早く安全に変更を加えられるよう、運用ルールとプロジェクト固有の慣習を短くまとめます。

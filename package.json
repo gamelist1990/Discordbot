@@ -41,7 +41,9 @@
     "macOS-arm": "bun build src/index.ts --compile --target=bun-darwin-arm64 --minify --outfile discord_macArm --minify",
     "web": "cd src/web/client &&  vite build ",
     "start": "cd src/web/client && vite build && cd ../../../ && bun run src/index.ts",
-    "dev": "concurrently \"cd src/web/client && vite build\" \"bun --watch run src/index.ts \""
+    "dev": "concurrently \"cd src/web/client && vite build\" \"bun --watch run src/index.ts \"",
+    "webDebug": "cd src/web/client && vite build && cd ../.. && bun run src/web/webDebug.ts",
+    "test:playwright": "npx playwright test"
   },
   "devDependencies": {
     "@types/cheerio": "^0.22.35",
@@ -60,6 +62,8 @@
     "ts-node-dev": "^2.0.0",
     "typescript": "^5.8.2",
     "vite": "^7.1.9"
+    ,
+    "@playwright/test": "^1.40.0"
   },
   "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e"
 }

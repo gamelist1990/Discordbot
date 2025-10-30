@@ -12,23 +12,27 @@ export class SessionService {
     private sessions: Map<string, SettingsSession>;
     private persistPath: string;
     private botClient?: BotClient;
+    private noPersist: boolean;
 
     constructor(botClient?: BotClient) {
         this.sessions = new Map();
         this.botClient = botClient;
+        this.noPersist = process.env.WEB_DEBUG_NO_PERSIST === '1';
         // Persist sessions to project Data directory so sessions survive restarts
         this.persistPath = path.join(process.cwd(), 'Data', 'sessions.json');
-        this.loadFromDisk();
+        if (!this.noPersist) {
+            this.loadFromDisk();
 
-        // Periodically cleanup expired sessions and persist
-        setInterval(() => {
-            try {
-                this.cleanupExpiredSessions();
-                this.saveToDisk();
-            } catch (e) {
-                // swallow
-            }
-        }, 60 * 1000);
+            // Periodically cleanup expired sessions and persist
+            setInterval(() => {
+                try {
+                    this.cleanupExpiredSessions();
+                    this.saveToDisk();
+                } catch (e) {
+                    // swallow
+                }
+            }, 60 * 1000);
+        }
     }
 
     /**
@@ -54,9 +58,9 @@ export class SessionService {
             this.sessions.delete(token);
         }, expiresIn);
 
-        // Persist immediately
+        // Persist immediately unless persistence disabled for debug
         try {
-            this.saveToDisk();
+            if (!this.noPersist) this.saveToDisk();
         } catch (e) {
             // ignore disk errors
         }
@@ -93,7 +97,7 @@ export class SessionService {
             }
         }
         try {
-            this.saveToDisk();
+            if (!this.noPersist) this.saveToDisk();
         } catch (e) {
             // ignore
         }
@@ -126,6 +130,7 @@ export class SessionService {
     }
 
     private loadFromDisk(): void {
+        if (this.noPersist) return;
         try {
             if (!fs.existsSync(this.persistPath)) return;
             const raw = fs.readFileSync(this.persistPath, 'utf8');
@@ -140,6 +145,7 @@ export class SessionService {
     }
 
     private saveToDisk(): void {
+        if (this.noPersist) return;
         try {
             const obj: Record<string, SettingsSession> = Object.fromEntries(this.sessions as any);
             // Ensure Data directory exists
