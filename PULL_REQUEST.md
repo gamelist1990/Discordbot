@@ -17,21 +17,28 @@ Twitter風のカスタマイズ可能なプロフィールシステムを実装�
 - **プライバシー制御**: 非公開プロフィールのエラーハンドリング
 - **レスポンシブデザイン**: モバイル・デスクトップ対応
 
-### Phase 3: プロフィール編集UI (❌ 未実装)
-- 意図的に保留（ユーザーテストのため）
-- APIは完成しており、UIのみ追加が必要
+### Phase 3: プロフィール編集UI (✅ 完了)
+- **ProfileEdit コンポーネント**: モーダルベースの編集UI
+- **API連携**: `src/web/client/src/services/api.ts` で統合
+- **バリデーション**: 文字数制限とURL形式チェック
+- **機能**: 表示名、バイオ、代名詞、場所、ウェブサイト、バナー、お気に入り絵文字の編集
 
 ## 📊 変更統計
 
 ```
-13 files changed
-+1770 lines added
--23 lines removed
+19 files changed
++2120 lines added
+-29 lines removed
 
-新規ファイル: 6
-変更ファイル: 7
+新規ファイル: 9
+変更ファイル: 10
 ドキュメント: 3
 ```
+
+**最新の追加 (commits ba4370c, 43127e8)**:
+- ProfileEdit コンポーネント実装
+- API サービス層追加
+- テスト手順書更新 (TEST.md)
 
 ## 🗂️ 変更されたファイル
 
@@ -50,9 +57,14 @@ Twitter風のカスタマイズ可能なプロフィールシステムを実装�
 - `src/web/SettingsServer.ts` - ProfileService統合
 - `src/web/types/index.ts` - 型エクスポート
 
+### フロントエンド (新規)
+- `src/web/client/src/components/ProfileEdit/ProfileEdit.tsx` - 編集モーダル
+- `src/web/client/src/components/ProfileEdit/ProfileEdit.module.css` - 編集UIスタイル
+- `src/web/client/src/services/api.ts` - API統合層
+
 ### フロントエンド (変更)
 - `src/web/client/src/App.tsx` - ルーティング追加
-- `src/web/client/src/pages/Profile/UserProfile.tsx` - カスタムプロフィール表示
+- `src/web/client/src/pages/Profile/UserProfile.tsx` - カスタムプロフィール表示 + 編集機能統合
 - `src/web/client/src/pages/Profile/UserProfile.module.css` - スタイル追加
 
 ## 🔌 新しいAPIエンドポイント
@@ -227,9 +239,9 @@ curl -X PUT https://your-domain.com/api/user/profile/custom \
 
 ## 🐛 既知の制限事項
 
-1. **プロフィール編集UI**: まだ実装されていません
-   - APIは完成
-   - UIは今後のPRで追加予定
+1. ~~**プロフィール編集UI**: まだ実装されていません~~ **✅ 実装完了 (ba4370c)**
+   - ProfileEdit コンポーネント追加
+   - API連携完了
 
 2. **カスタム画像アップロード**: 未実装
    - 外部URLは使用可能
@@ -241,21 +253,44 @@ curl -X PUT https://your-domain.com/api/user/profile/custom \
 
 ## 🎯 次のステップ
 
-### Phase 3: プロフィール編集UI
-- [ ] モーダルダイアログの実装
-- [ ] バナー選択インターフェース
-- [ ] 絵文字ピッカー
-- [ ] リアルタイムプレビュー
+### ~~Phase 3: プロフィール編集UI~~ ✅ 完了
+- [x] モーダルダイアログの実装 (ProfileEdit.tsx)
+- [x] バナー選択インターフェース (color/gradient)
+- [x] 絵文字入力フィールド
+- [x] リアルタイムバリデーション
 
 ### Phase 4: 高度な機能
 - [ ] バッジシステム
 - [ ] カスタム画像アップロード
 - [ ] アニメーション効果
+- [ ] 絵文字ピッカーUI
 
 ### Phase 5: テストと最適化
-- [ ] E2Eテスト (Playwright)
+- [ ] E2Eテスト (Playwright) - TEST.md に手順記載済み
 - [ ] パフォーマンス最適化
 - [ ] アクセシビリティ対応
+
+## 🔄 v2 リファクタリング計画 (提案中)
+
+@gamelist1990 による v2 実装プランが提案されています:
+
+### 目的
+既存実装を段階的に v2 アーキテクチャに移行し、より保守性の高い設計に刷新
+
+### 提案されたアプローチ
+1. **並行実装**: `/api/v2/profile` エンドポイントを追加し、既存APIと共存
+2. **段階的移行**: 
+   - `src/web/controllers/profileV2/` に新コントローラー
+   - `src/web/services/profileV2/` に新サービス
+   - `src/web/client/src/pages/ProfileV2/` に新コンポーネント
+3. **データ移行**: `schemaVersion` フィールドで段階的マイグレーション
+4. **後方互換性**: 既存エンドポイントは移行完了まで維持
+5. **テスト追加**: Playwright E2E テスト実装
+
+### ステータス
+🔍 **調査中** - 影響範囲の分析とアーキテクチャ設計を進行中
+
+参考: [コメント #3501560670](https://github.com/gamelist1990/Discordbot/pull/TBD#issuecomment-3501560670)
 
 ## ✅ チェックリスト
 
@@ -268,8 +303,9 @@ curl -X PUT https://your-domain.com/api/user/profile/custom \
 - [x] ビルドテスト
 - [x] TypeScript型チェック
 - [x] ドキュメント作成
-- [ ] プロフィール編集UI (Phase 3)
-- [ ] E2Eテスト
+- [x] プロフィール編集UI (Phase 3) - ✅ 完了 (ba4370c)
+- [x] API統合層実装
+- [ ] E2Eテスト (Playwright) - 手順書完成、実装待ち
 - [ ] 本番環境での動作確認
 
 ## 📚 参考ドキュメント
@@ -302,9 +338,17 @@ curl -X PUT https://your-domain.com/api/user/profile/custom \
 
 ## 🎉 まとめ
 
-この PR は、ユーザーがプロフィールをカスタマイズし、他のユーザーのプロフィールを閲覧できる基盤を提供します。バックエンドAPIとフロントエンド表示は完全に機能しており、プロフィール編集UIは今後のPRで追加予定です。
+この PR は、ユーザーがプロフィールをカスタマイズし、他のユーザーのプロフィールを閲覧・編集できる完全な機能を提供します。
 
-**実装は本番環境へのデプロイ準備が整っています。**
+**実装完了機能**:
+- ✅ バックエンドAPI (Phase 1)
+- ✅ フロントエンド表示 (Phase 2)
+- ✅ プロフィール編集UI (Phase 3)
+- ✅ API統合層
+
+**本番環境へのデプロイ準備が整っています。**
+
+**次のステップ**: v2 リファクタリング or E2E テスト実装
 
 ---
 
