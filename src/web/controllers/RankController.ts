@@ -766,11 +766,11 @@ export class RankController {
             const guildInfo = guild ? {
                 id: guild.id,
                 name: guild.name,
-                icon: guild.iconURL()
+                iconURL: guild.iconURL()
             } : {
                 id: guildId,
                 name: 'Unknown Guild',
-                icon: null
+                iconURL: null
             };
 
             res.json({
@@ -826,11 +826,11 @@ export class RankController {
             const guildInfo = guild ? {
                 id: guild.id,
                 name: guild.name,
-                icon: guild.iconURL()
+                iconURL: guild.iconURL()
             } : {
                 id: guildId,
                 name: 'Unknown Guild',
-                icon: null
+                iconURL: null
             };
 
             res.json({
@@ -903,11 +903,11 @@ export class RankController {
             const guildInfo = guild ? {
                 id: guild.id,
                 name: guild.name,
-                icon: guild.iconURL()
+                iconURL: guild.iconURL()
             } : {
                 id: guildId,
                 name: 'Unknown Guild',
-                icon: null
+                iconURL: null
             };
 
             res.json({

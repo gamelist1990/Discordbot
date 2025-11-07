@@ -71,8 +71,8 @@ const UserProfile: React.FC = () => {
     const [sessionUser, setSessionUser] = useState<{ userId?: string; username?: string } | null>(null);
     const [error, setError] = useState<string | null>(null);
     // Editing flows moved to separate settings page; keep state minimal here.
-    const [overviewRanking, setOverviewRanking] = useState<{ guild: GuildStats; top: any; } | null>(null);
-    const [guildTops, setGuildTops] = useState<Array<{ guild: GuildStats; top: any; }>>([]);
+    const [overviewRanking, setOverviewRanking] = useState<{ guild: GuildStats; userEntry: any; } | null>(null);
+    const [guildTops, setGuildTops] = useState<Array<{ guild: GuildStats; userEntry: any; }>>([]);
     const previewRef = useRef<HTMLDivElement | null>(null);
     const [scale, setScale] = useState<number>(1);
 
@@ -122,18 +122,43 @@ const UserProfile: React.FC = () => {
             const tops: any[] = [];
             for (const g of profileData!.guilds) {
                 try {
-                    const resp = await fetch(`/api/rank/guild/${g.id}`, { credentials: 'include' });
-                    if (!resp.ok) continue;
-                    const rd = await resp.json();
-                    if (rd && rd.leaderboard && rd.leaderboard.length > 0) {
-                        tops.push({ guild: rd.guild || g, top: rd.leaderboard[0] });
+                    // Get guild rankings to get presets
+                    const guildResp = await fetch(`/api/rank/guild/${g.id}`, { credentials: 'include' });
+                    if (!guildResp.ok) continue;
+                    const guildData = await guildResp.json();
+                    if (!guildData.presets || guildData.presets.length === 0) continue;
+
+                    let bestEntry: any = null;
+
+                    // Check each preset
+                    for (const preset of guildData.presets) {
+                        try {
+                            const resp = await fetch(`/api/rank/leaderboard/${g.id}?preset=${preset.name}&limit=1000`, { credentials: 'include' });
+                            if (!resp.ok) continue;
+                            const rd = await resp.json();
+                            if (rd && rd.leaderboard && rd.leaderboard.length > 0) {
+                                const userEntry = rd.leaderboard.find((entry: any) => entry.userId === profileData!.id);
+                                if (userEntry) {
+                                    const rank = rd.leaderboard.findIndex((entry: any) => entry.userId === profileData!.id) + 1;
+                                    if (!bestEntry || userEntry.xp > bestEntry.xp) {
+                                        bestEntry = { ...userEntry, rank, preset: preset.name };
+                                    }
+                                }
+                            }
+                        } catch (e) {
+                            // ignore per-preset errors
+                        }
+                    }
+
+                    if (bestEntry) {
+                        tops.push({ guild: guildData.guild || g, userEntry: bestEntry });
                     }
                 } catch (e) {
                     // ignore per-guild errors
                 }
             }
-            // sort by top.xp (or score) descending
-            tops.sort((a, b) => (b.top.xp || 0) - (a.top.xp || 0));
+            // sort by userEntry.xp descending
+            tops.sort((a, b) => (b.userEntry.xp || 0) - (a.userEntry.xp || 0));
             setGuildTops(tops);
         } catch (e) {
             console.error('Failed to fetch guild top rankings', e);
@@ -217,12 +242,37 @@ const UserProfile: React.FC = () => {
                     const widgets = data.customProfile?.overviewConfig?.widgets || [];
                     const rankingWidget = widgets.find((w: any) => w.type === 'ranking' && w.guildId);
                     if (rankingWidget) {
-                        const resp = await fetch(`/api/rank/guild/${rankingWidget.guildId}`, { credentials: 'include' });
-                        if (resp.ok) {
-                            const rd = await resp.json();
-                            // rd.leaderboard is array sorted; take first
-                            if (rd.leaderboard && rd.leaderboard.length > 0) {
-                                setOverviewRanking({ guild: rd.guild, top: rd.leaderboard[0] });
+                        // Get guild rankings to get presets
+                        const guildResp = await fetch(`/api/rank/guild/${rankingWidget.guildId}`, { credentials: 'include' });
+                        if (guildResp.ok) {
+                            const guildData = await guildResp.json();
+                            if (guildData.presets && guildData.presets.length > 0) {
+
+                                let bestEntry: any = null;
+
+                                // Check each preset
+                                for (const preset of guildData.presets) {
+                                    try {
+                                        const resp = await fetch(`/api/rank/leaderboard/${rankingWidget.guildId}?preset=${preset.name}&limit=1000`, { credentials: 'include' });
+                                        if (!resp.ok) continue;
+                                        const rd = await resp.json();
+                                        if (rd && rd.leaderboard && rd.leaderboard.length > 0) {
+                                            const userEntry = rd.leaderboard.find((entry: any) => entry.userId === data.id);
+                                            if (userEntry) {
+                                                const rank = rd.leaderboard.findIndex((entry: any) => entry.userId === data.id) + 1;
+                                                if (!bestEntry || userEntry.xp > bestEntry.xp) {
+                                                    bestEntry = { ...userEntry, rank, preset: preset.name };
+                                                }
+                                            }
+                                        }
+                                    } catch (e) {
+                                        // ignore per-preset errors
+                                    }
+                                }
+
+                                if (bestEntry) {
+                                    setOverviewRanking({ guild: guildData.guild || { id: rankingWidget.guildId, name: 'Unknown' }, userEntry: bestEntry });
+                                }
                             }
                         }
                     }
@@ -543,12 +593,12 @@ const UserProfile: React.FC = () => {
 
                                 {overviewRanking && (
                                     <div className={styles.rankingOverview}>
-                                        <h3>ランキング (トップ)</h3>
+                                        <h3>ランキング (自分の順位)</h3>
                                         <div className={styles.rankingItem}>
-                                            <img src={overviewRanking.top.avatar || ''} alt="avatar" style={{width:48,height:48,borderRadius:8}} />
+                                            <img src={overviewRanking.userEntry.avatar || ''} alt="avatar" style={{width:48,height:48,borderRadius:8}} />
                                             <div style={{marginLeft:10}}>
-                                                <div style={{fontWeight:700}}>{overviewRanking.top.username}</div>
-                                                <div style={{fontSize:12,color:'#666'}}>{overviewRanking.guild.name} • {overviewRanking.top.xp} Pt</div>
+                                                <div style={{fontWeight:700}}>{overviewRanking.userEntry.username}</div>
+                                                <div style={{fontSize:12,color:'#666'}}>{overviewRanking.guild.name} • {overviewRanking.userEntry.rank}位 • {overviewRanking.userEntry.xp} Pt</div>
                                             </div>
                                         </div>
                                     </div>
@@ -602,7 +652,7 @@ const UserProfile: React.FC = () => {
                                                 )}
                                                 <div>
                                                     <h4 className={styles.guildName}>{g.guild.name}</h4>
-                                                    <p className={styles.rankingLabel}>最高ランキング</p>
+                                                    <p className={styles.rankingLabel}>自分のランキング</p>
                                                 </div>
                                             </div>
                                         </div>
@@ -610,22 +660,22 @@ const UserProfile: React.FC = () => {
                                             <div className={styles.rankingItem}>
                                                 <span className="material-icons">emoji_events</span>
                                                 <div>
-                                                    <div className={styles.rankingValue}>{i + 1}位</div>
+                                                    <div className={styles.rankingValue}>{g.userEntry.rank}位</div>
                                                     <div className={styles.rankingKey}>順位</div>
                                                 </div>
                                             </div>
                                             <div className={styles.rankingItem}>
                                                 <span className="material-icons">stars</span>
                                                 <div>
-                                                    <div className={styles.rankingValue}>{(g.top.xp || g.top.score || 0).toLocaleString()}</div>
+                                                    <div className={styles.rankingValue}>{(g.userEntry.xp || g.userEntry.score || 0).toLocaleString()}</div>
                                                     <div className={styles.rankingKey}>ポイント</div>
                                                 </div>
                                             </div>
                                             <div className={styles.rankingItem}>
                                                 <span className="material-icons">person</span>
                                                 <div>
-                                                    <div className={styles.rankingValue}>{g.top.username || g.top.id}</div>
-                                                    <div className={styles.rankingKey}>トップユーザー</div>
+                                                    <div className={styles.rankingValue}>{g.userEntry.username || g.userEntry.userId}</div>
+                                                    <div className={styles.rankingKey}>ユーザー</div>
                                                 </div>
                                             </div>
                                         </div>
