@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import styles from './UserProfile.module.css';
+import ProfileEdit from '../../components/ProfileEdit/ProfileEdit';
 
 interface GuildStats {
     id: string;
@@ -103,6 +104,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ user, onLoginClick }) => {
     const [activityData, setActivityData] = useState<ActivityData | null>(null);
     const [isOwnProfile, setIsOwnProfile] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [editOpen, setEditOpen] = useState(false);
 
     useEffect(() => {
         if (!user) {
@@ -512,6 +514,11 @@ const UserProfile: React.FC<UserProfileProps> = ({ user, onLoginClick }) => {
                                         {profileData.guilds.length} サーバー
                                     </span>
                                 </div>
+                                {isOwnProfile && (
+                                    <div className={styles.headerActions}>
+                                        <button className={styles.primaryButton} onClick={() => setEditOpen(true)}>プロフィール編集</button>
+                                    </div>
+                                )}
                             </div>
                         </div>
                     </div>
@@ -568,6 +575,16 @@ const UserProfile: React.FC<UserProfileProps> = ({ user, onLoginClick }) => {
                             </div>
                         </div>
                     </div>
+                )}
+                {editOpen && (
+                    <ProfileEdit
+                        initial={profileData.customProfile}
+                        onClose={() => setEditOpen(false)}
+                        onSaved={(resp: any) => {
+                            const newCustom = resp?.customProfile || resp;
+                            setProfileData(prev => prev ? { ...prev, customProfile: newCustom } : prev);
+                        }}
+                    />
                 )}
 
                 {activeTab === 'servers' && (
