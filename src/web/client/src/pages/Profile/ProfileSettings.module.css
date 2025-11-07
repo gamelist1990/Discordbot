@@ -66,3 +66,262 @@
 /* react-grid-layout overrides to make grid preview visually consistent */
 .react-grid-item { transition: all 200ms ease; }
 .react-grid-placeholder { background: rgba(29,161,242,0.06); border: 1px dashed rgba(29,161,242,0.3); }
+
+/* Editor Canvas Styles */
+.editorContainer {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.editorToolbar {
+  display: flex;
+  gap: 8px;
+  padding: 8px;
+  background: #f5f5f5;
+  border-radius: 8px;
+}
+
+.toolButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px;
+  border: 1px solid #ddd;
+  background: white;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.toolButton:hover {
+  background: #f0f0f0;
+}
+
+.toolButton .material-icons {
+  font-size: 20px;
+}
+
+.canvasWrap {
+  background: #fafafa;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  overflow: hidden;
+  position: relative;
+}
+
+.previewCardSelected {
+  border: 2px solid #1DA1F2 !important;
+  box-shadow: 0 0 0 3px rgba(29, 161, 242, 0.1);
+}
+
+/* Inspector Panel */
+.inspector {
+  background: white;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 16px;
+  max-height: 600px;
+  overflow-y: auto;
+}
+
+.inspectorHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.inspectorHeader h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.closeButton {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+}
+
+.closeButton:hover {
+  background: #f0f0f0;
+}
+
+.inspectorBody {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Sticker Picker */
+.stickerPicker {
+  background: white;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 16px;
+  max-height: 500px;
+  overflow-y: auto;
+}
+
+.stickerPickerHeader {
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.stickerPickerHeader h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.stickerPickerBody {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.emojiList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.emojiGuild {
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.emojiGuildHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  width: 100%;
+  border: none;
+  background: #f5f5f5;
+  cursor: pointer;
+  text-align: left;
+  font-weight: 500;
+}
+
+.emojiGuildHeader:hover {
+  background: #ebebeb;
+}
+
+.emojiCount {
+  margin-left: auto;
+  color: #666;
+  font-size: 12px;
+}
+
+.emojiGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(48px, 1fr));
+  gap: 8px;
+  padding: 12px;
+}
+
+.emojiButton {
+  width: 48px;
+  height: 48px;
+  padding: 4px;
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+  background: white;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.emojiButton:hover {
+  border-color: #1DA1F2;
+  transform: scale(1.1);
+}
+
+.emojiButton img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.emptyState {
+  padding: 24px;
+  text-align: center;
+  color: #666;
+}
+
+.button {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 6px;
+  background: #1DA1F2;
+  color: white;
+  cursor: pointer;
+  font-weight: 500;
+  transition: background 0.2s;
+}
+
+.button:hover {
+  background: #1A91DA;
+}
+
+/* Layer List */
+.layerList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.layerItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+  background: white;
+  cursor: pointer;
+}
+
+.layerItem:hover {
+  background: #f5f5f5;
+}
+
+.layerItemActive {
+  border-color: #1DA1F2;
+  background: rgba(29, 161, 242, 0.05);
+}
+
+@media (max-width: 768px) {
+  .inspector {
+    max-height: 400px;
+  }
+
+  .stickerPicker {
+    max-height: 350px;
+  }
+
+  .editorToolbar {
+    flex-wrap: wrap;
+  }
+
+  .emojiGrid {
+    grid-template-columns: repeat(auto-fill, minmax(40px, 1fr));
+  }
+
+  .emojiButton {
+    width: 40px;
+    height: 40px;
+  }
+}

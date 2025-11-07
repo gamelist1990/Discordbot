@@ -1,12 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import styles from './ProfileSettings.module.css';
-import { Responsive, WidthProvider } from 'react-grid-layout';
-import 'react-grid-layout/css/styles.css';
-import 'react-resizable/css/styles.css';
 import { COUNTRIES } from '../../data/countries';
-
-const ResponsiveGridLayout = WidthProvider(Responsive as any) as React.ComponentType<any>;
+import OverviewEditorCanvas from './OverviewEditorCanvas';
+import CardInspector from './CardInspector';
+import StickerPicker from './StickerPicker';
+import { Card, migrateGridToPx } from './types';
 
 interface LocationField {
     label?: string;
@@ -35,6 +34,9 @@ const ProfileSettings: React.FC = () => {
     const [profile, setProfile] = useState<Partial<CustomProfile>>({});
     const [error, setError] = useState<string | null>(null);
     const [guildEmojis, setGuildEmojis] = useState<any[]>([]);
+    const [cards, setCards] = useState<Card[]>([]);
+    const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
+    const [showStickerPicker, setShowStickerPicker] = useState(false);
 
     useEffect(() => { fetchProfile(); fetchGuildEmojis(); }, []);
 
@@ -45,6 +47,16 @@ const ProfileSettings: React.FC = () => {
             if (res.ok) {
                 const data = await res.json();
                 setProfile(data || {});
+                
+                // Migrate old grid-based cards to px-based if needed
+                const existingCards = (data?.overviewConfig?.cards || []);
+                if (existingCards.length > 0 && existingCards[0].w !== undefined) {
+                    // Has grid-based layout, migrate
+                    const migratedCards = migrateGridToPx(existingCards, 600, 12);
+                    setCards(migratedCards);
+                } else {
+                    setCards(existingCards);
+                }
             } else {
                 setError('プロフィールが取得できませんでした');
             }
@@ -73,59 +85,64 @@ const ProfileSettings: React.FC = () => {
         setProfile({ ...(profile || {}), location: { label: c.label, code: c.code, emoji: c.emoji, url: loc.url } });
     };
 
-    // Overview cards handling
+    // Overview cards handling (updated for px-based)
     const addCard = (type: 'text' | 'image' | 'sticker') => {
-        const cards = (profile.overviewConfig && (profile.overviewConfig as any).cards) || [];
         const id = `card_${Date.now()}`;
-        const newCard = { id, type, content: type === 'text' ? '新しいテキスト' : '', w: 4, h: 2, x: 0, y: 0 };
-        const updated = { ...(profile.overviewConfig || {}), cards: [...cards, newCard] };
-        setProfile({ ...(profile || {}), overviewConfig: updated });
+        const newCard: Card = {
+            id,
+            type,
+            content: type === 'text' ? '新しいテキスト' : '',
+            x: 16,
+            y: 16,
+            pxW: 160,
+            pxH: 80,
+            zIndex: cards.length + 1,
+        };
+        setCards([...cards, newCard]);
+        setSelectedCardId(id);
     };
 
-    const updateCard = (id: string, patch: any) => {
-        const cards = (profile.overviewConfig && (profile.overviewConfig as any).cards) || [];
-        const next = cards.map((c: any) => c.id === id ? { ...c, ...patch } : c);
-        setProfile({ ...(profile || {}), overviewConfig: { ...(profile.overviewConfig || {}), cards: next } });
+    const updateCard = (id: string, patch: Partial<Card>) => {
+        setCards(cards.map((c) => (c.id === id ? { ...c, ...patch } : c)));
     };
 
     const removeCard = (id: string) => {
-        const cards = (profile.overviewConfig && (profile.overviewConfig as any).cards) || [];
-        const next = cards.filter((c: any) => c.id !== id);
-        setProfile({ ...(profile || {}), overviewConfig: { ...(profile.overviewConfig || {}), cards: next } });
+        setCards(cards.filter((c) => c.id !== id));
+        if (selectedCardId === id) setSelectedCardId(null);
     };
 
-    const moveCard = (id: string, dir: 'up' | 'down') => {
-        const cards = (profile.overviewConfig && (profile.overviewConfig as any).cards) || [];
-        const idx = cards.findIndex((c: any) => c.id === id);
-        if (idx === -1) return;
-        const swap = dir === 'up' ? idx - 1 : idx + 1;
-        if (swap < 0 || swap >= cards.length) return;
-        const copy = [...cards];
-        const tmp = copy[swap];
-        copy[swap] = copy[idx];
-        copy[idx] = tmp;
-        setProfile({ ...(profile || {}), overviewConfig: { ...(profile.overviewConfig || {}), cards: copy } });
+    const duplicateCard = (id: string) => {
+        const card = cards.find((c) => c.id === id);
+        if (!card) return;
+        const newId = `card_${Date.now()}`;
+        const newCard = { ...card, id: newId, x: card.x + 16, y: card.y + 16 };
+        setCards([...cards, newCard]);
+        setSelectedCardId(newId);
     };
 
-    const layoutFromCards = () => {
-        const cards = (profile.overviewConfig && (profile.overviewConfig as any).cards) || [];
-        return cards.map((c: any, idx: number) => ({ i: c.id, x: c.x || (idx * 2) % 12, y: c.y || Math.floor(idx / 6) * 2, w: c.w || 4, h: c.h || 2 }));
+    const bringForward = (id: string) => {
+        const card = cards.find((c) => c.id === id);
+        if (!card) return;
+        const maxZ = Math.max(...cards.map((c) => c.zIndex || 1));
+        updateCard(id, { zIndex: maxZ + 1 });
     };
 
-    const onLayoutChange = (layout: any[]) => {
-        // map back to profile.overviewConfig.cards positions
-        const cards = (profile.overviewConfig && (profile.overviewConfig as any).cards) || [];
-        const next = cards.map((c: any) => {
-            const l = layout.find(x => x.i === c.id);
-            if (l) return { ...c, x: l.x, y: l.y, w: l.w, h: l.h };
-            return c;
-        });
-        setProfile({ ...(profile || {}), overviewConfig: { ...(profile.overviewConfig || {}), cards: next } });
+    const sendBackward = (id: string) => {
+        const card = cards.find((c) => c.id === id);
+        if (!card) return;
+        const minZ = Math.min(...cards.map((c) => c.zIndex || 1));
+        updateCard(id, { zIndex: Math.max(1, minZ - 1) });
     };
 
     const handleSave = async () => {
         try {
-            const body = { ...profile };
+            const body = {
+                ...profile,
+                overviewConfig: {
+                    ...(profile.overviewConfig || {}),
+                    cards: cards,
+                },
+            };
             const res = await fetch('/api/user/profile/custom', {
                 method: 'PUT',
                 credentials: 'include',
@@ -147,6 +164,7 @@ const ProfileSettings: React.FC = () => {
     if (loading) return <div style={{padding:20}}>読み込み中...</div>;
 
     const loc = profile.location || {};
+    const selectedCard = cards.find((c) => c.id === selectedCardId) || null;
 
     return (
         <div className={styles.container}>
@@ -181,28 +199,21 @@ const ProfileSettings: React.FC = () => {
                             )}
                         </div>
 
-                        {/* Preview overview grid (draggable/resizable) */}
-                        <div className={styles.previewGrid}>
-                            <ResponsiveGridLayout
-                                className="layout"
-                                layouts={{ lg: layoutFromCards() }}
-                                breakpoints={{ lg: 1200, md: 996, sm: 768, xs: 480 }}
-                                cols={{ lg: 12, md: 10, sm: 8, xs: 4 }}
-                                rowHeight={80}
-                                onLayoutChange={(_layout: any, layouts: any) => onLayoutChange((layouts as any).lg || _layout)}
-                                isResizable
-                                isDraggable
-                            >
-                                {((profile.overviewConfig && (profile.overviewConfig as any).cards) || []).map((c: any) => (
-                                    <div key={c.id} data-grid={{ x: c.x || 0, y: c.y || 0, w: c.w || 4, h: c.h || 2 }} className={styles.previewCard}>
-                                        {c.type === 'text' && <div className={styles.cardText}>{c.content}</div>}
-                                        {c.type === 'image' && c.content && <img src={c.content} alt="card" className={styles.cardImage} />}
-                                        {c.type === 'sticker' && (
-                                            c.content && /^https?:\/\//.test(c.content) ? <img src={c.content} className={styles.cardSticker} alt="sticker"/> : <div className={styles.cardStickerText}>{c.content}</div>
-                                        )}
-                                    </div>
-                                ))}
-                            </ResponsiveGridLayout>
+                        {/* New react-rnd based editor canvas */}
+                        <div style={{ marginTop: 16 }}>
+                            <OverviewEditorCanvas
+                                cards={cards}
+                                width={360}
+                                height={400}
+                                onUpdateCard={updateCard}
+                                onSelectCard={setSelectedCardId}
+                                selectedId={selectedCardId}
+                                gridSnap={8}
+                                onDuplicateCard={duplicateCard}
+                                onDeleteCard={removeCard}
+                                onBringForward={bringForward}
+                                onSendBackward={sendBackward}
+                            />
                         </div>
                     </div>
                 </div>
@@ -247,49 +258,37 @@ const ProfileSettings: React.FC = () => {
                         </div>
                     </div>
 
-                    {/* Overview editor */}
+                    {/* New card editor controls */}
                     <div className={styles.formGroup}>
                         <label>概要カスタム（カード）</label>
                         <div className={styles.cardToolbar}>
                             <button type="button" onClick={() => addCard('text')}>テキスト追加</button>
                             <button type="button" onClick={() => addCard('image')}>画像追加</button>
-                            <button type="button" onClick={() => addCard('sticker')}>ステッカー追加</button>
-                        </div>
-                        <div className={styles.cardList}>
-                            {((profile.overviewConfig && (profile.overviewConfig as any).cards) || []).map((c: any) => (
-                                <div key={c.id} className={styles.cardRow}>
-                                    <div className={styles.cardRowMain}>
-                                        <strong>{c.type}</strong>
-                                        {c.type === 'sticker' ? (
-                                            <select value={c.content || ''} onChange={(e) => updateCard(c.id, { content: e.target.value })}>
-                                                <option value="">-- ステッカー選択 --</option>
-                                                {guildEmojis.map(g => (
-                                                    <optgroup key={g.guildId} label={g.guildName}>
-                                                        {g.emojis.map((em: any) => (
-                                                            <option key={`${g.guildId}_${em.id}`} value={em.url}>{em.name ? `${em.name}` : em.url}</option>
-                                                        ))}
-                                                    </optgroup>
-                                                ))}
-                                            </select>
-                                        ) : (
-                                            <input value={c.content || ''} onChange={(e) => updateCard(c.id, { content: e.target.value })} placeholder={c.type === 'text' ? 'テキスト' : '画像URLまたは絵文字'} />
-                                        )}
-                                        <div className={styles.sizeControls}>
-                                            <label>幅</label>
-                                            <input type="number" value={c.w || 4} min={1} max={12} onChange={(e) => updateCard(c.id, { w: Number(e.target.value) })} />
-                                            <label>高さ</label>
-                                            <input type="number" value={c.h || 2} min={1} max={12} onChange={(e) => updateCard(c.id, { h: Number(e.target.value) })} />
-                                        </div>
-                                    </div>
-                                    <div className={styles.cardRowActions}>
-                                        <button onClick={() => moveCard(c.id, 'up')}>↑</button>
-                                        <button onClick={() => moveCard(c.id, 'down')}>↓</button>
-                                        <button onClick={() => removeCard(c.id)}>削除</button>
-                                    </div>
-                                </div>
-                            ))}
+                            <button type="button" onClick={() => { addCard('sticker'); setShowStickerPicker(true); }}>ステッカー追加</button>
                         </div>
                     </div>
+
+                    {/* Card Inspector */}
+                    {selectedCard && (
+                        <CardInspector
+                            card={selectedCard}
+                            onChange={(patch) => updateCard(selectedCard.id, patch)}
+                            onClose={() => setSelectedCardId(null)}
+                        />
+                    )}
+
+                    {/* Sticker Picker */}
+                    {showStickerPicker && (
+                        <StickerPicker
+                            guildEmojis={guildEmojis}
+                            onPick={(url) => {
+                                if (selectedCardId) {
+                                    updateCard(selectedCardId, { content: url });
+                                }
+                                setShowStickerPicker(false);
+                            }}
+                        />
+                    )}
 
                     <div className={styles.formGroup}>
                         <label>ウェブサイト</label>

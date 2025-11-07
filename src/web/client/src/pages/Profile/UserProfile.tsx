@@ -65,7 +65,7 @@ const UserProfile: React.FC = () => {
     const navigate = useNavigate();
     const [loading, setLoading] = useState(true);
     const [profileData, setProfileData] = useState<UserProfile | null>(null);
-    const [activeTab, setActiveTab] = useState<'posts' | 'servers' | 'activity'>('posts');
+    const [activeTab, setActiveTab] = useState<'posts' | 'servers' | 'ranking'>('posts');
     const [isOwnProfile, setIsOwnProfile] = useState(true);
     const [sessionUser, setSessionUser] = useState<{ userId?: string; username?: string } | null>(null);
     const [error, setError] = useState<string | null>(null);
@@ -79,7 +79,7 @@ const UserProfile: React.FC = () => {
     }, [urlUserId]);
 
     useEffect(() => {
-        if (activeTab === 'activity' && profileData) fetchGuildTopRankings();
+        if (activeTab === 'ranking' && profileData) fetchGuildTopRankings();
     }, [activeTab, profileData]);
 
     const fetchGuildTopRankings = async () => {
@@ -409,11 +409,11 @@ const UserProfile: React.FC = () => {
                     <span>サーバー</span>
                 </button>
                 <button
-                    className={`${styles.tab} ${activeTab === 'activity' ? styles.tabActive : ''}`}
-                    onClick={() => setActiveTab('activity')}
+                    className={`${styles.tab} ${activeTab === 'ranking' ? styles.tabActive : ''}`}
+                    onClick={() => setActiveTab('ranking')}
                 >
-                    <span className="material-icons">timeline</span>
-                    <span>アクティビティ</span>
+                    <span className="material-icons">emoji_events</span>
+                    <span>ランキング</span>
                 </button>
             </div>
 
@@ -506,28 +506,54 @@ const UserProfile: React.FC = () => {
                     </div>
                 )}
 
-                {activeTab === 'activity' && (
-                    <div className={styles.activity}>
+                {activeTab === 'ranking' && (
+                    <div className={styles.ranking}>
                         {guildTops.length === 0 ? (
-                            <p className={styles.comingSoon}>ランキング情報を取得中です...</p>
+                            <p className={styles.comingSoon}>ランキング情報を取得中...</p>
                         ) : (
-                            <div className={styles.rankingOverview}>
-                                <h3>サーバー別トップ (PT順)</h3>
-                                <div style={{display:'grid',gap:12}}>
-                                    {guildTops.map((g, i) => (
-                                        <div key={g.guild.id || i} className={styles.rankingItem} style={{padding:12, border:'1px solid #E9ECEF', borderRadius:10}}>
-                                            <div style={{display:'flex',alignItems:'center',gap:12}}>
-                                                <div style={{width:48,height:48,overflow:'hidden',borderRadius:8}}>
-                                                    <img src={g.top.avatar || ''} alt="avatar" style={{width:'100%',height:'100%',objectFit:'cover'}} />
-                                                </div>
-                                                <div style={{flex:1}}>
-                                                    <div style={{fontWeight:700}}>{g.top.username || g.top.id}</div>
-                                                    <div style={{fontSize:12,color:'#666'}}>{g.guild.name} • {(g.top.xp || g.top.score || 0)} Pt</div>
+                            <div className={styles.rankingList}>
+                                {guildTops.map((g, i) => (
+                                    <div key={g.guild.id || i} className={styles.rankingCard}>
+                                        <div className={styles.rankingHeader}>
+                                            <div className={styles.guildInfo}>
+                                                {g.guild.iconURL ? (
+                                                    <img src={g.guild.iconURL} alt={g.guild.name} className={styles.guildIcon} />
+                                                ) : (
+                                                    <div className={styles.guildIconPlaceholder}>
+                                                        {g.guild.name.charAt(0).toUpperCase()}
+                                                    </div>
+                                                )}
+                                                <div>
+                                                    <h4 className={styles.guildName}>{g.guild.name}</h4>
+                                                    <p className={styles.rankingLabel}>最高ランキング</p>
                                                 </div>
                                             </div>
                                         </div>
-                                    ))}
-                                </div>
+                                        <div className={styles.rankingDetails}>
+                                            <div className={styles.rankingItem}>
+                                                <span className="material-icons">emoji_events</span>
+                                                <div>
+                                                    <div className={styles.rankingValue}>{i + 1}位</div>
+                                                    <div className={styles.rankingKey}>順位</div>
+                                                </div>
+                                            </div>
+                                            <div className={styles.rankingItem}>
+                                                <span className="material-icons">stars</span>
+                                                <div>
+                                                    <div className={styles.rankingValue}>{(g.top.xp || g.top.score || 0).toLocaleString()}</div>
+                                                    <div className={styles.rankingKey}>ポイント</div>
+                                                </div>
+                                            </div>
+                                            <div className={styles.rankingItem}>
+                                                <span className="material-icons">person</span>
+                                                <div>
+                                                    <div className={styles.rankingValue}>{g.top.username || g.top.id}</div>
+                                                    <div className={styles.rankingKey}>トップユーザー</div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
                             </div>
                         )}
                     </div>
