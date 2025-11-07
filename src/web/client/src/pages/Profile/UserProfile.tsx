@@ -67,13 +67,43 @@ const UserProfile: React.FC = () => {
     const [profileData, setProfileData] = useState<UserProfile | null>(null);
     const [activeTab, setActiveTab] = useState<'posts' | 'servers' | 'activity'>('posts');
     const [isOwnProfile, setIsOwnProfile] = useState(true);
+    const [sessionUser, setSessionUser] = useState<{ userId?: string; username?: string } | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [showEditModal, setShowEditModal] = useState(false);
     const [editData, setEditData] = useState<any>({});
+    const [overviewRanking, setOverviewRanking] = useState<any | null>(null);
+    const [guildTops, setGuildTops] = useState<Array<any>>([]);
 
     useEffect(() => {
         checkAuthentication();
     }, [urlUserId]);
+
+    useEffect(() => {
+        if (activeTab === 'activity' && profileData) fetchGuildTopRankings();
+    }, [activeTab, profileData]);
+
+    const fetchGuildTopRankings = async () => {
+        try {
+            const tops: any[] = [];
+            for (const g of profileData!.guilds) {
+                try {
+                    const resp = await fetch(`/api/rank/guild/${g.id}`, { credentials: 'include' });
+                    if (!resp.ok) continue;
+                    const rd = await resp.json();
+                    if (rd && rd.leaderboard && rd.leaderboard.length > 0) {
+                        tops.push({ guild: rd.guild || g, top: rd.leaderboard[0] });
+                    }
+                } catch (e) {
+                    // ignore per-guild errors
+                }
+            }
+            // sort by top.xp (or score) descending
+            tops.sort((a, b) => (b.top.xp || 0) - (a.top.xp || 0));
+            setGuildTops(tops);
+        } catch (e) {
+            console.error('Failed to fetch guild top rankings', e);
+        }
+    };
 
     const checkAuthentication = async () => {
         try {
@@ -83,7 +113,37 @@ const UserProfile: React.FC = () => {
 
             if (response.ok) {
                 const sessionData = await response.json();
-                setIsOwnProfile(!urlUserId || sessionData.userId === urlUserId);
+
+                // session endpoint may return { authenticated: true, user: {...} } or a flat user object
+                const userObj = sessionData.user || sessionData;
+
+                // save session user for later resolution
+                setSessionUser({ userId: userObj.userId, username: userObj.username });
+
+                // If no specific urlUserId was requested, redirect to a canonical username-based path.
+                if (!urlUserId) {
+                    const rawName = (userObj && (userObj.username || userObj.userId)) || '';
+                    const slug = String(rawName).replace(/^@/, '').split('#')[0];
+                    if (slug) {
+                        navigate(`/profile/${encodeURIComponent(slug)}`, { replace: true });
+                        return; // navigation will re-run effect with new param
+                    }
+                }
+
+                // mark whether viewing own profile; support both shapes (numeric id or username slug)
+                const currentUserId = (userObj && userObj.userId) || null;
+                const currentUsername = (userObj && userObj.username) || '';
+                let own = false;
+                if (!urlUserId) {
+                    own = true;
+                } else if (currentUserId && currentUserId === urlUserId) {
+                    own = true;
+                } else if (currentUsername) {
+                    const sessionSlug = String(currentUsername).replace(/^@/, '').split('#')[0];
+                    const urlSlug = String(urlUserId).replace(/^@/, '').split('#')[0];
+                    if (sessionSlug.toLowerCase() === urlSlug.toLowerCase()) own = true;
+                }
+                setIsOwnProfile(own);
                 loadUserProfile();
             } else {
                 setLoading(false);
@@ -96,12 +156,44 @@ const UserProfile: React.FC = () => {
 
     const loadUserProfile = async () => {
         try {
-            const queryParam = urlUserId ? `?userId=${urlUserId}` : '';
+            // If the url param is a slug that matches the current session username, use numeric userId
+            let queryParam = '';
+            if (urlUserId) {
+                const slug = String(urlUserId).replace(/^@/, '').split('#')[0];
+                if (sessionUser && sessionUser.username) {
+                    const sessionSlug = String(sessionUser.username).replace(/^@/, '').split('#')[0];
+                    if (sessionSlug.toLowerCase() === slug.toLowerCase() && sessionUser.userId) {
+                        queryParam = `?userId=${sessionUser.userId}`;
+                    } else {
+                        queryParam = `?userId=${slug}`;
+                    }
+                } else {
+                    queryParam = `?userId=${slug}`;
+                }
+            }
+
             const response = await fetch(`/api/user/profile${queryParam}`, { credentials: 'include' });
 
             if (response.ok) {
                 const data = await response.json();
                 setProfileData(data);
+                // If user has overviewConfig requesting ranking, fetch top for the first widget
+                try {
+                    const widgets = data.customProfile?.overviewConfig?.widgets || [];
+                    const rankingWidget = widgets.find((w: any) => w.type === 'ranking' && w.guildId);
+                    if (rankingWidget) {
+                        const resp = await fetch(`/api/rank/guild/${rankingWidget.guildId}`, { credentials: 'include' });
+                        if (resp.ok) {
+                            const rd = await resp.json();
+                            // rd.leaderboard is array sorted; take first
+                            if (rd.leaderboard && rd.leaderboard.length > 0) {
+                                setOverviewRanking({ guild: rd.guild, top: rd.leaderboard[0] });
+                            }
+                        }
+                    }
+                } catch (e) {
+                    // ignore overview ranking errors
+                }
             } else if (response.status === 403) {
                 setError('このプロフィールは非公開です');
             } else if (response.status === 404) {
@@ -122,16 +214,7 @@ const UserProfile: React.FC = () => {
     };
 
     const handleEditProfile = () => {
-        setEditData({
-            displayName: profileData?.customProfile?.displayName || '',
-            bio: profileData?.customProfile?.bio || '',
-            pronouns: profileData?.customProfile?.pronouns || '',
-            location: profileData?.customProfile?.location || '',
-            website: profileData?.customProfile?.website || '',
-            banner: profileData?.customProfile?.banner || { type: 'color', value: '#1DA1F2' },
-            favoriteEmojis: profileData?.customProfile?.favoriteEmojis || []
-        });
-        setShowEditModal(true);
+        navigate('/settings/profile');
     };
 
     const handleSaveProfile = async () => {
@@ -258,10 +341,25 @@ const UserProfile: React.FC = () => {
                     
                     <div className={styles.metadata}>
                         {profileData.customProfile?.location && (
-                            <span className={styles.metaItem}>
-                                <span className="material-icons">place</span>
-                                {profileData.customProfile.location}
-                            </span>
+                            (() => {
+                                const loc = profileData.customProfile!.location as any;
+                                const label = loc.label || '';
+                                const emoji = loc.emoji || '';
+                                if (loc.url) {
+                                    return (
+                                        <a className={styles.metaItem} href={loc.url} target="_blank" rel="noopener noreferrer">
+                                            <span className="material-icons">place</span>
+                                            <span style={{marginLeft:6}}>{emoji} {label}</span>
+                                        </a>
+                                    );
+                                }
+                                return (
+                                    <span className={styles.metaItem}>
+                                        <span className="material-icons">place</span>
+                                        <span style={{marginLeft:6}}>{emoji} {label}</span>
+                                    </span>
+                                );
+                            })()
                         )}
                         {profileData.customProfile?.website && (
                             <a href={profileData.customProfile.website} target="_blank" rel="noopener noreferrer" className={styles.metaItem}>
@@ -353,6 +451,33 @@ const UserProfile: React.FC = () => {
                                 </div>
                             </div>
                         </div>
+                        {overviewRanking && (
+                            <div className={styles.rankingOverview}>
+                                <h3>ランキング (トップ)</h3>
+                                <div className={styles.rankingItem}>
+                                    <img src={overviewRanking.top.avatar || ''} alt="avatar" style={{width:48,height:48,borderRadius:8}} />
+                                    <div style={{marginLeft:10}}>
+                                        <div style={{fontWeight:700}}>{overviewRanking.top.username}</div>
+                                        <div style={{fontSize:12,color:'#666'}}>{overviewRanking.guild.name} • {overviewRanking.top.xp} Pt</div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Render overviewConfig cards if present */}
+                        {profileData.customProfile?.overviewConfig && ((profileData.customProfile.overviewConfig as any).cards || []).length > 0 && (
+                            <div className={styles.previewGrid}>
+                                {((profileData.customProfile.overviewConfig as any).cards || []).map((c: any) => (
+                                    <div key={c.id} className={styles.previewCard} style={{ gridColumn: `span ${c.w || 4}`, gridRow: `span ${c.h || 2}` }}>
+                                        {c.type === 'text' && <div className={styles.cardText}>{c.content}</div>}
+                                        {c.type === 'image' && c.content && <img src={c.content} alt="card" className={styles.cardImage} />}
+                                        {c.type === 'sticker' && (
+                                            c.content && /^https?:\/\//.test(c.content) ? <img src={c.content} className={styles.cardSticker} alt="sticker"/> : <div className={styles.cardStickerText}>{c.content}</div>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+                        )}
                     </div>
                 )}
 
@@ -383,83 +508,33 @@ const UserProfile: React.FC = () => {
 
                 {activeTab === 'activity' && (
                     <div className={styles.activity}>
-                        <p className={styles.comingSoon}>アクティビティデータは準備中です</p>
+                        {guildTops.length === 0 ? (
+                            <p className={styles.comingSoon}>ランキング情報を取得中です...</p>
+                        ) : (
+                            <div className={styles.rankingOverview}>
+                                <h3>サーバー別トップ (PT順)</h3>
+                                <div style={{display:'grid',gap:12}}>
+                                    {guildTops.map((g, i) => (
+                                        <div key={g.guild.id || i} className={styles.rankingItem} style={{padding:12, border:'1px solid #E9ECEF', borderRadius:10}}>
+                                            <div style={{display:'flex',alignItems:'center',gap:12}}>
+                                                <div style={{width:48,height:48,overflow:'hidden',borderRadius:8}}>
+                                                    <img src={g.top.avatar || ''} alt="avatar" style={{width:'100%',height:'100%',objectFit:'cover'}} />
+                                                </div>
+                                                <div style={{flex:1}}>
+                                                    <div style={{fontWeight:700}}>{g.top.username || g.top.id}</div>
+                                                    <div style={{fontSize:12,color:'#666'}}>{g.guild.name} • {(g.top.xp || g.top.score || 0)} Pt</div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
                     </div>
                 )}
             </div>
 
-            {/* Edit Modal */}
-            {showEditModal && (
-                <div className={styles.modal} onClick={() => setShowEditModal(false)}>
-                    <div className={styles.modalContent} onClick={(e) => e.stopPropagation()}>
-                        <div className={styles.modalHeader}>
-                            <h2>プロフィールを編集</h2>
-                            <button onClick={() => setShowEditModal(false)} className={styles.closeButton}>
-                                <span className="material-icons">close</span>
-                            </button>
-                        </div>
-                        <div className={styles.modalBody}>
-                            <div className={styles.formGroup}>
-                                <label>表示名</label>
-                                <input
-                                    type="text"
-                                    value={editData.displayName}
-                                    onChange={(e) => setEditData({ ...editData, displayName: e.target.value })}
-                                    placeholder="表示名を入力"
-                                    maxLength={32}
-                                />
-                            </div>
-                            <div className={styles.formGroup}>
-                                <label>自己紹介</label>
-                                <textarea
-                                    value={editData.bio}
-                                    onChange={(e) => setEditData({ ...editData, bio: e.target.value })}
-                                    placeholder="自己紹介を入力"
-                                    maxLength={500}
-                                    rows={4}
-                                />
-                                <span className={styles.charCount}>{editData.bio?.length || 0}/500</span>
-                            </div>
-                            <div className={styles.formGroup}>
-                                <label>代名詞</label>
-                                <input
-                                    type="text"
-                                    value={editData.pronouns}
-                                    onChange={(e) => setEditData({ ...editData, pronouns: e.target.value })}
-                                    placeholder="例: she/her, he/him"
-                                />
-                            </div>
-                            <div className={styles.formGroup}>
-                                <label>場所</label>
-                                <input
-                                    type="text"
-                                    value={editData.location}
-                                    onChange={(e) => setEditData({ ...editData, location: e.target.value })}
-                                    placeholder="場所を入力"
-                                    maxLength={100}
-                                />
-                            </div>
-                            <div className={styles.formGroup}>
-                                <label>ウェブサイト</label>
-                                <input
-                                    type="url"
-                                    value={editData.website}
-                                    onChange={(e) => setEditData({ ...editData, website: e.target.value })}
-                                    placeholder="https://example.com"
-                                />
-                            </div>
-                        </div>
-                        <div className={styles.modalFooter}>
-                            <button onClick={() => setShowEditModal(false)} className={styles.cancelButton}>
-                                キャンセル
-                            </button>
-                            <button onClick={handleSaveProfile} className={styles.saveButton}>
-                                保存
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
+            {/* Editing moved to full-screen settings page */}
         </div>
     );
 };

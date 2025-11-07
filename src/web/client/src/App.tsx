@@ -20,6 +20,7 @@ const MinecraftViewer = React.lazy(() => import('./pages/Tools/MinecraftViewer/M
 import { useAuthGuard } from './hooks/useAuthGuard';
 import HomePage from './pages/Home';
 import NotFoundPage from './pages/NotFound';
+import ProfileSettings from './pages/Profile/ProfileSettings';
 
 // Protected route component for staff access
 const StaffGuard: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -56,6 +57,7 @@ const App: React.FC = () => {
           <Route path="/profile" element={<UserProfile />} />
           <Route path="/profile/:userId" element={<UserProfile />} />
           <Route path="/settings" element={<SettingsListPage />} />
+          <Route path="/settings/profile" element={<ProfileSettings />} />
           <Route path="/settings/:guildId" element={<SettingsPage />} />
           <Route path="/feedback" element={<FeedbackPage />} />
           <Route path="/rank" element={<RankBoardHome />} />

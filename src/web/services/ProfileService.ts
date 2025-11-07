@@ -41,6 +41,9 @@ export class ProfileService {
       location: profile.location !== undefined ? profile.location : existing?.location,
       website: profile.website !== undefined ? profile.website : existing?.website,
       banner: profile.banner !== undefined ? profile.banner : existing?.banner,
+      // new fields
+      overviewConfig: profile.overviewConfig !== undefined ? profile.overviewConfig : existing?.overviewConfig,
+      activitySource: profile.activitySource !== undefined ? profile.activitySource : existing?.activitySource,
       themeColor: profile.themeColor !== undefined ? profile.themeColor : existing?.themeColor,
       favoriteEmojis: profile.favoriteEmojis !== undefined ? profile.favoriteEmojis : existing?.favoriteEmojis,
       badges: profile.badges !== undefined ? profile.badges : existing?.badges,
@@ -67,10 +70,24 @@ export class ProfileService {
       errors.push('Bio must be 500 characters or less');
     }
     
-    if (profile.location && profile.location.length > 100) {
-      errors.push('Location must be 100 characters or less');
+    // Backwards-compatible: some persisted profiles may have a plain string location.
+    if (profile.location && typeof (profile.location as any) === 'string') {
+      const locStr = profile.location as unknown as string;
+      if (locStr.length > 100) {
+        errors.push('Location must be 100 characters or less');
+      }
     }
-    
+
+    // If location is structured, validate label and optional url
+    if (profile.location && typeof profile.location === 'object') {
+      if (profile.location.label && profile.location.label.length > 100) {
+        errors.push('Location label must be 100 characters or less');
+      }
+      if (profile.location.url) {
+        try { new URL(profile.location.url); } catch { errors.push('Invalid location URL'); }
+      }
+    }
+
     if (profile.website) {
       try {
         new URL(profile.website);
@@ -85,6 +102,45 @@ export class ProfileService {
     
     if (profile.favoriteEmojis && profile.favoriteEmojis.length > 10) {
       errors.push('Maximum 10 favorite emojis allowed');
+    }
+
+    if (profile.overviewConfig && profile.overviewConfig.widgets && profile.overviewConfig.widgets.length > 6) {
+      errors.push('Maximum 6 overview widgets allowed');
+    }
+
+    // New: validate overviewConfig.cards if present
+    if (profile.overviewConfig && (profile.overviewConfig as any).cards) {
+      const cards = (profile.overviewConfig as any).cards;
+      if (!Array.isArray(cards)) {
+        errors.push('overviewConfig.cards must be an array');
+      } else {
+        if (cards.length > 48) errors.push('Maximum 48 overview cards allowed');
+        for (const c of cards) {
+          if (!c.type || !['text', 'image', 'sticker'].includes(c.type)) {
+            errors.push('Invalid overview card type');
+            break;
+          }
+          if (c.type === 'image' && c.content) {
+            try { new URL(c.content); } catch { errors.push('Invalid image URL in overview card'); break; }
+          }
+          // optional layout position validation
+          if (c.x !== undefined && (c.x < 0 || c.x > 1000)) { errors.push('Invalid card x position'); break; }
+          if (c.y !== undefined && (c.y < 0 || c.y > 1000)) { errors.push('Invalid card y position'); break; }
+          if (c.type === 'sticker' && c.content && c.content.length > 200) {
+            errors.push('Sticker content too long'); break;
+          }
+          if (c.type === 'text' && c.content && c.content.length > 2000) {
+            errors.push('Text card content too long'); break;
+          }
+          // validate size params
+          if (c.w && (c.w < 1 || c.w > 12)) { errors.push('Card width must be between 1 and 12'); break; }
+          if (c.h && (c.h < 1 || c.h > 12)) { errors.push('Card height must be between 1 and 12'); break; }
+        }
+      }
+    }
+
+    if (profile.activitySource && !['ranking', 'stats', 'none'].includes(profile.activitySource)) {
+      errors.push('Invalid activitySource');
     }
     
     if (profile.displayName && profile.displayName.length > 32) {

@@ -9,7 +9,13 @@ export interface UserCustomProfile {
   displayName?: string;           // カスタム表示名
   bio?: string;                   // 自己紹介文 (最大500文字)
   pronouns?: string;              // 代名詞 (例: "he/him", "she/her")
-  location?: string;              // 場所 (最大100文字)
+  // 場所情報: 表示ラベルと任意のリンク（例: 地図や外部プロフィール）
+  location?: {
+    label: string;                // 表示ラベル (例: "日本")
+    url?: string;                 // 任意のリンク (例: マップや外部ページ)
+    code?: string;                // ISO国コードなど (例: "JP")
+    emoji?: string;               // 国旗やアイコン絵文字 (例: "🇯🇵")
+  };
   website?: string;               // ウェブサイトURL
   
   // ビジュアルカスタマイズ
@@ -45,6 +51,18 @@ export interface UserCustomProfile {
     showActivity: boolean;        // アクティビティを表示するか
     allowPublicView: boolean;     // 他のユーザーからの閲覧を許可するか
   };
+
+  // 概要表示の設定 (表示ウィジェットなど)
+  overviewConfig?: {
+    widgets?: Array<{
+      type: 'ranking' | 'rankPosition' | 'custom' | 'stats';
+      guildId?: string;
+      preset?: string;
+    }>;
+  };
+
+  // アクティビティ表示のソース (例: 'ranking' でランキングを表示)
+  activitySource?: 'ranking' | 'stats' | 'none';
   
   // メタデータ
   createdAt: string;              // プロフィール作成日時

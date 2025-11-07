@@ -81,7 +81,75 @@ export function createUserRoutes(
             }
 
             // Query parameter で指定されたユーザーIDまたは自分のID
-            const requestedUserId = (req.query.userId as string) || currentUser.userId;
+            let requestedUserId = (req.query.userId as string) || currentUser.userId;
+
+            // If the client supplied a username slug (e.g. "@koukun_#0" or "koukun_#0" or "koukun_"),
+            // normalize it and try to resolve to a Discord user ID.
+            if (requestedUserId && !/^[0-9]+$/.test(requestedUserId)) {
+                const slug = String(requestedUserId).replace(/^@/, '').split('#')[0];
+
+                console.info(`[UserProfile] resolving slug='${requestedUserId}' -> slug='${slug}'`);
+
+                // 1) Try to resolve from in-memory sessions (active sessions)
+                let resolved: string | null = null;
+                for (const s of sessions.values()) {
+                    try {
+                        const sname = (s.username || '').replace(/^@/, '').split('#')[0];
+                        if (sname && sname.toLowerCase() === slug.toLowerCase()) {
+                            resolved = s.userId;
+                            break;
+                        }
+                    } catch (err) { console.warn('[UserProfile] session iteration error', err); }
+                }
+
+                // 2) Try to resolve from bot's user cache
+                if (!resolved) {
+                    try {
+                        const found = botClient.client.users.cache.find(u => u.username && u.username.toLowerCase() === slug.toLowerCase());
+                        if (found) {
+                            resolved = found.id;
+                        }
+                    } catch (e) { console.warn('[UserProfile] user cache lookup failed', e); }
+                }
+
+                // 3) If still unresolved, try searching guild members (will use Discord member search per guild).
+                if (!resolved) {
+                    try {
+                        const botGuilds = botClient.getGuildList();
+                        for (const g of botGuilds) {
+                            try {
+                                const guildObj = botClient.client.guilds.cache.get(g.id as string);
+                                if (!guildObj) continue;
+
+                                // Try cached members first
+                                const cachedMember = guildObj.members.cache.find(m => m.user && m.user.username && m.user.username.toLowerCase() === slug.toLowerCase());
+                                if (cachedMember) {
+                                    resolved = cachedMember.user.id;
+                                    break;
+                                }
+
+                                // Fallback: use guild member search (may require GUILD_MEMBERS intent)
+                                try {
+                                    const fetched = await guildObj.members.fetch({ query: slug, limit: 1 });
+                                    if (fetched && fetched.size > 0) {
+                                        const first = fetched.first();
+                                        if (first) {
+                                            resolved = first.user.id;
+                                            break;
+                                        }
+                                    }
+                                } catch (fetchErr) { console.warn(`[UserProfile] guild member fetch failed for guild=${g.id}`, fetchErr); }
+                            } catch (perGuildErr) { console.warn('[UserProfile] per-guild resolution error', perGuildErr); }
+                        }
+                    } catch (e) { console.warn('[UserProfile] guilds iteration failed', e); }
+                }
+
+                if (resolved) {
+                    requestedUserId = resolved;
+                } else {
+                    console.info(`[UserProfile] failed to resolve slug='${slug}' to a userId`);
+                }
+            }
 
             // Botクライアントから参加中のサーバーを取得
             // Botが参加しているギルド一覧
@@ -446,6 +514,59 @@ export function createUserRoutes(
             res.json({ guilds: filtered });
         } catch (error) {
             console.error('Failed to get user guilds:', error);
+            res.status(500).json({ error: 'Internal server error' });
+        }
+    });
+
+    /**
+     * Get available emojis/stickers from mutual guilds the bot and user share
+     * GET /api/user/emojis
+     */
+    router.get('/emojis', verifyAuth(sessions), async (req: Request, res: Response) => {
+        try {
+            const currentUser = getCurrentUser(req);
+            if (!currentUser) return res.status(401).json({ error: 'Unauthorized' });
+
+            const botGuilds = botClient.getGuildList();
+
+            const result: Array<{ guildId: string; guildName: string; emojis: Array<{ id?: string; name?: string; url?: string; animated?: boolean; char?: string }> }> = [];
+
+            for (const g of botGuilds) {
+                try {
+                    const guildObj = botClient.client.guilds.cache.get(g.id as string);
+                    if (!guildObj) continue;
+                    // try to find if user is in this guild (best-effort)
+                    let memberPresent = false;
+                    try {
+                        const member = await guildObj.members.fetch(currentUser.userId).catch(() => null);
+                        if (member) memberPresent = true;
+                    } catch {
+                        // ignore
+                    }
+                    if (!memberPresent) continue;
+
+                    const emojisArr: any[] = [];
+                    try {
+                        // use cached emojis
+                        for (const e of guildObj.emojis.cache.values()) {
+                            const url = e.url || `https://cdn.discordapp.com/emojis/${e.id}.${e.animated ? 'gif' : 'png'}`;
+                            emojisArr.push({ id: e.id, name: e.name, url, animated: e.animated });
+                        }
+                    } catch (e) {
+                        // ignore per-guild emoji errors
+                    }
+
+                    if (emojisArr.length > 0) {
+                        result.push({ guildId: g.id, guildName: g.name, emojis: emojisArr });
+                    }
+                } catch (e) {
+                    // ignore
+                }
+            }
+
+            res.json({ guilds: result });
+        } catch (error) {
+            console.error('Failed to list guild emojis:', error);
             res.status(500).json({ error: 'Internal server error' });
         }
     });
