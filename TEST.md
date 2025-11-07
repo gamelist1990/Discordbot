@@ -16,10 +16,11 @@ npx playwright install --with-deps
 $env:WEB_DEBUG_BYPASS_AUTH='1'
 $env:WEB_DEBUG_NO_PERSIST='1'
 $env:WEB_DEBUG_PORT='3001'
-npm run webDebug
+npm run webserver
 
 # 別ターミナルで Playwright テストを実行
-npx playwright test
+bun run webserver
+又はnpmであればnpm run webserver
 ```
 
 重要: webDebug モードには WEB_DEBUG_BYPASS_AUTH があり、/__debug/create-session を叩いてテスト用セッションを作成できます。Playwright のテストではこの endpoint を呼んで Set-Cookie をブラウザコンテキストに注入すると認証済み状態でテストが可能です。
