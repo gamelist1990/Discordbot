@@ -269,10 +269,9 @@ export function createUserRoutes(
                     filteredCustomProfile = null;
                 } else {
                     // 公開設定に従って情報をフィルタリング
-                    const privacy = customProfile.privacy;
+                    // プライバシー設定に応じて情報を制限する場合はここで処理
                     filteredCustomProfile = {
                         ...customProfile,
-                        // プライバシー設定に応じて情報を制限する場合はここで処理
                     };
                 }
             }

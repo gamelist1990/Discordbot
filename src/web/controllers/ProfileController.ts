@@ -78,7 +78,7 @@ export function createProfileController(
    * バナープリセット取得
    * GET /api/user/profile/banner-presets
    */
-  router.get('/banner-presets', async (req: Request, res: Response) => {
+  router.get('/banner-presets', async (_req: Request, res: Response) => {
     try {
       const presets = profileService.getBannerPresets();
       res.json(presets);
