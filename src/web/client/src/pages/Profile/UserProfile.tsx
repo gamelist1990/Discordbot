@@ -15,51 +15,48 @@ interface GuildStats {
     role?: string;
 }
 
-interface CustomProfile {
-    userId: string;
-    displayName?: string;
-    bio?: string;
-    pronouns?: string;
-    location?: string;
-    website?: string;
-    banner?: {
-        type: 'color' | 'gradient' | 'image' | 'pattern';
-        value: string;
-        gradient?: {
-            colors: string[];
-            direction: 'horizontal' | 'vertical' | 'diagonal';
-        };
-    };
-    themeColor?: string;
-    favoriteEmojis?: Array<{
-        emoji: string;
-        label?: string;
-    }>;
-    privacy?: {
-        showStats: boolean;
-        showServers: boolean;
-        showActivity: boolean;
-        allowPublicView: boolean;
-    };
-    // Optional custom overview/dashboard configuration (widgets, cards etc.)
-    overviewConfig?: any;
-    createdAt: string;
-    updatedAt: string;
+interface FavoriteEmoji {
+    emoji: string;
+    label: string;
 }
 
-interface UserProfile {
+interface Profile {
     id: string;
     username: string;
     discriminator: string;
     avatar?: string;
-    guilds: GuildStats[];
     totalStats: {
         totalMessages: number;
         totalLinks: number;
         totalMedia: number;
         totalServers: number;
     };
-    customProfile?: CustomProfile;
+    guilds: GuildStats[];
+    customProfile?: {
+        displayName?: string;
+        pronouns?: string;
+        bio?: string;
+        location?: {
+            label: string;
+            emoji?: string;
+            url?: string;
+        };
+        website?: string;
+        favoriteEmojis?: FavoriteEmoji[];
+        banner?: {
+            type: 'color' | 'gradient' | 'image';
+            value: string;
+            gradient?: {
+                colors: string[];
+                direction: string;
+            };
+        };
+        overviewConfig?: {
+            canvasWidth: number;
+            cards: any[];
+            widgets?: any[];
+        };
+    };
 }
 
 import { migrateGridToPx, Card } from './types';
@@ -68,14 +65,14 @@ const UserProfile: React.FC = () => {
     const { userId: urlUserId } = useParams<{ userId: string }>();
     const navigate = useNavigate();
     const [loading, setLoading] = useState(true);
-    const [profileData, setProfileData] = useState<UserProfile | null>(null);
+    const [profileData, setProfileData] = useState<Profile | null>(null);
     const [activeTab, setActiveTab] = useState<'posts' | 'servers' | 'ranking'>('posts');
     const [isOwnProfile, setIsOwnProfile] = useState(true);
     const [sessionUser, setSessionUser] = useState<{ userId?: string; username?: string } | null>(null);
     const [error, setError] = useState<string | null>(null);
     // Editing flows moved to separate settings page; keep state minimal here.
-    const [overviewRanking, setOverviewRanking] = useState<any | null>(null);
-    const [guildTops, setGuildTops] = useState<Array<any>>([]);
+    const [overviewRanking, setOverviewRanking] = useState<{ guild: GuildStats; top: any; } | null>(null);
+    const [guildTops, setGuildTops] = useState<Array<{ guild: GuildStats; top: any; }>>([]);
     const previewRef = useRef<HTMLDivElement | null>(null);
     const [scale, setScale] = useState<number>(1);
 
@@ -439,65 +436,26 @@ const UserProfile: React.FC = () => {
             <div className={styles.content}>
                 {activeTab === 'posts' && (
                     <div className={styles.overview}>
-                        <div className={styles.statsGrid}>
-                            <div className={styles.statCard}>
-                                <span className="material-icons">message</span>
-                                <div>
-                                    <strong>{profileData.totalStats.totalMessages.toLocaleString()}</strong>
-                                    <p>総メッセージ数</p>
-                                </div>
-                            </div>
-                            <div className={styles.statCard}>
-                                <span className="material-icons">link</span>
-                                <div>
-                                    <strong>{profileData.totalStats.totalLinks.toLocaleString()}</strong>
-                                    <p>リンク送信</p>
-                                </div>
-                            </div>
-                            <div className={styles.statCard}>
-                                <span className="material-icons">image</span>
-                                <div>
-                                    <strong>{profileData.totalStats.totalMedia.toLocaleString()}</strong>
-                                    <p>メディア送信</p>
-                                </div>
-                            </div>
-                            <div className={styles.statCard}>
-                                <span className="material-icons">groups</span>
-                                <div>
-                                    <strong>{profileData.totalStats.totalServers}</strong>
-                                    <p>参加サーバー</p>
-                                </div>
-                            </div>
-                        </div>
-                        {overviewRanking && (
-                            <div className={styles.rankingOverview}>
-                                <h3>ランキング (トップ)</h3>
-                                <div className={styles.rankingItem}>
-                                    <img src={overviewRanking.top.avatar || ''} alt="avatar" style={{width:48,height:48,borderRadius:8}} />
-                                    <div style={{marginLeft:10}}>
-                                        <div style={{fontWeight:700}}>{overviewRanking.top.username}</div>
-                                        <div style={{fontSize:12,color:'#666'}}>{overviewRanking.guild.name} • {overviewRanking.top.xp} Pt</div>
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-
-                        {/* Render overviewConfig cards if present */}
-                        {profileData.customProfile?.overviewConfig && ((profileData.customProfile.overviewConfig as any).cards || []).length > 0 && (
-                            <div className={styles.previewCanvasWrapper} ref={previewRef}>
+                        {/* Two-column layout: left preview canvas, right overview stats */}
+                        <div className={styles.overviewGrid}>
+                            <div className={styles.previewColumn}>
+                                {/* Render overviewConfig cards if present */}
+                                {profileData.customProfile?.overviewConfig && ((profileData.customProfile.overviewConfig as any).cards || []).length > 0 && (
+                                    <div className={styles.previewCanvasWrapper} ref={previewRef}>
                                         {(() => {
                                             const rawCards = (profileData.customProfile.overviewConfig as any).cards || [];
-                                            // If cards are still grid-based (w/h) migrate to px using a default canvas width
                                             const baseCanvasWidth = (profileData.customProfile.overviewConfig && profileData.customProfile.overviewConfig.canvasWidth) || 800;
                                             const hasPx = rawCards.length > 0 && rawCards[0].pxW !== undefined;
                                             const cards: Card[] = hasPx ? rawCards : migrateGridToPx(rawCards, baseCanvasWidth, 12);
 
                                             const canvasWidth = baseCanvasWidth;
                                             const canvasHeight = getCanvasHeight(cards);
-                                            // compute horizontal centering offset so the scaled inner canvas is centered
 
                                             return (
-                                                <div className={styles.previewCanvas} style={{ width: '100%' }}>
+                                                <div
+                                                    className={styles.previewCanvas}
+                                                    style={{ width: '100%', height: (canvasHeight * scale + 48) + 'px' }}
+                                                >
                                                     <div
                                                         className={styles.previewInnerCanvas}
                                                         style={{
@@ -542,8 +500,61 @@ const UserProfile: React.FC = () => {
                                                 </div>
                                             );
                                         })()}
+                                    </div>
+                                )}
+
+                                {/* If no custom cards, show a friendly empty state placeholder */}
+                                {!profileData.customProfile?.overviewConfig && (
+                                    <div className={styles.emptyState}>カスタム概要がありません</div>
+                                )}
                             </div>
-                        )}
+
+                            <aside className={styles.sideColumn}>
+                                <div className={styles.statsGrid}>
+                                    <div className={styles.statCard}>
+                                        <span className="material-icons">message</span>
+                                        <div>
+                                            <strong>{profileData.totalStats.totalMessages.toLocaleString()}</strong>
+                                            <p>総メッセージ数</p>
+                                        </div>
+                                    </div>
+                                    <div className={styles.statCard}>
+                                        <span className="material-icons">link</span>
+                                        <div>
+                                            <strong>{profileData.totalStats.totalLinks.toLocaleString()}</strong>
+                                            <p>リンク送信</p>
+                                        </div>
+                                    </div>
+                                    <div className={styles.statCard}>
+                                        <span className="material-icons">image</span>
+                                        <div>
+                                            <strong>{profileData.totalStats.totalMedia.toLocaleString()}</strong>
+                                            <p>メディア送信</p>
+                                        </div>
+                                    </div>
+                                    <div className={styles.statCard}>
+                                        <span className="material-icons">groups</span>
+                                        <div>
+                                            <strong>{profileData.totalStats.totalServers}</strong>
+                                            <p>参加サーバー</p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {overviewRanking && (
+                                    <div className={styles.rankingOverview}>
+                                        <h3>ランキング (トップ)</h3>
+                                        <div className={styles.rankingItem}>
+                                            <img src={overviewRanking.top.avatar || ''} alt="avatar" style={{width:48,height:48,borderRadius:8}} />
+                                            <div style={{marginLeft:10}}>
+                                                <div style={{fontWeight:700}}>{overviewRanking.top.username}</div>
+                                                <div style={{fontSize:12,color:'#666'}}>{overviewRanking.guild.name} • {overviewRanking.top.xp} Pt</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+                            </aside>
+                        </div>
                     </div>
                 )}
 

@@ -253,12 +253,45 @@
     gap: 16px;
 }
 
+/* Two-column overview layout: preview (left) and overview/stats (right) */
+.overviewGrid {
+    display: grid;
+    grid-template-columns: 1fr 340px;
+    gap: 20px;
+    align-items: start;
+}
+.previewColumn {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+.sideColumn {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+/* In the right column, make stat cards stack vertically */
+.sideColumn .statsGrid {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+.sideColumn .statCard {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+}
+
 /* Full-width overview grid used by preview and profile page */
 .previewGrid {
     display: grid;
-    grid-template-columns: repeat(12, minmax(0, 1fr));
-    grid-auto-rows: 100px;
+    /* Let cards size naturally and wrap, so the whole collection can be centered */
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    grid-auto-rows: auto;
     gap: 12px;
+    justify-content: center;
+    justify-items: center;
 }
 .previewCanvas {
     position: relative;
@@ -266,30 +299,26 @@
     background: transparent;
     border: 1px solid #E9ECEF;
     border-radius: 12px;
-    overflow: auto; /* allow scroll if inner canvas larger than viewport */
+    overflow: hidden; /* keep preview self-contained and avoid overlapping other sections */
     display: flex;
     justify-content: center; /* center inner canvas horizontally */
     align-items: flex-start; /* keep top alignment while horizontally centered */
-    padding: 12px; /* breathing room */
+    padding: 24px; /* more breathing room so rotated/offset cards don't touch the border */
     box-sizing: border-box;
 }
 .previewCanvasWrapper {
     width: 100%;
     margin-top: 12px;
-}
-
-/* Ensure wrapper provides space and allows inner canvas to be visible on large canvases */
-.previewCanvasWrapper {
     display: flex;
-    justify-content: center;
+    justify-content: center; /* center the inner canvas horizontally */
+    align-items: flex-start;
+    padding-bottom: 16px; /* provide breathing room so cards don't overlap following sections */
 }
 .previewInnerCanvas {
     position: relative;
     will-change: transform;
     margin: 0 auto;
-}
-.previewInnerCanvas {
-    max-width: 100%;
+    max-width: none;
     transform-origin: top center; /* ensure CSS fallback matches inline style */
 }
 .previewCanvasCard {
@@ -302,14 +331,14 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    overflow: hidden;
+    overflow: visible; /* don't clip card contents */
 }
 .previewCard {
     background: #fff;
     border: 1px solid #E9ECEF;
     border-radius: 12px;
     padding: 10px;
-    overflow: hidden;
+    overflow: visible; /* allow full content to be visible */
     display:flex;
     align-items:center;
     justify-content:center;

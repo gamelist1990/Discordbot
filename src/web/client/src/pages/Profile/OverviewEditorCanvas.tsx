@@ -49,12 +49,14 @@ const OverviewEditorCanvas: React.FC<OverviewEditorCanvasProps> = ({
         <img
           src={card.content}
           alt="Card"
+          draggable="false"
           style={{
             width: '100%',
             height: '100%',
             objectFit: 'contain',
             opacity: card.opacity ?? 1,
             transform: `rotate(${card.rotation || 0}deg)`,
+            pointerEvents: 'none',
           }}
         />
       );
@@ -74,6 +76,8 @@ const OverviewEditorCanvas: React.FC<OverviewEditorCanvasProps> = ({
             transform: `rotate(${card.rotation || 0}deg)`,
             padding: '4px',
             overflow: 'auto',
+            userSelect: 'none',
+            pointerEvents: 'none',
           }}
         >
           {card.content}
