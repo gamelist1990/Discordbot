@@ -9,13 +9,16 @@ import path from 'path';
 import { Logger } from '../utils/Logger.js';
 import { BotClient } from '../core/BotClient.js';
 import { SessionService } from './services/SessionService.js';
+import { ProfileService } from './services/ProfileService.js';
 import { createStatusRoutes, createSessionRoutes, createSettingsRoutes, createStaffRoutes, createAuthRoutes, createTodoRoutes, createUserRoutes, createModRoutes, createFeedbackRoutes, createRolePresetRoutes, createRankRoutes, createWebRankRoutes, createPublicRankRoutes, createTriggerRoutes, createToolRoutes } from './routes/index.js';
 import { createGuildRoutes } from './routes/guild.js';
+import { createProfileController } from './controllers/ProfileController.js';
 import { setupWebSocketServer } from './routes/websocket.js';
 import { previewHandler } from './preview/PreviewController.js';
 // 開発時に Vite dev server へプロキシするためのミドルウェア（optional）
 import { statsManagerSingleton } from '../core/StatsManager.js';
 import { TodoManager } from '../core/TodoManager.js';
+import { database } from '../core/Database.js';
 // config.json を読み込む
 
 // 型定義を型として再エクスポート（実行時には存在しないため type を使用）
@@ -34,6 +37,7 @@ export class SettingsServer {
     private app: Express;
     private port: number;
     private sessionService: SessionService;
+    private profileService: ProfileService;
     private botClient: BotClient;
     private server: any;
 
@@ -43,6 +47,7 @@ export class SettingsServer {
         this.app.disable('etag');
         this.port = port;
         this.sessionService = new SessionService(botClient);
+        this.profileService = new ProfileService(database);
         this.botClient = botClient;
 
         this.setupMiddleware();
@@ -136,7 +141,8 @@ export class SettingsServer {
         this.app.use('/api/rank', createPublicRankRoutes(this.botClient));
         this.app.use('/api', createTodoRoutes(sessions, this.botClient));
         this.app.use('/api/auth', createAuthRoutes(sessions, this.botClient));
-        this.app.use('/api/user', createUserRoutes(sessions, this.botClient));
+        this.app.use('/api/user', createUserRoutes(sessions, this.botClient, this.profileService));
+        this.app.use('/api/user/profile', createProfileController(sessions, this.profileService));
         this.app.use('/api/guilds', createModRoutes(sessions, this.botClient));
         this.app.use('/api', createGuildRoutes(sessions, this.botClient));
         this.app.use('/api', createFeedbackRoutes(sessions));

@@ -2,6 +2,8 @@ import { Router, Request, Response } from 'express';
 import { BotClient } from '../../core/BotClient.js';
 import { verifyAuth, getCurrentUser } from '../middleware/auth.js';
 import { SettingsSession } from '../types';
+import { ProfileService } from '../services/ProfileService.js';
+import { UserCustomProfile } from '../types/profile.js';
 import fs from 'fs';
 import path from 'path';
 
@@ -49,6 +51,7 @@ interface UserProfile {
         totalMedia: number;
         totalServers: number;
     };
+    customProfile?: UserCustomProfile;
 }
 
 /**
@@ -56,24 +59,29 @@ interface UserProfile {
  */
 export function createUserRoutes(
     sessions: Map<string, SettingsSession>,
-    botClient: BotClient
+    botClient: BotClient,
+    profileService: ProfileService
 ): Router {
     const router = Router();
     /**
      * ユーザープロフィールを取得
+     * ?userId=<userId> で他のユーザーのプロフィールも取得可能
      */
     // verifyAuth is a higher-order function that must be called with the sessions map
     router.get('/profile', verifyAuth(sessions), async (req: Request, res: Response) => {
         try {
-            const user = getCurrentUser(req);
+            const currentUser = getCurrentUser(req);
 
             // デバッグログ: セッション情報とユーザー情報を出力
        
 
-            if (!user) {
+            if (!currentUser) {
                 res.status(401).json({ error: 'Unauthorized' });
                 return;
             }
+
+            // Query parameter で指定されたユーザーIDまたは自分のID
+            const requestedUserId = (req.query.userId as string) || currentUser.userId;
 
             // Botクライアントから参加中のサーバーを取得
             // Botが参加しているギルド一覧
@@ -86,7 +94,7 @@ export function createUserRoutes(
                 if (fs.existsSync(authPersistPath)) {
                     const raw = fs.readFileSync(authPersistPath, 'utf8') || '{}';
                     const obj = JSON.parse(raw) as Record<string, any>;
-                    userOauth = obj[user.userId];
+                    userOauth = obj[requestedUserId];
                 } else {
                 }
             } catch (e) {
@@ -127,7 +135,7 @@ export function createUserRoutes(
                 try {
                     const guildObj = botClient.client.guilds.cache.get(g.id as string);
                     if (guildObj) {
-                        const member = await guildObj.members.fetch(user.userId).catch(() => null);
+                        const member = await guildObj.members.fetch(requestedUserId).catch(() => null);
                         if (member) {
                             role = member.roles?.highest?.name || undefined;
                             joinedAt = member.joinedAt ? member.joinedAt.toISOString() : undefined;
@@ -151,7 +159,7 @@ export function createUserRoutes(
 
                     // 1) Try runtime StatsManager
                     if (statsMgr) {
-                        const s = await statsMgr.getUserStats(g.id, user.userId);
+                        const s = await statsMgr.getUserStats(g.id, requestedUserId);
                         if (s) {
                             totalMessages = s.totalMessages || 0;
                             linkMessages = s.linkMessages || 0;
@@ -163,7 +171,7 @@ export function createUserRoutes(
                     if (totalMessages === 0 && linkMessages === 0 && mediaMessages === 0) {
                         try {
                             // 1) Try per-guild per-user file at namespace=g.id, path=Guild/<guildId>/User/<userId>
-                            const perUser = await persisted.get(g.id, `Guild/${g.id}/User/${user.userId}`, null) as any;
+                            const perUser = await persisted.get(g.id, `Guild/${g.id}/User/${requestedUserId}`, null) as any;
                             if (perUser) {
                                 totalMessages = perUser.totalMessages || 0;
                                 linkMessages = perUser.linkMessages || 0;
@@ -171,7 +179,7 @@ export function createUserRoutes(
                             } else {
                                 // 2) Try global per-user file at root namespace (""), path=User/<userId>
                                 // This file contains per-user global aggregates and optional per-guild breakdowns.
-                                const userFile = await persisted.get('', `User/${user.userId}`, null) as any;
+                                const userFile = await persisted.get('', `User/${requestedUserId}`, null) as any;
                                 if (userFile) {
                                     // Prefer per-guild breakdown inside global user file if present
                                     if (userFile.guilds && userFile.guilds[g.id]) {
@@ -190,7 +198,7 @@ export function createUserRoutes(
                                 // 3) Legacy fallback: aggregated mapping stored under namespace=g.id with key 'user_stats'
                                 if (totalMessages === 0 && linkMessages === 0 && mediaMessages === 0) {
                                     const rec = await persisted.get(g.id, 'user_stats', {} as any) as Record<string, any> || {};
-                                    const u = rec[user.userId] || { totalMessages: 0, linkMessages: 0, mediaMessages: 0 };
+                                    const u = rec[requestedUserId] || { totalMessages: 0, linkMessages: 0, mediaMessages: 0 };
                                     totalMessages = u.totalMessages || 0;
                                     linkMessages = u.linkMessages || 0;
                                     mediaMessages = u.mediaMessages || 0;
@@ -250,12 +258,60 @@ export function createUserRoutes(
                 totalServers: userGuilds.length,
             };
 
+            // カスタムプロフィール情報を取得
+            const customProfile = await profileService.getCustomProfile(requestedUserId);
+            
+            // プライバシーチェック: 他人のプロフィールを見る場合
+            let filteredCustomProfile = customProfile;
+            if (requestedUserId !== currentUser.userId && customProfile) {
+                if (!customProfile.privacy?.allowPublicView) {
+                    // プロフィールが非公開の場合、カスタム情報を返さない
+                    filteredCustomProfile = null;
+                } else {
+                    // 公開設定に従って情報をフィルタリング
+                    const privacy = customProfile.privacy;
+                    filteredCustomProfile = {
+                        ...customProfile,
+                        // プライバシー設定に応じて情報を制限する場合はここで処理
+                    };
+                }
+            }
+
             // Discordユーザー情報（実際の実装ではOAuthトークンを使って取得）
+            // Get user info from Discord API or OAuth session
+            let targetUserInfo: any = null;
+            if (requestedUserId === currentUser.userId) {
+                targetUserInfo = currentUser;
+            } else {
+                // Try to fetch from Discord API
+                try {
+                    const discordUser = await botClient.client.users.fetch(requestedUserId).catch(() => null);
+                    if (discordUser) {
+                        targetUserInfo = {
+                            userId: discordUser.id,
+                            username: `${discordUser.username}#${discordUser.discriminator}`,
+                            avatar: discordUser.avatar,
+                        };
+                    }
+                } catch (e) {
+                    console.warn(`Failed to fetch user info for ${requestedUserId}:`, e);
+                }
+            }
+            
+            if (!targetUserInfo) {
+                // Fallback to basic info
+                targetUserInfo = {
+                    userId: requestedUserId,
+                    username: requestedUserId,
+                    avatar: null,
+                };
+            }
+
             const userProfile: UserProfile = {
-                id: user.userId,
-                username: (user.username && user.username.split('#')[0]) || user.userId,
-                discriminator: (user.username && user.username.split('#')[1]) || '0000',
-                avatar: user.avatar ? `https://cdn.discordapp.com/avatars/${user.userId}/${user.avatar}.png` : undefined,
+                id: targetUserInfo.userId || requestedUserId,
+                username: (targetUserInfo.username && targetUserInfo.username.split('#')[0]) || requestedUserId,
+                discriminator: (targetUserInfo.username && targetUserInfo.username.split('#')[1]) || '0000',
+                avatar: targetUserInfo.avatar ? `https://cdn.discordapp.com/avatars/${requestedUserId}/${targetUserInfo.avatar}.png` : undefined,
                 banner: undefined, // モックデータ
                 // Add iconURL convenience property for frontend
                 guilds: userGuilds.map(g => ({
@@ -265,6 +321,7 @@ export function createUserRoutes(
                     iconURL: (g as any).icon ? `https://cdn.discordapp.com/icons/${g.id}/${(g as any).icon}.png` : null
                 })),
                 totalStats: totalStats,
+                customProfile: filteredCustomProfile || undefined,
             };
 
          
