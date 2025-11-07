@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import styles from './UserProfile.module.css';
 
@@ -41,6 +41,8 @@ interface CustomProfile {
         showActivity: boolean;
         allowPublicView: boolean;
     };
+    // Optional custom overview/dashboard configuration (widgets, cards etc.)
+    overviewConfig?: any;
     createdAt: string;
     updatedAt: string;
 }
@@ -60,6 +62,8 @@ interface UserProfile {
     customProfile?: CustomProfile;
 }
 
+import { migrateGridToPx, Card } from './types';
+
 const UserProfile: React.FC = () => {
     const { userId: urlUserId } = useParams<{ userId: string }>();
     const navigate = useNavigate();
@@ -69,10 +73,44 @@ const UserProfile: React.FC = () => {
     const [isOwnProfile, setIsOwnProfile] = useState(true);
     const [sessionUser, setSessionUser] = useState<{ userId?: string; username?: string } | null>(null);
     const [error, setError] = useState<string | null>(null);
-    const [showEditModal, setShowEditModal] = useState(false);
-    const [editData, setEditData] = useState<any>({});
+    // Editing flows moved to separate settings page; keep state minimal here.
     const [overviewRanking, setOverviewRanking] = useState<any | null>(null);
     const [guildTops, setGuildTops] = useState<Array<any>>([]);
+    const previewRef = useRef<HTMLDivElement | null>(null);
+    const [scale, setScale] = useState<number>(1);
+
+    const getCanvasHeight = (cards: Card[]) => {
+        if (!cards || cards.length === 0) return 300;
+        let max = 0;
+        for (const c of cards) {
+            const bottom = (c.y || 0) + (c.pxH || 0);
+            if (bottom > max) max = bottom;
+        }
+        return Math.max(300, max);
+    };
+
+    useEffect(() => {
+        const handleResize = () => {
+            try {
+                const baseCanvasWidth = (profileData?.customProfile?.overviewConfig && profileData!.customProfile!.overviewConfig.canvasWidth) || 800;
+                const parentWidth = previewRef.current ? previewRef.current.clientWidth : 0;
+                if (parentWidth > 0) {
+                    // prevent overly tiny scaling on narrow screens
+                        const raw = parentWidth / baseCanvasWidth;
+                        // On small mobile widths prefer a larger minimum scale so preview remains readable
+                        const minScale = parentWidth < 480 ? 0.9 : 0.5;
+                        setScale(Math.max(raw, minScale));
+                } else {
+                    setScale(1);
+                }
+            } catch (e) {
+                setScale(1);
+            }
+        };
+        handleResize();
+        window.addEventListener('resize', handleResize);
+        return () => window.removeEventListener('resize', handleResize);
+    }, [profileData]);
 
     useEffect(() => {
         checkAuthentication();
@@ -217,27 +255,7 @@ const UserProfile: React.FC = () => {
         navigate('/settings/profile');
     };
 
-    const handleSaveProfile = async () => {
-        try {
-            const response = await fetch('/api/user/profile/custom', {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify(editData)
-            });
-
-            if (response.ok) {
-                setShowEditModal(false);
-                loadUserProfile();
-            } else {
-                const errorData = await response.json();
-                alert(errorData.errors ? errorData.errors.join('\n') : 'エラーが発生しました');
-            }
-        } catch (error) {
-            console.error('Failed to save profile:', error);
-            alert('保存に失敗しました');
-        }
-    };
+    // Profile saving handled in `/settings/profile` (navigates there).
 
     const getBannerStyle = () => {
         const banner = profileData?.customProfile?.banner;
@@ -466,16 +484,64 @@ const UserProfile: React.FC = () => {
 
                         {/* Render overviewConfig cards if present */}
                         {profileData.customProfile?.overviewConfig && ((profileData.customProfile.overviewConfig as any).cards || []).length > 0 && (
-                            <div className={styles.previewGrid}>
-                                {((profileData.customProfile.overviewConfig as any).cards || []).map((c: any) => (
-                                    <div key={c.id} className={styles.previewCard} style={{ gridColumn: `span ${c.w || 4}`, gridRow: `span ${c.h || 2}` }}>
-                                        {c.type === 'text' && <div className={styles.cardText}>{c.content}</div>}
-                                        {c.type === 'image' && c.content && <img src={c.content} alt="card" className={styles.cardImage} />}
-                                        {c.type === 'sticker' && (
-                                            c.content && /^https?:\/\//.test(c.content) ? <img src={c.content} className={styles.cardSticker} alt="sticker"/> : <div className={styles.cardStickerText}>{c.content}</div>
-                                        )}
-                                    </div>
-                                ))}
+                            <div className={styles.previewCanvasWrapper} ref={previewRef}>
+                                        {(() => {
+                                            const rawCards = (profileData.customProfile.overviewConfig as any).cards || [];
+                                            // If cards are still grid-based (w/h) migrate to px using a default canvas width
+                                            const baseCanvasWidth = (profileData.customProfile.overviewConfig && profileData.customProfile.overviewConfig.canvasWidth) || 800;
+                                            const hasPx = rawCards.length > 0 && rawCards[0].pxW !== undefined;
+                                            const cards: Card[] = hasPx ? rawCards : migrateGridToPx(rawCards, baseCanvasWidth, 12);
+
+                                            const canvasWidth = baseCanvasWidth;
+                                            const canvasHeight = getCanvasHeight(cards);
+                                            // compute horizontal centering offset so the scaled inner canvas is centered
+
+                                            return (
+                                                <div className={styles.previewCanvas} style={{ width: '100%' }}>
+                                                    <div
+                                                        className={styles.previewInnerCanvas}
+                                                        style={{
+                                                            width: canvasWidth + 'px',
+                                                            height: canvasHeight + 'px',
+                                                            transform: `scale(${scale})`,
+                                                            transformOrigin: 'top center',
+                                                        }}
+                                                    >
+                                                        {cards.map((c) => {
+                                                            const left = Math.round(c.x);
+                                                            const top = Math.round(c.y);
+                                                            const width = Math.round(c.pxW);
+                                                            const height = Math.round(c.pxH);
+                                                            return (
+                                                                <div
+                                                                    key={c.id}
+                                                                    className={styles.previewCanvasCard}
+                                                                    style={{
+                                                                        left: left + 'px',
+                                                                        top: top + 'px',
+                                                                        width: width + 'px',
+                                                                        height: height + 'px',
+                                                                        transform: `rotate(${c.rotation || 0}deg)`,
+                                                                        zIndex: c.zIndex || 1,
+                                                                        opacity: c.opacity == null ? 1 : c.opacity,
+                                                                    }}
+                                                                >
+                                                                    {c.type === 'text' && (
+                                                                        <div style={{ fontSize: c.meta?.fontSize || 14, color: c.meta?.color || '#111', textAlign: c.meta?.align || 'left' }}>
+                                                                            {c.content}
+                                                                        </div>
+                                                                    )}
+                                                                    {c.type === 'image' && c.content && <img src={c.content} alt="card" className={styles.cardImage} />}
+                                                                    {c.type === 'sticker' && (
+                                                                        c.content && /^https?:\/\//.test(c.content) ? <img src={c.content} className={styles.cardSticker} alt="sticker"/> : <div className={styles.cardStickerText}>{c.content}</div>
+                                                                    )}
+                                                                </div>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                </div>
+                                            );
+                                        })()}
                             </div>
                         )}
                     </div>

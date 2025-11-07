@@ -153,7 +153,7 @@ const CardInspector: React.FC<CardInspectorProps> = ({
                 value={card.meta?.align || 'left'}
                 onChange={(e) =>
                   onChange({
-                    meta: { ...card.meta, align: e.target.value },
+                    meta: { ...card.meta, align: e.target.value as 'left' | 'center' | 'right' },
                   })
                 }
               >

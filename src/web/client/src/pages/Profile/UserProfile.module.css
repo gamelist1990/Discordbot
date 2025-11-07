@@ -260,6 +260,50 @@
     grid-auto-rows: 100px;
     gap: 12px;
 }
+.previewCanvas {
+    position: relative;
+    width: 100%;
+    background: transparent;
+    border: 1px solid #E9ECEF;
+    border-radius: 12px;
+    overflow: auto; /* allow scroll if inner canvas larger than viewport */
+    display: flex;
+    justify-content: center; /* center inner canvas horizontally */
+    align-items: flex-start; /* keep top alignment while horizontally centered */
+    padding: 12px; /* breathing room */
+    box-sizing: border-box;
+}
+.previewCanvasWrapper {
+    width: 100%;
+    margin-top: 12px;
+}
+
+/* Ensure wrapper provides space and allows inner canvas to be visible on large canvases */
+.previewCanvasWrapper {
+    display: flex;
+    justify-content: center;
+}
+.previewInnerCanvas {
+    position: relative;
+    will-change: transform;
+    margin: 0 auto;
+}
+.previewInnerCanvas {
+    max-width: 100%;
+    transform-origin: top center; /* ensure CSS fallback matches inline style */
+}
+.previewCanvasCard {
+    position: absolute;
+    background: #fff;
+    border: 1px solid #E9ECEF;
+    border-radius: 12px;
+    padding: 8px;
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+}
 .previewCard {
     background: #fff;
     border: 1px solid #E9ECEF;

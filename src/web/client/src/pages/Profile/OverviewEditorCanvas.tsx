@@ -122,7 +122,8 @@ const OverviewEditorCanvas: React.FC<OverviewEditorCanvasProps> = ({
 
       <div
         className={styles.canvasWrap}
-        style={{ width, height, position: 'relative' }}
+        // make canvas responsive: allow it to expand to container width on small screens
+        style={{ width: '100%', maxWidth: typeof width === 'number' ? `${width}px` : width, height, position: 'relative' }}
         onClick={(e) => {
           if (e.target === e.currentTarget) {
             onSelectCard(null);
