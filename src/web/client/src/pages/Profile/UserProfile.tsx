@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import styles from './UserProfile.module.css';
 
 interface GuildStats {
@@ -36,6 +36,42 @@ interface ActivityData {
     hasTimestampData?: boolean;
 }
 
+interface CustomProfile {
+    userId: string;
+    displayName?: string;
+    bio?: string;
+    pronouns?: string;
+    location?: string;
+    website?: string;
+    banner?: {
+        type: 'color' | 'gradient' | 'image' | 'pattern';
+        value: string;
+        gradient?: {
+            colors: string[];
+            direction: 'horizontal' | 'vertical' | 'diagonal';
+        };
+    };
+    themeColor?: string;
+    favoriteEmojis?: Array<{
+        emoji: string;
+        label?: string;
+    }>;
+    badges?: Array<{
+        id: string;
+        name: string;
+        icon: string;
+        earnedAt: string;
+    }>;
+    privacy?: {
+        showStats: boolean;
+        showServers: boolean;
+        showActivity: boolean;
+        allowPublicView: boolean;
+    };
+    createdAt: string;
+    updatedAt: string;
+}
+
 interface UserProfile {
     id: string;
     username: string;
@@ -49,6 +85,7 @@ interface UserProfile {
         totalMedia: number;
         totalServers: number;
     };
+    customProfile?: CustomProfile;
 }
 
 interface UserProfileProps {
@@ -57,13 +94,15 @@ interface UserProfileProps {
 }
 
 const UserProfile: React.FC<UserProfileProps> = ({ user, onLoginClick }) => {
+    const { userId: urlUserId } = useParams<{ userId: string }>();
+    const navigate = useNavigate();
     const [loading, setLoading] = useState(true);
     const [profileData, setProfileData] = useState<UserProfile | null>(user || null);
     const [activeTab, setActiveTab] = useState<'overview' | 'servers' | 'activity' | 'settings'>('overview');
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [activityData, setActivityData] = useState<ActivityData | null>(null);
-
-    const [] = useSearchParams();
+    const [isOwnProfile, setIsOwnProfile] = useState(true);
+    const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
         if (!user) {
@@ -72,15 +111,18 @@ const UserProfile: React.FC<UserProfileProps> = ({ user, onLoginClick }) => {
             setProfileData(user);
             setLoading(false);
         }
-    }, [user]);
+    }, [user, urlUserId]);
 
     const checkAuthentication = async () => {
         try {
             setLoading(true);
+            setError(null);
             const response = await fetch('/api/auth/session', { credentials: 'include' });
 
             if (response.ok) {
+                const sessionData = await response.json();
                 // 認証済みの場合、プロフィール情報を取得
+                setIsOwnProfile(!urlUserId || sessionData.userId === urlUserId);
                 loadUserProfile();
             } else {
                 // 未認証の場合
@@ -94,15 +136,23 @@ const UserProfile: React.FC<UserProfileProps> = ({ user, onLoginClick }) => {
 
     const loadUserProfile = async () => {
         try {
-            const response = await fetch('/api/user/profile', { credentials: 'include' });
+            // URLにuserIdがあれば、そのユーザーのプロフィールを取得
+            const queryParam = urlUserId ? `?userId=${urlUserId}` : '';
+            const response = await fetch(`/api/user/profile${queryParam}`, { credentials: 'include' });
 
             if (response.ok) {
                 const data = await response.json();
                 setProfileData(data);
-
+            } else if (response.status === 403) {
+                setError('このプロフィールは非公開です');
+            } else if (response.status === 404) {
+                setError('ユーザーが見つかりません');
+            } else {
+                setError('プロフィールの読み込みに失敗しました');
             }
         } catch (error) {
             console.error('Failed to load user profile:', error);
+            setError('プロフィールの読み込みに失敗しました');
         } finally {
             setLoading(false);
         }
@@ -245,6 +295,20 @@ const UserProfile: React.FC<UserProfileProps> = ({ user, onLoginClick }) => {
         );
     }
 
+    if (error) {
+        return (
+            <div>
+                <div className={styles.error}>
+                    <h2>エラー</h2>
+                    <p>{error}</p>
+                    <button onClick={() => navigate('/profile')} className={styles.loginButton}>
+                        自分のプロフィールに戻る
+                    </button>
+                </div>
+            </div>
+        );
+    }
+
     if (!profileData) {
         return (
             <div>
@@ -325,6 +389,29 @@ const UserProfile: React.FC<UserProfileProps> = ({ user, onLoginClick }) => {
 
                 {/* Profile Content - Sidebarと共に同じ行 */}
                 <div className={styles.profileContent}>
+                    {/* Custom Banner */}
+                    {profileData.customProfile?.banner && (
+                        <div 
+                            className={styles.customBanner}
+                            style={{
+                                background: (() => {
+                                    const banner = profileData.customProfile.banner;
+                                    if (banner.type === 'color') {
+                                        return banner.value;
+                                    } else if (banner.type === 'gradient' && banner.gradient) {
+                                        const { colors, direction } = banner.gradient;
+                                        const dir = direction === 'horizontal' ? 'to right' :
+                                                   direction === 'vertical' ? 'to bottom' : 'to bottom right';
+                                        return `linear-gradient(${dir}, ${colors.join(', ')})`;
+                                    } else if (banner.type === 'image') {
+                                        return `url(${banner.value}) center/cover`;
+                                    }
+                                    return '#1DA1F2';
+                                })()
+                            }}
+                        />
+                    )}
+
                     {/* User Header */}
                     <div className={styles.profileCard}>
                         <div className={styles.profileCardHeader}>
@@ -361,9 +448,59 @@ const UserProfile: React.FC<UserProfileProps> = ({ user, onLoginClick }) => {
                             </div>
                             <div className={styles.profileInfo}>
                                 <h1 className={styles.profileName}>
-                                    {profileData.username}
-                                    <span className={styles.profileDiscriminator}>#{profileData.discriminator}</span>
+                                    {profileData.customProfile?.displayName || profileData.username}
+                                    {profileData.customProfile?.displayName && (
+                                        <span className={styles.actualUsername}>
+                                            (@{profileData.username}#{profileData.discriminator})
+                                        </span>
+                                    )}
+                                    {!profileData.customProfile?.displayName && (
+                                        <span className={styles.profileDiscriminator}>#{profileData.discriminator}</span>
+                                    )}
                                 </h1>
+                                
+                                {/* Pronouns */}
+                                {profileData.customProfile?.pronouns && (
+                                    <p className={styles.pronouns}>{profileData.customProfile.pronouns}</p>
+                                )}
+                                
+                                {/* Bio */}
+                                {profileData.customProfile?.bio && (
+                                    <p className={styles.bio}>{profileData.customProfile.bio}</p>
+                                )}
+                                
+                                {/* Location and Website */}
+                                <div className={styles.profileMeta}>
+                                    {profileData.customProfile?.location && (
+                                        <span className={styles.metaItem}>
+                                            <span className="material-icons">place</span>
+                                            {profileData.customProfile.location}
+                                        </span>
+                                    )}
+                                    {profileData.customProfile?.website && (
+                                        <a 
+                                            href={profileData.customProfile.website} 
+                                            target="_blank" 
+                                            rel="noopener noreferrer"
+                                            className={styles.metaItem}
+                                        >
+                                            <span className="material-icons">link</span>
+                                            {new URL(profileData.customProfile.website).hostname}
+                                        </a>
+                                    )}
+                                </div>
+                                
+                                {/* Favorite Emojis */}
+                                {profileData.customProfile?.favoriteEmojis && profileData.customProfile.favoriteEmojis.length > 0 && (
+                                    <div className={styles.favoriteEmojis}>
+                                        {profileData.customProfile.favoriteEmojis.map((item, index) => (
+                                            <span key={index} className={styles.emojiItem} title={item.label}>
+                                                {item.emoji}
+                                            </span>
+                                        ))}
+                                    </div>
+                                )}
+                                
                                 <p className={styles.profileId}>ID: {profileData.id}</p>
                                 <div className={styles.profileStats}>
                                     <span className={styles.profileStat}>
