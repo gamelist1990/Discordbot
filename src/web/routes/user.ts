@@ -2,6 +2,8 @@ import { Router, Request, Response } from 'express';
 import { BotClient } from '../../core/BotClient.js';
 import { verifyAuth, getCurrentUser } from '../middleware/auth.js';
 import { SettingsSession } from '../types';
+import { ProfileService } from '../services/ProfileService.js';
+import { UserCustomProfile } from '../types/profile.js';
 import fs from 'fs';
 import path from 'path';
 
@@ -49,6 +51,7 @@ interface UserProfile {
         totalMedia: number;
         totalServers: number;
     };
+    customProfile?: UserCustomProfile;
 }
 
 /**
@@ -56,23 +59,96 @@ interface UserProfile {
  */
 export function createUserRoutes(
     sessions: Map<string, SettingsSession>,
-    botClient: BotClient
+    botClient: BotClient,
+    profileService: ProfileService
 ): Router {
     const router = Router();
     /**
      * ユーザープロフィールを取得
+     * ?userId=<userId> で他のユーザーのプロフィールも取得可能
      */
     // verifyAuth is a higher-order function that must be called with the sessions map
     router.get('/profile', verifyAuth(sessions), async (req: Request, res: Response) => {
         try {
-            const user = getCurrentUser(req);
+            const currentUser = getCurrentUser(req);
 
             // デバッグログ: セッション情報とユーザー情報を出力
        
 
-            if (!user) {
+            if (!currentUser) {
                 res.status(401).json({ error: 'Unauthorized' });
                 return;
+            }
+
+            // Query parameter で指定されたユーザーIDまたは自分のID
+            let requestedUserId = (req.query.userId as string) || currentUser.userId;
+
+            // If the client supplied a username slug (e.g. "@koukun_#0" or "koukun_#0" or "koukun_"),
+            // normalize it and try to resolve to a Discord user ID.
+            if (requestedUserId && !/^[0-9]+$/.test(requestedUserId)) {
+                const slug = String(requestedUserId).replace(/^@/, '').split('#')[0];
+
+                console.info(`[UserProfile] resolving slug='${requestedUserId}' -> slug='${slug}'`);
+
+                // 1) Try to resolve from in-memory sessions (active sessions)
+                let resolved: string | null = null;
+                for (const s of sessions.values()) {
+                    try {
+                        const sname = (s.username || '').replace(/^@/, '').split('#')[0];
+                        if (sname && sname.toLowerCase() === slug.toLowerCase()) {
+                            resolved = s.userId;
+                            break;
+                        }
+                    } catch (err) { console.warn('[UserProfile] session iteration error', err); }
+                }
+
+                // 2) Try to resolve from bot's user cache
+                if (!resolved) {
+                    try {
+                        const found = botClient.client.users.cache.find(u => u.username && u.username.toLowerCase() === slug.toLowerCase());
+                        if (found) {
+                            resolved = found.id;
+                        }
+                    } catch (e) { console.warn('[UserProfile] user cache lookup failed', e); }
+                }
+
+                // 3) If still unresolved, try searching guild members (will use Discord member search per guild).
+                if (!resolved) {
+                    try {
+                        const botGuilds = botClient.getGuildList();
+                        for (const g of botGuilds) {
+                            try {
+                                const guildObj = botClient.client.guilds.cache.get(g.id as string);
+                                if (!guildObj) continue;
+
+                                // Try cached members first
+                                const cachedMember = guildObj.members.cache.find(m => m.user && m.user.username && m.user.username.toLowerCase() === slug.toLowerCase());
+                                if (cachedMember) {
+                                    resolved = cachedMember.user.id;
+                                    break;
+                                }
+
+                                // Fallback: use guild member search (may require GUILD_MEMBERS intent)
+                                try {
+                                    const fetched = await guildObj.members.fetch({ query: slug, limit: 1 });
+                                    if (fetched && fetched.size > 0) {
+                                        const first = fetched.first();
+                                        if (first) {
+                                            resolved = first.user.id;
+                                            break;
+                                        }
+                                    }
+                                } catch (fetchErr) { console.warn(`[UserProfile] guild member fetch failed for guild=${g.id}`, fetchErr); }
+                            } catch (perGuildErr) { console.warn('[UserProfile] per-guild resolution error', perGuildErr); }
+                        }
+                    } catch (e) { console.warn('[UserProfile] guilds iteration failed', e); }
+                }
+
+                if (resolved) {
+                    requestedUserId = resolved;
+                } else {
+                    console.info(`[UserProfile] failed to resolve slug='${slug}' to a userId`);
+                }
             }
 
             // Botクライアントから参加中のサーバーを取得
@@ -86,7 +162,7 @@ export function createUserRoutes(
                 if (fs.existsSync(authPersistPath)) {
                     const raw = fs.readFileSync(authPersistPath, 'utf8') || '{}';
                     const obj = JSON.parse(raw) as Record<string, any>;
-                    userOauth = obj[user.userId];
+                    userOauth = obj[requestedUserId];
                 } else {
                 }
             } catch (e) {
@@ -127,7 +203,7 @@ export function createUserRoutes(
                 try {
                     const guildObj = botClient.client.guilds.cache.get(g.id as string);
                     if (guildObj) {
-                        const member = await guildObj.members.fetch(user.userId).catch(() => null);
+                        const member = await guildObj.members.fetch(requestedUserId).catch(() => null);
                         if (member) {
                             role = member.roles?.highest?.name || undefined;
                             joinedAt = member.joinedAt ? member.joinedAt.toISOString() : undefined;
@@ -151,7 +227,7 @@ export function createUserRoutes(
 
                     // 1) Try runtime StatsManager
                     if (statsMgr) {
-                        const s = await statsMgr.getUserStats(g.id, user.userId);
+                        const s = await statsMgr.getUserStats(g.id, requestedUserId);
                         if (s) {
                             totalMessages = s.totalMessages || 0;
                             linkMessages = s.linkMessages || 0;
@@ -163,7 +239,7 @@ export function createUserRoutes(
                     if (totalMessages === 0 && linkMessages === 0 && mediaMessages === 0) {
                         try {
                             // 1) Try per-guild per-user file at namespace=g.id, path=Guild/<guildId>/User/<userId>
-                            const perUser = await persisted.get(g.id, `Guild/${g.id}/User/${user.userId}`, null) as any;
+                            const perUser = await persisted.get(g.id, `Guild/${g.id}/User/${requestedUserId}`, null) as any;
                             if (perUser) {
                                 totalMessages = perUser.totalMessages || 0;
                                 linkMessages = perUser.linkMessages || 0;
@@ -171,7 +247,7 @@ export function createUserRoutes(
                             } else {
                                 // 2) Try global per-user file at root namespace (""), path=User/<userId>
                                 // This file contains per-user global aggregates and optional per-guild breakdowns.
-                                const userFile = await persisted.get('', `User/${user.userId}`, null) as any;
+                                const userFile = await persisted.get('', `User/${requestedUserId}`, null) as any;
                                 if (userFile) {
                                     // Prefer per-guild breakdown inside global user file if present
                                     if (userFile.guilds && userFile.guilds[g.id]) {
@@ -190,7 +266,7 @@ export function createUserRoutes(
                                 // 3) Legacy fallback: aggregated mapping stored under namespace=g.id with key 'user_stats'
                                 if (totalMessages === 0 && linkMessages === 0 && mediaMessages === 0) {
                                     const rec = await persisted.get(g.id, 'user_stats', {} as any) as Record<string, any> || {};
-                                    const u = rec[user.userId] || { totalMessages: 0, linkMessages: 0, mediaMessages: 0 };
+                                    const u = rec[requestedUserId] || { totalMessages: 0, linkMessages: 0, mediaMessages: 0 };
                                     totalMessages = u.totalMessages || 0;
                                     linkMessages = u.linkMessages || 0;
                                     mediaMessages = u.mediaMessages || 0;
@@ -250,12 +326,59 @@ export function createUserRoutes(
                 totalServers: userGuilds.length,
             };
 
+            // カスタムプロフィール情報を取得
+            const customProfile = await profileService.getCustomProfile(requestedUserId);
+            
+            // プライバシーチェック: 他人のプロフィールを見る場合
+            let filteredCustomProfile = customProfile;
+            if (requestedUserId !== currentUser.userId && customProfile) {
+                if (!customProfile.privacy?.allowPublicView) {
+                    // プロフィールが非公開の場合、カスタム情報を返さない
+                    filteredCustomProfile = null;
+                } else {
+                    // 公開設定に従って情報をフィルタリング
+                    // プライバシー設定に応じて情報を制限する場合はここで処理
+                    filteredCustomProfile = {
+                        ...customProfile,
+                    };
+                }
+            }
+
             // Discordユーザー情報（実際の実装ではOAuthトークンを使って取得）
+            // Get user info from Discord API or OAuth session
+            let targetUserInfo: any = null;
+            if (requestedUserId === currentUser.userId) {
+                targetUserInfo = currentUser;
+            } else {
+                // Try to fetch from Discord API
+                try {
+                    const discordUser = await botClient.client.users.fetch(requestedUserId).catch(() => null);
+                    if (discordUser) {
+                        targetUserInfo = {
+                            userId: discordUser.id,
+                            username: `${discordUser.username}#${discordUser.discriminator}`,
+                            avatar: discordUser.avatar,
+                        };
+                    }
+                } catch (e) {
+                    console.warn(`Failed to fetch user info for ${requestedUserId}:`, e);
+                }
+            }
+            
+            if (!targetUserInfo) {
+                // Fallback to basic info
+                targetUserInfo = {
+                    userId: requestedUserId,
+                    username: requestedUserId,
+                    avatar: null,
+                };
+            }
+
             const userProfile: UserProfile = {
-                id: user.userId,
-                username: (user.username && user.username.split('#')[0]) || user.userId,
-                discriminator: (user.username && user.username.split('#')[1]) || '0000',
-                avatar: user.avatar ? `https://cdn.discordapp.com/avatars/${user.userId}/${user.avatar}.png` : undefined,
+                id: targetUserInfo.userId || requestedUserId,
+                username: (targetUserInfo.username && targetUserInfo.username.split('#')[0]) || requestedUserId,
+                discriminator: (targetUserInfo.username && targetUserInfo.username.split('#')[1]) || '0000',
+                avatar: targetUserInfo.avatar ? `https://cdn.discordapp.com/avatars/${requestedUserId}/${targetUserInfo.avatar}.png` : undefined,
                 banner: undefined, // モックデータ
                 // Add iconURL convenience property for frontend
                 guilds: userGuilds.map(g => ({
@@ -265,6 +388,7 @@ export function createUserRoutes(
                     iconURL: (g as any).icon ? `https://cdn.discordapp.com/icons/${g.id}/${(g as any).icon}.png` : null
                 })),
                 totalStats: totalStats,
+                customProfile: filteredCustomProfile || undefined,
             };
 
          
@@ -390,6 +514,59 @@ export function createUserRoutes(
             res.json({ guilds: filtered });
         } catch (error) {
             console.error('Failed to get user guilds:', error);
+            res.status(500).json({ error: 'Internal server error' });
+        }
+    });
+
+    /**
+     * Get available emojis/stickers from mutual guilds the bot and user share
+     * GET /api/user/emojis
+     */
+    router.get('/emojis', verifyAuth(sessions), async (req: Request, res: Response) => {
+        try {
+            const currentUser = getCurrentUser(req);
+            if (!currentUser) return res.status(401).json({ error: 'Unauthorized' });
+
+            const botGuilds = botClient.getGuildList();
+
+            const result: Array<{ guildId: string; guildName: string; emojis: Array<{ id?: string; name?: string; url?: string; animated?: boolean; char?: string }> }> = [];
+
+            for (const g of botGuilds) {
+                try {
+                    const guildObj = botClient.client.guilds.cache.get(g.id as string);
+                    if (!guildObj) continue;
+                    // try to find if user is in this guild (best-effort)
+                    let memberPresent = false;
+                    try {
+                        const member = await guildObj.members.fetch(currentUser.userId).catch(() => null);
+                        if (member) memberPresent = true;
+                    } catch {
+                        // ignore
+                    }
+                    if (!memberPresent) continue;
+
+                    const emojisArr: any[] = [];
+                    try {
+                        // use cached emojis
+                        for (const e of guildObj.emojis.cache.values()) {
+                            const url = e.url || `https://cdn.discordapp.com/emojis/${e.id}.${e.animated ? 'gif' : 'png'}`;
+                            emojisArr.push({ id: e.id, name: e.name, url, animated: e.animated });
+                        }
+                    } catch (e) {
+                        // ignore per-guild emoji errors
+                    }
+
+                    if (emojisArr.length > 0) {
+                        result.push({ guildId: g.id, guildName: g.name, emojis: emojisArr });
+                    }
+                } catch (e) {
+                    // ignore
+                }
+            }
+
+            res.json({ guilds: result });
+        } catch (error) {
+            console.error('Failed to list guild emojis:', error);
             res.status(500).json({ error: 'Internal server error' });
         }
     });

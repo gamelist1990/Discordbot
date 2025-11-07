@@ -1,1394 +1,789 @@
-.mainLayout {
-    display: flex;
-    flex: 1;
-    overflow: hidden;
+/* Twitter-like Profile UI - Responsive Design */
+
+.container {
+    /* Use full width layout so cards can fill the page */
+    width: 100%;
+    max-width: none;
+    margin: 0;
+    background: #fff;
+    min-height: 100vh;
+    padding: 0;
 }
 
-/* Main Content Container - Sidebarを内包するコンテナ */
-.content {
-    display: flex;
-    flex: 1;
-    overflow: hidden;
-    position: relative; /* Sidebarの位置調整用 */
-}
-
-/* Profile Content - メインのプロフィール領域 */
-.profileContent {
-    flex: 1;
-    overflow-y: auto;
-    padding: 16px;
-    background: #F1F3F4;
+/* Loading & Error States */
+.loadingState,
+.errorState {
     display: flex;
     flex-direction: column;
-}
-
-@media (max-width: 768px) {
-    .profileContent {
-        margin-left: 0;
-        width: 100%;
-    }
-}
-
-/* Sidebar Styles */
-.sidebar {
-    background: white;
-    border-right: 1px solid #E8EAED;
-    display: flex;
-    flex-direction: column;
-    transition: transform 0.3s ease, width 0.3s ease;
-    position: sticky;
-    top: 0;
-    height: 100vh;
-    z-index: 1000;
-}
-
-.sidebarOpen {
-    width: 256px;
-}
-
-.sidebarClosed {
-    width: 72px;
-}
-
-/* Mobile (Tablet and below) */
-@media (max-width: 768px) {
-    .sidebar {
-        position: fixed;
-        left: 0;
-        top: 0;
-        height: 100vh;
-        z-index: 1000;
-        box-shadow: 2px 0 8px rgba(0, 0, 0, 0.1);
-        transform: translateX(-100%);
-    }
-
-    .sidebar.sidebarOpen {
-        transform: translateX(0);
-    }
-
-    .sidebar.sidebarClosed {
-        transform: translateX(-100%);
-    }
-
-    /* Open Sidebar 時のオーバーレイ */
-    .sidebarOpen {
-        width: 280px; /* Mobile時は少し広めに */
-    }
-
-    .sidebarClosed {
-        width: 280px; /* Mobile時は閉じた状態でもフル幅設定 */
-    }
-}
-
-.sidebarHeader {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 16px;
-    border-bottom: 1px solid #E8EAED;
-}
-
-.sidebarTitle {
-    font-size: 20px;
-    font-weight: 500;
-    color: #202124;
-    margin: 0;
-    white-space: nowrap;
-}
-
-/* Profile Card Header - Mobile Menu Button */
-.profileCardHeader {
-    display: flex;
-    gap: 16px;
-    align-items: flex-start;
-}
-
-.mobileMenuButton {
-    display: none;
-    background: white;
-    border: 1px solid #E8EAED;
-    border-radius: 8px;
-    padding: 12px;
-    cursor: pointer;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-    transition: all 0.2s ease;
-}
-
-.mobileMenuButton:hover {
-    background: #F1F3F4;
-    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
-}
-
-@media (max-width: 768px) {
-    .mobileMenuButton {
-        display: block;
-    }
-}
-
-.sidebarTitle {
-    font-size: 20px;
-    font-weight: 500;
-    color: #202124;
-    margin: 0;
-    white-space: nowrap;
-}
-
-.sidebarClosed .sidebarTitle {
-    display: none;
-}
-
-.sidebarToggle {
-    display: flex;
     align-items: center;
     justify-content: center;
+    padding: 60px 20px;
+    text-align: center;
+}
+
+.spinner {
     width: 40px;
     height: 40px;
-    border: none;
-    background: transparent;
+    border: 3px solid #E1E8ED;
+    border-top-color: #1DA1F2;
     border-radius: 50%;
-    cursor: pointer;
-    transition: background 0.2s;
-    color: #5F6368;
+    animation: spin 0.8s linear infinite;
 }
 
-.sidebarToggle:hover {
-    background: #F8F9FA;
+@keyframes spin {
+    to { transform: rotate(360deg); }
 }
 
-.sidebarNav {
-    flex: 1;
-    padding: 8px 0;
-    overflow-y: auto;
+.errorState h2 {
+    margin: 16px 0 8px;
+    color: #14171A;
 }
 
-.sidebarItem {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    width: 100%;
-    padding: 12px 16px;
+.errorState p {
+    color: #657786;
+    margin-bottom: 20px;
+}
+
+.button {
+    background: #1DA1F2;
+    color: white;
     border: none;
-    background: transparent;
-    color: #5F6368;
-    font-size: 14px;
-    font-weight: 500;
-    text-align: left;
+    padding: 12px 24px;
+    border-radius: 9999px;
+    font-weight: bold;
+    font-size: 15px;
     cursor: pointer;
     transition: background 0.2s;
 }
 
-.sidebarItem:hover {
-    background: #F8F9FA;
+.button:hover {
+    background: #1A91DA;
 }
 
-.sidebarItem .material-icons {
-    font-size: 24px;
-    min-width: 24px;
-}
-
-.sidebarClosed .sidebarItem {
-    justify-content: center;
-    padding: 12px;
-}
-
-.sidebarClosed .sidebarItem span:last-child {
-    display: none;
-}
-
-.sidebarItemActive {
-    background: #E8F0FE !important;
-    color: #1A73E8 !important;
-}
-
-.sidebarItemActive .material-icons {
-    color: #1A73E8;
-}
-
-.sidebarFooter {
-    padding: 8px;
-    border-top: 1px solid #E8EAED;
-}
-
-.logoutBtn {
-    display: flex;
-    align-items: center;
-    gap: 16px;
+/* Banner */
+.banner {
     width: 100%;
-    padding: 12px 16px;
-    border: none;
-    background: transparent;
-    color: #EA4335;
-    font-size: 14px;
-    font-weight: 500;
-    text-align: left;
-    cursor: pointer;
-    border-radius: 4px;
-    transition: background 0.2s;
+    height: 200px;
+    background: #CFD9DE;
 }
 
-.logoutBtn:hover {
-    background: #FCE8E6;
+/* Profile Header */
+.profileHeader {
+    padding: 0 16px;
+    border-bottom: 1px solid #E1E8ED;
 }
 
-.logoutBtn .material-icons {
-    font-size: 24px;
-    min-width: 24px;
-}
-
-.sidebarClosed .logoutBtn {
-    justify-content: center;
-    padding: 12px;
-}
-
-.sidebarClosed .logoutBtn span:last-child {
-    display: none;
-}
-
-/* Content Area */
-.content {
-    flex: 1;
-    overflow-y: auto;
-    padding: 0;
-    background: #F1F3F4;
-}
-
-.profileCard {
-    background: white;
-    border-radius: 0;
-    box-shadow: 0 1px 2px 0 rgba(60,64,67,0.3);
-    margin-bottom: 0;
-    overflow: hidden;
-}
-
-.profileCardHeader {
-    padding: 24px;
+.profileHeaderContent {
     display: flex;
-    align-items: center;
-    gap: 24px;
+    justify-content: space-between;
+    align-items: flex-end;
+    margin-top: -75px;
+    margin-bottom: 12px;
 }
 
-.avatarWrapper {
-    flex-shrink: 0;
+.avatarContainer {
+    position: relative;
 }
 
-.profileAvatar {
-    width: 96px;
-    height: 96px;
+.avatar {
+    width: 134px;
+    height: 134px;
     border-radius: 50%;
-    object-fit: cover;
+    border: 4px solid #fff;
+    background: #fff;
+    display: block;
 }
 
+.editButton {
+    background: transparent;
+    color: #0F1419;
+    border: 1px solid #CFD9DE;
+    padding: 10px 16px;
+    border-radius: 9999px;
+    font-weight: bold;
+    font-size: 15px;
+    cursor: pointer;
+    transition: background 0.2s;
+    margin-bottom: 12px;
+}
+
+.editButton:hover {
+    background: rgba(15, 20, 25, 0.1);
+}
+
+/* Profile Info */
 .profileInfo {
-    flex: 1;
-    min-width: 0;
+    padding-bottom: 16px;
 }
 
-.profileName {
-    font-size: 28px;
-    font-weight: 400;
-    color: #202124;
-    margin: 0 0 8px 0;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex-wrap: wrap;
-}
-
-.profileDiscriminator {
+.displayName {
     font-size: 20px;
-    color: #5F6368;
-    font-weight: 300;
+    font-weight: 800;
+    color: #0F1419;
+    margin: 0 0 4px 0;
 }
 
-.profileId {
-    font-size: 14px;
-    color: #5F6368;
+.username {
+    font-size: 15px;
+    color: #536471;
     margin: 0 0 12px 0;
 }
 
-.profileStats {
-    display: flex;
-    gap: 24px;
-    flex-wrap: wrap;
+.pronouns {
+    font-size: 15px;
+    color: #536471;
+    margin: 0 0 12px 0;
 }
 
-.profileStat {
+.bio {
+    font-size: 15px;
+    color: #0F1419;
+    margin: 0 0 12px 0;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+
+.metadata {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.metaItem {
     display: flex;
     align-items: center;
-    gap: 8px;
-    font-size: 14px;
-    color: #5F6368;
+    gap: 4px;
+    font-size: 15px;
+    color: #536471;
+    text-decoration: none;
 }
 
-.profileStat .material-icons {
+.metaItem:hover {
+    text-decoration: underline;
+}
+
+.metaItem .material-icons {
     font-size: 18px;
 }
 
-/* Tab Content */
-.tabContent {
-    background: #F1F3F4;
-    padding: 24px;
-    min-height: calc(100vh - 64px - 200px);
+.emojis {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 12px;
 }
 
-.sectionTitle {
-    font-size: 20px;
+.emoji {
+    font-size: 24px;
+    cursor: default;
+}
+
+.stats {
+    display: flex;
+    gap: 20px;
+}
+
+.stat {
+    display: flex;
+    gap: 4px;
+    font-size: 15px;
+    color: #536471;
+}
+
+.stat strong {
+    color: #0F1419;
+    font-weight: 700;
+}
+
+/* Tabs */
+.tabs {
+    display: flex;
+    border-bottom: 1px solid #E1E8ED;
+}
+
+.tab {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 16px;
+    background: transparent;
+    border: none;
+    color: #536471;
+    font-size: 15px;
     font-weight: 500;
-    color: #202124;
-    margin: 0 0 20px 0;
+    cursor: pointer;
+    position: relative;
+    transition: background 0.2s;
 }
 
-/* Overview Section */
-.overview {
-    padding: 0;
+.tab:hover {
+    background: rgba(15, 20, 25, 0.1);
 }
+
+.tab .material-icons {
+    font-size: 20px;
+}
+
+.tabActive {
+    color: #0F1419;
+    font-weight: 700;
+}
+
+.tabActive::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 4px;
+    background: #1DA1F2;
+    border-radius: 9999px;
+}
+
+/* Content */
+.content {
+    padding: 16px 20px;
+}
+
+.overview {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+/* Two-column overview layout: preview (left) and overview/stats (right) */
+.overviewGrid {
+    display: grid;
+    grid-template-columns: 1fr 340px;
+    gap: 20px;
+    align-items: start;
+}
+.previewColumn {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+.sideColumn {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+/* In the right column, make stat cards stack vertically */
+.sideColumn .statsGrid {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+.sideColumn .statCard {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+}
+
+/* Full-width overview grid used by preview and profile page */
+.previewGrid {
+    display: grid;
+    /* Let cards size naturally and wrap, so the whole collection can be centered */
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    grid-auto-rows: auto;
+    gap: 12px;
+    justify-content: center;
+    justify-items: center;
+}
+.previewCanvas {
+    position: relative;
+    width: 100%;
+    background: transparent;
+    border: 1px solid #E9ECEF;
+    border-radius: 12px;
+    overflow: hidden; /* keep preview self-contained and avoid overlapping other sections */
+    display: flex;
+    justify-content: center; /* center inner canvas horizontally */
+    align-items: flex-start; /* keep top alignment while horizontally centered */
+    padding: 24px; /* more breathing room so rotated/offset cards don't touch the border */
+    box-sizing: border-box;
+}
+.previewCanvasWrapper {
+    width: 100%;
+    margin-top: 12px;
+    display: flex;
+    justify-content: center; /* center the inner canvas horizontally */
+    align-items: flex-start;
+    padding-bottom: 16px; /* provide breathing room so cards don't overlap following sections */
+}
+.previewInnerCanvas {
+    position: relative;
+    will-change: transform;
+    margin: 0 auto;
+    max-width: none;
+    transform-origin: top center; /* ensure CSS fallback matches inline style */
+}
+.previewCanvasCard {
+    position: absolute;
+    background: #fff;
+    border: 1px solid #E9ECEF;
+    border-radius: 12px;
+    padding: 8px;
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: visible; /* don't clip card contents */
+}
+.previewCard {
+    background: #fff;
+    border: 1px solid #E9ECEF;
+    border-radius: 12px;
+    padding: 10px;
+    overflow: visible; /* allow full content to be visible */
+    display:flex;
+    align-items:center;
+    justify-content:center;
+}
+.cardText { font-size:15px; color:#111; text-align:center; padding:8px; }
+.cardImage { width:100%; height:100%; object-fit:cover; border-radius:8px }
+.cardSticker { width:64px; height:64px; object-fit:contain }
+.cardStickerText { font-size:28px }
 
 .statsGrid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-    gap: 16px;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
 }
 
 .statCard {
     display: flex;
     align-items: center;
-    gap: 16px;
-    padding: 24px;
-    background: white;
-    border-radius: 8px;
-    transition: box-shadow 0.2s;
-    box-shadow: 0 1px 2px 0 rgba(60,64,67,0.3), 0 1px 3px 1px rgba(60,64,67,0.15);
+    gap: 12px;
+    padding: 16px;
+    border: 1px solid #E1E8ED;
+    border-radius: 16px;
+    transition: background 0.2s;
 }
 
 .statCard:hover {
-    box-shadow: 0 1px 3px 0 rgba(60,64,67,0.3), 0 4px 8px 3px rgba(60,64,67,0.15);
+    background: #F7F9F9;
 }
 
-.statIcon {
+.statCard .material-icons {
+    font-size: 32px;
+    color: #1DA1F2;
+}
+
+.statCard strong {
+    display: block;
+    font-size: 20px;
+    font-weight: 700;
+    color: #0F1419;
+}
+
+.statCard p {
+    font-size: 13px;
+    color: #536471;
+    margin: 0;
+}
+
+.rankingOverview {
+    border: 1px solid #E1E8ED;
+    padding: 12px;
+    border-radius: 12px;
+}
+
+.rankingItem {
+    display:flex;
+    align-items:center;
+    gap:12px;
+}
+
+/* Servers */
+.servers {
     display: flex;
-    align-items: center;
-    justify-content: center;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.serverCard {
+    display: flex;
+    gap: 12px;
+    padding: 16px;
+    border: 1px solid #E1E8ED;
+    border-radius: 16px;
+    transition: background 0.2s;
+    cursor: pointer;
+}
+
+.serverCard:hover {
+    background: #F7F9F9;
+}
+
+.serverIcon {
     width: 48px;
     height: 48px;
-    background: #F1F3F4;
-    border-radius: 50%;
-    color: #1A73E8;
-}
-
-.statIcon .material-icons-outlined {
-    font-size: 28px;
-}
-
-.statContent h3 {
-    font-size: 14px;
-    font-weight: 400;
-    color: #5F6368;
-    margin: 0 0 4px 0;
-}
-
-.statValue {
-    font-size: 24px;
-    font-weight: 500;
-    color: #202124;
-    margin: 0;
-}
-
-.chatFrequency {
-    font-size: 18px;
-    font-weight: 600;
-    margin: 0;
-    color: #202124;
-}
-
-/* Servers Section */
-.servers {
-    padding: 0;
-    background: #fff;
-    border-radius: 12px;
-    min-height: 320px;
-}
-
-.guildsGrid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-    gap: 16px;
-}
-
-.guildCard {
-    padding: 20px;
-    background: white;
-    border-radius: 8px;
-    transition: box-shadow 0.2s;
-    box-shadow: 0 1px 2px 0 rgba(60,64,67,0.3), 0 1px 3px 1px rgba(60,64,67,0.15);
-}
-
-.guildCard:hover {
-    box-shadow: 0 1px 3px 0 rgba(60,64,67,0.3), 0 4px 8px 3px rgba(60,64,67,0.15);
-}
-
-.guildHeader {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    margin-bottom: 16px;
-}
-
-.guildIcon {
     flex-shrink: 0;
 }
 
-.guildIcon img {
-    width: 48px;
-    height: 48px;
+.serverIcon img {
+    width: 100%;
+    height: 100%;
     border-radius: 50%;
     object-fit: cover;
 }
 
-.defaultIcon {
-    width: 48px;
-    height: 48px;
+.serverIconPlaceholder {
+    width: 100%;
+    height: 100%;
     border-radius: 50%;
-    background: #4285F4;
+    background: #1DA1F2;
+    color: white;
     display: flex;
     align-items: center;
     justify-content: center;
-    color: white;
     font-size: 20px;
-    font-weight: 500;
+    font-weight: 700;
 }
 
-.guildInfo {
+.serverInfo {
     flex: 1;
     min-width: 0;
 }
 
-.guildInfo h3 {
+.serverInfo h3 {
     font-size: 16px;
-    font-weight: 500;
-    color: #202124;
+    font-weight: 700;
+    color: #0F1419;
     margin: 0 0 4px 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
-.guildInfo p {
-    font-size: 13px;
-    color: #5F6368;
-    margin: 0;
-}
-
-.guildStats {
-    display: flex;
-    gap: 16px;
-    margin-top: 12px;
-}
-
-.guildStat {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 4px;
-    flex: 1;
-}
-
-.guildStat .material-icons-outlined {
-    font-size: 20px;
-    color: #5F6368;
-}
-
-.guildStat span:nth-child(2) {
-    font-size: 16px;
-    font-weight: 500;
-    color: #202124;
-}
-
-.guildStat label {
-    font-size: 12px;
-    color: #5F6368;
-}
-
-.guildRole {
-    margin-top: 12px;
-    padding: 8px 12px;
-    background: #E8F0FE;
-    border-radius: 4px;
-    font-size: 13px;
-    color: #1A73E8;
-}
-
-.guildRolesList {
-    margin-top: 12px;
-    font-size: 13px;
-    color: #5F6368;
-}
-
-.guildRolesList ul {
-    margin: 4px 0 0 0;
-    padding-left: 20px;
-}
-
-.guildRolesList li {
-    margin: 2px 0;
-}
-
-.guildJoined {
-    margin-top: 8px;
-    font-size: 12px;
-    color: #5F6368;
-}
-
-/* Activity and Settings Sections */
-.activity,
-.settings {
-    padding: 0;
-    background: #fff;
-    border-radius: 12px;
-    min-height: 320px;
-}
-
-.activityContent,
-.settingsContent {
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-}
-
-.activityLoading {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    padding: 60px 20px;
-    gap: 16px;
-    background: white;
-    border-radius: 8px;
-    margin: 16px;
-}
-
-/* Frequency Card */
-.frequencyCard {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    border-radius: 8px;
-    padding: 32px;
-    color: white;
-    box-shadow: 0 1px 2px 0 rgba(60,64,67,0.3), 0 1px 3px 1px rgba(60,64,67,0.15);
-}
-
-.frequencyHeader {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    margin-bottom: 16px;
-}
-
-.frequencyHeader .material-icons {
-    font-size: 32px;
-}
-
-.frequencyHeader h3 {
-    margin: 0;
-    font-size: 20px;
-    font-weight: 500;
-}
-
-.frequencyBadge {
-    display: inline-block;
-    padding: 12px 24px;
-    background: rgba(255, 255, 255, 0.2);
-    border-radius: 24px;
-    font-size: 18px;
-    font-weight: 600;
-    margin-bottom: 12px;
-    backdrop-filter: blur(10px);
-}
-
-.frequencyDesc {
-    margin: 0;
+.serverInfo p {
     font-size: 14px;
-    opacity: 0.9;
+    color: #536471;
+    margin: 0 0 8px 0;
 }
 
-.frequencyDesc strong {
-    font-size: 18px;
-    font-weight: 600;
+.serverStats {
+    font-size: 13px;
+    color: #536471;
 }
 
-.timestampBadge {
-    display: inline-block;
-    margin-left: 12px;
-    padding: 4px 12px;
-    background: rgba(255, 255, 255, 0.3);
-    border-radius: 12px;
-    font-size: 11px;
-    font-weight: 600;
-    vertical-align: middle;
-}
-
-/* Period Stats */
-.periodStats {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: 16px;
-}
-
-.periodCard {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    padding: 24px;
-    background: white;
-    border-radius: 8px;
-    transition: transform 0.2s, box-shadow 0.2s;
-    box-shadow: 0 1px 2px 0 rgba(60,64,67,0.3), 0 1px 3px 1px rgba(60,64,67,0.15);
-}
-
-.periodCard:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 1px 3px 0 rgba(60,64,67,0.3), 0 4px 8px 3px rgba(60,64,67,0.15);
-}
-
-.periodIcon {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 56px;
-    height: 56px;
-    background: #F1F3F4;
-    border-radius: 50%;
-    color: #4285F4;
-}
-
-.periodIcon .material-icons {
-    font-size: 32px;
-}
-
-.periodData h4 {
-    margin: 0 0 4px 0;
-    font-size: 14px;
-    color: #5F6368;
-    font-weight: 400;
-}
-
-.periodValue {
-    margin: 4px 0;
-    font-size: 28px;
-    font-weight: 500;
-    color: #202124;
-}
-
-.periodLabel {
-    font-size: 12px;
-    color: #5F6368;
-}
-
-/* Activity Chart */
-.activityChart {
-    background: white;
-    border-radius: 8px;
-    padding: 24px;
-    box-shadow: 0 1px 2px 0 rgba(60,64,67,0.3), 0 1px 3px 1px rgba(60,64,67,0.15);
-}
-
-.activityChart h3 {
-    margin: 0 0 20px 0;
-    font-size: 16px;
-    font-weight: 500;
-    color: #202124;
-}
-
-.chartBars {
-    display: flex;
-    align-items: flex-end;
-    justify-content: space-around;
-    gap: 8px;
-    height: 200px;
-    padding: 20px 0;
-}
-
-.chartBar {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    flex: 1;
-    gap: 8px;
-}
-
-.bar {
-    position: relative;
-    width: 100%;
-    max-width: 60px;
-    background: linear-gradient(to top, #4285F4, #667eea);
-    border-radius: 4px 4px 0 0;
-    min-height: 20px;
-    transition: all 0.3s ease;
-    cursor: pointer;
-    display: flex;
-    align-items: flex-start;
-    justify-content: center;
-    padding-top: 4px;
-}
-
-.bar:hover {
-    opacity: 0.8;
-    transform: scaleY(1.05);
-}
-
-.barValue {
-    font-size: 11px;
-    font-weight: 600;
-    color: white;
-    text-shadow: 0 1px 2px rgba(0,0,0,0.2);
-}
-
-.barLabel {
-    font-size: 11px;
-    color: #5F6368;
+/* Activity */
+.activity {
+    padding: 40px 20px;
     text-align: center;
 }
 
-/* Most Active Server */
-.mostActiveServer {
-    background: white;
-    border-radius: 8px;
-    padding: 24px;
-    box-shadow: 0 1px 2px 0 rgba(60,64,67,0.3), 0 1px 3px 1px rgba(60,64,67,0.15);
+.comingSoon {
+    color: #536471;
+    font-size: 15px;
 }
 
-.mostActiveServer h3 {
-    margin: 0 0 16px 0;
-    font-size: 16px;
-    font-weight: 500;
-    color: #202124;
-}
-
-.activeServerCard {
+/* Modal */
+.modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.4);
     display: flex;
     align-items: center;
-    gap: 16px;
-    padding: 20px;
-    background: #FFFBF0;
-    border-radius: 8px;
-    border: 2px solid #FBBC04;
-    box-shadow: 0 1px 2px rgba(251, 188, 4, 0.1);
+    justify-content: center;
+    z-index: 1000;
+    padding: 16px;
 }
 
-.activeServerCard .material-icons {
-    font-size: 40px;
-    color: #FBBC04;
+.modalContent {
+    background: white;
+    border-radius: 16px;
+    width: 100%;
+    max-width: 600px;
+    max-height: 90vh;
+    overflow-y: auto;
+    box-shadow: 0 0 15px rgba(101, 119, 134, 0.2);
 }
 
-.serverInfo h4 {
-    margin: 0 0 4px 0;
-    font-size: 16px;
-    font-weight: 500;
-    color: #202124;
-}
-
-.serverInfo p {
-    margin: 0;
-    font-size: 14px;
-    color: #5F6368;
-}
-
-/* Average Stats */
-.averageStats {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-    gap: 16px;
-}
-
-.avgCard {
+.modalHeader {
     display: flex;
     align-items: center;
-    gap: 16px;
-    padding: 24px;
-    background: white;
-    border-radius: 8px;
-    box-shadow: 0 1px 2px 0 rgba(60,64,67,0.3), 0 1px 3px 1px rgba(60,64,67,0.15);
+    justify-content: space-between;
+    padding: 16px 20px;
+    border-bottom: 1px solid #E1E8ED;
 }
 
-.avgCard .material-icons {
-    font-size: 32px;
-    color: #4285F4;
-}
-
-.avgCard h4 {
-    margin: 0 0 4px 0;
-    font-size: 14px;
-    color: #5F6368;
-    font-weight: 400;
-}
-
-.avgCard p {
-    margin: 0;
+.modalHeader h2 {
     font-size: 20px;
-    font-weight: 500;
-    color: #202124;
+    font-weight: 700;
+    color: #0F1419;
+    margin: 0;
 }
 
-.infoCard {
+.closeButton {
+    background: transparent;
+    border: none;
+    color: #0F1419;
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 50%;
     display: flex;
     align-items: center;
-    gap: 16px;
+    justify-content: center;
+    transition: background 0.2s;
+}
+
+.closeButton:hover {
+    background: rgba(15, 20, 25, 0.1);
+}
+
+.modalBody {
     padding: 20px;
-    background: white;
-    border-radius: 8px;
-    color: #5F6368;
-    box-shadow: 0 1px 2px 0 rgba(60,64,67,0.3), 0 1px 3px 1px rgba(60,64,67,0.15);
-    margin: 16px;
 }
 
-.infoCard .material-icons {
-    font-size: 32px;
+.formGroup {
+    margin-bottom: 20px;
 }
 
-.infoCard p {
-    margin: 0;
+.formGroup label {
+    display: block;
     font-size: 14px;
+    font-weight: 600;
+    color: #0F1419;
+    margin-bottom: 8px;
 }
 
-/* Mobile Responsive */
-@media (max-width: 1024px) {
-    .sidebarOpen {
-        width: 200px;
-    }
-    
-    .content {
-        padding: 0;
-    }
-
-    .tabContent {
-        padding: 16px;
-    }
+.formGroup input,
+.formGroup textarea {
+    width: 100%;
+    padding: 12px;
+    border: 1px solid #CFD9DE;
+    border-radius: 8px;
+    font-size: 15px;
+    font-family: inherit;
+    transition: border-color 0.2s;
 }
 
-@media (max-width: 768px) {
-    .mainLayout {
-        flex-direction: column;
-    }
-    
-    .sidebar {
-        position: fixed;
-        top: 64px;
-        left: 0;
-        z-index: 50;
-        transform: translateX(-100%);
-        transition: transform 0.3s ease;
-        height: calc(100vh - 64px);
-    }
-    
-    .sidebarOpen {
-        transform: translateX(0);
-        width: 256px;
-        box-shadow: 2px 0 8px rgba(0,0,0,0.1);
-    }
-    
-    .content {
-        width: 100%;
-    }
-    
-    .profileCardHeader {
-        flex-direction: column;
-        text-align: center;
-    }
-    
-    .profileStats {
-        justify-content: center;
-    }
-    
-    .statsGrid {
-        grid-template-columns: 1fr;
-    }
-    
-    .guildsGrid {
-        grid-template-columns: 1fr;
-    }
+.formGroup input:focus,
+.formGroup textarea:focus {
+    outline: none;
+    border-color: #1DA1F2;
+}
 
-    .periodStats {
-        grid-template-columns: 1fr;
-    }
+.formGroup textarea {
+    resize: vertical;
+    min-height: 100px;
+}
 
-    .averageStats {
-        grid-template-columns: 1fr;
-    }
+.charCount {
+    display: block;
+    text-align: right;
+    font-size: 13px;
+    color: #536471;
+    margin-top: 4px;
+}
 
-    .chartBars {
+.modalFooter {
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+    padding: 16px 20px;
+    border-top: 1px solid #E1E8ED;
+}
+
+.cancelButton {
+    background: transparent;
+    color: #0F1419;
+    border: 1px solid #CFD9DE;
+    padding: 10px 16px;
+    border-radius: 9999px;
+    font-weight: 700;
+    font-size: 15px;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.cancelButton:hover {
+    background: rgba(15, 20, 25, 0.1);
+}
+
+.saveButton {
+    background: #1DA1F2;
+    color: white;
+    border: none;
+    padding: 10px 16px;
+    border-radius: 9999px;
+    font-weight: 700;
+    font-size: 15px;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.saveButton:hover {
+    background: #1A91DA;
+}
+
+/* Responsive Design */
+@media (max-width: 600px) {
+    .banner {
         height: 150px;
     }
 
-    .bar {
-        max-width: 40px;
+    /* Mobile: stack avatar and controls vertically to avoid overlap with banner */
+    .profileHeaderContent {
+        margin-top: -50px;
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .editButton {
+        align-self: flex-end;
+        margin-top: 8px;
+        margin-bottom: 12px;
+    }
+
+    .avatar {
+        width: 100px;
+        height: 100px;
+    }
+
+    .displayName {
+        font-size: 18px;
+    }
+
+    .statsGrid {
+        grid-template-columns: 1fr;
+    }
+
+    .tab span:not(.material-icons) {
+        display: none;
+    }
+
+    .modalContent {
+        max-height: 100vh;
+        border-radius: 0;
     }
 }
 
-@media (max-width: 480px) {
-    .content {
-        padding: 0;
-    }
-
-    .tabContent {
-        padding: 12px;
-    }
-    
-    .profileAvatar {
-        width: 72px;
-        height: 72px;
-    }
-    
-    .profileName {
-        font-size: 20px;
+@media (min-width: 700px) {
+    .container {
+        border-left: 1px solid #E1E8ED;
+        border-right: 1px solid #E1E8ED;
     }
 }
 
-.loading {
+/* Ranking Tab Styles */
+.ranking {
     display: flex;
     flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    min-height: calc(100vh - 64px);
     gap: 16px;
 }
 
-.loadingSpinner {
-    width: 40px;
-    height: 40px;
-    border: 4px solid #E8EAED;
-    border-top-color: #4285F4;
-    border-radius: 50%;
-    animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-    to {
-        transform: rotate(360deg);
-    }
-}
-
-.error {
+.rankingList {
     display: flex;
     flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    min-height: calc(100vh - 64px);
-    padding: 24px;
-    text-align: center;
+    gap: 12px;
 }
 
-.error h2 {
-    font-size: 24px;
-    font-weight: 400;
-    color: #202124;
-    margin: 0 0 16px 0;
-}
-
-.error p {
-    font-size: 14px;
-    color: #5F6368;
-    margin: 0 0 24px 0;
-}
-
-.loginButton {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    padding: 10px 20px;
-    border: none;
-    border-radius: 20px;
-    background: #1A73E8;
-    color: white;
-    font-size: 14px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: box-shadow 0.12s, transform 0.08s;
-}
-
-.loginButton:hover {
-    box-shadow: 0 6px 14px rgba(26,115,232,0.18);
-    transform: translateY(-1px);
-}
-
-/* Profile Header */
-
-.profileHeader {
-    background: #ffffff;
-    border-radius: 12px;
-    padding: 20px;
-    box-shadow: 0 6px 18px rgba(60,64,67,0.08);
-    margin-bottom: 20px;
-    display: block;
-    position: relative;
-    overflow: visible;
-}
-
-.headerInner {
-    display: flex;
-    align-items: center;
-    gap: 20px;
-}
-
-.avatarContainer {
-    flex-shrink: 0;
-}
-
-.avatar {
-    width: 96px;
-    height: 96px;
-    border-radius: 50%;
-    box-shadow: 0 8px 18px rgba(60,64,67,0.12);
-    border: 4px solid #fff;
-    background: #fff;
-    object-fit: cover;
-}
-
-.userInfo {
-    flex: 1;
-}
-
-.username {
-    font-size: 22px;
-    font-weight: 700;
-    color: #202124;
-    margin: 0 0 4px 0;
-    letter-spacing: 0.2px;
-}
-
-.discriminator {
-    color: #5F6368;
-    font-weight: 500;
-    margin-left: 8px;
-    font-size: 14px;
-}
-
-.userId {
-    font-size: 13px;
-    color: #5F6368;
-    margin: 6px 0 0 0;
-    font-weight: 400;
-}
-
-.smallText {
-    margin: 6px 0 0 0;
-    color: #70757A;
-    font-size: 13px;
-}
-
-.headerActions {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-}
-
-.primaryButton {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    padding: 8px 14px;
-    border-radius: 20px;
-    background: #1A73E8;
-    color: #fff;
-    border: none;
-    font-weight: 600;
-    cursor: pointer;
-    box-shadow: 0 6px 14px rgba(26,115,232,0.16);
-}
-
-.ghostButton {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    padding: 8px 12px;
-    border-radius: 20px;
-    background: transparent;
-    color: #202124;
-    border: 1px solid #E0E0E0;
-    font-weight: 600;
-    cursor: pointer;
-}
-
-.bannerContainer {
-    width: 100%;
-    height: 120px;
-    border-radius: 8px;
-    overflow: hidden;
-    margin-top: 12px;
-}
-
-.banner {
-    width: 100%;
-    height: 120px;
-    object-fit: cover;
-}
-
-.tabs {
-    display: flex;
-    gap: 8px;
-    margin: 12px 0 20px 0;
-}
-
-.tab {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    padding: 8px 12px;
+.rankingCard {
+    border: 1px solid #E1E8ED;
     border-radius: 16px;
-    background: #F1F3F4;
-    color: #202124;
-    font-weight: 600;
-    cursor: pointer;
-    border: none;
-}
-
-.tab.active {
-    background: linear-gradient(90deg,#1A73E8,#4285F4);
-    color: white;
-    box-shadow: 0 6px 14px rgba(66,133,244,0.18);
-}
-
-/* Tab Content */
-.tabContent {
-    min-height: 320px;
-    background: #fff;
-    border-radius: 12px;
-    padding: 20px;
-    box-shadow: 0 4px 12px rgba(60,64,67,0.06);
-    transition: box-shadow 0.2s, transform 0.2s;
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-}
-
-.sectionTitle {
-    font-size: 18px;
-    color: #202124;
-    margin: 0 0 12px 0;
-}
-
-.statsGrid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-    gap: 16px;
-    margin-bottom: 12px;
-    align-items: stretch;
-}
-
-.statCard {
+    overflow: hidden;
     background: white;
-    border-radius: 10px;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.rankingCard:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.rankingHeader {
     padding: 16px;
-    box-shadow: 0 6px 12px rgba(60,64,67,0.06);
-    display: flex;
-    gap: 12px;
-    align-items: center;
+    background: #F7F9F9;
+    border-bottom: 1px solid #E1E8ED;
 }
 
-.statIcon {
-    width: 56px;
-    height: 56px;
-    background: #E8F0FE;
+.guildInfo {
     display: flex;
     align-items: center;
-    justify-content: center;
-    color: #1A73E8;
-    font-size: 22px;
-    font-weight: 600;
-    border-radius: 12px;
-}
-
-.statIcon .material-icons-outlined {
-    font-size: 18px;
-    font-weight: 600;
-    color: #1976D2;
-    margin: 0 0 2px 0;
-    letter-spacing: 0.2px;
-}
-.statContent {
-    flex: 1;
-}
-
-.statContent h3 {
-    font-size: 13px;
-    font-weight: 600;
-    color: #202124;
-    margin: 0 0 4px 0;
-}
-
-/* Servers */
-.servers {
-    padding: 8px 0;
-}
-
-.guildsGrid {
-    display: grid;
     gap: 12px;
-    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-}
-
-.guildCard {
-    background: white;
-    padding: 12px;
-    border-radius: 10px;
-    box-shadow: 0 6px 14px rgba(60,64,67,0.06);
-}
-
-.guildHeader {
-    display: flex;
-    gap: 12px;
-    margin-bottom: 12px;
-    align-items: center;
 }
 
 .guildIcon {
     width: 48px;
     height: 48px;
-    border-radius: 10px;
-    overflow: hidden;
-    flex-shrink: 0;
-}
-
-.guildIcon img {
-    width: 100%;
-    height: 100%;
+    border-radius: 50%;
     object-fit: cover;
 }
 
-.defaultIcon {
-    width: 100%;
-    height: 100%;
-    background: #1A73E8;
+.guildIconPlaceholder {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: #1DA1F2;
+    color: white;
     display: flex;
     align-items: center;
     justify-content: center;
-    color: white;
-    font-size: 18px;
+    font-size: 20px;
     font-weight: 700;
 }
 
-.guildInfo {
-    flex: 1;
-}
-
-.guildInfo h3 {
-    font-size: 18px;
-    font-weight: 500;
-    color: #202124;
-    margin: 0 0 4px 0;
-}
-
-.guildInfo p {
-    font-size: 14px;
-    color: #5F6368;
+.guildName {
     margin: 0;
-}
-
-.guildStats {
-    display: flex;
-    gap: 12px;
-    padding: 12px 0;
-    border-top: 1px solid #F1F3F4;
-}
-
-.guildStat {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 6px;
-    flex: 1;
-}
-
-.guildStat .material-icons-outlined {
-    font-size: 18px;
-    color: #5F6368;
-}
-
-.guildStat span:nth-child(2) {
     font-size: 16px;
     font-weight: 700;
-    color: #202124;
+    color: #0F1419;
 }
 
-.guildStat label {
-    font-size: 12px;
-    color: #5F6368;
-}
-
-.guildRole {
-    padding-top: 8px;
-    font-size: 13px;
-    color: #5F6368;
-}
-
-.guildRolesList {
-    padding-top: 12px;
-    font-size: 14px;
-    color: #5F6368;
-}
-
-.guildRolesList strong {
-    display: block;
-    margin-bottom: 8px;
-    color: #202124;
-}
-
-.guildRolesList ul {
-    list-style: none;
-    padding: 0;
+.rankingLabel {
     margin: 0;
-}
-
-.guildRolesList li {
-    padding: 4px 8px;
-    background: #F1F3F4;
-    border-radius: 4px;
-    margin-bottom: 4px;
-}
-
-.guildJoined {
-    padding-top: 12px;
     font-size: 13px;
-    color: #5F6368;
+    color: #536471;
 }
 
-/* Mobile Responsive */
-
-@media (max-width: 900px) {
-    .container {
-        padding: 16px;
-    }
-
-    .headerInner {
-        flex-direction: row;
-        gap: 12px;
-    }
-
-    .headerActions {
-        margin-left: auto;
-    }
-
-    .avatar {
-        width: 80px;
-        height: 80px;
-    }
+.rankingDetails {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 16px;
+    padding: 16px;
 }
 
-@media (max-width: 520px) {
-    .headerInner {
-        flex-direction: column;
-        align-items: center;
-        text-align: center;
-    }
+.rankingItem {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
 
-    .headerActions {
-        width: 100%;
-        justify-content: center;
-        margin-top: 8px;
-    }
+.rankingItem .material-icons {
+    font-size: 32px;
+    color: #1DA1F2;
+}
 
-    .tabs {
-        flex-wrap: wrap;
-    }
+.rankingValue {
+    font-size: 20px;
+    font-weight: 700;
+    color: #0F1419;
+}
 
-    .statsGrid {
+.rankingKey {
+    font-size: 13px;
+    color: #536471;
+}
+
+@media (max-width: 600px) {
+    .rankingDetails {
         grid-template-columns: 1fr;
+    }
+
+    .rankingItem .material-icons {
+        font-size: 24px;
+    }
+
+    .rankingValue {
+        font-size: 18px;
     }
 }

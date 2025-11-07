@@ -1,0 +1,331 @@
+.container { padding: 20px; max-width: 1100px; margin: 0 auto; }
+.grid { display: grid; grid-template-columns: 360px 1fr; gap: 20px; align-items: start; }
+.preview { border: 1px solid #ececec; border-radius: 10px; overflow: hidden; background: white; box-shadow: 0 6px 18px rgba(16,24,40,0.04); }
+.previewBanner { height: 88px; background: linear-gradient(90deg,#f0f0f0,#e8e8e8); }
+.previewBody { padding: 14px; }
+.previewName { margin:0; font-size:18px; }
+.previewBio { margin:8px 0 0; color:#444; font-size:13px; }
+.previewMeta { margin-top:12px; display:flex; gap:8px; flex-wrap:wrap; }
+.previewMetaItem { display:flex; align-items:center; gap:8px; background:#fafafa; padding:6px 8px; border-radius:8px; font-size:13px; color:#333; text-decoration:none }
+.emoji { font-size:16px; }
+
+.form { background: white; border: 1px solid #f0f0f0; padding: 16px; border-radius:10px; box-shadow: 0 6px 18px rgba(16,24,40,0.04); }
+.formGroup { margin-bottom: 12px; display:flex; flex-direction:column; }
+.formGroup label { font-weight:600; margin-bottom:6px }
+.formGroup input, .formGroup textarea { padding:8px; border-radius:6px; border:1px solid #ddd }
+.formRow { margin-top:8px }
+.formActions { display:flex; gap:8px; justify-content:flex-end; margin-top:16px }
+.cancel { background:#eee;padding:8px 12px;border-radius:6px }
+.save { background:#1DA1F2;color:white;padding:8px 12px;border-radius:6px;border:none }
+.error { color:#b00; margin-bottom:12px }
+
+.countryList { display:flex; flex-wrap:wrap; gap:8px; margin-top:8px }
+.countryBtn { display:flex; align-items:center; gap:8px; padding:6px 10px; border-radius:8px; border:1px solid #eee; background:white; cursor:pointer }
+.countryActive { border-color:#1DA1F2; box-shadow:0 6px 18px rgba(29,161,242,0.08); }
+.countryLabel { font-size:13px }
+
+@media (max-width: 900px) {
+	.grid { grid-template-columns: 1fr; }
+	.preview { order: 0 }
+}
+
+/* Overview preview grid */
+.previewGrid {
+  display: grid;
+  /* Let preview cards wrap to their natural width so the collection can be centered */
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  grid-auto-rows: auto;
+  gap: 8px;
+  margin-top: 12px;
+  justify-content: center;
+  justify-items: center;
+}
+.previewCard {
+  background: #fff;
+  border: 1px solid #e8eaeb;
+  border-radius: 10px;
+  padding: 8px;
+  overflow: visible; /* allow full content to show */
+  display:flex;
+  align-items:center;
+  justify-content:center;
+}
+.cardText { font-size:14px; color:#111; text-align:center; padding:8px; }
+.cardImage { width:100%; height:100%; object-fit:cover; border-radius:8px }
+.cardSticker { width:64px; height:64px; object-fit:contain }
+.cardStickerText { font-size:28px }
+
+/* Card editor */
+.cardToolbar { display:flex; gap:8px; margin-top:8px }
+.cardToolbar button { padding:6px 10px; border-radius:8px; background:#f5f7f8; border:1px solid #eee; cursor:pointer }
+.cardList { margin-top:12px; display:flex; flex-direction:column; gap:8px }
+.cardRow { display:flex; gap:8px; align-items:flex-start; background:#fff; border:1px solid #f0f0f0; padding:8px; border-radius:8px }
+.cardRowMain { flex:1; display:flex; gap:8px; flex-direction:column }
+.cardRow input { padding:8px; border-radius:6px; border:1px solid #ddd }
+.cardRowActions { display:flex; flex-direction:column; gap:6px }
+.sizeControls { display:flex; gap:8px; align-items:center }
+.sizeControls input { width:60px }
+
+/* react-grid-layout overrides to make grid preview visually consistent */
+.react-grid-item { transition: all 200ms ease; }
+.react-grid-placeholder { background: rgba(29,161,242,0.06); border: 1px dashed rgba(29,161,242,0.3); }
+
+/* Editor Canvas Styles */
+.editorContainer {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.editorToolbar {
+  display: flex;
+  gap: 8px;
+  padding: 8px;
+  background: #f5f5f5;
+  border-radius: 8px;
+}
+
+.toolButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px;
+  border: 1px solid #ddd;
+  background: white;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.toolButton:hover {
+  background: #f0f0f0;
+}
+
+.toolButton .material-icons {
+  font-size: 20px;
+}
+
+.canvasWrap {
+  background: #fafafa;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  overflow: hidden; /* contain cards inside the editor preview to avoid overlap */
+  position: relative;
+  padding: 12px;
+}
+
+.previewCardSelected {
+  border: 2px solid #1DA1F2 !important;
+  box-shadow: 0 0 0 3px rgba(29, 161, 242, 0.1);
+}
+
+/* Inspector Panel */
+.inspector {
+  background: white;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 16px;
+  max-height: 600px;
+  overflow-y: auto;
+}
+
+.inspectorHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.inspectorHeader h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.closeButton {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+}
+
+.closeButton:hover {
+  background: #f0f0f0;
+}
+
+.inspectorBody {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Sticker Picker */
+.stickerPicker {
+  background: white;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 16px;
+  max-height: 500px;
+  overflow-y: auto;
+}
+
+.stickerPickerHeader {
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.stickerPickerHeader h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.stickerPickerBody {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.emojiList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.emojiGuild {
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.emojiGuildHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  width: 100%;
+  border: none;
+  background: #f5f5f5;
+  cursor: pointer;
+  text-align: left;
+  font-weight: 500;
+}
+
+.emojiGuildHeader:hover {
+  background: #ebebeb;
+}
+
+.emojiCount {
+  margin-left: auto;
+  color: #666;
+  font-size: 12px;
+}
+
+.emojiGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(48px, 1fr));
+  gap: 8px;
+  padding: 12px;
+}
+
+.emojiButton {
+  width: 48px;
+  height: 48px;
+  padding: 4px;
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+  background: white;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.emojiButton:hover {
+  border-color: #1DA1F2;
+  transform: scale(1.1);
+}
+
+.emojiButton img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.emptyState {
+  padding: 24px;
+  text-align: center;
+  color: #666;
+}
+
+.button {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 6px;
+  background: #1DA1F2;
+  color: white;
+  cursor: pointer;
+  font-weight: 500;
+  transition: background 0.2s;
+}
+
+.button:hover {
+  background: #1A91DA;
+}
+
+/* Layer List */
+.layerList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.layerItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+  background: white;
+  cursor: pointer;
+}
+
+.layerItem:hover {
+  background: #f5f5f5;
+}
+
+.layerItemActive {
+  border-color: #1DA1F2;
+  background: rgba(29, 161, 242, 0.05);
+}
+
+@media (max-width: 768px) {
+  .inspector {
+    max-height: 400px;
+  }
+
+  .stickerPicker {
+    max-height: 350px;
+  }
+
+  .editorToolbar {
+    flex-wrap: wrap;
+  }
+
+  .emojiGrid {
+    grid-template-columns: repeat(auto-fill, minmax(40px, 1fr));
+  }
+
+  .emojiButton {
+    width: 40px;
+    height: 40px;
+  }
+}

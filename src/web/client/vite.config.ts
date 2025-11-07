@@ -20,9 +20,13 @@ export default defineConfig({
     // 大きなバンドルを分割してチャンクサイズ警告を軽減します。
     rollupOptions: {
         output: {
+        // Avoid putting `react` into its own chunk because certain
+        // circular cross-chunk imports (react <-> other vendor code)
+        // can lead to temporary `undefined` module bindings at runtime
+        // (e.g. `F.memo` undefined). Keep most node_modules together
+        // while still splitting very heavy 3D libs.
         manualChunks(id) {
           if (id.includes('node_modules')) {
-            if (id.includes('react')) return 'vendor-react';
             // split heavy 3D libs into their own chunk to avoid bloating vendor
             if (id.includes('three') || id.includes('skin3d') || id.includes('three-stdlib')) return 'vendor-3d';
             return 'vendor';

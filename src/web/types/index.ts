@@ -24,3 +24,5 @@ export interface GuildSettings {
     settings?: Record<string, any>;
     updatedAt?: number;
 }
+
+export * from './profile.js';

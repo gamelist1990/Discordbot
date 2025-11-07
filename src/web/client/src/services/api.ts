@@ -247,3 +247,38 @@ export async function fetchStaffCommands(): Promise<StaffCommandData> {
 export async function fetchGuildEmojis(guildId: string): Promise<{ emojis: Array<{ id: string; name: string | null; animated: boolean; url: string }> }> {
   return apiRequest(`${API_BASE}/staff/guilds/${encodeURIComponent(guildId)}/emojis`);
 }
+
+/**
+ * ユーザープロフィール取得（自身または指定ユーザー）
+ */
+export async function fetchUserProfile(userId?: string): Promise<any> {
+  const url = userId ? `${API_BASE}/user/profile?userId=${encodeURIComponent(userId)}` : `${API_BASE}/user/profile`;
+  return apiRequest<any>(url, { credentials: 'include' });
+}
+
+/**
+ * カスタムプロフィール取得
+ */
+export async function fetchCustomProfile(userId?: string): Promise<any> {
+  const url = userId ? `${API_BASE}/user/profile/custom?userId=${encodeURIComponent(userId)}` : `${API_BASE}/user/profile/custom`;
+  return apiRequest<any>(url, { credentials: 'include' });
+}
+
+/**
+ * カスタムプロフィール更新 (PUT)
+ */
+export async function updateCustomProfile(payload: any): Promise<any> {
+  const url = `${API_BASE}/user/profile/custom`;
+  return apiRequest<any>(url, {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+    credentials: 'include'
+  });
+}
+
+/**
+ * バナープリセット取得
+ */
+export async function fetchBannerPresets(): Promise<any> {
+  return apiRequest<any>(`${API_BASE}/user/profile/banner-presets`);
+}
