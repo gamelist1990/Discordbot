@@ -40,7 +40,9 @@
     "dev": "concurrently \"cd src/web/client && vite build\" \"bun --watch run src/index.ts \"",
     "webDebug": "cd src/web/client && vite build && cd ../.. && bun run src/web/webDebug.ts",
     "webserver": "concurrently \"cd src/web/client && vite\" \"npx ts-node-dev --respawn --transpile-only --loader ts-node/esm src/web/webDebug.ts\"",
-    "test:playwright": "npx playwright test"
+    "test:playwright": "npx playwright test",
+    "test:visual": "node tests/run-visual-tests.js",
+    "test:visual-ui": "node tests/run-visual-tests.js && npx playwright show-report"
   },
   "devDependencies": {
     "@playwright/test": "^1.40.0",
