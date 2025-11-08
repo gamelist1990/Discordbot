@@ -42,7 +42,10 @@
     "webserver": "concurrently \"cd src/web/client && vite\" \"npx ts-node-dev --respawn --transpile-only --loader ts-node/esm src/web/webDebug.ts\"",
     "test:playwright": "npx playwright test",
     "test:visual": "node tests/run-visual-tests.js",
-    "test:visual-ui": "node tests/run-visual-tests.js && npx playwright show-report"
+    "test:visual-ui": "node tests/run-visual-tests.js && npx playwright show-report",
+    "debug:session": "node tests/create-debug-session.js",
+    "test:visual-new": "node tests/run-visual-tests-new.js",
+    "test:visual-new-ui": "node tests/run-visual-tests-new.js && npx playwright show-report"
   },
   "devDependencies": {
     "@playwright/test": "^1.40.0",
