@@ -9,10 +9,20 @@ export interface AntiCheatSettings {
     excludedRoles: string[];
     excludedChannels: string[];
     logChannelId: string | null;
+    autoTimeout: {
+        enabled: boolean;
+        durationSeconds: number;
+    };
 }
 
 export interface DetectorConfig {
     enabled: boolean;
+    description?: string;
+    excludeSettings?: {
+        excludedRoles?: string[];
+        excludedChannels?: string[];
+        excludedUsers?: string[];
+    };
     config?: Record<string, any>;
 }
 
@@ -32,6 +42,12 @@ export interface UserTrustData {
     score: number;
     lastUpdated: string;
     history: TrustHistoryEntry[];
+}
+
+export interface UserTrustDataWithUser extends UserTrustData {
+    username: string;
+    displayName: string;
+    avatar: string | null;
 }
 
 export interface TrustHistoryEntry {

@@ -64,6 +64,14 @@ export interface GuildAntiCheatSettings {
     excludedRoles: string[];
     excludedChannels: string[];
     logChannelId: string | null;
+    autoTimeout: {
+        enabled: boolean;
+        durationSeconds: number;
+    };
+    autoDelete: {
+        enabled: boolean;
+        windowSeconds: number; // how far back to delete messages (seconds)
+    };
     userTrust: Record<string, UserTrustData>;
     recentLogs: DetectionLog[];
 }
@@ -97,6 +105,7 @@ export interface DetectionLog {
     scoreDelta: number;
     reason: string;
     timestamp: string;
+    status?: 'active' | 'revoked';
     metadata?: Record<string, any>;
 }
 
@@ -115,6 +124,14 @@ export const DEFAULT_ANTICHEAT_SETTINGS: GuildAntiCheatSettings = {
     excludedRoles: [],
     excludedChannels: [],
     logChannelId: null,
+    autoTimeout: {
+        enabled: true,
+        durationSeconds: 180
+    },
+    autoDelete: {
+        enabled: true,
+        windowSeconds: 600
+    },
     userTrust: {},
     recentLogs: []
 };

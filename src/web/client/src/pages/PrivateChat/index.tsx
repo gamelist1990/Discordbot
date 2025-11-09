@@ -154,7 +154,7 @@ const PrivateChatPage: React.FC = () => {
             try { (window as any).web?.notify?.(`部屋 "${roomToCreate}" を作成しました`, 'success', 'プライベートチャット作成', 5000); } catch {}
         } catch (err) {
             console.error('チャット作成エラー:', err);
-            alert('チャットの作成に失敗しました');
+            try { (window as any).web?.notify?.('チャットの作成に失敗しました', 'error', '作成エラー', 4000); } catch {}
         } finally {
             setCreatingChat(false);
         }
@@ -172,7 +172,7 @@ const PrivateChatPage: React.FC = () => {
             try { (window as any).web?.notify?.('チャットを削除しました', 'info', 'プライベートチャット削除', 4000); } catch {}
         } catch (err) {
             console.error('チャット削除エラー:', err);
-            alert('チャットの削除に失敗しました');
+            try { (window as any).web?.notify?.('チャットの削除に失敗しました', 'error', '削除エラー', 4000); } catch {}
         }
     };
 

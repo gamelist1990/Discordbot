@@ -1,13 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import AntiCheatDesktop from './Desktop';
-import AntiCheatMobile from './Mobile';
+import AntiCheatUnified from './AntiCheat';
 
 /**
  * AntiCheat page with viewport detection
  * Renders Desktop or Mobile component based on screen width
  */
 const AntiCheatPage: React.FC = () => {
-    const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+    const [, setIsMobile] = useState(window.innerWidth < 768);
 
     useEffect(() => {
         const handleResize = () => {
@@ -18,7 +17,7 @@ const AntiCheatPage: React.FC = () => {
         return () => window.removeEventListener('resize', handleResize);
     }, []);
 
-    return isMobile ? <AntiCheatMobile /> : <AntiCheatDesktop />;
+    return <AntiCheatUnified />;
 };
 
 export default AntiCheatPage;

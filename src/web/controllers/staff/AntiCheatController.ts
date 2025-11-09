@@ -4,7 +4,7 @@ import { antiCheatManager } from '../../../core/anticheat/AntiCheatManager.js';
 import { PunishmentExecutor } from '../../../core/anticheat/PunishmentExecutor.js';
 import { GuildAntiCheatSettings, PunishmentAction } from '../../../core/anticheat/types.js';
 import { Logger } from '../../../utils/Logger.js';
-import { TextChannel } from 'discord.js';
+import { TextChannel, PermissionFlagsBits } from 'discord.js';
 
 /**
  * AntiCheat Controller
@@ -146,6 +146,26 @@ export class AntiCheatController {
                 ? (await guild.channels.fetch(settings.logChannelId).catch(() => null)) as TextChannel | null
                 : null;
 
+            // Check bot permissions based on action type
+            let requiredPermission: bigint | null = null;
+            switch (action.type) {
+                case 'timeout':
+                    requiredPermission = PermissionFlagsBits.ModerateMembers;
+                    break;
+                case 'kick':
+                    requiredPermission = PermissionFlagsBits.KickMembers;
+                    break;
+                case 'ban':
+                    requiredPermission = PermissionFlagsBits.BanMembers;
+                    break;
+            }
+            if (requiredPermission && !guild.members.me?.permissions.has(requiredPermission)) {
+                const permName = requiredPermission === PermissionFlagsBits.ModerateMembers ? 'Moderate Members' :
+                                requiredPermission === PermissionFlagsBits.KickMembers ? 'Kick Members' : 'Ban Members';
+                res.status(403).json({ error: `Bot lacks ${permName} permission to execute this action` });
+                return;
+            }
+
             // Execute action
             const success = await PunishmentExecutor.execute(member, action, logChannel);
 
@@ -167,7 +187,7 @@ export class AntiCheatController {
     revokeTimeout = async (req: Request, res: Response): Promise<void> => {
         try {
             const { guildId } = req.params;
-            const { userId, resetTrust } = req.body as { userId: string; resetTrust?: boolean };
+            const { userId, resetTrust, messageId } = req.body as { userId: string; resetTrust?: boolean; messageId?: string };
 
             // Verify user has access to this guild
             const session = (req as any).session;
@@ -195,6 +215,17 @@ export class AntiCheatController {
                 ? (await guild.channels.fetch(settings.logChannelId).catch(() => null)) as TextChannel | null
                 : null;
 
+            // Check bot permissions
+            if (!guild.members.me?.permissions.has(PermissionFlagsBits.ModerateMembers)) {
+                res.status(403).json({ error: 'Bot lacks Moderate Members permission to revoke timeouts' });
+                return;
+            }
+
+            // Revoke related log if messageId provided
+            if (messageId) {
+                await antiCheatManager.revokeLog(guildId, messageId);
+            }
+
             // Revoke timeout
             const success = await PunishmentExecutor.revokeTimeout(member, logChannel);
 
@@ -207,7 +238,8 @@ export class AntiCheatController {
                 res.json({ 
                     success: true, 
                     message: 'Timeout revoked successfully',
-                    trustReset: resetTrust || false
+                    trustReset: resetTrust || false,
+                    logRevoked: !!messageId
                 });
             } else {
                 res.status(500).json({ error: 'Failed to revoke timeout' });
@@ -219,9 +251,75 @@ export class AntiCheatController {
     };
 
     /**
-     * GET /api/staff/anticheat/:guildId/trust
-     * Get trust scores for users in a guild
+     * POST /api/staff/anticheat/:guildId/reset-trust
+     * Reset trust score for a user
      */
+    resetTrust = async (req: Request, res: Response): Promise<void> => {
+        try {
+            const { guildId } = req.params;
+            const { userId } = req.body as { userId: string };
+
+            // Verify user has access to this guild
+            const session = (req as any).session;
+            if (!session || !hasAccessToGuild(session, guildId)) {
+                res.status(403).json({ error: 'Access denied to this guild' });
+                return;
+            }
+
+            await antiCheatManager.resetTrust(guildId, userId);
+
+            res.json({ 
+                success: true, 
+                message: 'Trust score reset successfully'
+            });
+        } catch (error) {
+            Logger.error('Error resetting trust:', error);
+            res.status(500).json({ error: 'Failed to reset trust' });
+        }
+    };
+
+    /**
+     * GET /api/staff/anticheat/:guildId/user-timeout/:userId
+     * Get timeout status for a user
+     */
+    getUserTimeoutStatus = async (req: Request, res: Response): Promise<void> => {
+        try {
+            const { guildId, userId } = req.params;
+
+            // Verify user has access to this guild
+            const session = (req as any).session;
+            if (!session || !hasAccessToGuild(session, guildId)) {
+                res.status(403).json({ error: 'Access denied to this guild' });
+                return;
+            }
+
+            // Get guild and member
+            const guild = await this.botClient.client.guilds.fetch(guildId);
+            if (!guild) {
+                res.status(404).json({ error: 'Guild not found' });
+                return;
+            }
+
+            const member = await guild.members.fetch(userId).catch(() => null);
+            if (!member) {
+                res.status(404).json({ error: 'Member not found' });
+                return;
+            }
+
+            // Check if user is currently timed out
+            const isTimedOut = member.communicationDisabledUntil !== null;
+            const timeoutUntil = member.communicationDisabledUntil ? member.communicationDisabledUntil.toISOString() : null;
+
+            res.json({
+                userId,
+                isTimedOut,
+                timeoutUntil
+            });
+        } catch (error) {
+            Logger.error('Error getting user timeout status:', error);
+            res.status(500).json({ error: 'Failed to get timeout status' });
+        }
+    };
     getUserTrust = async (req: Request, res: Response): Promise<void> => {
         try {
             const { guildId } = req.params;
@@ -239,9 +337,39 @@ export class AntiCheatController {
                 const trust = await antiCheatManager.getUserTrust(guildId, userId as string);
                 res.json({ userId, trust });
             } else {
-                // Get all user trust
+                // Get all user trust with usernames
                 const allTrust = await antiCheatManager.getAllUserTrust(guildId);
-                res.json({ userTrust: allTrust });
+                
+                // Get guild to fetch user information
+                const guild = await this.botClient.client.guilds.fetch(guildId).catch(() => null);
+                if (!guild) {
+                    res.json({ userTrust: allTrust });
+                    return;
+                }
+
+                // Add usernames to trust data
+                const userTrustWithNames: Record<string, any> = {};
+                for (const [userId, trustData] of Object.entries(allTrust)) {
+                    try {
+                        const member = await guild.members.fetch(userId).catch(() => null);
+                        userTrustWithNames[userId] = {
+                            ...trustData,
+                            username: member ? member.user.username : '不明',
+                            displayName: member ? member.displayName : '不明',
+                            avatar: member ? member.user.avatarURL() : null
+                        };
+                    } catch (error) {
+                        // User not found or other error
+                        userTrustWithNames[userId] = {
+                            ...trustData,
+                            username: '不明',
+                            displayName: '不明',
+                            avatar: null
+                        };
+                    }
+                }
+
+                res.json({ userTrust: userTrustWithNames });
             }
         } catch (error) {
             Logger.error('Error getting user trust:', error);

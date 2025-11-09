@@ -49,9 +49,9 @@ const SettingsPage: React.FC = () => {
       const updated = { ...settings, ...newSettings };
       await saveSettings(guildId, updated);
       setSettings(updated);
-      alert('設定を保存しました');
+      try { (window as any).web?.notify?.('設定を保存しました', 'success', '設定保存', 4000); } catch {}
     } catch (err) {
-      alert('設定の保存に失敗しました');
+      try { (window as any).web?.notify?.('設定の保存に失敗しました', 'error', '保存エラー', 4000); } catch {}
       console.error(err);
     }
   };

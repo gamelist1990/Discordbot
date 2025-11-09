@@ -73,7 +73,7 @@ const TriggerEditor: React.FC<TriggerEditorProps> = ({
 
     const handleSave = async () => {
         if (!formData.name?.trim()) {
-            alert('トリガー名を入力してください');
+            try { (window as any).web?.notify?.('トリガー名を入力してください', 'error', '入力エラー', 4000); } catch {}
             return;
         }
 

@@ -1,4 +1,4 @@
-import { GuildMember, TextChannel } from 'discord.js';
+import { GuildMember, TextChannel, EmbedBuilder, Colors } from 'discord.js';
 import { Logger } from '../../utils/Logger.js';
 import { PunishmentAction } from './types.js';
 
@@ -6,6 +6,48 @@ import { PunishmentAction } from './types.js';
  * Executes punishments (timeout, kick, ban) and handles revocation
  */
 export class PunishmentExecutor {
+    /**
+     * Create a rich embed for punishment notifications
+     */
+    private static createPunishmentEmbed(
+        title: string,
+        member: GuildMember,
+        color: number,
+        fields: Array<{ name: string; value: string; inline?: boolean }>
+    ): EmbedBuilder {
+        const embed = new EmbedBuilder()
+            .setTitle(`🛡️ ${title}`)
+            .setColor(color)
+            .setTimestamp()
+            .setFooter({
+                text: 'AntiCheat System',
+                iconURL: member.guild.iconURL() || undefined
+            });
+
+        // Add user info
+        embed.addFields(
+            {
+                name: '👤 ユーザー',
+                value: `${member.user.tag}\n${member.user.toString()}`,
+                inline: true
+            },
+            {
+                name: '🆔 ユーザーID',
+                value: `\`${member.id}\``,
+                inline: true
+            },
+            {
+                name: '🏠 サーバー',
+                value: member.guild.name,
+                inline: true
+            }
+        );
+
+        // Add custom fields
+        embed.addFields(...fields);
+
+        return embed;
+    }
     /**
      * Execute a punishment action on a guild member
      * @param member The guild member to punish
@@ -30,12 +72,24 @@ export class PunishmentExecutor {
                     Logger.info(`⏱️ Timed out user ${member.user.tag} for ${action.durationSeconds}s`);
                     
                     if (action.notify && logChannel) {
-                        await logChannel.send(
-                            `🔇 **User Timed Out**\n` +
-                            `User: ${member.user.tag} (${member.id})\n` +
-                            `Duration: ${action.durationSeconds}s\n` +
-                            `Reason: ${reason}`
+                        const embed = this.createPunishmentEmbed(
+                            'ユーザーをタイムアウト',
+                            member,
+                            Colors.Orange,
+                            [
+                                {
+                                    name: '⏰ タイムアウト時間',
+                                    value: `${action.durationSeconds}秒`,
+                                    inline: true
+                                },
+                                {
+                                    name: '📝 理由',
+                                    value: reason,
+                                    inline: false
+                                }
+                            ]
                         );
+                        await logChannel.send({ embeds: [embed] });
                     }
                     break;
 
@@ -44,11 +98,19 @@ export class PunishmentExecutor {
                     Logger.info(`👢 Kicked user ${member.user.tag}`);
                     
                     if (action.notify && logChannel) {
-                        await logChannel.send(
-                            `👢 **User Kicked**\n` +
-                            `User: ${member.user.tag} (${member.id})\n` +
-                            `Reason: ${reason}`
+                        const embed = this.createPunishmentEmbed(
+                            'ユーザーをキック',
+                            member,
+                            Colors.Red,
+                            [
+                                {
+                                    name: '📝 理由',
+                                    value: reason,
+                                    inline: false
+                                }
+                            ]
                         );
+                        await logChannel.send({ embeds: [embed] });
                     }
                     break;
 
@@ -60,11 +122,24 @@ export class PunishmentExecutor {
                     Logger.info(`🔨 Banned user ${member.user.tag}`);
                     
                     if (action.notify && logChannel) {
-                        await logChannel.send(
-                            `🔨 **User Banned**\n` +
-                            `User: ${member.user.tag} (${member.id})\n` +
-                            `Reason: ${reason}`
+                        const embed = this.createPunishmentEmbed(
+                            'ユーザーをBAN',
+                            member,
+                            Colors.DarkRed,
+                            [
+                                {
+                                    name: '🗑️ メッセージ削除',
+                                    value: action.durationSeconds ? `${action.durationSeconds}秒分のメッセージを削除` : 'なし',
+                                    inline: true
+                                },
+                                {
+                                    name: '📝 理由',
+                                    value: reason,
+                                    inline: false
+                                }
+                            ]
                         );
+                        await logChannel.send({ embeds: [embed] });
                     }
                     break;
 
@@ -94,10 +169,19 @@ export class PunishmentExecutor {
             Logger.info(`✅ Revoked timeout for user ${member.user.tag}`);
 
             if (logChannel) {
-                await logChannel.send(
-                    `✅ **Timeout Revoked**\n` +
-                    `User: ${member.user.tag} (${member.id})`
+                const embed = this.createPunishmentEmbed(
+                    'タイムアウトを解除',
+                    member,
+                    Colors.Green,
+                    [
+                        {
+                            name: '📝 理由',
+                            value: 'スタッフによるタイムアウト解除',
+                            inline: false
+                        }
+                    ]
                 );
+                await logChannel.send({ embeds: [embed] });
             }
 
             return true;

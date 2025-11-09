@@ -30,7 +30,7 @@ const PresetEditor: React.FC<PresetEditorProps> = ({ presets, onChange }) => {
 
     const addPreset = () => {
         if (presets.length >= 5) {
-            alert('プリセットは最大5個までです');
+            try { (window as any).web?.notify?.('プリセットは最大5個までです', 'error', '上限エラー', 4000); } catch {}
             return;
         }
         onChange([

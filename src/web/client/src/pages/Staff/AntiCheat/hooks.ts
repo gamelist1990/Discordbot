@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { AntiCheatSettings, DetectionLog, UserTrustData, PunishmentAction } from './types';
+import { AntiCheatSettings, DetectionLog, UserTrustDataWithUser, PunishmentAction } from './types';
 
 const API_BASE = '/api/staff/anticheat';
 
@@ -85,7 +85,7 @@ export function useDetectionLogs(guildId: string, limit = 50) {
             }
 
             const data = await response.json();
-            setLogs(data.logs);
+            setLogs(data.logs || []);
             setError(null);
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Unknown error');
@@ -132,14 +132,14 @@ export function useAntiCheatActions(guildId: string) {
         }
     }, [guildId]);
 
-    const revokeTimeout = useCallback(async (userId: string, resetTrust = false) => {
+    const revokeTimeout = useCallback(async (userId: string, resetTrust = false, messageId?: string) => {
         try {
             setExecuting(true);
             const response = await fetch(`${API_BASE}/${guildId}/revoke`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 credentials: 'include',
-                body: JSON.stringify({ userId, resetTrust })
+                body: JSON.stringify({ userId, resetTrust, messageId })
             });
 
             if (!response.ok) {
@@ -156,14 +156,39 @@ export function useAntiCheatActions(guildId: string) {
         }
     }, [guildId]);
 
-    return { executeAction, revokeTimeout, executing, error };
+    const resetTrust = useCallback(async (userId: string) => {
+        try {
+            setExecuting(true);
+            const response = await fetch(`${API_BASE}/${guildId}/reset-trust`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({ userId })
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.error || `Failed to reset trust: ${response.statusText}`);
+            }
+
+            setError(null);
+            return true;
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Unknown error');
+            return false;
+        } finally {
+            setExecuting(false);
+        }
+    }, [guildId]);
+
+    return { executeAction, revokeTimeout, resetTrust, executing, error };
 }
 
 /**
  * Hook for managing user trust data
  */
 export function useUserTrust(guildId: string, userId?: string) {
-    const [trust, setTrust] = useState<Record<string, UserTrustData> | UserTrustData | null>(null);
+    const [trust, setTrust] = useState<Record<string, UserTrustDataWithUser> | UserTrustDataWithUser | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
