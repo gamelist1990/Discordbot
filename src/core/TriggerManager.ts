@@ -72,29 +72,21 @@ export class TriggerManager {
      * トリガーを作成
      */
     async createTrigger(trigger: Trigger): Promise<Trigger> {
-        Logger.info(`[createTrigger] 開始: guildId=${trigger.guildId}, name=${trigger.name}`);
-        
-        const key = this.getTriggersKey(trigger.guildId);
-        Logger.info(`[createTrigger] 保存キー: ${key}`);
-        
         const triggers = await this.getTriggersForGuild(trigger.guildId);
-        Logger.info(`[createTrigger] 現在のトリガー数: ${triggers.length}`);
-        
+
         // トリガー数制限チェック（ギルドごと最大20件）
         if (triggers.length >= 20) {
             throw new Error('トリガーは最大20件までです。既存のトリガーを削除してください。');
         }
-        
+
         // プリセット数制限チェック
         if (trigger.presets.length > 5) {
             throw new Error('プリセットは最大5つまでです');
         }
-        
+
         triggers.push(trigger);
-        Logger.info(`[createTrigger] データベースに保存: database.set(${trigger.guildId}, ${key}, triggers[${triggers.length}])`);
-        
-        await this.database.set(trigger.guildId, key, triggers);
-        Logger.info(`✅ トリガー作成成功: ${trigger.name} (${trigger.id}) in guild ${trigger.guildId}`);
+        await this.database.set(trigger.guildId, this.getTriggersKey(trigger.guildId), triggers);
+        Logger.info(`✅ トリガー作成: ${trigger.name} (${trigger.id})`);
         return trigger;
     }
 
@@ -785,12 +777,12 @@ export class TriggerManager {
                 Logger.debug(`[buildContext] メンション抽出エラー: ${err}`);
             }
             
-            // Bot のメンションを抽出
+            // Bot のメンション抽出
             try {
                 if (message.mentions && message.mentions.users) {
                     if (Array.isArray(message.mentions.users)) {
                         // 配列形式の場合、users 内の ID をチェック
-                        mentionedBotIds = mentionedIds.filter((id: string) => {
+                        mentionedBotIds = mentionedIds.filter((_id: string) => {
                             // message.mentions に bot 情報があるかチェック
                             // ここは簡易的に、users に含まれるだけでは bot かどうかは判定できないので
                             // 今は ID を使用

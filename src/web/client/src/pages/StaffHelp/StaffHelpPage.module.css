@@ -1,75 +1,103 @@
-/* Google Material Design inspired styling - matching Dashboard and Settings */
+/* Apple iOS-inspired styling with smooth animations and modern aesthetics */
 
+:root {
+    --ios-primary: #007AFF;
+    --ios-secondary: #34C759;
+    --ios-background: #F2F2F7;
+    --ios-surface: #FFFFFF;
+    --ios-divider: #E5E5EA;
+    --ios-label-primary: #000000;
+    --ios-label-secondary: #3C3C43;
+    --ios-label-tertiary: #8E8E93;
+    --ios-red: #FF3B30;
+    --ios-green: #34C759;
+    --ios-blue: #007AFF;
+    --ios-yellow: #FFCC00;
+    --ios-purple: #AF52DE;
+}
+
+/* Base Styling */
 .page {
     min-height: 100vh;
-    background: #F8F9FA;
+    background: var(--ios-background);
     display: flex;
     flex-direction: column;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -webkit-tap-highlight-color: transparent;
 }
 
 .container {
-    /* allow the page to use full available width while keeping internal padding */
     width: 100%;
     box-sizing: border-box;
-    padding: 24px 40px; /* slightly larger horizontal padding for visual spacing */
-    /* reserve space for mobile FAB / bottom nav to avoid content being overlapped */
-    padding-bottom: calc(var(--fab-size, 56px) + 32px);
+    padding: 20px;
+    padding-bottom: calc(var(--fab-size, 56px) + 20px);
     flex: 1;
+    max-width: 1400px;
+    margin: 0 auto;
 }
 
-/* ヘッダー */
+/* Header */
 .header {
     text-align: center;
-    margin-bottom: 32px;
+    margin-bottom: 28px;
+    padding: 28px 0;
+    animation: slideDown 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 .title {
-    font-size: 32px;
-    font-weight: 400;
-    color: #202124;
+    font-size: 34px;
+    font-weight: 700;
+    color: var(--ios-label-primary);
     margin: 0 0 8px 0;
     display: flex;
     align-items: center;
     justify-content: center;
     gap: 12px;
+    letter-spacing: -0.5px;
 }
 
 .titleIcon {
-    font-size: 32px;
+    font-size: 36px;
+    animation: bounce 2s infinite;
 }
 
 .subtitle {
-    font-size: 14px;
-    color: #5F6368;
+    font-size: 16px;
+    color: var(--ios-label-tertiary);
     margin: 0;
+    line-height: 1.4;
 }
 
-/* タブナビゲーション */
+/* Tab Navigation */
 .tabContainer {
-    background: white;
-    border-radius: 8px 8px 0 0;
-    box-shadow: 0 1px 2px 0 rgba(60,64,67,0.3);
+    background: var(--ios-surface);
+    border-radius: 14px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
     position: relative;
     overflow: hidden;
-    margin-bottom: 0;
+    margin-bottom: 24px;
+    backdrop-filter: blur(20px);
+    border: 1px solid var(--ios-divider);
 }
 
 .tabs {
     display: flex;
     position: relative;
-    border-bottom: 1px solid #DADCE0;
+    border-bottom: 1px solid var(--ios-divider);
+    background: transparent;
 }
 
 .tab {
     flex: 1;
-    padding: 16px 24px;
+    padding: 16px 20px;
     border: none;
     background: transparent;
     cursor: pointer;
-    font-size: 14px;
-    font-weight: 500;
-    color: #5F6368;
-    transition: all 0.2s;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--ios-label-tertiary);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -78,17 +106,22 @@
 }
 
 .tab:hover {
-    background: #F1F3F4;
-    color: #202124;
+    color: var(--ios-label-primary);
+    background: rgba(0, 0, 0, 0.02);
 }
 
 .tabActive {
-    color: #4285F4;
-    font-weight: 500;
+    color: var(--ios-blue);
+    font-weight: 700;
 }
 
 .tabIcon {
-    font-size: 20px;
+    font-size: 18px;
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.tab:hover .tabIcon {
+    transform: scale(1.1);
 }
 
 .tabIndicator {
@@ -96,27 +129,31 @@
     bottom: 0;
     left: 0;
     width: 50%;
-    height: 2px;
-    background: #4285F4;
-    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    height: 3px;
+    background: linear-gradient(90deg, var(--ios-blue), #5AC8FA);
+    transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+    border-radius: 3px;
 }
 
-/* コンテンツエリア */
+/* Content Area */
 .content {
     display: grid;
-    grid-template-columns: 260px 1fr; /* give a bit more space for sidebar */
+    grid-template-columns: 280px 1fr;
     gap: 24px;
-    background: white;
-    min-height: 600px;
-    box-shadow: 0 1px 2px 0 rgba(60,64,67,0.3);
-    width: 100%;
+    align-items: start;
 }
 
-/* サイドバー */
+/* Sidebar */
 .sidebar {
-    background: white;
-    border-right: 1px solid #DADCE0;
-    padding: 24px 0;
+    background: var(--ios-surface);
+    border-radius: 14px;
+    padding: 20px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+    height: fit-content;
+    position: sticky;
+    top: 20px;
+    border: 1px solid var(--ios-divider);
+    animation: slideInLeft 0.6s ease-out 0.1s both;
 }
 
 .sidebarSection {
@@ -124,140 +161,183 @@
 }
 
 .sidebarTitle {
-    font-size: 11px;
-    font-weight: 500;
-    color: #5F6368;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--ios-label-tertiary);
     text-transform: uppercase;
-    letter-spacing: 0.8px;
+    letter-spacing: 1px;
     margin: 0 0 12px 0;
-    padding: 0 24px;
+    padding: 0;
 }
 
 .sidebarNav {
     display: flex;
     flex-direction: column;
+    gap: 4px;
 }
 
 .sidebarLink {
-    padding: 10px 24px;
-    color: #5F6368;
+    padding: 12px 14px;
+    color: var(--ios-label-secondary);
     text-decoration: none;
-    font-size: 14px;
-    transition: all 0.2s;
+    font-size: 15px;
+    font-weight: 500;
+    transition: all 0.2s ease-out;
+    border-radius: 10px;
     border-left: 3px solid transparent;
+    cursor: pointer;
 }
 
 .sidebarLink:hover {
-    background: #F1F3F4;
-    color: #202124;
-    border-left-color: #4285F4;
+    background: rgba(0, 122, 255, 0.1);
+    color: var(--ios-blue);
+    border-left-color: var(--ios-blue);
+    transform: translateX(4px);
 }
 
-/* メインコンテンツ */
+/* Main Content */
 .main {
-    background: white;
-    padding: 32px;
-    /* ensure main uses remaining width cleanly */
-    min-width: 0;
+    background: transparent;
+    padding: 0;
+    animation: slideInRight 0.6s ease-out 0.1s both;
 }
 
 .helpContent,
 .servicesContent {
-    animation: fadeIn 0.3s ease-out;
+    animation: fadeInUp 0.5s ease-out;
 }
 
-/* 情報カード */
+/* Info Card */
 .infoCard {
-    background: #E8F0FE;
-    border-left: 4px solid #4285F4;
-    border-radius: 4px;
+    background: linear-gradient(135deg, rgba(0, 122, 255, 0.1), rgba(52, 199, 89, 0.08));
+    border: 1px solid rgba(0, 122, 255, 0.2);
+    border-radius: 14px;
     padding: 16px 20px;
-    margin-bottom: 32px;
+    margin-bottom: 24px;
+    backdrop-filter: blur(20px);
+    transition: all 0.3s ease-out;
+}
+
+.infoCard:hover {
+    border-color: rgba(0, 122, 255, 0.4);
+    background: linear-gradient(135deg, rgba(0, 122, 255, 0.15), rgba(52, 199, 89, 0.1));
 }
 
 .infoText {
     margin: 0;
-    color: #202124;
-    font-size: 14px;
+    color: var(--ios-label-primary);
+    font-size: 15px;
     line-height: 1.5;
+    font-weight: 500;
 }
 
-/* コマンドグリッド */
+/* Command Grid */
 .commandGrid {
-    display: flex;
-    flex-direction: column;
-    gap: 24px;
-}
-
-/* コマンドカード */
-.commandCard {
-    background: white;
-    border: 1px solid #DADCE0;
-    border-radius: 8px;
-    overflow: hidden;
-    transition: box-shadow 0.2s;
-    box-shadow: 0 1px 2px 0 rgba(60,64,67,0.3);
-}
-
-.commandCard:hover {
-    box-shadow: 0 1px 3px 1px rgba(60,64,67,0.15);
-}
-
-.cardHeader {
-    background: #4285F4;
-    padding: 20px 24px;
-}
-
-.commandName {
-    margin: 0;
-    font-size: 20px;
-    font-weight: 500;
-    color: white;
-    font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
-}
-
-.commandSlash {
-    opacity: 0.9;
-}
-
-.commandSubname {
-    font-weight: 500;
-}
-
-.cardBody {
-    padding: 24px;
-}
-
-.commandDescription {
-    font-size: 14px;
-    color: #202124;
-    line-height: 1.5;
-    margin: 0 0 24px 0;
-}
-
-/* オプションセクション */
-.optionsSection {
-    margin-bottom: 24px;
-}
-
-.optionsTitle {
-    font-size: 14px;
-    font-weight: 500;
-    color: #202124;
-    margin: 0 0 16px 0;
-}
-
-.optionsList {
     display: flex;
     flex-direction: column;
     gap: 16px;
 }
 
+/* Command Card */
+.commandCard {
+    background: var(--ios-surface);
+    border: 1px solid var(--ios-divider);
+    border-radius: 14px;
+    overflow: hidden;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+    transform: translateY(0);
+}
+
+.commandCard:hover {
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+    transform: translateY(-4px);
+    border-color: rgba(0, 122, 255, 0.3);
+}
+
+.cardHeader {
+    background: linear-gradient(135deg, var(--ios-blue), #5AC8FA);
+    padding: 24px 20px;
+    color: white;
+    position: relative;
+    overflow: hidden;
+}
+
+.cardHeader::before {
+    content: '';
+    position: absolute;
+    top: -50%;
+    right: -50%;
+    width: 200%;
+    height: 200%;
+    background: radial-gradient(circle, rgba(255, 255, 255, 0.2), transparent);
+    animation: pulse 3s ease-in-out infinite;
+}
+
+.commandName {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 700;
+    color: white;
+    font-family: 'Menlo', 'Monaco', monospace;
+    position: relative;
+    z-index: 1;
+    letter-spacing: -0.3px;
+}
+
+.commandSlash {
+    opacity: 0.85;
+}
+
+.commandSubname {
+    font-weight: 700;
+}
+
+.cardBody {
+    padding: 20px;
+}
+
+.commandDescription {
+    font-size: 15px;
+    color: var(--ios-label-primary);
+    line-height: 1.6;
+    margin: 0 0 20px 0;
+    font-weight: 500;
+}
+
+/* Options Section */
+.optionsSection {
+    margin-bottom: 20px;
+}
+
+.optionsTitle {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--ios-label-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin: 0 0 12px 0;
+}
+
+.optionsList {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
 .option {
-    background: #F8F9FA;
-    border-left: 3px solid #4285F4;
-    border-radius: 4px;
-    padding: 16px;
+    background: linear-gradient(135deg, rgba(0, 122, 255, 0.05), rgba(52, 199, 89, 0.03));
+    border: 1px solid rgba(0, 122, 255, 0.15);
+    border-left: 3px solid var(--ios-blue);
+    border-radius: 10px;
+    padding: 14px 16px;
+    transition: all 0.2s ease-out;
+}
+
+.option:hover {
+    background: linear-gradient(135deg, rgba(0, 122, 255, 0.08), rgba(52, 199, 89, 0.05));
+    border-color: rgba(0, 122, 255, 0.25);
+    transform: translateX(4px);
 }
 
 .optionHeader {
@@ -269,39 +349,39 @@
 }
 
 .optionIcon {
-    font-size: 20px;
+    font-size: 18px;
 }
 
 .optionName {
-    font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
-    background: white;
+    font-family: 'Menlo', 'Monaco', monospace;
+    background: rgba(0, 122, 255, 0.1);
     padding: 4px 10px;
-    border-radius: 4px;
-    color: #4285F4;
-    font-weight: 500;
+    border-radius: 8px;
+    color: var(--ios-blue);
+    font-weight: 600;
     font-size: 13px;
-    border: 1px solid #DADCE0;
+    border: none;
 }
 
 .requiredBadge {
-    background: #EA4335;
+    background: linear-gradient(135deg, var(--ios-red), #FF6B6B);
     color: white;
     font-size: 11px;
-    font-weight: 500;
-    padding: 3px 8px;
-    border-radius: 12px;
+    font-weight: 700;
+    padding: 4px 10px;
+    border-radius: 8px;
     text-transform: uppercase;
-    letter-spacing: 0.3px;
+    letter-spacing: 0.4px;
 }
 
 .optionType {
-    background: white;
-    color: #5F6368;
+    background: rgba(0, 0, 0, 0.05);
+    color: var(--ios-label-secondary);
     font-size: 11px;
-    font-weight: 500;
-    padding: 3px 8px;
-    border-radius: 4px;
-    border: 1px solid #DADCE0;
+    font-weight: 600;
+    padding: 4px 10px;
+    border-radius: 8px;
+    border: none;
     text-transform: uppercase;
     letter-spacing: 0.3px;
 }
@@ -309,12 +389,12 @@
 .optionDescription {
     margin: 0;
     font-size: 13px;
-    color: #5F6368;
+    color: var(--ios-label-tertiary);
     line-height: 1.5;
 }
 
 .choices {
-    margin-top: 12px;
+    margin-top: 10px;
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
@@ -322,145 +402,174 @@
 }
 
 .choicesLabel {
-    font-size: 13px;
-    color: #5F6368;
-    font-weight: 500;
+    font-size: 12px;
+    color: var(--ios-label-tertiary);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
 }
 
 .choice {
     background: white;
     padding: 4px 10px;
-    border-radius: 4px;
-    font-size: 13px;
-    color: #202124;
-    border: 1px solid #DADCE0;
-    font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
-}
-
-/* 使用例 */
-.usage {
-    background: #202124;
-    padding: 16px;
-    border-radius: 4px;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-}
-
-.usageLabel {
-    font-size: 13px;
-    color: #9AA0A6;
+    border-radius: 8px;
+    font-size: 12px;
+    color: var(--ios-label-secondary);
+    border: 1px solid var(--ios-divider);
+    font-family: 'Menlo', 'Monaco', monospace;
     font-weight: 500;
 }
 
-.usageCode {
-    font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
-    color: #81C995;
-    font-size: 14px;
-    line-height: 1.6;
+/* Usage */
+.usage {
+    background: linear-gradient(135deg, #1a1a2e, #16213e);
+    padding: 16px;
+    border-radius: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
-/* サービスグリッド */
+.usageLabel {
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.6);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.usageCode {
+    font-family: 'Menlo', 'Monaco', monospace;
+    color: #5AC8FA;
+    font-size: 13px;
+    line-height: 1.6;
+    margin: 0;
+    word-break: break-word;
+    font-weight: 500;
+}
+
+/* Services Grid */
 .servicesGrid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-    gap: 24px;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 16px;
 }
 
+/* Service Card */
 .serviceCard {
-    background: white;
-    border: 1px solid #DADCE0;
-    border-radius: 8px;
-    padding: 32px 24px;
+    background: var(--ios-surface);
+    border: 1px solid var(--ios-divider);
+    border-radius: 14px;
+    padding: 24px 20px;
     text-align: center;
-    transition: box-shadow 0.2s;
-    box-shadow: 0 1px 2px 0 rgba(60,64,67,0.3);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    position: relative;
+    overflow: hidden;
+    transform: translateY(0);
+}
+
+.serviceCard::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: radial-gradient(circle at center top, rgba(0, 122, 255, 0.05), transparent);
+    opacity: 0;
+    transition: opacity 0.3s ease-out;
 }
 
 .serviceCard:hover {
-    box-shadow: 0 1px 3px 1px rgba(60,64,67,0.15);
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.15);
+    transform: translateY(-8px);
+    border-color: rgba(0, 122, 255, 0.3);
+}
+
+.serviceCard:hover::before {
+    opacity: 1;
 }
 
 .serviceIcon {
-    font-size: 48px;
+    font-size: 54px;
     margin-bottom: 16px;
+    transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+    z-index: 1;
+}
+
+.serviceCard:hover .serviceIcon {
+    transform: scale(1.15) rotateY(10deg);
 }
 
 .serviceTitle {
     font-size: 18px;
-    font-weight: 500;
-    color: #202124;
+    font-weight: 700;
+    color: var(--ios-label-primary);
     margin: 0 0 12px 0;
+    z-index: 1;
+    position: relative;
+    letter-spacing: -0.3px;
 }
 
 .serviceDescription {
     font-size: 14px;
-    color: #5F6368;
+    color: var(--ios-label-tertiary);
     line-height: 1.5;
-    margin: 0 0 24px 0;
+    margin: 0 0 20px 0;
+    z-index: 1;
+    position: relative;
 }
 
 .serviceButton {
-    background: #4285F4;
+    background: linear-gradient(135deg, var(--ios-blue), #5AC8FA);
     color: white;
     border: none;
-    padding: 10px 24px;
-    border-radius: 4px;
-    font-size: 14px;
-    font-weight: 500;
+    padding: 12px 24px;
+    border-radius: 10px;
+    font-size: 15px;
+    font-weight: 600;
     cursor: pointer;
-    transition: all 0.2s;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    z-index: 1;
+    position: relative;
+    box-shadow: 0 4px 12px rgba(0, 122, 255, 0.3);
 }
 
 .serviceButton:hover {
-    background: #1A73E8;
-    box-shadow: 0 1px 2px 0 rgba(60,64,67,0.3);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 20px rgba(0, 122, 255, 0.4);
 }
 
 .serviceButton:active {
-    background: #1765CC;
+    transform: translateY(0);
+    box-shadow: 0 2px 8px rgba(0, 122, 255, 0.3);
 }
 
-.servicePlaceholder {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    min-height: 200px;
-    color: #9AA0A6;
-}
-
-.placeholderIcon {
-    font-size: 64px;
-    margin-bottom: 16px;
-    opacity: 0.3;
-}
-
-.placeholderText {
-    font-size: 14px;
-    margin: 0;
-}
-
-/* ローディング */
+/* Loading State */
 .loading {
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
     min-height: calc(100vh - 64px);
-    gap: 16px;
+    gap: 24px;
 }
 
 .spinner {
-    width: 40px;
-    height: 40px;
-    border: 4px solid #E8EAED;
-    border-top-color: #4285F4;
+    width: 50px;
+    height: 50px;
+    border: 4px solid rgba(0, 122, 255, 0.2);
+    border-top-color: var(--ios-blue);
     border-radius: 50%;
-    animation: spin 1s linear infinite;
+    animation: spin 1.2s linear infinite;
 }
 
-/* エラー */
+/* Error State */
 .error {
     display: flex;
     flex-direction: column;
@@ -472,23 +581,56 @@
 }
 
 .error h2 {
-    color: #EA4335;
-    font-size: 24px;
-    font-weight: 400;
+    color: var(--ios-red);
+    font-size: 28px;
+    font-weight: 700;
     margin: 0 0 16px 0;
 }
 
 .error p {
-    color: #5F6368;
-    font-size: 14px;
+    color: var(--ios-label-tertiary);
+    font-size: 15px;
     margin: 0;
 }
 
-/* アニメーション */
-@keyframes fadeIn {
+/* Animations */
+@keyframes slideDown {
     from {
         opacity: 0;
-        transform: translateY(8px);
+        transform: translateY(-20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes slideInLeft {
+    from {
+        opacity: 0;
+        transform: translateX(-30px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+@keyframes slideInRight {
+    from {
+        opacity: 0;
+        transform: translateX(30px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+@keyframes fadeInUp {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
     }
     to {
         opacity: 1;
@@ -502,40 +644,66 @@
     }
 }
 
-/* レスポンシブ */
+@keyframes bounce {
+    0%, 100% {
+        transform: translateY(0);
+    }
+    50% {
+        transform: translateY(-8px);
+    }
+}
+
+@keyframes pulse {
+    0%, 100% {
+        opacity: 0.5;
+    }
+    50% {
+        opacity: 1;
+    }
+}
+
+/* Responsive Design */
 @media (max-width: 1024px) {
     .content {
         grid-template-columns: 1fr;
     }
 
     .sidebar {
-        border-right: none;
-        border-bottom: 1px solid #DADCE0;
-        padding: 16px 0;
+        position: relative;
+        top: 0;
+        background: var(--ios-surface);
+        border-radius: 14px;
+        padding: 16px;
+        margin-bottom: 24px;
+        animation: slideInUp 0.6s ease-out 0.1s both;
     }
 
     .sidebarNav {
         flex-direction: row;
         overflow-x: auto;
+        gap: 8px;
+        padding: 8px 0;
     }
 
     .sidebarLink {
         white-space: nowrap;
+        flex-shrink: 0;
     }
 }
 
 @media (max-width: 768px) {
     .container {
         padding: 16px;
-        padding-bottom: calc(var(--fab-size, 56px) + 24px);
+        padding-bottom: calc(var(--fab-size, 56px) + 16px);
     }
 
     .title {
-        font-size: 24px;
+        font-size: 28px;
     }
 
-    .main {
-        padding: 20px;
+    .header {
+        margin-bottom: 20px;
+        padding: 20px 0;
     }
 
     .commandName {
@@ -546,7 +714,46 @@
         grid-template-columns: 1fr;
     }
 
-    .header {
-        margin-bottom: 24px;
+    .tab {
+        padding: 14px 12px;
+        font-size: 13px;
+    }
+
+    .tabIcon {
+        font-size: 16px;
+    }
+
+    .serviceCard {
+        padding: 20px 16px;
+    }
+
+    .serviceIcon {
+        font-size: 48px;
+    }
+}
+
+@media (max-width: 480px) {
+    .container {
+        padding: 12px;
+    }
+
+    .title {
+        font-size: 24px;
+    }
+
+    .servicesGrid {
+        grid-template-columns: 1fr;
+    }
+
+    .tabContainer {
+        border-radius: 10px;
+    }
+
+    .sidebar {
+        border-radius: 10px;
+    }
+
+    .commandCard {
+        border-radius: 10px;
     }
 }

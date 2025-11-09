@@ -109,11 +109,7 @@ export class TriggerController {
         try {
             const body = req.body;
             
-            Logger.info(`[TriggerController.createTrigger] リクエスト受信:`);
-            Logger.info(`  guildId=${body.guildId}`);
-            Logger.info(`  name=${body.name}`);
-            Logger.info(`  eventType=${body.eventType}`);
-            Logger.info(`  Full body=${JSON.stringify(body, null, 2)}`);
+            Logger.info(`[TriggerController.createTrigger] リクエスト受信: guildId=${body.guildId}, name=${body.name}`);
 
             if (!body.guildId || !body.name || !body.eventType) {
                 Logger.warn(`[TriggerController.createTrigger] 必須パラメータ不足: guildId=${body.guildId}, name=${body.name}, eventType=${body.eventType}`);

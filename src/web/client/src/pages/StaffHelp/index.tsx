@@ -11,6 +11,10 @@ interface UserSession {
 
 type TabType = 'help' | 'services';
 
+interface ExpandedCommands {
+    [key: string]: boolean;
+}
+
 const StaffHelpPage: React.FC = () => {
     // no token-based access any more; use session-based APIs
     const navigate = useNavigate();
@@ -20,7 +24,8 @@ const StaffHelpPage: React.FC = () => {
     const [error, setError] = useState<string | null>(null);
     const [activeTab, setActiveTab] = useState<TabType>('help');
     const [commandData, setCommandData] = useState<StaffCommandData | null>(null);
-    const [pendingAnchor, setPendingAnchor] = useState<string | null>(null);
+    const [expandedCommands, setExpandedCommands] = useState<ExpandedCommands>({});
+    const [searchQuery, setSearchQuery] = useState('');
 
     // トークン検証とデータ読み込み
     useEffect(() => {
@@ -62,23 +67,32 @@ const StaffHelpPage: React.FC = () => {
 
     // When activeTab becomes 'help' and there's a pending anchor, scroll to it
     useEffect(() => {
-        if (activeTab === 'help' && pendingAnchor) {
+        if (activeTab === 'help') {
             // allow DOM to update
             requestAnimationFrame(() => {
-                const el = document.getElementById(pendingAnchor!);
-                if (el) {
-                    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                    // update the hash so copying the URL preserves location
-                    try {
-                        history.replaceState(undefined, '', `#${pendingAnchor}`);
-                    } catch (e) {
-                        // ignore
+                // Scroll to first expanded command or top of content
+                const firstExpanded = Object.entries(expandedCommands).find(([, v]) => v);
+                if (firstExpanded) {
+                    const el = document.getElementById(`cmd-${firstExpanded[0]}`);
+                    if (el) {
+                        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
                     }
                 }
-                setPendingAnchor(null);
             });
         }
-    }, [activeTab, pendingAnchor]);
+    }, [activeTab, expandedCommands]);
+
+    const toggleCommandExpand = (cmdName: string) => {
+        setExpandedCommands(prev => ({
+            ...prev,
+            [cmdName]: !prev[cmdName]
+        }));
+    };
+
+    const filteredCommands = commandData?.subcommands.filter(cmd =>
+        cmd.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        cmd.description.toLowerCase().includes(searchQuery.toLowerCase())
+    ) || [];
 
     const getOptionTypeIcon = (type: string): string => {
         const iconMap: Record<string, string> = {
@@ -118,259 +132,264 @@ const StaffHelpPage: React.FC = () => {
 
     return (
         <div className={styles.page}>
-            
             <div className={styles.container}>
                 {/* ヘッダー */}
                 <header className={styles.header}>
-                    <h1 className={styles.title}>
-                        <span className={styles.titleIcon}>🛠️</span>
-                        スタッフ管理ページ
-                    </h1>
+                    <div className={styles.headerTop}>
+                        <h1 className={styles.title}>
+                            <span className={styles.titleIcon}>🛠️</span>
+                            <span>スタッフコマンド</span>
+                        </h1>
+                    </div>
                     <p className={styles.subtitle}>
-                        サーバー管理者向けのコマンドとサービス
+                        サーバー管理者向けコマンド・サービスを一元管理
                     </p>
                 </header>
 
-                {/* タブナビゲーション */}
+                {/* タブナビゲーション（iOS スタイル） */}
                 <div className={styles.tabContainer}>
-                    <div className={styles.tabs}>
+                    <div className={styles.tabBar}>
                         <button
-                            className={`${styles.tab} ${activeTab === 'help' ? styles.tabActive : ''}`}
+                            className={`${styles.tabBtn} ${activeTab === 'help' ? styles.tabActive : ''}`}
                             onClick={() => setActiveTab('help')}
+                            aria-selected={activeTab === 'help'}
+                            role="tab"
                         >
                             <span className={styles.tabIcon}>📚</span>
-                            コマンドヘルプ
+                            <span className={styles.tabLabel}>コマンド</span>
                         </button>
                         <button
-                            className={`${styles.tab} ${activeTab === 'services' ? styles.tabActive : ''}`}
+                            className={`${styles.tabBtn} ${activeTab === 'services' ? styles.tabActive : ''}`}
                             onClick={() => setActiveTab('services')}
+                            aria-selected={activeTab === 'services'}
+                            role="tab"
                         >
                             <span className={styles.tabIcon}>⚙️</span>
-                            サービス
+                            <span className={styles.tabLabel}>サービス</span>
                         </button>
                     </div>
-                    <div className={styles.tabIndicator} style={{
+                    <div className={styles.tabUnderline} style={{
                         transform: `translateX(${activeTab === 'help' ? '0' : '100'}%)`
                     }} />
                 </div>
 
-                {/* コンテンツエリア */}
-                <div className={styles.content}>
-                    {/* サイドバー */}
-                    <aside className={styles.sidebar}>
-                        <div className={styles.sidebarSection}>
-                            <h3 className={styles.sidebarTitle}>クイックリンク</h3>
-                            <nav className={styles.sidebarNav}>
-                                    {commandData.subcommands.map((cmd) => (
-                                        <a
-                                            key={cmd.name}
-                                            href={`#cmd-${cmd.name}`}
-                                            className={styles.sidebarLink}
-                                            onClick={(e) => {
-                                                // when clicked, ensure we switch to help tab and scroll to command
-                                                e.preventDefault();
-                                                // set pending anchor, switch to help
-                                                setPendingAnchor(`cmd-${cmd.name}`);
-                                                setActiveTab('help');
-                                            }}
-                                        >
-                                            {cmd.name}
-                                        </a>
-                                    ))}
-                                </nav>
-                        </div>
-                    </aside>
+                {/* コンテンツ */}
+                <div className={styles.contentWrapper}>
+                    {activeTab === 'help' && (
+                        <div className={styles.helpSection}>
+                            {/* 検索バー */}
+                            <div className={styles.searchBox}>
+                                <span className={styles.searchIcon}>🔍</span>
+                                <input
+                                    type="text"
+                                    className={styles.searchInput}
+                                    placeholder="コマンド名を検索..."
+                                    value={searchQuery}
+                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                    aria-label="コマンド検索"
+                                />
+                                {searchQuery && (
+                                    <button
+                                        className={styles.clearBtn}
+                                        onClick={() => setSearchQuery('')}
+                                        aria-label="検索をクリア"
+                                    >
+                                        ✕
+                                    </button>
+                                )}
+                            </div>
 
-                    {/* メインコンテンツ */}
-                    <main className={styles.main}>
-                        {activeTab === 'help' && (
-                            <div className={styles.helpContent}>
-                                <div className={styles.infoCard}>
-                                    <p className={styles.infoText}>
-                                        💡 これらのコマンドは「サーバー管理」権限を持つユーザーのみ使用できます
-                                    </p>
-                                </div>
+                            {/* 情報カード */}
+                            <div className={styles.infoCard}>
+                                <span className={styles.infoBadge}>💡</span>
+                                <span className={styles.infoText}>
+                                    これらのコマンドは「サーバー管理」権限を持つユーザーのみ利用できます
+                                </span>
+                            </div>
 
-                                {/* コマンドカード */}
-                                <div className={styles.commandGrid}>
-                                    {commandData.subcommands.map((cmd) => (
+                            {/* コマンドリスト */}
+                            <div className={styles.commandsList}>
+                                {filteredCommands.length === 0 ? (
+                                    <div className={styles.emptyState}>
+                                        <div className={styles.emptyIcon}>🚀</div>
+                                        <div className={styles.emptyText}>
+                                            コマンドが見つかりません
+                                        </div>
+                                    </div>
+                                ) : (
+                                    filteredCommands.map((cmd) => (
                                         <div
                                             key={cmd.name}
                                             id={`cmd-${cmd.name}`}
-                                            className={styles.commandCard}
+                                            className={styles.accordionItem}
                                         >
-                                            <div className={styles.cardHeader}>
-                                                <h2 className={styles.commandName}>
-                                                    <span className={styles.commandSlash}>/staff</span>
-                                                    {' '}
-                                                    <span className={styles.commandSubname}>{cmd.name}</span>
-                                                </h2>
-                                            </div>
-                                            
-                                            <div className={styles.cardBody}>
-                                                <p className={styles.commandDescription}>
-                                                    {cmd.description}
-                                                </p>
+                                            <button
+                                                className={`${styles.accordionHeader} ${expandedCommands[cmd.name] ? styles.expanded : ''}`}
+                                                onClick={() => toggleCommandExpand(cmd.name)}
+                                                aria-expanded={expandedCommands[cmd.name]}
+                                                aria-controls={`cmd-content-${cmd.name}`}
+                                            >
+                                                <span className={styles.accordionTitle}>
+                                                    <span className={styles.commandPrefix}>/staff</span>
+                                                    <span className={styles.commandName}>{cmd.name}</span>
+                                                </span>
+                                                <span className={styles.accordionIcon}>
+                                                    {expandedCommands[cmd.name] ? '▼' : '▶'}
+                                                </span>
+                                            </button>
 
-                                                {cmd.options.length > 0 && (
-                                                    <div className={styles.optionsSection}>
-                                                        <h3 className={styles.optionsTitle}>オプション</h3>
-                                                        <div className={styles.optionsList}>
-                                                            {cmd.options.map((opt) => (
-                                                                <div key={opt.name} className={styles.option}>
-                                                                    <div className={styles.optionHeader}>
-                                                                        <span className={styles.optionIcon}>
-                                                                            {getOptionTypeIcon(opt.type)}
-                                                                        </span>
-                                                                        <code className={styles.optionName}>
-                                                                            {opt.name}
-                                                                        </code>
-                                                                        {opt.required && (
-                                                                            <span className={styles.requiredBadge}>
-                                                                                必須
-                                                                            </span>
-                                                                        )}
-                                                                        <span className={styles.optionType}>
-                                                                            {opt.type}
-                                                                        </span>
-                                                                    </div>
-                                                                    <p className={styles.optionDescription}>
-                                                                        {opt.description}
-                                                                    </p>
-                                                                    {opt.choices.length > 0 && (
-                                                                        <div className={styles.choices}>
-                                                                            <span className={styles.choicesLabel}>選択肢:</span>
-                                                                            {opt.choices.map((choice) => (
-                                                                                <code key={choice.value} className={styles.choice}>
-                                                                                    {choice.name}
-                                                                                </code>
-                                                                            ))}
-                                                                        </div>
-                                                                    )}
+                                            {expandedCommands[cmd.name] && (
+                                                <div
+                                                    id={`cmd-content-${cmd.name}`}
+                                                    className={styles.accordionContent}
+                                                >
+                                                    <div className={styles.accordionBody}>
+                                                        <p className={styles.cmdDescription}>
+                                                            {cmd.description}
+                                                        </p>
+
+                                                        {cmd.options.length > 0 && (
+                                                            <div className={styles.optionsContainer}>
+                                                                <div className={styles.optionsTitle}>
+                                                                    📋 パラメータ
                                                                 </div>
-                                                            ))}
+                                                                <div className={styles.optionsList}>
+                                                                    {cmd.options.map((opt) => (
+                                                                        <div key={opt.name} className={styles.optionItem}>
+                                                                            <div className={styles.optionName}>
+                                                                                <span className={styles.optionIcon}>
+                                                                                    {getOptionTypeIcon(opt.type)}
+                                                                                </span>
+                                                                                <code className={styles.optionCode}>
+                                                                                    {opt.name}
+                                                                                </code>
+                                                                                {opt.required && (
+                                                                                    <span className={styles.requiredTag}>必須</span>
+                                                                                )}
+                                                                                <span className={styles.optionTypeTag}>
+                                                                                    {opt.type}
+                                                                                </span>
+                                                                            </div>
+                                                                            <p className={styles.optionDesc}>
+                                                                                {opt.description}
+                                                                            </p>
+                                                                            {opt.choices.length > 0 && (
+                                                                                <div className={styles.choicesList}>
+                                                                                    <span className={styles.choicesLabel}>選択肢:</span>
+                                                                                    {opt.choices.map((choice) => (
+                                                                                        <span key={choice.value} className={styles.choiceBadge}>
+                                                                                            {choice.name}
+                                                                                        </span>
+                                                                                    ))}
+                                                                                </div>
+                                                                            )}
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+                                                            </div>
+                                                        )}
+
+                                                        <div className={styles.usageBox}>
+                                                            <div className={styles.usageLabel}>💻 使用例</div>
+                                                            <code className={styles.usageCode}>
+                                                                /staff {cmd.name}
+                                                                {cmd.options.filter(o => o.required).map(o => ` ${o.name}:<値>`).join('')}
+                                                            </code>
                                                         </div>
                                                     </div>
-                                                )}
-
-                                                <div className={styles.usage}>
-                                                    <span className={styles.usageLabel}>使用例:</span>
-                                                    <code className={styles.usageCode}>
-                                                        /staff {cmd.name}
-                                                        {cmd.options.filter(o => o.required).map(o => ` ${o.name}:<値>`).join('')}
-                                                    </code>
                                                 </div>
-                                            </div>
+                                            )}
                                         </div>
-                                    ))}
-                                </div>
+                                    ))
+                                )}
                             </div>
-                        )}
+                        </div>
+                    )}
 
-                        {activeTab === 'services' && (
-                            <div className={styles.servicesContent}>
-                                <div className={styles.infoCard}>
-                                    <p className={styles.infoText}>
-                                        🚀 スタッフ専用サービスはここに追加されます
+                    {activeTab === 'services' && (
+                        <div className={styles.servicesSection}>
+                            <div className={styles.infoCard}>
+                                <span className={styles.infoBadge}>🚀</span>
+                                <span className={styles.infoText}>
+                                    スタッフ専用サービスで、サーバー管理をより効率的に
+                                </span>
+                            </div>
+
+                            <div className={styles.servicesGrid}>
+                                <div className={styles.serviceCard}>
+                                    <div className={styles.serviceIcon}>🛡️</div>
+                                    <h3 className={styles.serviceTitle}>AntiCheat</h3>
+                                    <p className={styles.serviceDesc}>
+                                        不正検知と自動処罰を管理
                                     </p>
+                                    <button
+                                        className={styles.serviceBtn}
+                                        onClick={() => navigate('/staff/anticheat')}
+                                    >
+                                        開く
+                                    </button>
                                 </div>
 
-                                <div className={styles.servicesGrid}>
-                                    <div className={styles.serviceCard}>
-                                        <div className={styles.serviceIcon}>🛡️</div>
-                                        <h3 className={styles.serviceTitle}>AntiCheat 管理</h3>
-                                        <p className={styles.serviceDescription}>
-                                            サーバーの不正検知と自動処罰を管理します（信頼スコアベース）
-                                        </p>
-                                        <button
-                                            className={styles.serviceButton}
-                                            onClick={() => navigate('/staff/anticheat')}
-                                        >
-                                            開く
-                                        </button>
-                                    </div>
-                                    <div className={styles.serviceCard}>
-                                        <div className={styles.serviceIcon}>🔧</div>
-                                        <h3 className={styles.serviceTitle}>プライベートチャット</h3>
-                                        <p className={styles.serviceDescription}>
-                                            ユーザーとのプライベートチャンネルを管理
-                                        </p>
-                                        <button
-                                            className={styles.serviceButton}
-                                            onClick={() => navigate('/staff/privatechat')}
-                                        >
-                                            開く
-                                        </button>
-                                    </div>
+                                <div className={styles.serviceCard}>
+                                    <div className={styles.serviceIcon}>💬</div>
+                                    <h3 className={styles.serviceTitle}>プライベートチャット</h3>
+                                    <p className={styles.serviceDesc}>
+                                        ユーザーとのプライベート会話を管理
+                                    </p>
+                                    <button
+                                        className={styles.serviceBtn}
+                                        onClick={() => navigate('/staff/privatechat')}
+                                    >
+                                        開く
+                                    </button>
+                                </div>
 
-                                    <div className={styles.serviceCard}>
-                                        <div className={styles.serviceIcon}>🎭</div>
-                                        <h3 className={styles.serviceTitle}>ロール管理</h3>
-                                        <p className={styles.serviceDescription}>
-                                            サーバーのロールプリセットを管理
-                                        </p>
-                                        <button
-                                            className={styles.serviceButton}
-                                            onClick={() => navigate('/staff/rolemanager')}
-                                        >
-                                            開く
-                                        </button>
-                                    </div>
-                                    
-                                    <div className={styles.serviceCard}>
-                                        <div className={styles.serviceIcon}>🏆</div>
-                                        <h3 className={styles.serviceTitle}>ランキング管理</h3>
-                                        <p className={styles.serviceDescription}>
-                                            サーバーのランク／XP設定、リーダーボード、パネル管理を行います
-                                        </p>
-                                        <button
-                                            className={styles.serviceButton}
-                                            onClick={() => navigate('/staff/rankmanager')}
-                                        >
-                                            開く
-                                        </button>
-                                    </div>
+                                <div className={styles.serviceCard}>
+                                    <div className={styles.serviceIcon}>🎭</div>
+                                    <h3 className={styles.serviceTitle}>ロール管理</h3>
+                                    <p className={styles.serviceDesc}>
+                                        ロールプリセットを設定
+                                    </p>
+                                    <button
+                                        className={styles.serviceBtn}
+                                        onClick={() => navigate('/staff/rolemanager')}
+                                    >
+                                        開く
+                                    </button>
+                                </div>
 
-                                    <div className={styles.serviceCard}>
-                                        <div className={styles.serviceIcon}>⚡</div>
-                                        <h3 className={styles.serviceTitle}>トリガー管理</h3>
-                                        <p className={styles.serviceDescription}>
-                                            自動応答トリガー、リアクション、DM送信などの自動化設定を管理
-                                        </p>
-                                        <button
-                                            className={styles.serviceButton}
-                                            onClick={() => navigate('/staff/triggermanager')}
-                                        >
-                                            開く
-                                        </button>
-                                    </div>
+                                <div className={styles.serviceCard}>
+                                    <div className={styles.serviceIcon}>🏆</div>
+                                    <h3 className={styles.serviceTitle}>ランキング</h3>
+                                    <p className={styles.serviceDesc}>
+                                        XP・ランクシステムを管理
+                                    </p>
+                                    <button
+                                        className={styles.serviceBtn}
+                                        onClick={() => navigate('/staff/rankmanager')}
+                                    >
+                                        開く
+                                    </button>
+                                </div>
+
+                                <div className={styles.serviceCard}>
+                                    <div className={styles.serviceIcon}>⚡</div>
+                                    <h3 className={styles.serviceTitle}>トリガー</h3>
+                                    <p className={styles.serviceDesc}>
+                                        自動応答・自動化を設定
+                                    </p>
+                                    <button
+                                        className={styles.serviceBtn}
+                                        onClick={() => navigate('/staff/triggermanager')}
+                                    >
+                                        開く
+                                    </button>
                                 </div>
                             </div>
-                        )}
-                    </main>
+                        </div>
+                    )}
                 </div>
             </div>
-            {/* Mobile bottom navigation and FAB (displayed via global CSS layout.css) */}
-            <nav className="bottomNav" role="navigation" aria-label="モバイルナビ">
-                <button className="bottomNavBtn" onClick={() => setActiveTab('help')} aria-label="コマンドヘルプ">
-                    <span>📚</span>
-                    <span>ヘルプ</span>
-                </button>
-                <button className="bottomNavBtn" onClick={() => setActiveTab('services')} aria-label="サービス">
-                    <span>⚙️</span>
-                    <span>サービス</span>
-                </button>
-                <button className="bottomNavBtn" onClick={() => navigate('/staff/privatechat')} aria-label="プライベートチャット">
-                    <span>💬</span>
-                    <span>チャット</span>
-                </button>
-                <button className="bottomNavBtn" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} aria-label="トップへ">
-                    <span>⬆️</span>
-                    <span>トップ</span>
-                </button>
-            </nav>
-
-            <button className="fab" aria-label="新規チャット作成" onClick={() => navigate('/staff/privatechat')}>＋</button>
         </div>
     );
 };
