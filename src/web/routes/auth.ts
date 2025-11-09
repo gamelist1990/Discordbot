@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { BotClient } from '../../core/BotClient.js';
 import crypto from 'crypto';
 import config from '../../config.js';
-import { Logger } from '../../utils/Logger.js';
+// import { Logger } from '../../utils/Logger.js';
 import { SettingsSession } from '../types';
 import { database } from '../../core/Database.js';
 import fs from 'fs';
@@ -160,7 +160,7 @@ export function createAuthRoutes(
             const clientId = botClient.getClientId();
             const baseUrl = config.BASE_URL;
             const redirectUri = `${baseUrl}/api/auth/callback`;
-            Logger.info(`[OAuth] initiating Discord auth - baseUrl=${baseUrl} redirect_uri=${redirectUri}`);
+            (global as any).Logger.info(`[OAuth] initiating Discord auth - baseUrl=${baseUrl} redirect_uri=${redirectUri}`);
 
             // stateを生成
             const state = crypto.randomBytes(16).toString('hex');
@@ -217,7 +217,7 @@ export function createAuthRoutes(
             const clientSecret = config.DISCORD_CLIENT_SECRET;
             const baseUrl = config.BASE_URL;
             const redirectUri = `${baseUrl}/api/auth/callback`;
-            Logger.info(`[OAuth] callback received - expected redirect_uri=${redirectUri}`);
+            (global as any).Logger.info(`[OAuth] callback received - expected redirect_uri=${redirectUri}`);
 
             if (!clientSecret) {
                 console.error('DISCORD_CLIENT_SECRET not configured');

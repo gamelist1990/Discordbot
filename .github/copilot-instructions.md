@@ -91,18 +91,20 @@ CI での実行ポイント:
 
 重要ポイント（短く）:
 
-- ランタイム: Bun（Node 互換）。TypeScript + ESM。インポートは必ず `.js` で終える（例: `import { BotClient } from './core/BotClient.js';`）。
+- ランタイム: Bun または Node.js（TypeScript + ESM）。インポートは必ず `.js` で終える（例: `import { BotClient } from './core/BotClient.js';`）。
 - エントリ: `src/index.ts` — `config.json` を読み、`BotClient`/`CommandLoader`/`EventHandler`/`SettingsServer` を初期化する。
 - コマンド: `src/core/CommandLoader.ts` が `src/commands/` を再帰検出。各コマンドは default export の `SlashCommand` を実装（`data`, `execute(interaction)`、任意で `permissionLevel` と `cooldown`）。
 - 永続化: `src/core/Database.ts` が JSON（`Data/`）を管理。必ず `database.set()` を呼んで永続化。読み取りのみの `get()` は保存されない。
 - イベント: `src/core/EventHandler.ts` / `src/core/EventManager.ts` により `interactionCreate`（コマンド）や `guildCreate`（自動デプロイ/参加上限）が処理される。
 - Web: `src/web/SettingsServer.ts`（Express） + `src/web/client/`（Vite/React）。セッションは `Data/Auth/` に保存。
+- Web Debug: `npm run webDebug` で軽量モードを起動（Bun/Node.js 両対応）。Bot を起動せず Web サーバー単体で動作。
 
 頻繁に使うコマンド:
 
 - 依存関係: `npm install` または `bun install`
 - 開発: `npm run dev`（Vite + Bot を同時起動するスクリプト）
-- Bot 単体: `bun run src/index.ts`
+- Bot 単体: `bun run src/index.ts` または `npx ts-node --esm src/index.ts`
+- Web Debug: `npm run webDebug`（軽量 Web サーバー起動、Node.js/Bun 両対応）
 - 型チェック: `npx tsc --noEmit`
 
 必ず確認する PR 前チェックリスト:

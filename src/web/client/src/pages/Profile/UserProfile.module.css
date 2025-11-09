@@ -260,6 +260,12 @@
     gap: 20px;
     align-items: start;
 }
+
+@media (max-width: 900px) {
+    .overviewGrid {
+        grid-template-columns: 1fr;
+    }
+}
 .previewColumn {
     display: flex;
     flex-direction: column;
@@ -283,6 +289,22 @@
     align-items: center;
 }
 
+@media (max-width: 900px) {
+    /* On mobile/tablet, make the stats grid use a 2-column layout for better use of space */
+    .sideColumn .statsGrid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 12px;
+    }
+}
+
+@media (max-width: 600px) {
+    /* On very small screens, stack everything in a single column */
+    .sideColumn .statsGrid {
+        grid-template-columns: 1fr;
+    }
+}
+
 /* Full-width overview grid used by preview and profile page */
 .previewGrid {
     display: grid;
@@ -299,7 +321,7 @@
     background: transparent;
     border: 1px solid #E9ECEF;
     border-radius: 12px;
-    overflow: hidden; /* keep preview self-contained and avoid overlapping other sections */
+    overflow: visible; /* allow cards to be fully visible, including rotated ones */
     display: flex;
     justify-content: center; /* center inner canvas horizontally */
     align-items: flex-start; /* keep top alignment while horizontally centered */
@@ -312,7 +334,13 @@
     display: flex;
     justify-content: center; /* center the inner canvas horizontally */
     align-items: flex-start;
-    padding-bottom: 16px; /* provide breathing room so cards don't overlap following sections */
+    padding-bottom: 24px; /* provide breathing room so cards don't overlap following sections */
+}
+
+@media (max-width: 600px) {
+    .previewCanvasWrapper {
+        padding-bottom: 32px; /* extra space on mobile for better separation */
+    }
 }
 .previewInnerCanvas {
     position: relative;
@@ -347,6 +375,17 @@
 .cardImage { width:100%; height:100%; object-fit:cover; border-radius:8px }
 .cardSticker { width:64px; height:64px; object-fit:contain }
 .cardStickerText { font-size:28px }
+
+.emptyState {
+    padding: 48px 24px;
+    text-align: center;
+    color: #657786;
+    font-size: 15px;
+    background: #F7F9F9;
+    border: 1px solid #E1E8ED;
+    border-radius: 12px;
+    margin: 12px 0;
+}
 
 .statsGrid {
     display: grid;
@@ -657,13 +696,25 @@
         grid-template-columns: 1fr;
     }
 
-    .tab span:not(.material-icons) {
-        display: none;
-    }
-
     .modalContent {
         max-height: 100vh;
         border-radius: 0;
+    }
+
+    /* Improve preview canvas on mobile */
+    .previewCanvas {
+        padding: 16px;
+    }
+
+    .previewCanvasCard {
+        /* Ensure cards remain visible on mobile */
+        min-width: 80px;
+        min-height: 60px;
+    }
+
+    /* Better content padding on mobile */
+    .content {
+        padding: 12px 16px;
     }
 }
 
