@@ -11,9 +11,6 @@ interface UserSession {
 
 type TabType = 'help' | 'services';
 
-interface ExpandedCommands {
-    [key: string]: boolean;
-}
 
 const StaffHelpPage: React.FC = () => {
     // no token-based access any more; use session-based APIs
@@ -24,7 +21,8 @@ const StaffHelpPage: React.FC = () => {
     const [error, setError] = useState<string | null>(null);
     const [activeTab, setActiveTab] = useState<TabType>('help');
     const [commandData, setCommandData] = useState<StaffCommandData | null>(null);
-    const [expandedCommands, setExpandedCommands] = useState<ExpandedCommands>({});
+    // 単一のパネルのみが開く排他制御: 開いているコマンド名、未開なら null
+    const [expandedCommand, setExpandedCommand] = useState<string | null>(null);
     const [searchQuery, setSearchQuery] = useState('');
 
     // トークン検証とデータ読み込み
@@ -70,23 +68,19 @@ const StaffHelpPage: React.FC = () => {
         if (activeTab === 'help') {
             // allow DOM to update
             requestAnimationFrame(() => {
-                // Scroll to first expanded command or top of content
-                const firstExpanded = Object.entries(expandedCommands).find(([, v]) => v);
-                if (firstExpanded) {
-                    const el = document.getElementById(`cmd-${firstExpanded[0]}`);
+                if (expandedCommand) {
+                    const el = document.getElementById(`cmd-${expandedCommand}`);
                     if (el) {
                         el.scrollIntoView({ behavior: 'smooth', block: 'start' });
                     }
                 }
             });
         }
-    }, [activeTab, expandedCommands]);
+    }, [activeTab, expandedCommand]);
 
+    // 排他開閉: 同じパネルをクリックすると閉じる、別のパネルをクリックするとそちらだけ開く
     const toggleCommandExpand = (cmdName: string) => {
-        setExpandedCommands(prev => ({
-            ...prev,
-            [cmdName]: !prev[cmdName]
-        }));
+        setExpandedCommand(prev => (prev === cmdName ? null : cmdName));
     };
 
     const filteredCommands = commandData?.subcommands.filter(cmd =>
@@ -224,9 +218,9 @@ const StaffHelpPage: React.FC = () => {
                                             className={styles.accordionItem}
                                         >
                                             <button
-                                                className={`${styles.accordionHeader} ${expandedCommands[cmd.name] ? styles.expanded : ''}`}
+                                                className={`${styles.accordionHeader} ${expandedCommand === cmd.name ? styles.expanded : ''}`}
                                                 onClick={() => toggleCommandExpand(cmd.name)}
-                                                aria-expanded={expandedCommands[cmd.name]}
+                                                aria-expanded={expandedCommand === cmd.name}
                                                 aria-controls={`cmd-content-${cmd.name}`}
                                             >
                                                 <span className={styles.accordionTitle}>
@@ -234,11 +228,11 @@ const StaffHelpPage: React.FC = () => {
                                                     <span className={styles.commandName}>{cmd.name}</span>
                                                 </span>
                                                 <span className={styles.accordionIcon}>
-                                                    {expandedCommands[cmd.name] ? '▼' : '▶'}
+                                                    {expandedCommand === cmd.name ? '▼' : '▶'}
                                                 </span>
                                             </button>
 
-                                            {expandedCommands[cmd.name] && (
+                                            {expandedCommand === cmd.name && (
                                                 <div
                                                     id={`cmd-content-${cmd.name}`}
                                                     className={styles.accordionContent}
