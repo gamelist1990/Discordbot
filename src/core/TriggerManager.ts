@@ -56,7 +56,6 @@ export class TriggerManager {
     async getTriggersForGuild(guildId: string): Promise<Trigger[]> {
         const key = this.getTriggersKey(guildId);
         const data = await this.database.get<Trigger[]>(guildId, key, []);
-        Logger.debug(`[getTriggersForGuild] guildId=${guildId}, key=${key}, triggers=${data?.length || 0}`);
         return data || [];
     }
 
@@ -139,7 +138,6 @@ export class TriggerManager {
             (t) => t.enabled && t.eventType === eventType
         );
         
-        Logger.debug(`[TriggerManager] handleEvent: eventType=${eventType}, guildId=${guildId}, matchingTriggers=${matchingTriggers.length}`);
         
         // 優先度順にソート
         matchingTriggers.sort((a, b) => a.priority - b.priority);
@@ -149,8 +147,6 @@ export class TriggerManager {
                 // 条件評価
                 const context = await this.buildContext(trigger, eventType, eventData);
                 const conditionsMet = this.evaluateConditions(trigger.conditions, context, (trigger as any).conditionLogic || 'OR');
-                
-                Logger.debug(`[TriggerManager] trigger="${trigger.name}" (${trigger.id}): conditionsMet=${conditionsMet}, conditions=${trigger.conditions.length}`);
                 
                 if (!conditionsMet) {
                     continue;
@@ -298,7 +294,6 @@ export class TriggerManager {
                     if (matchType === 'contains' || matchType === 'exactly') {
                         // mentionedIds に value (userId) が含まれているか確認
                         result = mentionedIds.includes(cleanValue) || mentionedIds.includes(value);
-                        Logger.debug(`[Mention Condition] value="${value}", cleanValue="${cleanValue}", mentionedIds=[${mentionedIds.join(', ')}], result=${result}`);
                     } else {
                         result = this.matchString(cleanValue, value, matchType);
                     }
@@ -774,7 +769,6 @@ export class TriggerManager {
                     }
                 }
             } catch (err) {
-                Logger.debug(`[buildContext] メンション抽出エラー: ${err}`);
             }
             
             // Bot のメンション抽出
@@ -797,10 +791,8 @@ export class TriggerManager {
                     }
                 }
             } catch (err) {
-                Logger.debug(`[buildContext] Bot メンション抽出エラー: ${err}`);
             }
             
-            Logger.debug(`[buildContext] messageCreate: content="${message.content}", mentionedIds=[${mentionedIds.join(', ')}], mentionedBotIds=[${mentionedBotIds.join(', ')}]`);
             
             placeholders.message = {
                 id: message.id,
