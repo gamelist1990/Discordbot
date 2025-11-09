@@ -29,6 +29,36 @@ const useIsMobile = (breakpoint = 768) => {
     return isMobile;
 };
 
+// Parse duration strings like '1d', '2h', '30m', '45s' or plain seconds '300'
+function parseDurationToSeconds(input: string | number | undefined): number {
+    if (input === undefined || input === null) return 0;
+    if (typeof input === 'number') return Math.max(0, Math.floor(input));
+    const s = String(input).trim().toLowerCase();
+    if (!s) return 0;
+    const m = s.match(/^(\d+)\s*([smhd])$/i);
+    if (m) {
+        const n = parseInt(m[1], 10);
+        const unit = m[2];
+        switch (unit) {
+            case 'd': return n * 86400;
+            case 'h': return n * 3600;
+            case 'm': return n * 60;
+            case 's': return n;
+        }
+    }
+    // fallback: numeric seconds
+    const asNum = parseInt(s, 10);
+    return isNaN(asNum) ? 0 : asNum;
+}
+
+function secondsToInputString(sec: number): string {
+    if (!sec || sec <= 0) return '';
+    if (sec % 86400 === 0) return `${sec / 86400}d`;
+    if (sec % 3600 === 0) return `${sec / 3600}h`;
+    if (sec % 60 === 0) return `${sec / 60}m`;
+    return `${sec}s`;
+}
+
 const AntiCheatUnified: React.FC = () => {
     const { guildId } = useParams<{ guildId: string }>();
     const navigate = useNavigate();
@@ -45,6 +75,9 @@ const AntiCheatUnified: React.FC = () => {
     const [modalOpen, setModalOpen] = useState(false);
     const [newThreshold, setNewThreshold] = useState('');
     const [newDuration, setNewDuration] = useState('');
+    const [newActionType, setNewActionType] = useState<'timeout' | 'kick' | 'ban'>('timeout');
+    const [autoTimeoutInput, setAutoTimeoutInput] = useState('');
+    const [autoDeleteInput, setAutoDeleteInput] = useState('');
     const [confirmModalOpen, setConfirmModalOpen] = useState(false);
     const [confirmModalType, setConfirmModalType] = useState<'revokeTimeout' | 'resetTrust' | null>(null);
     const [confirmModalData, setConfirmModalData] = useState<any>(null);
@@ -54,6 +87,22 @@ const AntiCheatUnified: React.FC = () => {
     useEffect(() => {
         setActiveView(isMobile ? 'overview' : 'settings');
     }, [isMobile]);
+
+    // sync autoTimeout input with settings
+    useEffect(() => {
+        if (!settings) return;
+        setAutoTimeoutInput(secondsToInputString(settings.autoTimeout?.durationSeconds || 0) || String(settings.autoTimeout?.durationSeconds || ''));
+        setAutoDeleteInput(secondsToInputString(settings.autoDelete?.windowSeconds || 0) || String(settings.autoDelete?.windowSeconds || ''));
+    }, [settings && settings.autoTimeout && settings.autoTimeout.durationSeconds]);
+
+    // Auto-refresh logs while viewing logs so timed-out entries disappear when timeout ends
+    useEffect(() => {
+        if (activeView !== 'logs') return;
+        const iv = setInterval(() => {
+            refetchLogs();
+        }, 8000);
+        return () => clearInterval(iv);
+    }, [activeView, refetchLogs]);
 
     if (!guildId) {
         navigate('/404');
@@ -100,25 +149,28 @@ const AntiCheatUnified: React.FC = () => {
 
     const handleSavePunishment = async () => {
         const threshold = parseInt(newThreshold);
-        const duration = parseInt(newDuration);
+        const duration = parseDurationToSeconds(newDuration);
 
-        if (threshold > 0 && duration > 0) {
+        if (threshold > 0 && (newActionType !== 'timeout' || duration > 0)) {
+            // Build action according to selected type
+            const action = newActionType === 'timeout'
+                ? ({ type: 'timeout' as const, durationSeconds: duration, reasonTemplate: 'AntiCheat violation: Trust score reached {threshold}', notify: true })
+                : newActionType === 'ban'
+                    ? ({ type: 'ban' as const, durationSeconds: duration || undefined, reasonTemplate: 'AntiCheat violation: Trust score reached {threshold}', notify: true })
+                    : ({ type: 'kick' as const, reasonTemplate: 'AntiCheat violation: Trust score reached {threshold}', notify: true });
+
             const newPunishments = [
                 ...(settings.punishments || []),
                 {
                     threshold,
-                    actions: [{
-                        type: 'timeout' as const,
-                        durationSeconds: duration,
-                        reasonTemplate: 'AntiCheat violation: Trust score reached {threshold}',
-                        notify: true
-                    }]
+                    actions: [action]
                 }
             ];
             await updateSettings({ punishments: newPunishments });
             setModalOpen(false);
             setNewThreshold('');
             setNewDuration('');
+            setNewActionType('timeout');
         }
     };
 
@@ -138,32 +190,19 @@ const AntiCheatUnified: React.FC = () => {
     // iOS-like switch component (small, self-contained)
     const IOSCheckbox: React.FC<{
         checked?: boolean;
-        defaultChecked?: boolean;
         onChange?: (checked: boolean) => void;
         id?: string;
-    }> = ({ checked, defaultChecked, onChange, id }) => {
-        const [internal, setInternal] = useState<boolean>(!!defaultChecked || !!checked);
-
-        useEffect(() => {
-            if (typeof checked === 'boolean') setInternal(checked);
-        }, [checked]);
-
-        const toggle = () => {
-            const next = !internal;
-            setInternal(next);
-            onChange?.(next);
-        };
-
+    }> = ({ checked = false, onChange, id }) => {
         return (
             <button
                 id={id}
-                aria-pressed={internal}
-                onClick={toggle}
+                aria-pressed={checked}
+                onClick={() => onChange?.(!checked)}
                 className={styles.iosSwitch}
                 type="button"
             >
-                <span className={`${styles.iosSwitchTrack} ${internal ? styles.iosOn : ''}`} />
-                <span className={`${styles.iosSwitchThumb} ${internal ? styles.iosThumbOn : ''}`} />
+                <span className={`${styles.iosSwitchTrack} ${checked ? styles.iosOn : ''}`} />
+                <span className={`${styles.iosSwitchThumb} ${checked ? styles.iosThumbOn : ''}`} />
             </button>
         );
     };
@@ -180,7 +219,7 @@ const AntiCheatUnified: React.FC = () => {
         if (confirmModalCallback) {
             if (confirmModalType === 'revokeTimeout') {
                 // revokeTimeoutの場合、チェックボックスの状態に基づいて処理
-                const resetTrustChecked = confirmModalData?.resetTrust !== false; // デフォルトはtrue
+                const resetTrustChecked = !!confirmModalData?.resetTrust; // デフォルトはfalse
                 try {
                     const success = await revokeTimeout(confirmModalData.userId, resetTrustChecked, confirmModalData?.messageId);
                     if (success) {
@@ -226,10 +265,10 @@ const AntiCheatUnified: React.FC = () => {
 
             openConfirmModal(
                 'revokeTimeout',
-                { userId, messageId, isTimedOut, resetTrust: true },
+                { userId, messageId, isTimedOut, resetTrust: false },
                 isTimedOut ? 'ユーザーは現在タイムアウト中です。タイムアウトを解除しますか？（信頼スコアもリセットしますか）' : '信頼スコアもリセットしますか？',
                 async () => {
-                    const success = await revokeTimeout(userId, true, messageId);
+                    const success = await revokeTimeout(userId, false, messageId);
                     if (success) {
                         try { (window as any).web?.notify?.('タイムアウトを解除しました', 'success', 'タイムアウト解除', 4000); } catch {}
                         refetchLogs();
@@ -241,10 +280,10 @@ const AntiCheatUnified: React.FC = () => {
             // As a last resort, still open the modal without additional context
             openConfirmModal(
                 'revokeTimeout',
-                { userId, messageId, resetTrust: true },
+                { userId, messageId, resetTrust: false },
                 '信頼スコアもリセットしますか？',
                 async () => {
-                    const success = await revokeTimeout(userId, true, messageId);
+                    const success = await revokeTimeout(userId, false, messageId);
                     if (success) {
                         try { (window as any).web?.notify?.('タイムアウトを解除しました', 'success', 'タイムアウト解除', 4000); } catch {}
                         refetchLogs();
@@ -255,10 +294,15 @@ const AntiCheatUnified: React.FC = () => {
     };
 
     const handleResetTrust = async (userId: string) => {
+        // Prefer display name or username for nicer confirmation message
+        const trustEntry = (userTrustData as any) || {};
+        const userInfo = trustEntry[userId];
+        const display = userInfo?.displayName || userInfo?.username || userId;
+
         openConfirmModal(
             'resetTrust',
             { userId },
-            `${userId}の信頼スコアをリセットしますか？`,
+            `${display}（${userId}）の信頼スコアをリセットしますか？`,
             async () => {
                 const success = await resetTrust(userId);
                 if (success) {
@@ -271,10 +315,16 @@ const AntiCheatUnified: React.FC = () => {
         );
     };
 
-    const filteredLogs = logs && Array.isArray(logs) ? logs.filter(log =>
-        (log?.userId?.toLowerCase() || '').includes(searchTerm?.toLowerCase() || '') ||
-        (log?.reason?.toLowerCase() || '').includes(searchTerm?.toLowerCase() || '')
-    ) : [];
+    // Show only currently timed-out users in the logs view and apply search
+    const filteredLogs = logs && Array.isArray(logs)
+        ? logs.filter((log) => {
+            const isTimedOut = !!(log.metadata && log.metadata.isTimedOut);
+            if (!isTimedOut) return false;
+            const q = (searchTerm || '').toLowerCase();
+            const username = (log.metadata && ((log.metadata.username || log.metadata.displayName) || '')) as string;
+            return (log.userId || '').toLowerCase().includes(q) || (log.reason || '').toLowerCase().includes(q) || (username || '').toLowerCase().includes(q);
+        })
+        : [];
 
     const filteredTrustData = userTrustData && typeof userTrustData === 'object' && !Array.isArray(userTrustData)
         ? Object.entries(userTrustData as Record<string, UserTrustDataWithUser>).filter(([userId]) =>
@@ -323,7 +373,7 @@ const AntiCheatUnified: React.FC = () => {
                             </div>
 
                             <div className={styles.card}>
-                                <div className={styles.cardHeader}><h2>検知器</h2></div>
+                                <div className={styles.cardHeader}><h2>検知</h2></div>
                                 <div className={styles.cardBody}>
                                     {Object.entries(settings.detectors || {}).map(([name, config]) => (
                                         <div key={name} className={styles.detectorRow}>
@@ -334,10 +384,7 @@ const AntiCheatUnified: React.FC = () => {
                                                 )}
                                             </div>
                                             <label className={styles.switch}>
-                                                <input type="checkbox" checked={config?.enabled || false} onChange={async (e) => {
-                                                    await updateSettings({ detectors: { ...(settings.detectors || {}), [name]: { ...config, enabled: e.target.checked } } });
-                                                }} />
-                                                <span className={styles.slider}></span>
+                                                <IOSCheckbox checked={!!config?.enabled} onChange={async (v) => { await updateSettings({ detectors: { ...(settings.detectors || {}), [name]: { ...config, enabled: v } } }); }} />
                                             </label>
                                         </div>
                                     ))}
@@ -368,14 +415,13 @@ const AntiCheatUnified: React.FC = () => {
                                 <div className={styles.cardHeader}><h2>自動タイムアウト設定</h2></div>
                                 <div className={styles.cardBody}>
                                     <div className={styles.formGroup}>
-                                        <label className={styles.checkboxLabel}>
-                                            <input
-                                                type="checkbox"
-                                                checked={settings.autoTimeout?.enabled || false}
-                                                onChange={async (e) => {
+                                            <label className={styles.checkboxLabel}>
+                                            <IOSCheckbox
+                                                checked={!!settings.autoTimeout?.enabled}
+                                                onChange={async (v) => {
                                                     await updateSettings({
                                                         autoTimeout: {
-                                                            enabled: e.target.checked,
+                                                            enabled: v,
                                                             durationSeconds: settings.autoTimeout?.durationSeconds || 180
                                                         }
                                                     });
@@ -386,26 +432,59 @@ const AntiCheatUnified: React.FC = () => {
                                     </div>
                                     {settings.autoTimeout?.enabled && (
                                         <div className={styles.formGroup}>
-                                            <label>タイムアウト時間（秒）</label>
+                                            <label>タイムアウト時間</label>
                                             <input
-                                                type="number"
-                                                placeholder="例: 180"
-                                                value={settings.autoTimeout?.durationSeconds || 180}
-                                                onChange={async (e) => {
-                                                    await updateSettings({
-                                                        autoTimeout: {
-                                                            enabled: true,
-                                                            durationSeconds: parseInt(e.target.value) || 180
-                                                        }
-                                                    });
+                                                id="mobileAutoTimeoutInput"
+                                                type="text"
+                                                placeholder="例: 1h / 30m / 300"
+                                                value={autoTimeoutInput}
+                                                onChange={(e) => setAutoTimeoutInput(e.target.value)}
+                                                onBlur={async () => {
+                                                    const seconds = parseDurationToSeconds(autoTimeoutInput) || 180;
+                                                    await updateSettings({ autoTimeout: { enabled: true, durationSeconds: seconds } });
                                                 }}
                                                 className={styles.input}
-                                                min="1"
-                                                max="604800"
                                             />
-                                            <p className={styles.inputHint}>違反検知時に適用されるタイムアウト時間</p>
+                                            <p className={styles.inputHint}>例: `1d` `1h` `30m` `45s` または秒数（自動的に保存はフォーカス外で反映）</p>
                                         </div>
                                     )}
+                                    <div className={styles.cardHeader}><h3>自動メッセージ削除</h3></div>
+                                    <div className={styles.cardBody}>
+                                        <div className={styles.formGroup}>
+                                            <label className={styles.checkboxLabel}>
+                                                <IOSCheckbox
+                                                    checked={!!settings.autoDelete?.enabled}
+                                                    onChange={async (v) => {
+                                                        await updateSettings({
+                                                            autoDelete: {
+                                                                enabled: v,
+                                                                windowSeconds: settings.autoDelete?.windowSeconds || 600
+                                                            }
+                                                        });
+                                                    }}
+                                                />
+                                                自動メッセージ削除を有効化
+                                            </label>
+                                        </div>
+                                        {settings.autoDelete?.enabled && (
+                                            <div className={styles.formGroup}>
+                                                <label>削除対象の過去時間</label>
+                                                <input
+                                                    id="mobileAutoDeleteInput"
+                                                    type="text"
+                                                    placeholder="例: 10m / 600 / 1h"
+                                                    value={autoDeleteInput}
+                                                    onChange={(e) => setAutoDeleteInput(e.target.value)}
+                                                    onBlur={async () => {
+                                                        const seconds = parseDurationToSeconds(autoDeleteInput) || 600;
+                                                        await updateSettings({ autoDelete: { enabled: true, windowSeconds: seconds } });
+                                                    }}
+                                                    className={styles.input}
+                                                />
+                                                <p className={styles.inputHint}>検知時に遡って削除する時間（例: `10m` は10分前まで全て削除）</p>
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -416,17 +495,27 @@ const AntiCheatUnified: React.FC = () => {
                             <div className={styles.logsHeader}>
                                 <button className={styles.refreshBtn} onClick={() => refetchLogs()} disabled={logsLoading}>🔄 更新</button>
                             </div>
-                            {logsLoading ? <div className={styles.loading}>読み込み中...</div> : logs.length === 0 ? <div className={styles.noLogs}>検知ログがありません</div> : (
+                            {logsLoading ? <div className={styles.loading}>読み込み中...</div> : filteredLogs.length === 0 ? <div className={styles.noLogs}>検知ログがありません</div> : (
                                 <div className={styles.logsList}>
-                                    {logs.map((log) => (
+                                    {filteredLogs.map((log) => (
                                         <div key={log.messageId} className={styles.logCard}>
                                             <div className={styles.logHeader}>
                                                 <span className={styles.logTime}>{new Date(log.timestamp).toLocaleString('ja-JP')}</span>
                                                 <span className={styles.logScore}>+{log.scoreDelta}</span>
                                             </div>
                                             <div className={styles.logBody}>
-                                                <div className={styles.logUser}>ユーザー: <code>{log.userId}</code></div>
-                                                <div className={styles.logDetector}>検知器: <span className={styles.detectorTag}>{log.detector}</span></div>
+                                                {(() => {
+                                                    const displayName = (log.metadata && (log.metadata.displayName || log.metadata.username)) || '';
+                                                    return (
+                                                        <div className={styles.logUser}>
+                                                            <div className={styles.userInfo}>
+                                                                <div className={styles.displayName}>{displayName || '不明'}</div>
+                                                                <div className={styles.userId}><code>{log.userId}</code></div>
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })()}
+                                                <div className={styles.logDetector}>検知: <span className={styles.detectorTag}>{log.detector}</span></div>
                                                 <div className={styles.logReason}>{log.reason}</div>
                                             </div>
                                             <div className={styles.logActions}><button className={styles.revokeBtn} onClick={() => handleRevokeTimeout(log.userId, log.messageId)} disabled={executing}>解除</button></div>
@@ -518,25 +607,42 @@ const AntiCheatUnified: React.FC = () => {
                                     />
                                     <p className={styles.inputHint}>信頼スコアがこの値に達すると処罰が実行されます</p>
                                 </div>
+
                                 <div className={styles.formGroup}>
-                                    <label htmlFor="duration">タイムアウト時間（秒）</label>
-                                    <input
-                                        id="duration"
-                                        type="number"
-                                        placeholder="例: 300"
-                                        value={newDuration}
-                                        onChange={(e) => setNewDuration(e.target.value)}
-                                        className={styles.input}
-                                    />
-                                    <p className={styles.inputHint}>ユーザーがタイムアウトされる時間（秒単位）</p>
+                                    <label htmlFor="actionType">処罰タイプ</label>
+                                    <select id="actionType" className={styles.input} value={newActionType} onChange={(e) => setNewActionType(e.target.value as any)}>
+                                        <option value="timeout">Timeout（タイムアウト）</option>
+                                        <option value="kick">Kick（キック）</option>
+                                        <option value="ban">Ban（BAN）</option>
+                                    </select>
+                                    <p className={styles.inputHint}>実行する処罰の種類を選択してください</p>
                                 </div>
+
+                                {newActionType === 'timeout' && (
+                                    <div className={styles.formGroup}>
+                                        <label htmlFor="duration">タイムアウト時間（秒）</label>
+                                        <input
+                                            id="duration"
+                                            type="text"
+                                            placeholder="例: 300 / 1s / 5h"
+                                            value={newDuration}
+                                            onChange={(e) => setNewDuration(e.target.value)}
+                                            className={styles.input}
+                                        />
+                                        <p className={styles.inputHint}>ユーザーがタイムアウトされる時間（秒単位） 例: 1s, 5h, 30m, 1d</p>
+                                    </div>
+                                )}
                             </div>
                             <div className={styles.modalFooter}>
                                 <button className={styles.btnSecondary} onClick={() => setModalOpen(false)}>キャンセル</button>
                                 <button
                                     className={styles.btnPrimary}
                                     onClick={handleSavePunishment}
-                                    disabled={!newThreshold || !newDuration || parseInt(newThreshold) <= 0 || parseInt(newDuration) <= 0}
+                                    disabled={
+                                        !newThreshold || parseInt(newThreshold) <= 0 || (
+                                            newActionType === 'timeout' && (!newDuration || parseDurationToSeconds(newDuration) <= 0)
+                                        )
+                                    }
                                 >
                                     追加
                                 </button>
@@ -559,13 +665,13 @@ const AntiCheatUnified: React.FC = () => {
                                     <div className={styles.confirmOptions}>
                                         <div className={styles.iosCheckboxRow}>
                                             <IOSCheckbox
-                                                checked={confirmModalData?.resetTrust !== false}
+                                                checked={!!confirmModalData?.resetTrust}
                                                 onChange={(v) => setConfirmModalData((prev: any) => ({ ...prev, resetTrust: v }))}
                                             />
                                             <button
                                                 type="button"
                                                 className={styles.iosCheckboxLabelText}
-                                                onClick={() => setConfirmModalData((prev: any) => ({ ...prev, resetTrust: !((prev && prev.resetTrust) === false) }))}
+                                                onClick={() => setConfirmModalData((prev: any) => ({ ...prev, resetTrust: !prev?.resetTrust }))}
                                             >
                                                 信頼スコアもリセットする
                                             </button>
@@ -610,51 +716,23 @@ const AntiCheatUnified: React.FC = () => {
                 {activeView === 'settings' && (
                     <div className={styles.content}>
                         <div className={styles.section}>
-                            <h2>検知器</h2>
+                            <h2>検知リスト</h2>
                             <div className={styles.detectorsList}>
                                 {Object.entries(settings.detectors || {}).map(([name, config]) => (
                                     <div key={name} className={styles.detectorItem}>
-                                        <div className={styles.detectorHeader}>
-                                            <label className={styles.detectorLabel}>
-                                                <input type="checkbox" checked={config?.enabled || false} onChange={async (e) => {
-                                                    await updateSettings({ detectors: { ...(settings.detectors || {}), [name]: { ...config, enabled: e.target.checked } } });
-                                                }} />
-                                                <span className={styles.detectorName}>{name}</span>
-                                            </label>
-                                            {detectorDescriptions[name] && (
-                                                <div className={styles.detectorDescription}>
-                                                    {detectorDescriptions[name]}
-                                                </div>
-                                            )}
-                                        </div>
-                                        {config?.excludeSettings && (
-                                            <div className={styles.detectorExclusions}>
-                                                <div className={styles.exclusionGroup}>
-                                                    <label>除外ロール:</label>
-                                                    <div className={styles.exclusionList}>
-                                                        {(config.excludeSettings.excludedRoles || []).map(roleId => (
-                                                            <span key={roleId} className={styles.exclusionTag}>{roleId}</span>
-                                                        ))}
-                                                    </div>
-                                                </div>
-                                                <div className={styles.exclusionGroup}>
-                                                    <label>除外チャンネル:</label>
-                                                    <div className={styles.exclusionList}>
-                                                        {(config.excludeSettings.excludedChannels || []).map(channelId => (
-                                                            <span key={channelId} className={styles.exclusionTag}>{channelId}</span>
-                                                        ))}
-                                                    </div>
-                                                </div>
-                                                <div className={styles.exclusionGroup}>
-                                                    <label>除外ユーザー:</label>
-                                                    <div className={styles.exclusionList}>
-                                                        {(config.excludeSettings.excludedUsers || []).map(userId => (
-                                                            <span key={userId} className={styles.exclusionTag}>{userId}</span>
-                                                        ))}
-                                                    </div>
+                                            <div className={styles.detectorHeader}>
+                                                <label className={styles.switch}>
+                                                    <IOSCheckbox checked={!!config?.enabled} onChange={async (v) => { await updateSettings({ detectors: { ...(settings.detectors || {}), [name]: { ...config, enabled: v } } }); }} />
+                                                </label>
+                                                <div className={styles.detectorInfo}>
+                                                    <span className={styles.detectorName}>{name}</span>
+                                                    {detectorDescriptions[name] && (
+                                                        <div className={styles.detectorDescription}>
+                                                            {detectorDescriptions[name]}
+                                                        </div>
+                                                    )}
                                                 </div>
                                             </div>
-                                        )}
                                     </div>
                                 ))}
                             </div>
@@ -704,14 +782,13 @@ const AntiCheatUnified: React.FC = () => {
                             <h2>自動タイムアウト設定</h2>
                             <p className={styles.hint}>違反検知時に自動でタイムアウトをかける設定です。</p>
                             <div className={styles.formGroup}>
-                                <label className={styles.checkboxLabel}>
-                                    <input
-                                        type="checkbox"
-                                        checked={settings.autoTimeout?.enabled || false}
-                                        onChange={async (e) => {
+                                            <label className={styles.checkboxLabel}>
+                                    <IOSCheckbox
+                                        checked={!!settings.autoTimeout?.enabled}
+                                        onChange={async (v) => {
                                             await updateSettings({
                                                 autoTimeout: {
-                                                    enabled: e.target.checked,
+                                                    enabled: v,
                                                     durationSeconds: settings.autoTimeout?.durationSeconds || 180
                                                 }
                                             });
@@ -722,25 +799,55 @@ const AntiCheatUnified: React.FC = () => {
                             </div>
                             {settings.autoTimeout?.enabled && (
                                 <div className={styles.formGroup}>
-                                    <label htmlFor="autoTimeoutDuration">タイムアウト時間（秒）</label>
+                                    <label htmlFor="autoTimeoutDuration">タイムアウト時間</label>
                                     <input
                                         id="autoTimeoutDuration"
-                                        type="number"
-                                        placeholder="例: 180"
-                                        value={settings.autoTimeout?.durationSeconds || 180}
-                                        onChange={async (e) => {
+                                        type="text"
+                                        placeholder="例: 1h / 30m / 300"
+                                        value={autoTimeoutInput}
+                                        onChange={(e) => setAutoTimeoutInput(e.target.value)}
+                                        onBlur={async () => {
+                                            const seconds = parseDurationToSeconds(autoTimeoutInput) || 180;
+                                            await updateSettings({ autoTimeout: { enabled: true, durationSeconds: seconds } });
+                                        }}
+                                        className={styles.input}
+                                    />
+                                    <p className={styles.inputHint}>例: `1d` `1h` `30m` `45s` または秒数（最大7日）</p>
+                                </div>
+                            )}
+
+                            <div className={styles.formGroup}>
+                                <label className={styles.checkboxLabel}>
+                                    <IOSCheckbox
+                                        checked={!!settings.autoDelete?.enabled}
+                                        onChange={async (v) => {
                                             await updateSettings({
-                                                autoTimeout: {
-                                                    enabled: true,
-                                                    durationSeconds: parseInt(e.target.value) || 180
+                                                autoDelete: {
+                                                    enabled: v,
+                                                    windowSeconds: settings.autoDelete?.windowSeconds || 600
                                                 }
                                             });
                                         }}
-                                        className={styles.input}
-                                        min="1"
-                                        max="604800"
                                     />
-                                    <p className={styles.inputHint}>違反検知時に適用されるタイムアウト時間（秒単位、最大7日）</p>
+                                    自動メッセージ削除を有効化
+                                </label>
+                            </div>
+                            {settings.autoDelete?.enabled && (
+                                <div className={styles.formGroup}>
+                                    <label htmlFor="autoDeleteDuration">削除対象の過去時間</label>
+                                    <input
+                                        id="autoDeleteDuration"
+                                        type="text"
+                                        placeholder="例: 10m / 600 / 1h"
+                                        value={autoDeleteInput}
+                                        onChange={(e) => setAutoDeleteInput(e.target.value)}
+                                        onBlur={async () => {
+                                            const seconds = parseDurationToSeconds(autoDeleteInput) || 600;
+                                            await updateSettings({ autoDelete: { enabled: true, windowSeconds: seconds } });
+                                        }}
+                                        className={styles.input}
+                                    />
+                                    <p className={styles.inputHint}>例: `10m` は検知時に10分前までのメッセージを削除します</p>
                                 </div>
                             )}
                         </div>
@@ -793,13 +900,18 @@ const AntiCheatUnified: React.FC = () => {
                             <div className={styles.logsTable}>
                                 <table>
                                     <thead>
-                                        <tr><th>時刻</th><th>ユーザーID</th><th>検知器</th><th>スコア増加</th><th>理由</th><th>操作</th></tr>
+                                        <tr><th>時刻</th><th>ユーザーID</th><th>検知</th><th>スコア増加</th><th>理由</th><th>操作</th></tr>
                                     </thead>
                                     <tbody>
                                         {filteredLogs.map((log) => (
                                             <tr key={log.messageId}>
                                                 <td>{new Date(log.timestamp).toLocaleString('ja-JP')}</td>
-                                                <td className={styles.userId}>{log.userId}</td>
+                                                <td className={styles.userCell}>
+                                                    <div className={styles.userInfo}>
+                                                        <div className={styles.userName}>{(log.metadata && (log.metadata.displayName || log.metadata.username)) || '不明'}</div>
+                                                        <div className={styles.userId}><code>{log.userId}</code></div>
+                                                    </div>
+                                                </td>
                                                 <td><span className={styles.detectorBadge}>{log.detector}</span></td>
                                                 <td className={styles.scoreDelta}>+{log.scoreDelta}</td>
                                                 <td className={styles.reason}>{log.reason}</td>
@@ -894,41 +1006,58 @@ const AntiCheatUnified: React.FC = () => {
                             <button className={styles.modalClose} onClick={() => setModalOpen(false)}>✕</button>
                         </div>
                         <div className={styles.modalBody}>
-                            <div className={styles.formGroup}>
-                                <label htmlFor="threshold">しきい値</label>
-                                <input
-                                    id="threshold"
-                                    type="number"
-                                    placeholder="例: 5"
-                                    value={newThreshold}
-                                    onChange={(e) => setNewThreshold(e.target.value)}
-                                    className={styles.input}
-                                />
-                                <p className={styles.inputHint}>信頼スコアがこの値に達すると処罰が実行されます</p>
-                            </div>
-                            <div className={styles.formGroup}>
-                                <label htmlFor="duration">タイムアウト時間（秒）</label>
-                                <input
-                                    id="duration"
-                                    type="number"
-                                    placeholder="例: 300"
-                                    value={newDuration}
-                                    onChange={(e) => setNewDuration(e.target.value)}
-                                    className={styles.input}
-                                />
-                                <p className={styles.inputHint}>ユーザーがタイムアウトされる時間（秒単位）</p>
-                            </div>
-                        </div>
-                        <div className={styles.modalFooter}>
-                            <button className={styles.btnSecondary} onClick={() => setModalOpen(false)}>キャンセル</button>
-                            <button
-                                className={styles.btnPrimary}
-                                onClick={handleSavePunishment}
-                                disabled={!newThreshold || !newDuration || parseInt(newThreshold) <= 0 || parseInt(newDuration) <= 0}
-                            >
-                                追加
-                            </button>
-                        </div>
+                                        <div className={styles.formGroup}>
+                                            <label htmlFor="threshold">しきい値</label>
+                                            <input
+                                                id="threshold"
+                                                type="number"
+                                                placeholder="例: 5"
+                                                value={newThreshold}
+                                                onChange={(e) => setNewThreshold(e.target.value)}
+                                                className={styles.input}
+                                            />
+                                            <p className={styles.inputHint}>信頼スコアがこの値に達すると処罰が実行されます</p>
+                                        </div>
+
+                                        <div className={styles.formGroup}>
+                                            <label htmlFor="actionType">処罰タイプ</label>
+                                            <select id="actionType" className={styles.input} value={newActionType} onChange={(e) => setNewActionType(e.target.value as any)}>
+                                                <option value="timeout">Timeout（タイムアウト）</option>
+                                                <option value="kick">Kick（キック）</option>
+                                                <option value="ban">Ban（BAN）</option>
+                                            </select>
+                                            <p className={styles.inputHint}>実行する処罰の種類を選択してください</p>
+                                        </div>
+
+                                        {newActionType === 'timeout' && (
+                                            <div className={styles.formGroup}>
+                                                <label htmlFor="duration">タイムアウト時間（秒）</label>
+                                                <input
+                                                    id="duration"
+                                                    type="text"
+                                                    placeholder="例: 300 / 1s / 5h"
+                                                    value={newDuration}
+                                                    onChange={(e) => setNewDuration(e.target.value)}
+                                                    className={styles.input}
+                                                />
+                                                <p className={styles.inputHint}>ユーザーがタイムアウトされる時間（秒単位） 例: 1s, 5h, 30m, 1d</p>
+                                            </div>
+                                        )}
+                                    </div>
+                                    <div className={styles.modalFooter}>
+                                        <button className={styles.btnSecondary} onClick={() => setModalOpen(false)}>キャンセル</button>
+                                        <button
+                                            className={styles.btnPrimary}
+                                            onClick={handleSavePunishment}
+                                            disabled={
+                                                !newThreshold || parseInt(newThreshold) <= 0 || (
+                                                    newActionType === 'timeout' && (!newDuration || parseDurationToSeconds(newDuration) <= 0)
+                                                )
+                                            }
+                                        >
+                                            追加
+                                        </button>
+                                    </div>
                     </div>
                 </div>
             )}
@@ -944,21 +1073,21 @@ const AntiCheatUnified: React.FC = () => {
                         <div className={styles.modalBody}>
                             <p className={styles.confirmMessage}>{confirmModalMessage}</p>
                             {confirmModalType === 'revokeTimeout' && (
-                                <div className={styles.confirmOptions}>
-                                    <div className={styles.iosCheckboxRow}>
-                                        <IOSCheckbox
-                                                checked={confirmModalData?.resetTrust !== false}
+                                    <div className={styles.confirmOptions}>
+                                        <div className={styles.iosCheckboxRow}>
+                                            <IOSCheckbox
+                                                checked={!!confirmModalData?.resetTrust}
                                                 onChange={(v) => setConfirmModalData((prev: any) => ({ ...prev, resetTrust: v }))}
-                                        />
-                                        <button
-                                            type="button"
-                                            className={styles.iosCheckboxLabelText}
-                                            onClick={() => setConfirmModalData((prev: any) => ({ ...prev, resetTrust: !((prev && prev.resetTrust) === false) }))}
-                                        >
-                                            信頼スコアもリセットする
-                                        </button>
+                                            />
+                                            <button
+                                                type="button"
+                                                className={styles.iosCheckboxLabelText}
+                                                onClick={() => setConfirmModalData((prev: any) => ({ ...prev, resetTrust: !prev?.resetTrust }))}
+                                            >
+                                                信頼スコアもリセットする
+                                            </button>
+                                        </div>
                                     </div>
-                                </div>
                             )}
                         </div>
                         <div className={styles.modalFooter}>

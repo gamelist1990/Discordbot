@@ -13,6 +13,10 @@ export interface AntiCheatSettings {
         enabled: boolean;
         durationSeconds: number;
     };
+    autoDelete: {
+        enabled: boolean;
+        windowSeconds: number;
+    };
 }
 
 export interface DetectorConfig {

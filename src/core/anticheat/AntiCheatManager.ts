@@ -1,4 +1,4 @@
-import { Client, Guild, Message, TextChannel, EmbedBuilder, Colors, PermissionFlagsBits } from 'discord.js';
+import { Client, Guild, Message, TextChannel, EmbedBuilder, Colors, PermissionFlagsBits, MessageResolvable } from 'discord.js';
 import { database } from '../Database.js';
 import { Logger } from '../../utils/Logger.js';
 import {
@@ -23,6 +23,9 @@ export class AntiCheatManager {
     private detectors: Map<string, Detector> = new Map();
     private client: Client | null = null;
     private readonly MAX_LOGS = 100;
+    // debounce window (ms) to avoid immediate duplicate detections for same guild:user:detector
+    private readonly detectionCooldownMs = 50;
+    private lastDetectionTimestamps: Map<string, number> = new Map();
 
     constructor() {
         // Register default detectors
@@ -104,24 +107,56 @@ export class AntiCheatManager {
             const detectorConfig = settings.detectors[name];
             if (!detectorConfig || !detectorConfig.enabled) continue;
 
+            // debounce: skip detection if same detector detected for this user very recently
+            try {
+                const key = `${guildId}:${userId}:${name}`;
+                const now = Date.now();
+                const last = this.lastDetectionTimestamps.get(key) || 0;
+                if (now - last < this.detectionCooldownMs) continue;
+            } catch (e) {
+                // ignore errors and continue
+            }
+
             try {
                 const result: DetectionResult = await detector.detect(message, context);
                 
                 if (result.scoreDelta > 0) {
-                    totalScoreDelta += result.scoreDelta;
+                    // record detection time to suppress rapid duplicates for this detector
+                    try { this.lastDetectionTimestamps.set(`${guildId}:${userId}:${name}`, Date.now()); } catch {}
+                    // Increment trust by 1 per detection (fixed increment)
+                    totalScoreDelta += 1;
                     allReasons.push(...result.reasons);
 
-                    // Log detection for UI display
+                    // Log detection for UI display (record a +1 increase per detection)
                     await this.logDetection(guildId, {
                         userId,
                         messageId: message.id,
                         detector: name,
-                        scoreDelta: result.scoreDelta,
+                        scoreDelta: 1,
                         reason: result.reasons.join('; '),
                         timestamp: new Date().toISOString(),
                         status: 'active',
                         metadata: result.metadata
                     });
+
+                    // If auto-timeout is enabled, try to apply it immediately and stop further detections
+                    if (settings.autoTimeout?.enabled) {
+                        try {
+                            const applied = await this.executeAutoTimeout(message.guild!, userId, settings, message.id);
+                            if (applied) {
+                                // suppress further immediate detections for this user across all detectors
+                                const now = Date.now();
+                                for (const detName of this.detectors.keys()) {
+                                    try { this.lastDetectionTimestamps.set(`${guildId}:${userId}:${detName}`, now); } catch {}
+                                }
+                                // break out of detector loop
+                                break;
+                            }
+                        } catch (e) {
+                            // If timeout application failed, continue processing other detectors
+                            Logger.debug('Auto-timeout attempt failed during detection loop:', e);
+                        }
+                    }
                 }
             } catch (error) {
                 Logger.error(`Detector ${name} failed:`, error);
@@ -150,7 +185,7 @@ export class AntiCheatManager {
 
             // Execute auto timeout if enabled
             if (settings.autoTimeout.enabled) {
-                await this.executeAutoTimeout(message.guild!, userId, settings);
+                await this.executeAutoTimeout(message.guild!, userId, settings, message.id);
             }
 
             // Send a detection notification to the configured log channel (if any)
@@ -186,9 +221,9 @@ export class AntiCheatManager {
     /**
      * Execute auto timeout for a user
      */
-    private async executeAutoTimeout(guild: Guild, userId: string, settings: GuildAntiCheatSettings): Promise<void> {
+    private async executeAutoTimeout(guild: Guild, userId: string, settings: GuildAntiCheatSettings, messageId?: string): Promise<boolean> {
         const member = await guild.members.fetch(userId).catch(() => null);
-        if (!member) return;
+        if (!member) return false;
 
         const logChannel = settings.logChannelId
             ? (await guild.channels.fetch(settings.logChannelId).catch(() => null)) as TextChannel | null
@@ -201,7 +236,34 @@ export class AntiCheatManager {
             notify: false
         };
 
-        await PunishmentExecutor.execute(member, action, logChannel);
+        const applied = await PunishmentExecutor.execute(member, action, logChannel);
+
+        // If timeout applied, mark recent log entry (by messageId) as timed out and include username/displayName
+        if (applied && messageId) {
+            try {
+                const s = await this.getSettings(guild.id);
+                s.recentLogs = s.recentLogs.map(l => {
+                    if (l.messageId === messageId) {
+                        const meta = l.metadata || {};
+                        return {
+                            ...l,
+                            metadata: {
+                                ...meta,
+                                isTimedOut: true,
+                                username: member.user.username,
+                                displayName: member.displayName || member.user.username
+                            }
+                        };
+                    }
+                    return l;
+                });
+                await database.set(guild.id, `Guild/${guild.id}/anticheat`, s);
+            } catch (err) {
+                Logger.debug('Failed to mark log as timed out:', err);
+            }
+        }
+
+        return !!applied;
     }
 
     /**
@@ -364,6 +426,43 @@ export class AntiCheatManager {
         const settings = await this.getSettings(guildId);
         let logs = settings.recentLogs.filter(log => log.status !== 'revoked');
 
+        // If we have a Discord client, verify timed-out status for logs marked as timed out.
+        // If the user is no longer timed out, mark the log as revoked so it won't be returned.
+        let updated = false;
+        try {
+            const guild = await this.client?.guilds.fetch(guildId).catch(() => null);
+            if (guild) {
+                const idsToRemove: string[] = [];
+                for (const l of settings.recentLogs) {
+                    if (l.status === 'revoked') continue;
+                    const isMarkedTimedOut = !!(l.metadata && l.metadata.isTimedOut);
+                    if (isMarkedTimedOut) {
+                        try {
+                            const member = await guild.members.fetch(l.userId).catch(() => null);
+                            const isCurrentlyTimedOut = member ? (member.communicationDisabledUntil !== null) : false;
+                            if (!isCurrentlyTimedOut) {
+                                // schedule removal to hide from UI
+                                idsToRemove.push(l.messageId);
+                                updated = true;
+                            }
+                        } catch (e) {
+                            // ignore fetch errors
+                        }
+                    }
+                }
+                if (updated && idsToRemove.length > 0) {
+                    // remove the revoked/stale entries and persist
+                    settings.recentLogs = settings.recentLogs.filter(l => !idsToRemove.includes(l.messageId));
+                    await database.set(guildId, `Guild/${guildId}/anticheat`, settings);
+                }
+            }
+        } catch (e) {
+            // ignore errors while verifying member timeouts
+        }
+
+        // Recompute logs after possible revocations so we don't return stale entries
+        logs = settings.recentLogs.filter(log => log.status !== 'revoked');
+
         if (before) {
             const beforeDate = new Date(before).getTime();
             logs = logs.filter(log => new Date(log.timestamp).getTime() < beforeDate);
@@ -396,12 +495,12 @@ export class AntiCheatManager {
      */
     async revokeLog(guildId: string, messageId: string): Promise<void> {
         const settings = await this.getSettings(guildId);
-        
-        const logIndex = settings.recentLogs.findIndex(log => log.messageId === messageId);
-        if (logIndex !== -1) {
-            settings.recentLogs[logIndex].status = 'revoked';
+
+        const exists = settings.recentLogs.some(log => log.messageId === messageId);
+        if (exists) {
+            settings.recentLogs = settings.recentLogs.filter(log => log.messageId !== messageId);
             await database.set(guildId, `Guild/${guildId}/anticheat`, settings);
-            Logger.debug(`Revoked log for message ${messageId} in guild ${guildId}`);
+            Logger.debug(`Removed log for message ${messageId} in guild ${guildId}`);
         }
     }
 
@@ -438,9 +537,9 @@ export class AntiCheatManager {
 
                     if (toDelete.size > 0) {
                         // bulkDelete accepts up to 100 messages
-                        const ids = Array.from(toDelete.keys());
+                        const ids = Array.from(toDelete.keys()) as string[];
                         for (let i = 0; i < ids.length; i += 100) {
-                            const chunk = ids.slice(i, i + 100);
+                            const chunk = ids.slice(i, i + 100) as readonly MessageResolvable[];
                             try {
                                 const res = await textCh.bulkDelete(chunk, true).catch(() => null) as any;
                                 // bulkDelete may return a collection of deleted messages
