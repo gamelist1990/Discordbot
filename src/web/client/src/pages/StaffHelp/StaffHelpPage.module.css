@@ -1,130 +1,150 @@
-/* Apple iOS-inspired styling with smooth animations and modern aesthetics */
+/* Apple iOS-inspired Staff Help - Redesigned for optimal UX */
 
 :root {
-    --ios-primary: #007AFF;
-    --ios-secondary: #34C759;
-    --ios-background: #F2F2F7;
-    --ios-surface: #FFFFFF;
-    --ios-divider: #E5E5EA;
-    --ios-label-primary: #000000;
-    --ios-label-secondary: #3C3C43;
-    --ios-label-tertiary: #8E8E93;
-    --ios-red: #FF3B30;
-    --ios-green: #34C759;
     --ios-blue: #007AFF;
+    --ios-green: #34C759;
+    --ios-red: #FF3B30;
+    --ios-orange: #FF9500;
     --ios-yellow: #FFCC00;
     --ios-purple: #AF52DE;
+    --ios-bg: #F2F2F7;
+    --ios-surface: #FFFFFF;
+    --ios-surface-secondary: #F9F9FB;
+    --ios-divider: #E5E5EA;
+    --ios-text-primary: #000000;
+    --ios-text-secondary: #3C3C43;
+    --ios-text-tertiary: #8E8E93;
+    --spacing-xs: 8px;
+    --spacing-sm: 12px;
+    --spacing-md: 16px;
+    --spacing-lg: 20px;
+    --spacing-xl: 24px;
+    --spacing-2xl: 32px;
+    --radius-sm: 8px;
+    --radius-md: 12px;
+    --radius-lg: 16px;
 }
 
-/* Base Styling */
+* {
+    box-sizing: border-box;
+}
+
 .page {
     min-height: 100vh;
-    background: var(--ios-background);
-    display: flex;
-    flex-direction: column;
+    background: var(--ios-bg);
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', sans-serif;
     -webkit-font-smoothing: antialiased;
     -webkit-tap-highlight-color: transparent;
+    display: flex;
+    flex-direction: column;
 }
 
 .container {
-    width: 100%;
-    box-sizing: border-box;
-    padding: 20px;
-    padding-bottom: calc(var(--fab-size, 56px) + 20px);
     flex: 1;
-    max-width: 1400px;
+    width: 100%;
+    max-width: 1200px;
     margin: 0 auto;
+    padding: var(--spacing-lg);
+    padding-bottom: calc(var(--spacing-xl) + 100px);
 }
 
-/* Header */
+/* ==================== HEADER ==================== */
 .header {
-    text-align: center;
-    margin-bottom: 28px;
-    padding: 28px 0;
-    animation: slideDown 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+    margin-bottom: var(--spacing-2xl);
+    animation: slideInDown 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.headerTop {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-md);
+    margin-bottom: var(--spacing-sm);
 }
 
 .title {
-    font-size: 34px;
+    font-size: 32px;
     font-weight: 700;
-    color: var(--ios-label-primary);
-    margin: 0 0 8px 0;
+    color: var(--ios-text-primary);
+    margin: 0;
     display: flex;
     align-items: center;
-    justify-content: center;
-    gap: 12px;
+    gap: var(--spacing-md);
     letter-spacing: -0.5px;
+    line-height: 1.2;
 }
 
 .titleIcon {
     font-size: 36px;
-    animation: bounce 2s infinite;
+    display: inline-block;
+    animation: bounce 2.5s cubic-bezier(0.68, -0.55, 0.265, 1.55) infinite;
 }
 
 .subtitle {
-    font-size: 16px;
-    color: var(--ios-label-tertiary);
+    font-size: 15px;
+    color: var(--ios-text-tertiary);
     margin: 0;
-    line-height: 1.4;
+    line-height: 1.5;
 }
 
-/* Tab Navigation */
+/* ==================== TAB NAVIGATION ==================== */
 .tabContainer {
     background: var(--ios-surface);
-    border-radius: 14px;
-    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+    border-radius: var(--radius-md);
+    margin-bottom: var(--spacing-lg);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+    border: 1px solid var(--ios-divider);
     position: relative;
     overflow: hidden;
-    margin-bottom: 24px;
-    backdrop-filter: blur(20px);
-    border: 1px solid var(--ios-divider);
+    backdrop-filter: blur(10px);
 }
 
-.tabs {
+.tabBar {
     display: flex;
     position: relative;
     border-bottom: 1px solid var(--ios-divider);
-    background: transparent;
 }
 
-.tab {
+.tabBtn {
     flex: 1;
-    padding: 16px 20px;
+    padding: var(--spacing-md);
     border: none;
     background: transparent;
     cursor: pointer;
     font-size: 15px;
     font-weight: 600;
-    color: var(--ios-label-tertiary);
+    color: var(--ios-text-tertiary);
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 8px;
+    gap: var(--spacing-sm);
+    min-height: 48px;
     position: relative;
 }
 
-.tab:hover {
-    color: var(--ios-label-primary);
-    background: rgba(0, 0, 0, 0.02);
+.tabBtn:hover {
+    color: var(--ios-text-primary);
+    background: rgba(0, 122, 255, 0.02);
 }
 
 .tabActive {
     color: var(--ios-blue);
-    font-weight: 700;
 }
 
 .tabIcon {
-    font-size: 18px;
-    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    font-size: 20px;
+    transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
-.tab:hover .tabIcon {
+.tabBtn:hover .tabIcon {
     transform: scale(1.1);
 }
 
-.tabIndicator {
+.tabLabel {
+    font-weight: 600;
+}
+
+.tabUnderline {
     position: absolute;
     bottom: 0;
     left: 0;
@@ -132,345 +152,402 @@
     height: 3px;
     background: linear-gradient(90deg, var(--ios-blue), #5AC8FA);
     transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
-    border-radius: 3px;
+    border-radius: 3px 3px 0 0;
 }
 
-/* Content Area */
-.content {
-    display: grid;
-    grid-template-columns: 280px 1fr;
-    gap: 24px;
-    align-items: start;
+/* ==================== CONTENT ==================== */
+.contentWrapper {
+    animation: fadeInUp 0.5s ease-out;
 }
 
-/* Sidebar */
-.sidebar {
-    background: var(--ios-surface);
-    border-radius: 14px;
-    padding: 20px;
-    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
-    height: fit-content;
-    position: sticky;
-    top: 20px;
-    border: 1px solid var(--ios-divider);
-    animation: slideInLeft 0.6s ease-out 0.1s both;
-}
-
-.sidebarSection {
-    margin-bottom: 24px;
-}
-
-.sidebarTitle {
-    font-size: 12px;
-    font-weight: 700;
-    color: var(--ios-label-tertiary);
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    margin: 0 0 12px 0;
-    padding: 0;
-}
-
-.sidebarNav {
+/* ==================== HELP SECTION ==================== */
+.helpSection {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: var(--spacing-lg);
 }
 
-.sidebarLink {
-    padding: 12px 14px;
-    color: var(--ios-label-secondary);
-    text-decoration: none;
-    font-size: 15px;
-    font-weight: 500;
-    transition: all 0.2s ease-out;
-    border-radius: 10px;
-    border-left: 3px solid transparent;
-    cursor: pointer;
+/* Search Box */
+.searchBox {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-md);
+    background: var(--ios-surface);
+    border: 1px solid var(--ios-divider);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-sm) var(--spacing-md);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+    position: relative;
 }
 
-.sidebarLink:hover {
-    background: rgba(0, 122, 255, 0.1);
-    color: var(--ios-blue);
-    border-left-color: var(--ios-blue);
-    transform: translateX(4px);
+.searchIcon {
+    font-size: 18px;
+    color: var(--ios-text-tertiary);
+    flex-shrink: 0;
 }
 
-/* Main Content */
-.main {
+.searchInput {
+    flex: 1;
+    border: none;
     background: transparent;
-    padding: 0;
-    animation: slideInRight 0.6s ease-out 0.1s both;
+    font-size: 15px;
+    color: var(--ios-text-primary);
+    outline: none;
+    padding: var(--spacing-xs) 0;
+    font-family: inherit;
+    min-width: 0;
 }
 
-.helpContent,
-.servicesContent {
-    animation: fadeInUp 0.5s ease-out;
+.searchInput::placeholder {
+    color: var(--ios-text-tertiary);
+}
+
+.clearBtn {
+    border: none;
+    background: rgba(0, 0, 0, 0.1);
+    color: var(--ios-text-tertiary);
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+    flex-shrink: 0;
+}
+
+.clearBtn:hover {
+    background: rgba(0, 0, 0, 0.15);
+    color: var(--ios-text-primary);
 }
 
 /* Info Card */
 .infoCard {
-    background: linear-gradient(135deg, rgba(0, 122, 255, 0.1), rgba(52, 199, 89, 0.08));
+    display: flex;
+    align-items: flex-start;
+    gap: var(--spacing-md);
+    background: linear-gradient(135deg, rgba(0, 122, 255, 0.08), rgba(52, 199, 89, 0.06));
     border: 1px solid rgba(0, 122, 255, 0.2);
-    border-radius: 14px;
-    padding: 16px 20px;
-    margin-bottom: 24px;
-    backdrop-filter: blur(20px);
-    transition: all 0.3s ease-out;
+    border-radius: var(--radius-md);
+    padding: var(--spacing-md);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
+    transition: all 0.3s ease;
 }
 
 .infoCard:hover {
-    border-color: rgba(0, 122, 255, 0.4);
-    background: linear-gradient(135deg, rgba(0, 122, 255, 0.15), rgba(52, 199, 89, 0.1));
+    border-color: rgba(0, 122, 255, 0.3);
+    background: linear-gradient(135deg, rgba(0, 122, 255, 0.1), rgba(52, 199, 89, 0.08));
+}
+
+.infoBadge {
+    font-size: 20px;
+    flex-shrink: 0;
 }
 
 .infoText {
-    margin: 0;
-    color: var(--ios-label-primary);
-    font-size: 15px;
+    font-size: 14px;
+    color: var(--ios-text-primary);
     line-height: 1.5;
     font-weight: 500;
 }
 
-/* Command Grid */
-.commandGrid {
+/* Commands List */
+.commandsList {
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    gap: var(--spacing-md);
 }
 
-/* Command Card */
-.commandCard {
-    background: var(--ios-surface);
-    border: 1px solid var(--ios-divider);
-    border-radius: 14px;
-    overflow: hidden;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
-    transform: translateY(0);
+/* Empty State */
+.emptyState {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--spacing-md);
+    padding: var(--spacing-2xl);
+    text-align: center;
+    color: var(--ios-text-tertiary);
 }
 
-.commandCard:hover {
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
-    transform: translateY(-4px);
-    border-color: rgba(0, 122, 255, 0.3);
+.emptyIcon {
+    font-size: 64px;
+    opacity: 0.4;
 }
 
-.cardHeader {
-    background: linear-gradient(135deg, var(--ios-blue), #5AC8FA);
-    padding: 24px 20px;
-    color: white;
-    position: relative;
-    overflow: hidden;
-}
-
-.cardHeader::before {
-    content: '';
-    position: absolute;
-    top: -50%;
-    right: -50%;
-    width: 200%;
-    height: 200%;
-    background: radial-gradient(circle, rgba(255, 255, 255, 0.2), transparent);
-    animation: pulse 3s ease-in-out infinite;
-}
-
-.commandName {
-    margin: 0;
-    font-size: 20px;
-    font-weight: 700;
-    color: white;
-    font-family: 'Menlo', 'Monaco', monospace;
-    position: relative;
-    z-index: 1;
-    letter-spacing: -0.3px;
-}
-
-.commandSlash {
-    opacity: 0.85;
-}
-
-.commandSubname {
-    font-weight: 700;
-}
-
-.cardBody {
-    padding: 20px;
-}
-
-.commandDescription {
-    font-size: 15px;
-    color: var(--ios-label-primary);
-    line-height: 1.6;
-    margin: 0 0 20px 0;
+.emptyText {
+    font-size: 16px;
     font-weight: 500;
 }
 
-/* Options Section */
-.optionsSection {
-    margin-bottom: 20px;
+/* ==================== ACCORDION ITEMS ==================== */
+.accordionItem {
+    background: var(--ios-surface);
+    border: 1px solid var(--ios-divider);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.accordionItem:hover {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+    border-color: rgba(0, 122, 255, 0.2);
+}
+
+.accordionHeader {
+    width: 100%;
+    padding: var(--spacing-md);
+    border: none;
+    background: linear-gradient(135deg, rgba(0, 122, 255, 0.05), rgba(52, 199, 89, 0.03));
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--spacing-md);
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--ios-text-primary);
+    transition: all 0.3s ease;
+    min-height: 56px;
+}
+
+.accordionHeader:hover {
+    background: linear-gradient(135deg, rgba(0, 122, 255, 0.08), rgba(52, 199, 89, 0.05));
+}
+
+.accordionHeader.expanded {
+    background: linear-gradient(135deg, var(--ios-blue), #5AC8FA);
+    color: white;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.accordionTitle {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    min-width: 0;
+    flex: 1;
+}
+
+.commandPrefix {
+    opacity: 0.8;
+    font-weight: 500;
+}
+
+.commandName {
+    font-weight: 700;
+    word-break: break-word;
+}
+
+.accordionIcon {
+    font-size: 14px;
+    transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+    flex-shrink: 0;
+}
+
+.accordionHeader.expanded .accordionIcon {
+    color: white;
+}
+
+/* Accordion Content */
+.accordionContent {
+    animation: slideDown 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.accordionBody {
+    padding: var(--spacing-md);
+    background: var(--ios-surface);
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-md);
+}
+
+.cmdDescription {
+    margin: 0;
+    font-size: 14px;
+    color: var(--ios-text-secondary);
+    line-height: 1.6;
+    font-weight: 500;
+}
+
+/* Options Container */
+.optionsContainer {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-sm);
+    border-top: 1px solid var(--ios-divider);
+    padding-top: var(--spacing-md);
 }
 
 .optionsTitle {
     font-size: 13px;
     font-weight: 700;
-    color: var(--ios-label-tertiary);
+    color: var(--ios-text-tertiary);
     text-transform: uppercase;
     letter-spacing: 0.5px;
-    margin: 0 0 12px 0;
+    margin: 0;
 }
 
 .optionsList {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: var(--spacing-sm);
 }
 
-.option {
+.optionItem {
+    background: linear-gradient(135deg, rgba(0, 122, 255, 0.03), rgba(52, 199, 89, 0.02));
+    border: 1px solid rgba(0, 122, 255, 0.1);
+    border-radius: var(--radius-sm);
+    padding: var(--spacing-sm);
+    transition: all 0.2s ease;
+}
+
+.optionItem:hover {
     background: linear-gradient(135deg, rgba(0, 122, 255, 0.05), rgba(52, 199, 89, 0.03));
-    border: 1px solid rgba(0, 122, 255, 0.15);
-    border-left: 3px solid var(--ios-blue);
-    border-radius: 10px;
-    padding: 14px 16px;
-    transition: all 0.2s ease-out;
+    border-color: rgba(0, 122, 255, 0.2);
 }
 
-.option:hover {
-    background: linear-gradient(135deg, rgba(0, 122, 255, 0.08), rgba(52, 199, 89, 0.05));
-    border-color: rgba(0, 122, 255, 0.25);
-    transform: translateX(4px);
-}
-
-.optionHeader {
+.optionName {
     display: flex;
     align-items: center;
-    gap: 8px;
-    margin-bottom: 8px;
+    gap: var(--spacing-xs);
+    margin-bottom: var(--spacing-xs);
     flex-wrap: wrap;
 }
 
 .optionIcon {
-    font-size: 18px;
+    font-size: 16px;
 }
 
-.optionName {
-    font-family: 'Menlo', 'Monaco', monospace;
+.optionCode {
     background: rgba(0, 122, 255, 0.1);
-    padding: 4px 10px;
-    border-radius: 8px;
     color: var(--ios-blue);
+    padding: 4px 8px;
+    border-radius: 6px;
+    font-family: 'Menlo', 'Monaco', monospace;
+    font-size: 12px;
     font-weight: 600;
-    font-size: 13px;
     border: none;
 }
 
-.requiredBadge {
+.requiredTag {
     background: linear-gradient(135deg, var(--ios-red), #FF6B6B);
     color: white;
+    padding: 2px 8px;
+    border-radius: 6px;
     font-size: 11px;
     font-weight: 700;
-    padding: 4px 10px;
-    border-radius: 8px;
-    text-transform: uppercase;
-    letter-spacing: 0.4px;
-}
-
-.optionType {
-    background: rgba(0, 0, 0, 0.05);
-    color: var(--ios-label-secondary);
-    font-size: 11px;
-    font-weight: 600;
-    padding: 4px 10px;
-    border-radius: 8px;
-    border: none;
     text-transform: uppercase;
     letter-spacing: 0.3px;
 }
 
-.optionDescription {
+.optionTypeTag {
+    background: rgba(0, 0, 0, 0.06);
+    color: var(--ios-text-secondary);
+    padding: 2px 8px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.2px;
+}
+
+.optionDesc {
     margin: 0;
     font-size: 13px;
-    color: var(--ios-label-tertiary);
+    color: var(--ios-text-tertiary);
     line-height: 1.5;
 }
 
-.choices {
-    margin-top: 10px;
+.choicesList {
+    margin-top: var(--spacing-xs);
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
+    gap: var(--spacing-xs);
     align-items: center;
 }
 
 .choicesLabel {
     font-size: 12px;
-    color: var(--ios-label-tertiary);
+    color: var(--ios-text-tertiary);
     font-weight: 600;
     text-transform: uppercase;
-    letter-spacing: 0.3px;
+    letter-spacing: 0.2px;
+    flex: 0 0 auto;
 }
 
-.choice {
-    background: white;
-    padding: 4px 10px;
-    border-radius: 8px;
-    font-size: 12px;
-    color: var(--ios-label-secondary);
+.choiceBadge {
+    background: var(--ios-surface);
     border: 1px solid var(--ios-divider);
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-size: 12px;
+    color: var(--ios-text-secondary);
     font-family: 'Menlo', 'Monaco', monospace;
     font-weight: 500;
 }
 
-/* Usage */
-.usage {
+/* Usage Box */
+.usageBox {
     background: linear-gradient(135deg, #1a1a2e, #16213e);
-    padding: 16px;
-    border-radius: 10px;
+    border: 1px solid rgba(0, 122, 255, 0.2);
+    border-radius: var(--radius-sm);
+    padding: var(--spacing-md);
     display: flex;
     flex-direction: column;
-    gap: 8px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    gap: var(--spacing-sm);
 }
 
 .usageLabel {
     font-size: 12px;
-    color: rgba(255, 255, 255, 0.6);
-    font-weight: 600;
+    color: rgba(90, 200, 250, 0.8);
+    font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: 0.5px;
+    letter-spacing: 0.4px;
 }
 
 .usageCode {
     font-family: 'Menlo', 'Monaco', monospace;
     color: #5AC8FA;
-    font-size: 13px;
+    font-size: 12px;
     line-height: 1.6;
     margin: 0;
-    word-break: break-word;
+    word-break: break-all;
     font-weight: 500;
 }
 
-/* Services Grid */
+/* ==================== SERVICES SECTION ==================== */
+.servicesSection {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-lg);
+}
+
 .servicesGrid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-    gap: 16px;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: var(--spacing-lg);
 }
 
 /* Service Card */
 .serviceCard {
     background: var(--ios-surface);
     border: 1px solid var(--ios-divider);
-    border-radius: 14px;
-    padding: 24px 20px;
-    text-align: center;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-lg);
     display: flex;
     flex-direction: column;
     align-items: center;
+    text-align: center;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+    cursor: pointer;
     position: relative;
     overflow: hidden;
-    transform: translateY(0);
+    min-height: 240px;
 }
 
 .serviceCard::before {
@@ -480,15 +557,15 @@
     left: 0;
     right: 0;
     bottom: 0;
-    background: radial-gradient(circle at center top, rgba(0, 122, 255, 0.05), transparent);
+    background: radial-gradient(circle at center top, rgba(0, 122, 255, 0.08), transparent);
     opacity: 0;
-    transition: opacity 0.3s ease-out;
+    transition: opacity 0.3s ease;
 }
 
 .serviceCard:hover {
-    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.15);
-    transform: translateY(-8px);
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.12);
     border-color: rgba(0, 122, 255, 0.3);
+    transform: translateY(-4px);
 }
 
 .serviceCard:hover::before {
@@ -496,105 +573,113 @@
 }
 
 .serviceIcon {
-    font-size: 54px;
-    margin-bottom: 16px;
+    font-size: 48px;
+    margin-bottom: var(--spacing-md);
     transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+    position: relative;
     z-index: 1;
 }
 
 .serviceCard:hover .serviceIcon {
-    transform: scale(1.15) rotateY(10deg);
+    transform: scale(1.2) rotateY(5deg);
 }
 
 .serviceTitle {
-    font-size: 18px;
+    font-size: 16px;
     font-weight: 700;
-    color: var(--ios-label-primary);
-    margin: 0 0 12px 0;
-    z-index: 1;
+    color: var(--ios-text-primary);
+    margin: 0 0 var(--spacing-sm) 0;
     position: relative;
-    letter-spacing: -0.3px;
+    z-index: 1;
+    letter-spacing: -0.2px;
 }
 
-.serviceDescription {
-    font-size: 14px;
-    color: var(--ios-label-tertiary);
+.serviceDesc {
+    font-size: 13px;
+    color: var(--ios-text-tertiary);
     line-height: 1.5;
-    margin: 0 0 20px 0;
-    z-index: 1;
+    margin: 0 0 var(--spacing-lg) 0;
+    flex: 1;
+    display: flex;
+    align-items: center;
     position: relative;
+    z-index: 1;
 }
 
-.serviceButton {
+.serviceBtn {
     background: linear-gradient(135deg, var(--ios-blue), #5AC8FA);
     color: white;
     border: none;
-    padding: 12px 24px;
-    border-radius: 10px;
-    font-size: 15px;
+    padding: 10px 20px;
+    border-radius: var(--radius-sm);
+    font-size: 14px;
     font-weight: 600;
     cursor: pointer;
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    z-index: 1;
     position: relative;
-    box-shadow: 0 4px 12px rgba(0, 122, 255, 0.3);
+    z-index: 1;
+    box-shadow: 0 2px 8px rgba(0, 122, 255, 0.2);
+    min-height: 40px;
+    min-width: 100px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
-.serviceButton:hover {
+.serviceBtn:hover {
     transform: translateY(-2px);
-    box-shadow: 0 8px 20px rgba(0, 122, 255, 0.4);
+    box-shadow: 0 6px 16px rgba(0, 122, 255, 0.3);
 }
 
-.serviceButton:active {
+.serviceBtn:active {
     transform: translateY(0);
-    box-shadow: 0 2px 8px rgba(0, 122, 255, 0.3);
+    box-shadow: 0 2px 6px rgba(0, 122, 255, 0.2);
 }
 
-/* Loading State */
+/* ==================== LOADING & ERROR ==================== */
 .loading {
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    min-height: calc(100vh - 64px);
-    gap: 24px;
+    min-height: 300px;
+    gap: var(--spacing-lg);
 }
 
 .spinner {
-    width: 50px;
-    height: 50px;
-    border: 4px solid rgba(0, 122, 255, 0.2);
+    width: 48px;
+    height: 48px;
+    border: 3px solid rgba(0, 122, 255, 0.2);
     border-top-color: var(--ios-blue);
     border-radius: 50%;
     animation: spin 1.2s linear infinite;
 }
 
-/* Error State */
 .error {
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    min-height: calc(100vh - 64px);
-    padding: 24px;
+    min-height: 300px;
+    padding: var(--spacing-lg);
     text-align: center;
 }
 
 .error h2 {
     color: var(--ios-red);
-    font-size: 28px;
+    font-size: 24px;
     font-weight: 700;
-    margin: 0 0 16px 0;
+    margin: 0 0 var(--spacing-md) 0;
 }
 
 .error p {
-    color: var(--ios-label-tertiary);
-    font-size: 15px;
+    color: var(--ios-text-tertiary);
+    font-size: 14px;
     margin: 0;
 }
 
-/* Animations */
-@keyframes slideDown {
+/* ==================== ANIMATIONS ==================== */
+@keyframes slideInDown {
     from {
         opacity: 0;
         transform: translateY(-20px);
@@ -605,25 +690,16 @@
     }
 }
 
-@keyframes slideInLeft {
+@keyframes slideDown {
     from {
         opacity: 0;
-        transform: translateX(-30px);
+        max-height: 0;
+        transform: translateY(-10px);
     }
     to {
         opacity: 1;
-        transform: translateX(0);
-    }
-}
-
-@keyframes slideInRight {
-    from {
-        opacity: 0;
-        transform: translateX(30px);
-    }
-    to {
-        opacity: 1;
-        transform: translateX(0);
+        max-height: 2000px;
+        transform: translateY(0);
     }
 }
 
@@ -638,12 +714,6 @@
     }
 }
 
-@keyframes spin {
-    to {
-        transform: rotate(360deg);
-    }
-}
-
 @keyframes bounce {
     0%, 100% {
         transform: translateY(0);
@@ -653,107 +723,315 @@
     }
 }
 
-@keyframes pulse {
-    0%, 100% {
-        opacity: 0.5;
-    }
-    50% {
-        opacity: 1;
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
     }
 }
 
-/* Responsive Design */
+/* ==================== RESPONSIVE DESIGN ==================== */
 @media (max-width: 1024px) {
-    .content {
-        grid-template-columns: 1fr;
-    }
-
-    .sidebar {
-        position: relative;
-        top: 0;
-        background: var(--ios-surface);
-        border-radius: 14px;
-        padding: 16px;
-        margin-bottom: 24px;
-        animation: slideInUp 0.6s ease-out 0.1s both;
-    }
-
-    .sidebarNav {
-        flex-direction: row;
-        overflow-x: auto;
-        gap: 8px;
-        padding: 8px 0;
-    }
-
-    .sidebarLink {
-        white-space: nowrap;
-        flex-shrink: 0;
-    }
-}
-
-@media (max-width: 768px) {
     .container {
-        padding: 16px;
-        padding-bottom: calc(var(--fab-size, 56px) + 16px);
+        padding: var(--spacing-md);
+        padding-bottom: calc(var(--spacing-lg) + 100px);
     }
 
     .title {
         font-size: 28px;
     }
 
-    .header {
-        margin-bottom: 20px;
-        padding: 20px 0;
+    .servicesGrid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+@media (max-width: 768px) {
+    .container {
+        padding: var(--spacing-sm);
+        padding-bottom: calc(var(--spacing-md) + 100px);
     }
 
-    .commandName {
+    .header {
+        margin-bottom: var(--spacing-lg);
+    }
+
+    .title {
+        font-size: 26px;
+    }
+
+    .titleIcon {
+        font-size: 28px;
+    }
+
+    .subtitle {
+        font-size: 14px;
+    }
+
+    .tabBtn {
+        padding: var(--spacing-sm);
+        font-size: 14px;
+        min-height: 48px;
+    }
+
+    .tabIcon {
         font-size: 18px;
+    }
+
+    .tabLabel {
+        display: none;
+    }
+
+    .tabContainer {
+        border-radius: var(--radius-sm);
+    }
+
+    .searchBox {
+        padding: var(--spacing-sm);
+        border-radius: var(--radius-sm);
+    }
+
+    .searchInput {
+        font-size: 14px;
+    }
+
+    .accordionHeader {
+        padding: var(--spacing-sm);
+        min-height: 52px;
+        font-size: 14px;
+    }
+
+    .accordionBody {
+        padding: var(--spacing-sm);
     }
 
     .servicesGrid {
         grid-template-columns: 1fr;
     }
 
-    .tab {
-        padding: 14px 12px;
+    .serviceCard {
+        min-height: 200px;
+        padding: var(--spacing-md);
+    }
+
+    .serviceIcon {
+        font-size: 40px;
+    }
+
+    .serviceTitle {
+        font-size: 15px;
+    }
+
+    .serviceDesc {
+        font-size: 12px;
+    }
+
+    .infoCard {
+        padding: var(--spacing-sm);
+        gap: var(--spacing-sm);
+    }
+
+    .infoBadge {
+        font-size: 18px;
+    }
+
+    .infoText {
         font-size: 13px;
+    }
+}
+
+@media (max-width: 480px) {
+    .container {
+        padding: 8px;
+    }
+
+    .header {
+        margin-bottom: var(--spacing-lg);
+        padding-bottom: var(--spacing-sm);
+    }
+
+    .title {
+        font-size: 22px;
+        gap: 6px;
+    }
+
+    .titleIcon {
+        font-size: 24px;
+    }
+
+    .subtitle {
+        font-size: 13px;
+    }
+
+    .tabContainer {
+        margin-bottom: var(--spacing-md);
+        border-radius: var(--radius-sm);
+    }
+
+    .tabBar {
+        gap: 0;
+    }
+
+    .tabBtn {
+        padding: 8px 4px;
+        font-size: 12px;
+        min-height: 44px;
     }
 
     .tabIcon {
         font-size: 16px;
     }
 
-    .serviceCard {
-        padding: 20px 16px;
+    .tabUnderline {
+        height: 2px;
     }
 
-    .serviceIcon {
-        font-size: 48px;
-    }
-}
-
-@media (max-width: 480px) {
-    .container {
-        padding: 12px;
+    .searchBox {
+        padding: 6px 8px;
+        gap: 6px;
+        border-radius: var(--radius-sm);
     }
 
-    .title {
-        font-size: 24px;
+    .searchIcon {
+        font-size: 16px;
+    }
+
+    .searchInput {
+        font-size: 13px;
+        padding: 4px 0;
+    }
+
+    .infoCard {
+        padding: 8px;
+        gap: 8px;
+        border-radius: var(--radius-sm);
+    }
+
+    .infoBadge {
+        font-size: 16px;
+        line-height: 1;
+    }
+
+    .infoText {
+        font-size: 12px;
+    }
+
+    .accordionHeader {
+        padding: 8px;
+        min-height: 48px;
+        font-size: 13px;
+    }
+
+    .commandPrefix {
+        display: none;
+    }
+
+    .accordionBody {
+        padding: 8px;
+    }
+
+    .cmdDescription {
+        font-size: 13px;
+    }
+
+    .optionItem {
+        padding: 6px 8px;
+    }
+
+    .optionCode {
+        padding: 2px 6px;
+        font-size: 11px;
+    }
+
+    .requiredTag {
+        padding: 2px 6px;
+        font-size: 10px;
+    }
+
+    .optionTypeTag {
+        padding: 2px 6px;
+        font-size: 10px;
+    }
+
+    .optionDesc {
+        font-size: 12px;
+    }
+
+    .choiceBadge {
+        padding: 2px 6px;
+        font-size: 11px;
+    }
+
+    .usageBox {
+        padding: 8px;
+    }
+
+    .usageLabel {
+        font-size: 11px;
+    }
+
+    .usageCode {
+        font-size: 11px;
     }
 
     .servicesGrid {
-        grid-template-columns: 1fr;
+        gap: var(--spacing-md);
     }
 
-    .tabContainer {
-        border-radius: 10px;
+    .serviceCard {
+        min-height: 180px;
+        padding: var(--spacing-md);
+        border-radius: var(--radius-sm);
     }
 
-    .sidebar {
-        border-radius: 10px;
+    .serviceIcon {
+        font-size: 36px;
+        margin-bottom: var(--spacing-sm);
     }
 
-    .commandCard {
-        border-radius: 10px;
+    .serviceTitle {
+        font-size: 14px;
+        margin-bottom: 6px;
+    }
+
+    .serviceDesc {
+        font-size: 12px;
+        margin-bottom: var(--spacing-md);
+    }
+
+    .serviceBtn {
+        font-size: 13px;
+        padding: 8px 16px;
+        min-height: 36px;
+        min-width: 80px;
+        border-radius: 6px;
     }
 }
+
+/* Ensure touch targets are at least 44x44 on mobile */
+@media (max-width: 768px) {
+    .tabBtn,
+    .serviceBtn,
+    .accordionHeader {
+        min-height: 48px;
+    }
+
+    button {
+        -webkit-appearance: none;
+        appearance: none;
+    }
+}
+
+/* Avoid horizontal overflow on mobile */
+@media (max-width: 480px) {
+    .container {
+        overflow-x: hidden;
+    }
+
+    .searchBox,
+    .accordionHeader,
+    .serviceCard {
+        overflow-x: hidden;
+        word-break: break-word;
+    }
+}
+  
