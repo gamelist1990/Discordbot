@@ -314,6 +314,14 @@ export class EventHandler {
             } catch (error) {
                 Logger.debug('Failed to handle trigger on messageCreate:', error);
             }
+
+            // AntiCheat 処理
+            try {
+                const { antiCheatManager } = await import('./anticheat/AntiCheatManager.js');
+                await antiCheatManager.onMessage(message);
+            } catch (error) {
+                Logger.debug('Failed to handle AntiCheat on messageCreate:', error);
+            }
         });
     }
 

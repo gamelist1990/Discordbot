@@ -116,6 +116,11 @@ async function main() {
         const triggerManager = initTriggerManager(botClient.client, database);
         Logger.info('🎯 TriggerManager を初期化しました');
 
+        // AntiCheatManager を初期化
+        const { antiCheatManager } = await import('./core/anticheat/AntiCheatManager.js');
+        antiCheatManager.setClient(botClient.client);
+        Logger.info('🛡️ AntiCheatManager を初期化しました');
+
         // すべてのサーバーにコマンドをデプロイ
         Logger.info('🚀 全サーバーにコマンドをデプロイします...');
         await botClient.deployCommandsToAllGuilds();
