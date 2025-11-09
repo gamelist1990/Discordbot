@@ -73,6 +73,7 @@ const AntiCheatUnified: React.FC = () => {
     const [searchTerm, setSearchTerm] = useState('');
     const [trustSearchTerm, setTrustSearchTerm] = useState('');
     const [modalOpen, setModalOpen] = useState(false);
+    const [editIndex, setEditIndex] = useState<number | null>(null);
     const [newThreshold, setNewThreshold] = useState('');
     const [newDuration, setNewDuration] = useState('');
     const [newActionType, setNewActionType] = useState<'timeout' | 'kick' | 'ban'>('timeout');
@@ -144,6 +145,26 @@ const AntiCheatUnified: React.FC = () => {
     };
 
     const handleAddPunishment = () => {
+        setEditIndex(null);
+        setNewThreshold('');
+        setNewDuration('');
+        setNewActionType('timeout');
+        setModalOpen(true);
+    };
+
+    const handleEditPunishment = (index: number) => {
+        const p = (settings.punishments || [])[index];
+        if (!p) return;
+        setEditIndex(index);
+        setNewThreshold(String(p.threshold));
+        const action = p.actions && p.actions[0];
+        if (action) {
+            setNewActionType(action.type as any || 'timeout');
+            setNewDuration(action.durationSeconds ? String(action.durationSeconds) : '');
+        } else {
+            setNewActionType('timeout');
+            setNewDuration('');
+        }
         setModalOpen(true);
     };
 
@@ -159,18 +180,20 @@ const AntiCheatUnified: React.FC = () => {
                     ? ({ type: 'ban' as const, durationSeconds: duration || undefined, reasonTemplate: 'AntiCheat violation: Trust score reached {threshold}', notify: true })
                     : ({ type: 'kick' as const, reasonTemplate: 'AntiCheat violation: Trust score reached {threshold}', notify: true });
 
-            const newPunishments = [
-                ...(settings.punishments || []),
-                {
-                    threshold,
-                    actions: [action]
-                }
-            ];
+            let newPunishments = (settings.punishments || []).slice();
+            if (editIndex !== null && editIndex >= 0 && editIndex < newPunishments.length) {
+                // replace existing
+                newPunishments[editIndex] = { threshold, actions: [action] };
+            } else {
+                // append
+                newPunishments = [...newPunishments, { threshold, actions: [action] }];
+            }
             await updateSettings({ punishments: newPunishments });
             setModalOpen(false);
             setNewThreshold('');
             setNewDuration('');
             setNewActionType('timeout');
+            setEditIndex(null);
         }
     };
 
@@ -503,10 +526,14 @@ const AntiCheatUnified: React.FC = () => {
                                                         <div><strong>しきい値: {punishment.threshold}</strong></div>
                                                         <div>{punishment.actions.map((action, aIdx) => (<span key={aIdx} className={styles.actionBadge}>{action.type}{action.durationSeconds && ` (${action.durationSeconds}s)`}</span>))}</div>
                                                     </div>
-                                                    <button className={styles.btnDanger} onClick={() => handleRemovePunishment(index)}>削除</button>
+                                                            <div style={{ display: 'flex', gap: '8px' }}>
+                                                                <button className={styles.btn} onClick={() => handleEditPunishment(index)}>編集</button>
+                                                                <button className={styles.btnDanger} onClick={() => handleRemovePunishment(index)}>削除</button>
+                                                            </div>
                                                 </div>
                                             ))
                                         )}
+                                
                                     </div>
                                 </div>
                             </div>
@@ -614,7 +641,7 @@ const AntiCheatUnified: React.FC = () => {
                     <div className={styles.modalOverlay} onClick={() => setModalOpen(false)}>
                         <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
                             <div className={styles.modalHeader}>
-                                <h2>処罰ルールを追加</h2>
+                                <h2>{editIndex !== null ? '処罰ルールを編集' : '処罰ルールを追加'}</h2>
                                 <button className={styles.modalClose} onClick={() => setModalOpen(false)}>✕</button>
                             </div>
                             <div className={styles.modalBody}>
@@ -667,7 +694,7 @@ const AntiCheatUnified: React.FC = () => {
                                         )
                                     }
                                 >
-                                    追加
+                                    {editIndex !== null ? '保存' : '追加'}
                                 </button>
                             </div>
                         </div>
@@ -787,14 +814,17 @@ const AntiCheatUnified: React.FC = () => {
                             <div className={styles.punishmentsList}>
                                 {(settings.punishments?.length || 0) === 0 ? (
                                     <p className={styles.noPunishments}>処罰ルールが設定されていません（ログのみモード）</p>
-                                ) : (
+                                        ) : (
                                     settings.punishments.map((punishment, index) => (
                                         <div key={index} className={styles.punishmentItem}>
                                             <div className={styles.punishmentInfo}>
                                                 <strong>しきい値: {punishment.threshold}</strong>
                                                 <div>{punishment.actions.map((action, aIdx) => (<span key={aIdx} className={styles.actionBadge}>{action.type}{action.durationSeconds && ` (${action.durationSeconds}s)`}</span>))}</div>
                                             </div>
-                                            <button className={styles.btnDanger} onClick={() => handleRemovePunishment(index)}>削除</button>
+                                            <div style={{ display: 'flex', gap: '8px' }}>
+                                                <button className={styles.btn} onClick={() => handleEditPunishment(index)}>編集</button>
+                                                <button className={styles.btnDanger} onClick={() => handleRemovePunishment(index)}>削除</button>
+                                            </div>
                                         </div>
                                     ))
                                 )}
@@ -1025,7 +1055,7 @@ const AntiCheatUnified: React.FC = () => {
                 <div className={styles.modalOverlay} onClick={() => setModalOpen(false)}>
                     <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
                         <div className={styles.modalHeader}>
-                            <h2>処罰ルールを追加</h2>
+                            <h2>{editIndex !== null ? '処罰ルールを編集' : '処罰ルールを追加'}</h2>
                             <button className={styles.modalClose} onClick={() => setModalOpen(false)}>✕</button>
                         </div>
                         <div className={styles.modalBody}>

@@ -361,12 +361,29 @@ export class AntiCheatManager {
                         for (const action of p.actions) {
                             try {
                                 if (!member) continue;
-                                const applied = await PunishmentExecutor.execute(member, action, logChannel as any);
-                                if (applied) {
-                                    Logger.info(`Applied punishment ${action.type} for user ${userId} at threshold ${p.threshold} in guild ${guildId}`);
-                                } else {
-                                    Logger.debug(`Punishment ${action.type} not applied for user ${userId} at threshold ${p.threshold}`);
-                                }
+                                    const applied = await PunishmentExecutor.execute(member, action, logChannel as any);
+                                    if (applied) {
+                                        Logger.info(`Applied punishment ${action.type} for user ${userId} at threshold ${p.threshold} in guild ${guildId}`);
+
+                                        // If punishment removed the user from the guild (kick/ban), clean up anti-cheat data
+                                        if (action.type === 'kick' || action.type === 'ban') {
+                                            try {
+                                                const s2 = await this.getSettings(guildId);
+                                                if (s2.userTrust && s2.userTrust[userId]) {
+                                                    delete s2.userTrust[userId];
+                                                }
+                                                if (Array.isArray(s2.recentLogs) && s2.recentLogs.some(l => l.userId === userId)) {
+                                                    s2.recentLogs = s2.recentLogs.filter(l => l.userId !== userId);
+                                                }
+                                                await database.set(guildId, `Guild/${guildId}/anticheat`, s2);
+                                                Logger.info(`Removed anti-cheat data for user ${userId} in guild ${guildId} after ${action.type}`);
+                                            } catch (e) {
+                                                Logger.error(`Failed to remove anti-cheat data for user ${userId}:`, e);
+                                            }
+                                        }
+                                    } else {
+                                        Logger.debug(`Punishment ${action.type} not applied for user ${userId} at threshold ${p.threshold}`);
+                                    }
                             } catch (err) {
                                 Logger.error(`Error executing punishment action for user ${userId}:`, err);
                             }
