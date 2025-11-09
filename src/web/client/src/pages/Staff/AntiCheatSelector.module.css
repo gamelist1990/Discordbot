@@ -1,0 +1,143 @@
+/* Apple-inspired tokens and system font */
+:root{
+  --ui-font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --ac-primary: #007aff;
+  --ac-primary-600: #0060d6;
+  --ac-surface: #ffffff;
+  --ac-surface-2: rgba(245,245,247,0.9);
+  --ac-on-surface: #1c1c1e;
+  --ac-muted: #6e6e73;
+  --ac-success: #34c759;
+  --ac-danger: #ff3b30;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 14px;
+  --shadow-elev-1: 0 8px 24px rgba(18,18,18,0.06);
+  --shadow-elev-2: 0 16px 48px rgba(18,18,18,0.08);
+  --space-sm: 8px;
+  --space-md: 16px;
+  --space-lg: 24px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ac-surface: rgba(28,28,30,0.6);
+    --ac-surface-2: rgba(44,44,46,0.6);
+    --ac-on-surface: #f2f2f4;
+    --ac-muted: #9aa0a6;
+    --shadow-elev-1: 0 6px 18px rgba(0,0,0,0.6);
+  }
+}
+
+.root {
+  padding: 22px;
+  font-family: var(--ui-font);
+  color: var(--ac-on-surface);
+}
+
+.title {
+  margin: 0 0 16px 0;
+  font-size: 1.375rem;
+  font-weight: 600;
+  color: var(--ac-on-surface);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 14px;
+  margin-top: 12px;
+}
+
+.card {
+  border-radius: var(--radius-md);
+  padding: 12px;
+  cursor: pointer;
+  background: linear-gradient(180deg, var(--ac-surface) 0%, var(--ac-surface-2) 100%);
+  box-shadow: var(--shadow-elev-1);
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+  display: block;
+  border: 1px solid rgba(0,0,0,0.04);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+}
+
+.card:hover {
+  transform: translateY(-4px);
+  box-shadow: var(--shadow-elev-2);
+}
+
+.card:active { transform: translateY(-2px); }
+
+.card:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 4px rgba(0,122,255,0.12), var(--shadow-elev-2);
+}
+
+.cardInner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 10px;
+  object-fit: cover;
+  flex-shrink: 0;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.06);
+}
+
+.fallbackIcon {
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(180deg,#f7f7f8,#f1f1f2);
+  border-radius: 12px;
+  font-size: 18px;
+  color: var(--ac-muted);
+}
+
+.guildName {
+  font-weight: 700;
+  color: var(--ac-on-surface);
+  font-size: 1rem;
+}
+
+.guildId {
+  color: var(--ac-muted);
+  font-size: 0.82rem;
+}
+
+.empty {
+  padding: 28px;
+  color: var(--ac-muted);
+  background: transparent;
+  border-radius: 10px;
+}
+
+.loading {
+    padding: 22px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    color: var(--ac-muted);
+}
+
+.spinner {
+  width: 38px;
+  height: 38px;
+  border: 4px solid rgba(0,0,0,0.06);
+  border-top-color: var(--ac-primary);
+  border-radius: 50%;
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.visuallyHidden { position: absolute !important; height: 1px; width: 1px; overflow: hidden; clip: rect(1px,1px,1px,1px); white-space: nowrap; }

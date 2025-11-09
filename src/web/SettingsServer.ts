@@ -11,11 +11,11 @@ import { dirname, join } from 'path';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 import cors from 'cors';
-// import { Logger } from '../utils/Logger.js';
+import { Logger } from '../utils/Logger.js';
 import { BotClient } from '../core/BotClient.js';
 import { SessionService } from './services/SessionService.js';
 import { ProfileService } from './services/ProfileService.js';
-import { createStatusRoutes, createSessionRoutes, createSettingsRoutes, createStaffRoutes, createAuthRoutes, createTodoRoutes, createUserRoutes, createModRoutes, createFeedbackRoutes, createRolePresetRoutes, createRankRoutes, createWebRankRoutes, createPublicRankRoutes, createTriggerRoutes, createToolRoutes } from './routes/index.js';
+import { createStatusRoutes, createSessionRoutes, createSettingsRoutes, createStaffRoutes, createAuthRoutes, createTodoRoutes, createUserRoutes, createModRoutes, createFeedbackRoutes, createRolePresetRoutes, createRankRoutes, createWebRankRoutes, createPublicRankRoutes, createTriggerRoutes, createToolRoutes, createAntiCheatRoutes } from './routes/index.js';
 import { createGuildRoutes } from './routes/guild.js';
 import { createProfileController } from './controllers/ProfileController.js';
 import { setupWebSocketServer } from './routes/websocket.js';
@@ -63,7 +63,7 @@ export class SettingsServer {
                 statsManagerSingleton.init(this.botClient.client);
             }
         } catch (e) {
-            (global as any).Logger.warn('Failed to init StatsManager:', e);
+            Logger.warn('Failed to init StatsManager:', e);
         }
 
         // 定期的に期限切れの共有エディターをクリーンアップ
@@ -155,6 +155,7 @@ export class SettingsServer {
         this.app.use('/api', createFeedbackRoutes(sessions));
         this.app.use('/api', createTriggerRoutes(sessions, this.botClient));
         this.app.use('/api/tools', createToolRoutes(sessions, this.botClient));
+        this.app.use('/api/staff/anticheat', createAntiCheatRoutes(sessions, this.botClient));
 
     // Temporary debug route to inspect StatsManager buffer
         this.app.get('/__debug/stats-buffer', (_req, res) => {
@@ -215,7 +216,7 @@ export class SettingsServer {
             // DEBUG: ブラウザから来たリクエストのURL（クエリ含む）をログ出力して、
             // クライアントが送った query string がサーバに届いているか確認する
             // 一時的なログなので調査完了後は削除してOK
-            (global as any).Logger.info(`[SPA Fallback] incoming request: ${req.originalUrl}`);
+            Logger.info(`[SPA Fallback] incoming request: ${req.originalUrl}`);
             // APIルートは次へ
             if (req.path.startsWith('/api')) return next();
 
@@ -238,14 +239,14 @@ export class SettingsServer {
         return new Promise((resolve) => {
             // 明示的に 0.0.0.0 にバインドして外部からアクセス可能にする
             this.server = this.app.listen(this.port, '0.0.0.0', () => {
-                (global as any).Logger.info(`Webサーバーをポート ${this.port} で起動しました (bound to 0.0.0.0)`);
+                Logger.info(`Webサーバーをポート ${this.port} で起動しました (bound to 0.0.0.0)`);
                 
                 // WebSocketサーバーをセットアップ
                 try {
                     setupWebSocketServer(this.server, this.sessionService.getSessions());
-                    (global as any).Logger.info('WebSocketサーバーを起動しました (path: /ws/feedback)');
+                    Logger.info('WebSocketサーバーを起動しました (path: /ws/feedback)');
                 } catch (error) {
-                    (global as any).Logger.error('WebSocketサーバーの起動に失敗しました:', error);
+                    Logger.error('WebSocketサーバーの起動に失敗しました:', error);
                 }
                 
                 resolve();
@@ -260,7 +261,7 @@ export class SettingsServer {
         return new Promise((resolve) => {
             if (this.server) {
                 this.server.close(() => {
-                    (global as any).Logger.info('設定サーバーを停止しました');
+                    Logger.info('設定サーバーを停止しました');
                     resolve();
                 });
             } else {

@@ -1,0 +1,13 @@
+/* AntiCheatLayout Styles - Apple iOS/Mac inspired */
+.layout {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  background: var(--ac-surface);
+  font-family: var(--ui-font);
+}
+
+.content {
+  flex: 1;
+  padding: 0;
+}

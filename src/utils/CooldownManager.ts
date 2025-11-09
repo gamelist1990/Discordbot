@@ -58,5 +58,10 @@ export class CooldownManager {
     }
 }
 
-// シングルトンインスタンス
-export const cooldownManager = new CooldownManager();
+// グローバルガード付きシングルトンインスタンス
+const COOLDOWN_KEY = '__cooldownManager_v1';
+if (!(global as any)[COOLDOWN_KEY]) {
+    (global as any)[COOLDOWN_KEY] = new CooldownManager();
+}
+
+export const cooldownManager: CooldownManager = (global as any)[COOLDOWN_KEY];

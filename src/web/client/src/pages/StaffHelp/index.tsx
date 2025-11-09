@@ -277,6 +277,19 @@ const StaffHelpPage: React.FC = () => {
 
                                 <div className={styles.servicesGrid}>
                                     <div className={styles.serviceCard}>
+                                        <div className={styles.serviceIcon}>🛡️</div>
+                                        <h3 className={styles.serviceTitle}>AntiCheat 管理</h3>
+                                        <p className={styles.serviceDescription}>
+                                            サーバーの不正検知と自動処罰を管理します（信頼スコアベース）
+                                        </p>
+                                        <button
+                                            className={styles.serviceButton}
+                                            onClick={() => navigate('/staff/anticheat')}
+                                        >
+                                            開く
+                                        </button>
+                                    </div>
+                                    <div className={styles.serviceCard}>
                                         <div className={styles.serviceIcon}>🔧</div>
                                         <h3 className={styles.serviceTitle}>プライベートチャット</h3>
                                         <p className={styles.serviceDescription}>

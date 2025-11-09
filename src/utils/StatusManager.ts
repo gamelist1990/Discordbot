@@ -153,5 +153,13 @@ export class StatusManager {
     }
 }
 
-// グローバルインスタンス
-export const statusManager = new StatusManager();
+// グローバルガード付きインスタンス
+const STATUS_KEY = '__statusManager_v1';
+if (!(global as any)[STATUS_KEY]) {
+    (global as any)[STATUS_KEY] = new StatusManager();
+    Logger.debug(`StatusManager created (pid=${process.pid})`);
+} else {
+    Logger.debug(`StatusManager reused existing instance (pid=${process.pid})`);
+}
+
+export const statusManager: StatusManager = (global as any)[STATUS_KEY];
