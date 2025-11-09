@@ -15,7 +15,7 @@ import cors from 'cors';
 import { BotClient } from '../core/BotClient.js';
 import { SessionService } from './services/SessionService.js';
 import { ProfileService } from './services/ProfileService.js';
-import { createStatusRoutes, createSessionRoutes, createSettingsRoutes, createStaffRoutes, createAuthRoutes, createTodoRoutes, createUserRoutes, createModRoutes, createFeedbackRoutes, createRolePresetRoutes, createRankRoutes, createWebRankRoutes, createPublicRankRoutes, createTriggerRoutes, createToolRoutes } from './routes/index.js';
+import { createStatusRoutes, createSessionRoutes, createSettingsRoutes, createStaffRoutes, createAuthRoutes, createTodoRoutes, createUserRoutes, createModRoutes, createFeedbackRoutes, createRolePresetRoutes, createRankRoutes, createWebRankRoutes, createPublicRankRoutes, createTriggerRoutes, createToolRoutes, createAntiCheatRoutes } from './routes/index.js';
 import { createGuildRoutes } from './routes/guild.js';
 import { createProfileController } from './controllers/ProfileController.js';
 import { setupWebSocketServer } from './routes/websocket.js';
@@ -155,6 +155,7 @@ export class SettingsServer {
         this.app.use('/api', createFeedbackRoutes(sessions));
         this.app.use('/api', createTriggerRoutes(sessions, this.botClient));
         this.app.use('/api/tools', createToolRoutes(sessions, this.botClient));
+        this.app.use('/api/staff/anticheat', createAntiCheatRoutes(sessions, this.botClient));
 
     // Temporary debug route to inspect StatsManager buffer
         this.app.get('/__debug/stats-buffer', (_req, res) => {

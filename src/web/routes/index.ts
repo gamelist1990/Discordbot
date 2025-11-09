@@ -12,3 +12,4 @@ export * from './rolepreset.js';
 export * from './rank.js';
 export * from './triggers.js';
 export * from './tools.js';
+export * from './staff/anticheat.js';
