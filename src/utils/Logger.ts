@@ -26,6 +26,13 @@ const fallback = {
 	success: (...args: any[]) => (originalConsole.log as Function)(...args)
 };
 
+// Convenience helper for logging command executions. Kept minimal so tests
+// or alternate runtimes can override `global.__app_logger_v1` if needed.
+;(fallback as any).command = (commandName: string, userId: string, guildId?: string) => {
+    const guildInfo = guildId ? `guild=${guildId}` : 'guild=DM';
+    (originalConsole.log as Function)(`[command] name=${commandName} user=${userId} ${guildInfo}`);
+};
+
 // Respect an existing global Logger if one was deliberately set by another
 // entrypoint (e.g. tests or web debug helpers). Otherwise expose our
 // fallback and keep it on global so repeated module loads still get the
