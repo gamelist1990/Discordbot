@@ -19,6 +19,12 @@ interface Trigger {
     conditionLogic?: 'AND' | 'OR';
 }
 
+interface Guild {
+    id: string;
+    name: string;
+    icon?: string;
+}
+
 const TriggerManager: React.FC = () => {
     const { addToast } = (() => {
         try {
@@ -32,6 +38,8 @@ const TriggerManager: React.FC = () => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [guildId, setGuildId] = useState<string>('');
+    const [guilds, setGuilds] = useState<Guild[]>([]);
+    const [loadingGuilds, setLoadingGuilds] = useState(true);
 
     // Editor state
     const [selectedTrigger, setSelectedTrigger] = useState<Trigger | null>(null);
@@ -45,34 +53,57 @@ const TriggerManager: React.FC = () => {
 
 
     useEffect(() => {
-        // Get session info
+        // Get session info and available guilds
         fetch('/api/auth/session', {
             credentials: 'include'
         })
             .then(res => res.json())
-            .then(data => {
-                let guildIdFromAuth: string | undefined;
+            .then(async (data) => {
+                // Try to fetch accessible guilds first
+                try {
+                    const res = await fetch('/api/staff/guilds', {
+                        credentials: 'include'
+                    });
 
-                if (data.user) {
-                    guildIdFromAuth =
-                        data.user.guildId ||
-                        (data.user.guildIds?.length > 0 && data.user.guildIds[0]);
-                } else if (data.guildIds?.length > 0) {
-                    guildIdFromAuth = data.guildIds[0];
-                }
+                    if (!res.ok) {
+                        throw new Error('Failed to fetch guilds');
+                    }
 
-                if (guildIdFromAuth) {
-                    setGuildId(guildIdFromAuth);
-                    fetchTriggers(guildIdFromAuth);
-                } else {
-                    setError('ギルド情報が取得できません');
-                    setLoading(false);
+                    const guildData = await res.json();
+                    const fetchedGuilds = guildData.guilds || [];
+                    setGuilds(fetchedGuilds);
+
+                    // Only set guildId after guilds are fetched
+                    if (fetchedGuilds.length > 0) {
+                        // Try to get the last selected guild from localStorage
+                        const savedGuildId = localStorage.getItem('triggerManager_guildId');
+                        
+                        // Check if saved guild exists in fetched guilds
+                        let selectedGuildId = '';
+                        if (savedGuildId && fetchedGuilds.some(g => g.id === savedGuildId)) {
+                            selectedGuildId = savedGuildId;
+                        } else {
+                            // Use first available guild
+                            selectedGuildId = fetchedGuilds[0].id;
+                        }
+
+                        setGuildId(selectedGuildId);
+                        fetchTriggers(selectedGuildId);
+                    } else {
+                        setError('スタッフロールを持つサーバーが見つかりません');
+                    }
+                } catch (err) {
+                    console.error('Failed to fetch accessible guilds:', err);
+                    setError('ギルド情報の取得に失敗しました');
                 }
+                
+                setLoadingGuilds(false);
             })
             .catch(err => {
                 console.error('Failed to fetch auth session:', err);
                 setError('セッション情報の取得に失敗しました');
                 setLoading(false);
+                setLoadingGuilds(false);
             });
     }, []);
 
@@ -98,6 +129,17 @@ const TriggerManager: React.FC = () => {
         } finally {
             setLoading(false);
         }
+    };
+
+    const handleGuildChange = (newGuildId: string) => {
+        setGuildId(newGuildId);
+        localStorage.setItem('triggerManager_guildId', newGuildId);
+        setSelectedTrigger(null);
+        setIsCreating(false);
+        setSearchQuery('');
+        setFilterEventType('');
+        setFilterStatus('all');
+        fetchTriggers(newGuildId);
     };
 
     const handleCreateNew = () => {
@@ -153,7 +195,7 @@ const TriggerManager: React.FC = () => {
             await fetchTriggers(guildId);
         } catch (err) {
             console.error('Failed to save trigger:', err);
-            addToast?.('トリガーの保存に失敗しました', 'error');
+            addToast?.('トリガーの保存に失敗しました: ' + (err as Error).message, 'error');
         }
     };
 
@@ -223,7 +265,9 @@ const TriggerManager: React.FC = () => {
         return matchesSearch && matchesEventType && matchesStatus;
     });
 
-    if (loading) {
+    const currentGuild = guilds.find(g => g.id === guildId);
+
+    if (loadingGuilds) {
         return (
             <div className={styles.container}>
                 <div className={styles.loadingContainer}>
@@ -234,13 +278,13 @@ const TriggerManager: React.FC = () => {
         );
     }
 
-    if (error && !guildId) {
+    if (guilds.length === 0) {
         return (
             <div className={styles.container}>
                 <div className={styles.errorContainer}>
                     <span className="material-icons">error</span>
-                    <h2>エラー</h2>
-                    <p>{error}</p>
+                    <h2>アクセス不可</h2>
+                    <p>スタッフロールを持つサーバーが見つかりません</p>
                 </div>
             </div>
         );
@@ -255,6 +299,24 @@ const TriggerManager: React.FC = () => {
                         <h1>🎯 トリガー管理</h1>
                         <p>Discord イベントに応じて自動アクションを実行</p>
                     </div>
+                    
+                    {/* Guild Selector */}
+                    <div className={styles.guildSelector}>
+                        <label htmlFor="guild-select">サーバー:</label>
+                        <select 
+                            id="guild-select" 
+                            value={guildId} 
+                            onChange={(e) => handleGuildChange(e.target.value)}
+                            className={styles.selectInput}
+                        >
+                            {guilds.map(guild => (
+                                <option key={guild.id} value={guild.id}>
+                                    {guild.name}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+
                     <button className={styles.hamburger} onClick={toggleSidebar} title="サイドバーを切り替え">
                         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                             <line x1="3" y1="6" x2="21" y2="6" />
@@ -305,7 +367,7 @@ const TriggerManager: React.FC = () => {
                     ) : (
                         <div className={styles.cardGrid}>
                             <div className={styles.gridHeader}>
-                                <h2>トリガー一覧</h2>
+                                <h2>トリガー一覧 - {currentGuild?.name}</h2>
                                 <button className={styles.btnPrimary} onClick={handleCreateNew}>
                                     + 新規トリガー
                                 </button>

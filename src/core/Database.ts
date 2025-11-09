@@ -38,8 +38,11 @@ export class Database {
     async set<T = any>(guildId: string, key: string, data: T): Promise<void> {
         // if key contains a directory separator, treat it as a relative path under dataDir
         const fullKey = key.includes('/') || key.includes('\\') ? key : `${guildId}_${key}`;
+        console.log(`[Database.set] guildId=${guildId}, key=${key}, fullKey=${fullKey}, keyHasSlash=${key.includes('/')}`);
         try {
             const filePath = this.getFilePath(fullKey);
+            console.log(`[Database.set] filePath=${filePath}`);
+            
             const dirPath = path.dirname(filePath);
             
             // サブディレクトリが存在しない場合は作成
@@ -48,7 +51,7 @@ export class Database {
             const jsonData = JSON.stringify(data, null, 2);
             await fs.writeFile(filePath, jsonData, 'utf-8');
             this.cache.set(fullKey, data);
-            console.log(`💾 データを保存: ${fullKey}`);
+            console.log(`💾 データを保存: ${fullKey} (ファイルサイズ: ${jsonData.length} bytes)`);
         } catch (error) {
             console.error(`データ保存エラー [${fullKey}]:`, error);
             throw error;

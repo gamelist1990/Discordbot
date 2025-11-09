@@ -54,7 +54,9 @@ export class TriggerManager {
      * 全トリガーをギルドIDから取得
      */
     async getTriggersForGuild(guildId: string): Promise<Trigger[]> {
-        const data = await this.database.get<Trigger[]>(guildId, this.getTriggersKey(guildId), []);
+        const key = this.getTriggersKey(guildId);
+        const data = await this.database.get<Trigger[]>(guildId, key, []);
+        Logger.debug(`[getTriggersForGuild] guildId=${guildId}, key=${key}, triggers=${data?.length || 0}`);
         return data || [];
     }
 
@@ -70,7 +72,18 @@ export class TriggerManager {
      * トリガーを作成
      */
     async createTrigger(trigger: Trigger): Promise<Trigger> {
+        Logger.info(`[createTrigger] 開始: guildId=${trigger.guildId}, name=${trigger.name}`);
+        
+        const key = this.getTriggersKey(trigger.guildId);
+        Logger.info(`[createTrigger] 保存キー: ${key}`);
+        
         const triggers = await this.getTriggersForGuild(trigger.guildId);
+        Logger.info(`[createTrigger] 現在のトリガー数: ${triggers.length}`);
+        
+        // トリガー数制限チェック（ギルドごと最大20件）
+        if (triggers.length >= 20) {
+            throw new Error('トリガーは最大20件までです。既存のトリガーを削除してください。');
+        }
         
         // プリセット数制限チェック
         if (trigger.presets.length > 5) {
@@ -78,8 +91,10 @@ export class TriggerManager {
         }
         
         triggers.push(trigger);
-        await this.database.set(trigger.guildId, this.getTriggersKey(trigger.guildId), triggers);
-        Logger.info(`✅ トリガー作成: ${trigger.name} (${trigger.id})`);
+        Logger.info(`[createTrigger] データベースに保存: database.set(${trigger.guildId}, ${key}, triggers[${triggers.length}])`);
+        
+        await this.database.set(trigger.guildId, key, triggers);
+        Logger.info(`✅ トリガー作成成功: ${trigger.name} (${trigger.id}) in guild ${trigger.guildId}`);
         return trigger;
     }
 
@@ -132,6 +147,8 @@ export class TriggerManager {
             (t) => t.enabled && t.eventType === eventType
         );
         
+        Logger.debug(`[TriggerManager] handleEvent: eventType=${eventType}, guildId=${guildId}, matchingTriggers=${matchingTriggers.length}`);
+        
         // 優先度順にソート
         matchingTriggers.sort((a, b) => a.priority - b.priority);
         
@@ -141,9 +158,13 @@ export class TriggerManager {
                 const context = await this.buildContext(trigger, eventType, eventData);
                 const conditionsMet = this.evaluateConditions(trigger.conditions, context, (trigger as any).conditionLogic || 'OR');
                 
+                Logger.debug(`[TriggerManager] trigger="${trigger.name}" (${trigger.id}): conditionsMet=${conditionsMet}, conditions=${trigger.conditions.length}`);
+                
                 if (!conditionsMet) {
                     continue;
                 }
+                
+                Logger.info(`✅ トリガー条件一致: ${trigger.name} (${trigger.id})`);
                 
                 // プリセット実行モードに基づいて実行するプリセットを決定
                 const presetsToExecute = this.selectPresetsToExecute(trigger);
@@ -276,8 +297,19 @@ export class TriggerManager {
                     break;
                     
                 case 'mention':
-                    const mention = context.placeholders.mention || '';
-                    result = this.matchString(mention, value, matchType);
+                    // メンション条件: メッセージ内の mention を確認
+                    // value は userId または <@userId> 形式、または メンション文字列
+                    const mentionedIds = context.placeholders.mentionedIds || [];
+                    const cleanValue = value.replace(/<@!?(\d+)>/g, '$1'); // <@id> -> id に変換
+                    
+                    // マッチ方式に応じて判定
+                    if (matchType === 'contains' || matchType === 'exactly') {
+                        // mentionedIds に value (userId) が含まれているか確認
+                        result = mentionedIds.includes(cleanValue) || mentionedIds.includes(value);
+                        Logger.debug(`[Mention Condition] value="${value}", cleanValue="${cleanValue}", mentionedIds=[${mentionedIds.join(', ')}], result=${result}`);
+                    } else {
+                        result = this.matchString(cleanValue, value, matchType);
+                    }
                     break;
                     
                 case 'regex':
@@ -721,6 +753,63 @@ export class TriggerManager {
         // イベントタイプ別にコンテキストを構築
         if (eventType === 'messageCreate' && eventData.message) {
             const message: any = eventData.message;
+            
+            // メンション情報を抽出（Discord.js Message オブジェクト）
+            let mentionedIds: string[] = [];
+            let mentionedBotIds: string[] = [];
+            
+            try {
+                if (message.mentions) {
+                    // MessageMentions オブジェクトの場合
+                    if (message.mentions.users) {
+                        if (Array.isArray(message.mentions.users)) {
+                            // 配列形式（ID の文字列配列）
+                            mentionedIds = message.mentions.users.filter((id: any) => typeof id === 'string');
+                        } else if (typeof message.mentions.users.keys === 'function') {
+                            // Collection 形式
+                            mentionedIds = Array.from(message.mentions.users.keys());
+                        }
+                    }
+                    // Collection の場合
+                    else if (typeof message.mentions.keys === 'function') {
+                        mentionedIds = Array.from(message.mentions.keys());
+                    }
+                    // 配列形式の場合
+                    else if (Array.isArray(message.mentions)) {
+                        mentionedIds = message.mentions
+                            .map((m: any) => m.id || m)
+                            .filter((x: any) => typeof x === 'string');
+                    }
+                }
+            } catch (err) {
+                Logger.debug(`[buildContext] メンション抽出エラー: ${err}`);
+            }
+            
+            // Bot のメンションを抽出
+            try {
+                if (message.mentions && message.mentions.users) {
+                    if (Array.isArray(message.mentions.users)) {
+                        // 配列形式の場合、users 内の ID をチェック
+                        mentionedBotIds = mentionedIds.filter((id: string) => {
+                            // message.mentions に bot 情報があるかチェック
+                            // ここは簡易的に、users に含まれるだけでは bot かどうかは判定できないので
+                            // 今は ID を使用
+                            return true; // 一旦すべて bot と見なす（別途判定が必要な場合は修正）
+                        });
+                    } else if (typeof message.mentions.users.get === 'function') {
+                        // Collection の場合
+                        mentionedBotIds = mentionedIds.filter((id: string) => {
+                            const user = message.mentions.users.get(id);
+                            return user?.bot === true;
+                        });
+                    }
+                }
+            } catch (err) {
+                Logger.debug(`[buildContext] Bot メンション抽出エラー: ${err}`);
+            }
+            
+            Logger.debug(`[buildContext] messageCreate: content="${message.content}", mentionedIds=[${mentionedIds.join(', ')}], mentionedBotIds=[${mentionedBotIds.join(', ')}]`);
+            
             placeholders.message = {
                 id: message.id,
                 content: message.content,
@@ -757,6 +846,11 @@ export class TriggerManager {
             placeholders.attachments = {
                 count: message.attachments.size,
             };
+            
+            // メンション情報を追加
+            placeholders.mentionedIds = mentionedIds;
+            placeholders.mentionedBotIds = mentionedBotIds;
+            placeholders.mention = mentionedIds.join(','); // カンマ区切りで連結
         }
         
         // 他のイベントタイプも同様に追加可能

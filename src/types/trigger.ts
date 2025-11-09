@@ -240,6 +240,8 @@ export interface PlaceholderContext {
         count: number;
     };
     mention?: string;
+    mentionedIds?: string[]; // メッセージ内でメンションされたユーザー/Bot の ID 配列
+    mentionedBotIds?: string[]; // メッセージ内でメンションされた Bot の ID 配列
     time?: string;
     
     // 権限・ロール

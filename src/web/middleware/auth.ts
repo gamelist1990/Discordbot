@@ -90,6 +90,23 @@ export function getCurrentUser(req: Request) {
 }
 
 /**
+ * ギルドアクセス権限をチェック（session のギルドIDがリクエストのギルドIDと一致するか）
+ */
+export function isGuildAccessible(session: SettingsSession, guildId: string): boolean {
+    // session.guildId と一致するか確認
+    if (session.guildId === guildId) {
+        return true;
+    }
+    
+    // session.guildIds 配列に含まれるか確認
+    if (Array.isArray(session.guildIds) && session.guildIds.includes(guildId)) {
+        return true;
+    }
+    
+    return false;
+}
+
+/**
  * STAFF権限を要求するミドルウェア
  */
 export function requireStaffAuth(sessions: Map<string, SettingsSession>) {

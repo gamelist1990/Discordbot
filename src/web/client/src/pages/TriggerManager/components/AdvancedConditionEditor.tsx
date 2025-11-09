@@ -245,9 +245,19 @@ const AdvancedConditionEditor: React.FC<AdvancedConditionEditorProps> = ({
                                                     value: e.target.value
                                                 })
                                             }
-                                            placeholder="条件値を入力..."
+                                            placeholder={
+                                                condition.type === 'mention'
+                                                    ? 'Bot/ユーザーID を入力 (例: 1368293593160220772)'
+                                                    : '条件値を入力...'
+                                            }
                                             className={styles.input}
                                         />
+                                        {condition.type === 'mention' && (
+                                            <div style={{ fontSize: '0.85rem', color: '#72767d', marginTop: '0.5rem' }}>
+                                                ℹ️ メンション対象の Bot またはユーザーの ID を入力してください。
+                                                メッセージ内でそのユーザー/Bot がメンションされた場合にトリガーが発火します。
+                                            </div>
+                                        )}
                                     </div>
 
                                     {/* Negate Checkbox */}

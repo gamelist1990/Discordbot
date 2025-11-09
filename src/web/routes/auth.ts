@@ -8,6 +8,15 @@ import { database } from '../../core/Database.js';
 import fs from 'fs';
 import path from 'path';
 
+// 安全なロガー参照（global.Logger が未定義の場合は console にフォールバック）
+const safeLogger = (global as any).Logger ?? {
+    info: console.log.bind(console),
+    success: console.log.bind(console),
+    warn: console.warn.bind(console),
+    error: console.error.bind(console),
+    debug: console.debug ? console.debug.bind(console) : console.log.bind(console)
+};
+
 /**
  * OAuth2 state情報
  */
@@ -160,7 +169,7 @@ export function createAuthRoutes(
             const clientId = botClient.getClientId();
             const baseUrl = config.BASE_URL;
             const redirectUri = `${baseUrl}/api/auth/callback`;
-            (global as any).Logger.info(`[OAuth] initiating Discord auth - baseUrl=${baseUrl} redirect_uri=${redirectUri}`);
+            safeLogger.info(`[OAuth] initiating Discord auth - baseUrl=${baseUrl} redirect_uri=${redirectUri}`);
 
             // stateを生成
             const state = crypto.randomBytes(16).toString('hex');
@@ -183,11 +192,54 @@ export function createAuthRoutes(
 
             // リダイレクト
             res.redirect(authUrl);
-        } catch (error) {
-            console.error('Discord OAuth2 error:', error);
-            res.status(500).json({ error: 'Internal server error' });
-        }
+                } catch (error) {
+                        console.error('Discord OAuth2 error:', error);
+                        // When initiating Discord OAuth fails, redirect the browser to a dedicated
+                        // error page so the user sees a friendly message instead of raw JSON.
+                        try {
+                                res.redirect('/api/auth/error');
+                        } catch (e) {
+                                // Fallback to JSON if redirecting fails for any reason
+                                res.status(500).json({ error: 'Internal server error' });
+                        }
+                }
     });
+
+        /**
+         * OAuthエラー専用ページ
+         * ブラウザで直接訪れた際に簡易的なエラーページを表示する
+         */
+        router.get('/error', (_req: Request, res: Response) => {
+                try {
+                        res.setHeader('Content-Type', 'text/html; charset=utf-8');
+                        res.status(500).send(`<!doctype html>
+<html lang="ja">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width,initial-scale=1" />
+        <title>認証エラー</title>
+        <style>
+            body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial; background:#f7f7fb; color:#111; display:flex; align-items:center; justify-content:center; height:100vh; margin:0 }
+            .card { background:#fff; padding:24px; border-radius:8px; box-shadow:0 6px 24px rgba(17,24,39,0.08); max-width:680px; text-align:left }
+            h1{ margin:0 0 8px 0; font-size:20px }
+            p{ margin:0 0 12px 0; color:#333 }
+            a.button{ display:inline-block; padding:8px 12px; background:#5865f2; color:#fff; text-decoration:none; border-radius:6px }
+        </style>
+    </head>
+    <body>
+        <div class="card">
+            <h1>認証を開始できませんでした</h1>
+            <p>現在、Discord認証を開始できません。サーバー側で問題が発生している可能性があります。</p>
+            <p>時間を置いて再度お試しください。問題が続く場合は管理者にお問い合わせください。</p>
+            <p><a class="button" href="/">アプリに戻る</a> <a style="margin-left:8px; color:#5865f2; text-decoration:underline" href="/api/auth/discord">再試行</a></p>
+        </div>
+    </body>
+</html>`);
+                } catch (e) {
+                        console.error('Failed to render auth error page:', e);
+                        res.status(500).json({ error: 'Internal server error' });
+                }
+        });
 
     /**
      * OAuth2コールバック
@@ -217,7 +269,7 @@ export function createAuthRoutes(
             const clientSecret = config.DISCORD_CLIENT_SECRET;
             const baseUrl = config.BASE_URL;
             const redirectUri = `${baseUrl}/api/auth/callback`;
-            (global as any).Logger.info(`[OAuth] callback received - expected redirect_uri=${redirectUri}`);
+            safeLogger.info(`[OAuth] callback received - expected redirect_uri=${redirectUri}`);
 
             if (!clientSecret) {
                 console.error('DISCORD_CLIENT_SECRET not configured');

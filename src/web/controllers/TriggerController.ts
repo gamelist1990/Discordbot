@@ -3,6 +3,8 @@ import { BotClient } from '../../core/BotClient.js';
 import { getTriggerManager } from '../../core/TriggerManager.js';
 import { Logger } from '../../utils/Logger.js';
 import { Trigger } from '../../types/trigger.js';
+import { SettingsSession } from '../types/index.js';
+import { isGuildAccessible } from '../middleware/auth.js';
 import crypto from 'crypto';
 
 /**
@@ -15,21 +17,44 @@ export class TriggerController {
     }
 
     /**
+     * セッションがギルドにアクセス可能かチェック
+     */
+    private checkGuildAccess(session: SettingsSession | undefined, guildId: string): boolean {
+        if (!session) {
+            return false;
+        }
+        return isGuildAccessible(session, guildId);
+    }
+
+    /**
      * GET /api/triggers?guildId=...
      * ギルドの全トリガーを取得
      */
     async getAllTriggers(req: Request, res: Response): Promise<void> {
+        const session = (req as any).session as SettingsSession;
+        
         try {
             const guildId = req.query.guildId as string;
             
+            Logger.info(`[TriggerController.getAllTriggers] リクエスト受信: guildId=${guildId}`);
+            
             if (!guildId) {
+                Logger.warn(`[TriggerController.getAllTriggers] guildId パラメータなし`);
                 res.status(400).json({ error: 'guildId is required' });
+                return;
+            }
+
+            // ギルドアクセス権限チェック
+            if (!this.checkGuildAccess(session, guildId)) {
+                Logger.warn(`[TriggerController.getAllTriggers] ギルドアクセス権限なし: guildId=${guildId}`);
+                res.status(403).json({ error: 'Forbidden: No access to this guild' });
                 return;
             }
 
             const triggerManager = getTriggerManager();
             const triggers = await triggerManager.getTriggersForGuild(guildId);
 
+            Logger.info(`[TriggerController.getAllTriggers] トリガー取得成功: ${triggers.length} 件`);
             res.json({ triggers });
         } catch (error) {
             Logger.error('Failed to get triggers:', error);
@@ -42,12 +67,20 @@ export class TriggerController {
      * 特定のトリガーを取得
      */
     async getTrigger(req: Request, res: Response): Promise<void> {
+        const session = (req as any).session as SettingsSession;
+        
         try {
             const { id } = req.params;
             const guildId = req.query.guildId as string;
 
             if (!guildId) {
                 res.status(400).json({ error: 'guildId is required' });
+                return;
+            }
+
+            // ギルドアクセス権限チェック
+            if (!this.checkGuildAccess(session, guildId)) {
+                res.status(403).json({ error: 'Forbidden: No access to this guild' });
                 return;
             }
 
@@ -71,12 +104,27 @@ export class TriggerController {
      * 新しいトリガーを作成
      */
     async createTrigger(req: Request, res: Response): Promise<void> {
+        const session = (req as any).session as SettingsSession;
+        
         try {
             const body = req.body;
-            const session = (req as any).session;
+            
+            Logger.info(`[TriggerController.createTrigger] リクエスト受信:`);
+            Logger.info(`  guildId=${body.guildId}`);
+            Logger.info(`  name=${body.name}`);
+            Logger.info(`  eventType=${body.eventType}`);
+            Logger.info(`  Full body=${JSON.stringify(body, null, 2)}`);
 
             if (!body.guildId || !body.name || !body.eventType) {
+                Logger.warn(`[TriggerController.createTrigger] 必須パラメータ不足: guildId=${body.guildId}, name=${body.name}, eventType=${body.eventType}`);
                 res.status(400).json({ error: 'guildId, name, eventType are required' });
+                return;
+            }
+
+            // ギルドアクセス権限チェック
+            if (!this.checkGuildAccess(session, body.guildId)) {
+                Logger.warn(`[TriggerController.createTrigger] ギルドアクセス権限なし: guildId=${body.guildId}`);
+                res.status(403).json({ error: 'Forbidden: No access to this guild' });
                 return;
             }
 
@@ -119,6 +167,8 @@ export class TriggerController {
 
             const triggerManager = getTriggerManager();
             const created = await triggerManager.createTrigger(trigger);
+            
+            Logger.info(`[TriggerController.createTrigger] トリガー作成成功: id=${created.id}, name=${created.name}`);
 
             res.status(201).json({ trigger: created });
         } catch (error: any) {
@@ -132,6 +182,8 @@ export class TriggerController {
      * トリガーを更新
      */
     async updateTrigger(req: Request, res: Response): Promise<void> {
+        const session = (req as any).session as SettingsSession;
+        
         try {
             const { id } = req.params;
             const body = req.body;
@@ -139,6 +191,12 @@ export class TriggerController {
 
             if (!guildId) {
                 res.status(400).json({ error: 'guildId is required' });
+                return;
+            }
+
+            // ギルドアクセス権限チェック
+            if (!this.checkGuildAccess(session, guildId)) {
+                res.status(403).json({ error: 'Forbidden: No access to this guild' });
                 return;
             }
 
@@ -168,12 +226,20 @@ export class TriggerController {
      * トリガーを削除
      */
     async deleteTrigger(req: Request, res: Response): Promise<void> {
+        const session = (req as any).session as SettingsSession;
+        
         try {
             const { id } = req.params;
             const guildId = req.query.guildId as string;
 
             if (!guildId) {
                 res.status(400).json({ error: 'guildId is required' });
+                return;
+            }
+
+            // ギルドアクセス権限チェック
+            if (!this.checkGuildAccess(session, guildId)) {
+                res.status(403).json({ error: 'Forbidden: No access to this guild' });
                 return;
             }
 
@@ -197,6 +263,8 @@ export class TriggerController {
      * トリガーをテスト実行（モックイベント）
      */
     async testTrigger(req: Request, res: Response): Promise<void> {
+        const session = (req as any).session as SettingsSession;
+        
         try {
             const { id } = req.params;
             const guildId = req.query.guildId as string;
@@ -204,6 +272,12 @@ export class TriggerController {
 
             if (!guildId) {
                 res.status(400).json({ error: 'guildId is required' });
+                return;
+            }
+
+            // ギルドアクセス権限チェック
+            if (!this.checkGuildAccess(session, guildId)) {
+                res.status(403).json({ error: 'Forbidden: No access to this guild' });
                 return;
             }
 
@@ -233,11 +307,19 @@ export class TriggerController {
      * トリガーをインポート
      */
     async importTriggers(req: Request, res: Response): Promise<void> {
+        const session = (req as any).session as SettingsSession;
+        
         try {
             const { guildId, triggers } = req.body;
 
             if (!guildId || !triggers || !Array.isArray(triggers)) {
                 res.status(400).json({ error: 'guildId and triggers array are required' });
+                return;
+            }
+
+            // ギルドアクセス権限チェック
+            if (!this.checkGuildAccess(session, guildId)) {
+                res.status(403).json({ error: 'Forbidden: No access to this guild' });
                 return;
             }
 
@@ -272,11 +354,19 @@ export class TriggerController {
      * トリガーをエクスポート
      */
     async exportTriggers(req: Request, res: Response): Promise<void> {
+        const session = (req as any).session as SettingsSession;
+        
         try {
             const { guildId } = req.body;
 
             if (!guildId) {
                 res.status(400).json({ error: 'guildId is required' });
+                return;
+            }
+
+            // ギルドアクセス権限チェック
+            if (!this.checkGuildAccess(session, guildId)) {
+                res.status(403).json({ error: 'Forbidden: No access to this guild' });
                 return;
             }
 

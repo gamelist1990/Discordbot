@@ -61,6 +61,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
+    gap: 1rem;
 }
 
 .headerContent h1 {
@@ -77,6 +78,43 @@
     margin: 0.25rem 0 0 0;
     color: var(--text-secondary);
     font-size: 0.95rem;
+}
+
+/* Guild Selector */
+.guildSelector {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-shrink: 0;
+}
+
+.guildSelector label {
+    color: var(--text-secondary);
+    font-size: 0.95rem;
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.selectInput {
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--surface);
+    color: var(--text-primary);
+    font-size: 0.95rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    min-width: 150px;
+}
+
+.selectInput:hover {
+    border-color: var(--primary);
+}
+
+.selectInput:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(88, 101, 242, 0.1);
 }
 
 /* ============================================
