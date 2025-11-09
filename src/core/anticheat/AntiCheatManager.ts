@@ -325,7 +325,8 @@ export class AntiCheatManager {
             history: []
         };
 
-        const newScore = Math.max(0, currentTrust.score + delta);
+        const previousScore = currentTrust.score || 0;
+        const newScore = Math.max(0, previousScore + delta);
         
         const historyEntry: TrustHistoryEntry = {
             delta,
@@ -346,6 +347,37 @@ export class AntiCheatManager {
         
         Logger.debug(`User ${userId} trust: ${currentTrust.score} → ${newScore} (${reason})`);
         
+        // Check punishment thresholds and execute any actions for thresholds crossed
+        try {
+            const punishments = (settings.punishments || []).slice().sort((a, b) => a.threshold - b.threshold);
+            if (punishments.length > 0 && this.client) {
+                const guild = await this.client.guilds.fetch(guildId).catch(() => null);
+                const logChannel = guild && settings.logChannelId ? await guild.channels.fetch(settings.logChannelId).catch(() => null) : null;
+                const member = guild ? await guild.members.fetch(userId).catch(() => null) : null;
+
+                for (const p of punishments) {
+                    if (previousScore < p.threshold && newScore >= p.threshold) {
+                        // Execute all actions configured for this threshold
+                        for (const action of p.actions) {
+                            try {
+                                if (!member) continue;
+                                const applied = await PunishmentExecutor.execute(member, action, logChannel as any);
+                                if (applied) {
+                                    Logger.info(`Applied punishment ${action.type} for user ${userId} at threshold ${p.threshold} in guild ${guildId}`);
+                                } else {
+                                    Logger.debug(`Punishment ${action.type} not applied for user ${userId} at threshold ${p.threshold}`);
+                                }
+                            } catch (err) {
+                                Logger.error(`Error executing punishment action for user ${userId}:`, err);
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (err) {
+            Logger.error('Error while evaluating punishment thresholds:', err);
+        }
+
         return newScore;
     }
 

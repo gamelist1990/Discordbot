@@ -88,12 +88,12 @@ const AntiCheatUnified: React.FC = () => {
         setActiveView(isMobile ? 'overview' : 'settings');
     }, [isMobile]);
 
-    // sync autoTimeout input with settings
+    // sync autoTimeout / autoDelete inputs with settings whenever settings change
     useEffect(() => {
         if (!settings) return;
         setAutoTimeoutInput(secondsToInputString(settings.autoTimeout?.durationSeconds || 0) || String(settings.autoTimeout?.durationSeconds || ''));
         setAutoDeleteInput(secondsToInputString(settings.autoDelete?.windowSeconds || 0) || String(settings.autoDelete?.windowSeconds || ''));
-    }, [settings && settings.autoTimeout && settings.autoTimeout.durationSeconds]);
+    }, [settings]);
 
     // Auto-refresh logs while viewing logs so timed-out entries disappear when timeout ends
     useEffect(() => {
@@ -483,6 +483,29 @@ const AntiCheatUnified: React.FC = () => {
                                                 />
                                                 <p className={styles.inputHint}>検知時に遡って削除する時間（例: `10m` は10分前まで全て削除）</p>
                                             </div>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Mobile: allow adding/listing punishment rules */}
+                            <div className={styles.card}>
+                                <div className={styles.cardHeader}><h2>処罰ルール</h2></div>
+                                <div className={styles.cardBody}>
+                                    <button className={styles.btnPrimary} onClick={handleAddPunishment}>+ 処罰ルールを追加</button>
+                                    <div className={styles.punishmentsList} style={{ marginTop: '8px' }}>
+                                        {(settings.punishments?.length || 0) === 0 ? (
+                                            <p className={styles.noPunishments}>処罰ルールが設定されていません</p>
+                                        ) : (
+                                            settings.punishments.map((punishment, index) => (
+                                                <div key={index} className={styles.punishmentItem} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0' }}>
+                                                    <div>
+                                                        <div><strong>しきい値: {punishment.threshold}</strong></div>
+                                                        <div>{punishment.actions.map((action, aIdx) => (<span key={aIdx} className={styles.actionBadge}>{action.type}{action.durationSeconds && ` (${action.durationSeconds}s)`}</span>))}</div>
+                                                    </div>
+                                                    <button className={styles.btnDanger} onClick={() => handleRemovePunishment(index)}>削除</button>
+                                                </div>
+                                            ))
                                         )}
                                     </div>
                                 </div>
