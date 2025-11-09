@@ -4,6 +4,13 @@
     padding: 2rem;
 }
 
+:root {
+    --ac-primary: #2196f3;
+    --ac-success: #4caf50;
+    --ac-danger: #f44336;
+    --ac-surface-variant: #888;
+}
+
 .header {
     display: flex;
     justify-content: space-between;
@@ -58,6 +65,15 @@
     border-radius: 8px;
     padding: 2rem;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+/* accessibility */
+.btn:focus,
+.btnSmall:focus,
+.tab:focus,
+.navBtn:focus {
+    outline: 3px solid rgba(33,150,243,0.18);
+    outline-offset: 2px;
 }
 
 .section {
@@ -121,6 +137,67 @@
     border-radius: 4px;
     border-left: 4px solid #ff9800;
 }
+
+.punishmentsGrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 12px;
+    margin-top: 1rem;
+}
+
+.punishmentCard {
+    background: white;
+    border: 1px solid #eee;
+    border-radius: 10px;
+    padding: 12px;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.04);
+    cursor: grab;
+}
+
+.punishmentCard:active { cursor: grabbing; }
+
+.punishmentCardHeader {
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    gap:8px;
+}
+
+.cardActions { display:flex; gap:8px; }
+.smallBtn { padding:6px 10px; border-radius:6px; border:none; background:#f0f0f0; cursor:pointer }
+.dangerSmall { padding:6px 10px; border-radius:6px; border:none; background:#f44336; color:white; cursor:pointer }
+
+.punishmentCardBody { margin-top:8px; display:flex; flex-direction:column; gap:6px }
+.actionRow { display:flex; gap:8px; align-items:center }
+.mono { font-family:monospace; color:#666; }
+.notify { background:#e8f5e9; color:#2e7d32; padding:2px 6px; border-radius:6px; font-size:0.85rem }
+
+/* Modal styles for punishment editor */
+.modalOverlay {
+    position:fixed;
+    inset:0;
+    background:rgba(0,0,0,0.45);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    z-index:1200;
+}
+
+.punishmentModal {
+    width: min(720px, 96%);
+    background:white;
+    border-radius:10px;
+    overflow:hidden;
+    box-shadow:0 12px 40px rgba(0,0,0,0.3);
+}
+
+.modalHeader { display:flex; justify-content:space-between; align-items:center; padding:16px; border-bottom:1px solid #eee }
+.modalBody { padding:16px; display:flex; flex-direction:column; gap:12px }
+.modalFooter { padding:12px 16px; display:flex; justify-content:flex-end; gap:8px; border-top:1px solid #f4f4f4 }
+.formGroup label { display:block; margin-bottom:6px; color:#333 }
+.formGroup .input { width:100%; padding:8px; border-radius:6px; border:1px solid #ddd }
+
+.actionBadge { display:inline-block; padding:0.25rem 0.5rem; background:#2196f3; color:white; border-radius:12px; font-size:0.85rem; margin-right:0.5rem }
 
 .punishmentInfo {
     display: flex;
@@ -211,6 +288,40 @@
     color: white;
     border-radius: 4px;
     font-size: 0.85rem;
+}
+
+/* Responsive table: allow rows to wrap on small screens */
+@media (max-width: 720px) {
+    .logsTable table,
+    .logsTable thead,
+    .logsTable tbody,
+    .logsTable th,
+    .logsTable td,
+    .logsTable tr {
+        display: block;
+    }
+
+    .logsTable thead tr {
+        position: absolute;
+        top: -9999px;
+        left: -9999px;
+    }
+
+    .logsTable tr {
+        margin-bottom: 1rem;
+        border: 1px solid #eee;
+        padding: 0.75rem;
+        border-radius: 8px;
+    }
+
+    .logsTable td {
+        display: flex;
+        justify-content: space-between;
+        padding: 0.5rem 0;
+        border-bottom: none;
+    }
+
+    .reason { max-width: none; white-space: normal; }
 }
 
 .scoreDelta {

@@ -17,6 +17,7 @@ import FeedbackPage from './pages/Feedback';
 import TriggerManager from './pages/TriggerManager';
 import ToolsHub from './pages/Tools/ToolsHub';
 import AntiCheatPage from './pages/Staff/AntiCheat';
+import AntiCheatSelector from './pages/Staff/AntiCheatSelector';
 const MinecraftViewer = React.lazy(() => import('./pages/Tools/MinecraftViewer/MinecraftViewer'));
 import { useAuthGuard } from './hooks/useAuthGuard';
 import HomePage from './pages/Home';
@@ -69,6 +70,7 @@ const App: React.FC = () => {
           <Route path="/staff/rolemanager" element={<StaffGuard><RoleManagerPage /></StaffGuard>} />
           <Route path="/staff/rankmanager" element={<StaffGuard><RankManagerPage /></StaffGuard>} />
           <Route path="/staff/triggermanager" element={<StaffGuard><TriggerManager /></StaffGuard>} />
+          <Route path="/staff/anticheat" element={<StaffGuard><AntiCheatSelector /></StaffGuard>} />
           <Route path="/staff/anticheat/:guildId" element={<StaffGuard><AntiCheatPage /></StaffGuard>} />
           <Route path="/staff/privateChat" element={<Navigate to="/staff/privatechat" replace />} />
           <Route path="/tools" element={<ToolsHub />} />

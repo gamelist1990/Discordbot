@@ -4,6 +4,12 @@
     padding: 1rem;
 }
 
+:root {
+    --ac-primary: #2196f3;
+    --ac-success: #4caf50;
+    --ac-danger: #f44336;
+}
+
 .header {
     display: flex;
     justify-content: space-between;
@@ -28,6 +34,11 @@
     font-size: 1rem;
     cursor: pointer;
     transition: all 0.3s;
+}
+
+.toggleBtn:focus {
+    outline: 3px solid rgba(33,150,243,0.18);
+    outline-offset: 2px;
 }
 
 .toggleActive {
@@ -57,6 +68,11 @@
     transition: all 0.2s;
 }
 
+.navBtn:focus {
+    outline: 3px solid rgba(33,150,243,0.18);
+    outline-offset: 2px;
+}
+
 .navBtnActive {
     background: white;
     color: #2196f3;
@@ -76,6 +92,31 @@
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
     overflow: hidden;
 }
+
+/* Modal styles reuse for mobile */
+.modalOverlay {
+    position:fixed;
+    inset:0;
+    background:rgba(0,0,0,0.45);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    z-index:1200;
+}
+
+.punishmentModal {
+    width: min(640px, 96%);
+    background:white;
+    border-radius:10px;
+    overflow:hidden;
+    box-shadow:0 12px 40px rgba(0,0,0,0.3);
+}
+
+.modalHeader { display:flex; justify-content:space-between; align-items:center; padding:12px; border-bottom:1px solid #eee }
+.modalBody { padding:12px; display:flex; flex-direction:column; gap:10px }
+.modalFooter { padding:12px; display:flex; justify-content:flex-end; gap:8px; border-top:1px solid #f4f4f4 }
+.formGroup .input { width:100%; padding:8px; border-radius:6px; border:1px solid #ddd }
+.smallBtn { padding:6px 10px; border-radius:6px; border:none; background:#f0f0f0; cursor:pointer }
 
 .cardHeader {
     padding: 1rem;
@@ -249,6 +290,18 @@ input:checked + .slider:before {
     border-radius: 12px;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
     padding: 1rem;
+}
+
+/* Ensure touch targets are large enough */
+.logCard .revokeBtn,
+.revokeBtn,
+.refreshBtn {
+    min-height: 44px;
+}
+
+.revokeBtn:focus {
+    outline: 3px solid rgba(244,67,54,0.14);
+    outline-offset: 2px;
 }
 
 .logHeader {

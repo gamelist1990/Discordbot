@@ -13,11 +13,10 @@ const AntiCheatDesktop: React.FC = () => {
     const navigate = useNavigate();
     const { settings, loading, error, updateSettings } = useAntiCheatSettings(guildId!);
     const { logs, loading: logsLoading, refetch: refetchLogs } = useDetectionLogs(guildId!, 50);
-    const { executeAction, revokeTimeout, executing } = useAntiCheatActions(guildId!);
+    const { revokeTimeout, executing } = useAntiCheatActions(guildId!);
 
     const [activeTab, setActiveTab] = useState<'settings' | 'logs' | 'trust'>('settings');
     const [searchTerm, setSearchTerm] = useState('');
-    const [selectedLogs, setSelectedLogs] = useState<Set<string>>(new Set());
 
     if (!guildId) {
         navigate('/404');
@@ -26,7 +25,7 @@ const AntiCheatDesktop: React.FC = () => {
 
     if (loading) {
         return (
-            <Layout>
+            <Layout activeTab={activeTab} onTabChange={(t) => setActiveTab(t as 'settings' | 'logs' | 'trust')}>
                 <div className={styles.container}>
                     <div className={styles.loading}>読み込み中...</div>
                 </div>
@@ -36,7 +35,7 @@ const AntiCheatDesktop: React.FC = () => {
 
     if (error) {
         return (
-            <Layout>
+            <Layout activeTab={activeTab} onTabChange={(t) => setActiveTab(t as 'settings' | 'logs' | 'trust')}>
                 <div className={styles.container}>
                     <div className={styles.error}>エラー: {error}</div>
                 </div>
@@ -46,7 +45,7 @@ const AntiCheatDesktop: React.FC = () => {
 
     if (!settings) {
         return (
-            <Layout>
+            <Layout activeTab={activeTab} onTabChange={(t) => setActiveTab(t as 'settings' | 'logs' | 'trust')}>
                 <div className={styles.container}>
                     <div className={styles.error}>設定が見つかりません</div>
                 </div>
@@ -99,7 +98,7 @@ const AntiCheatDesktop: React.FC = () => {
     );
 
     return (
-        <Layout>
+        <Layout activeTab={activeTab} onTabChange={(t) => setActiveTab(t as 'settings' | 'logs' | 'trust')}>
             <div className={styles.container}>
                 <div className={styles.header}>
                     <h1>🛡️ AntiCheat 管理</h1>

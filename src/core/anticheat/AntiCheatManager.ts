@@ -20,7 +20,6 @@ import { PunishmentExecutor } from './PunishmentExecutor.js';
  * Handles detector registration, message processing, trust scoring, and punishment execution
  */
 export class AntiCheatManager {
-    private client: Client | null = null;
     private detectors: Map<string, Detector> = new Map();
     private readonly MAX_LOGS = 100;
 
@@ -32,8 +31,9 @@ export class AntiCheatManager {
     /**
      * Set the Discord client
      */
-    setClient(client: Client): void {
-        this.client = client;
+    setClient(_client: Client): void {
+        // Intentionally unused in this manager for now.
+        // Kept for future integration where a Client reference may be required.
     }
 
     /**
@@ -316,5 +316,16 @@ export class AntiCheatManager {
     }
 }
 
-// Singleton instance
-export const antiCheatManager = new AntiCheatManager();
+// Singleton instance (guard with global to avoid multiple instantiations
+// if the module is accidentally loaded more than once under different
+// module IDs). We also attach a small creation log including PID to help
+// diagnose duplicate startups.
+const GLOBAL_KEY = '__antiCheatManager_v1';
+if (!(global as any)[GLOBAL_KEY]) {
+    (global as any)[GLOBAL_KEY] = new AntiCheatManager();
+    Logger.debug(`AntiCheatManager created (pid=${process.pid})`);
+} else {
+    Logger.debug(`AntiCheatManager reused existing instance (pid=${process.pid})`);
+}
+
+export const antiCheatManager: AntiCheatManager = (global as any)[GLOBAL_KEY];

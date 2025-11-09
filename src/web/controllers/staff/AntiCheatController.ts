@@ -23,7 +23,7 @@ export class AntiCheatController {
 
             // Verify user has access to this guild
             const session = (req as any).session;
-            if (!session || !session.guilds?.some((g: any) => g.id === guildId)) {
+            if (!session || !hasAccessToGuild(session, guildId)) {
                 res.status(403).json({ error: 'Access denied to this guild' });
                 return;
             }
@@ -52,7 +52,7 @@ export class AntiCheatController {
 
             // Verify user has access to this guild
             const session = (req as any).session;
-            if (!session || !session.guilds?.some((g: any) => g.id === guildId)) {
+            if (!session || !hasAccessToGuild(session, guildId)) {
                 res.status(403).json({ error: 'Access denied to this guild' });
                 return;
             }
@@ -97,7 +97,7 @@ export class AntiCheatController {
 
             // Verify user has access to this guild
             const session = (req as any).session;
-            if (!session || !session.guilds?.some((g: any) => g.id === guildId)) {
+            if (!session || !hasAccessToGuild(session, guildId)) {
                 res.status(403).json({ error: 'Access denied to this guild' });
                 return;
             }
@@ -122,7 +122,7 @@ export class AntiCheatController {
 
             // Verify user has access to this guild
             const session = (req as any).session;
-            if (!session || !session.guilds?.some((g: any) => g.id === guildId)) {
+            if (!session || !hasAccessToGuild(session, guildId)) {
                 res.status(403).json({ error: 'Access denied to this guild' });
                 return;
             }
@@ -171,7 +171,7 @@ export class AntiCheatController {
 
             // Verify user has access to this guild
             const session = (req as any).session;
-            if (!session || !session.guilds?.some((g: any) => g.id === guildId)) {
+            if (!session || !hasAccessToGuild(session, guildId)) {
                 res.status(403).json({ error: 'Access denied to this guild' });
                 return;
             }
@@ -229,7 +229,7 @@ export class AntiCheatController {
 
             // Verify user has access to this guild
             const session = (req as any).session;
-            if (!session || !session.guilds?.some((g: any) => g.id === guildId)) {
+            if (!session || !hasAccessToGuild(session, guildId)) {
                 res.status(403).json({ error: 'Access denied to this guild' });
                 return;
             }
@@ -248,4 +248,23 @@ export class AntiCheatController {
             res.status(500).json({ error: 'Failed to get user trust' });
         }
     };
+}
+
+/**
+ * Backwards-compatible guild access check.
+ * Accepts older debug sessions (session.guildId), array of IDs (session.guildIds),
+ * or the richer session.guilds array (objects with `id` property) produced by OAuth.
+ */
+function hasAccessToGuild(session: any, guildId: string): boolean {
+    try {
+        if (!guildId) return false;
+        if (session.guildId && session.guildId === guildId) return true;
+        if (Array.isArray(session.guildIds) && session.guildIds.includes(guildId)) return true;
+        if (Array.isArray(session.guilds) && session.guilds.some((g: any) => g && (g.id === guildId || g.guildId === guildId))) return true;
+        // Also support permissions array entries
+        if (Array.isArray(session.permissions) && session.permissions.some((p: any) => p && p.guildId === guildId)) return true;
+    } catch (e) {
+        // ignore and deny
+    }
+    return false;
 }

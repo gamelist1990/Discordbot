@@ -24,7 +24,7 @@ const AntiCheatMobile: React.FC = () => {
 
     if (loading) {
         return (
-            <Layout>
+            <Layout activeTab={activeView} onTabChange={(t) => setActiveView(t as any)}>
                 <div className={styles.container}>
                     <div className={styles.loading}>読み込み中...</div>
                 </div>
@@ -34,7 +34,7 @@ const AntiCheatMobile: React.FC = () => {
 
     if (error) {
         return (
-            <Layout>
+            <Layout activeTab={activeView} onTabChange={(t) => setActiveView(t as any)}>
                 <div className={styles.container}>
                     <div className={styles.error}>エラー: {error}</div>
                 </div>
@@ -44,7 +44,7 @@ const AntiCheatMobile: React.FC = () => {
 
     if (!settings) {
         return (
-            <Layout>
+            <Layout activeTab={activeView} onTabChange={(t) => setActiveView(t as any)}>
                 <div className={styles.container}>
                     <div className={styles.error}>設定が見つかりません</div>
                 </div>
@@ -66,7 +66,7 @@ const AntiCheatMobile: React.FC = () => {
     };
 
     return (
-        <Layout>
+        <Layout activeTab={activeView} onTabChange={(t) => setActiveView(t as any)}>
             <div className={styles.container}>
                 {/* Header */}
                 <div className={styles.header}>
