@@ -1,53 +1,117 @@
-// Lightweight web-only debug entry for SettingsServer
-// Usage:
-// WEB_DEBUG_BYPASS_AUTH=1 WEB_DEBUG_NO_PERSIST=1 WEB_DEBUG_PORT=3001 bun run src/web/webDebug.ts
 import { SettingsServer } from './SettingsServer.js';
 
-class WebDebugBotStub {
-    token: string;
-    client: any;
-    constructor() {
-        this.token = '';
-        this.client = { guilds: { cache: new Map() } };
+// スタブLogger
+global.Logger = {
+    info: console.log,
+    success: console.log,
+    warn: console.warn,
+    error: console.error,
+    debug: console.log
+};
+
+// 軽量なBotClientスタブ（Bot本体を起動せずにWebサーバーのみ動作させる）
+class StubBotClient {
+    public client: any;
+    public commands: any;
+    public token: string;
+    public eventManager: any;
+    public rest: any;
+
+    constructor(token = 'stub-token') {
+        this.token = token;
+        this.commands = new Map();
+        this.client = {
+            guilds: {
+                cache: new Map()
+            },
+            user: {
+                id: 'stub-user-id',
+                username: 'StubBot'
+            }
+        };
+        this.eventManager = {};
+        this.rest = {};
     }
-    getClientId(): string {
-        return process.env.DEBUG_CLIENT_ID || 'debug-client-id';
+
+    getCommands() {
+        return this.commands;
     }
-    getGuildList(): Array<any> {
+
+    getGuildCount() {
+        return this.client.guilds.cache.size;
+    }
+
+    getMaxGuilds() {
+        return 50;
+    }
+
+    getClientId() {
+        return this.client.user.id;
+    }
+
+    registerCommand(command: any) {
+        this.commands.set(command.data.name, command);
+        console.log(`StubBotClient: registerCommand ${command.data.name}`);
+    }
+
+    registerCommands(commands: any[]) {
+        for (const command of commands) {
+            this.registerCommand(command);
+        }
+    }
+
+    getGuildList() {
         return [];
     }
-    getGuildCount(): number {
-        return 0;
+
+    async login() {
+        // スタブなので何もしない
+        console.log('StubBotClient: login (no-op)');
     }
-    getMaxGuilds(): number {
-        return 1000;
+
+    async initializeDatabase() {
+        // スタブなので何もしない
+        console.log('StubBotClient: initializeDatabase (no-op)');
     }
-    async initializeDatabase(): Promise<void> { return; }
+
+    async deployCommandsToAllGuilds() {
+        // スタブなので何もしない
+        console.log('StubBotClient: deployCommandsToAllGuilds (no-op)');
+    }
+
+    async cleanupUnregisteredCommands() {
+        // スタブなので何もしない
+        console.log('StubBotClient: cleanupUnregisteredCommands (no-op)');
+    }
+
+    async destroy() {
+        // スタブなので何もしない
+        console.log('StubBotClient: destroy (no-op)');
+    }
 }
 
 async function main() {
-    const port = process.env.WEB_DEBUG_PORT ? parseInt(process.env.WEB_DEBUG_PORT) : 3000;
-    const botStub = new WebDebugBotStub();
+    try {
+        console.log('🌐 Web Debug Server を起動しています...');
 
-    const server = new SettingsServer(botStub as any, port);
-    await server.start();
+        // スタブBotClientを作成
+        const stubBotClient = new StubBotClient();
 
-    console.log(`[webDebug] SettingsServer started on port ${port}`);
-    if (process.env.WEB_DEBUG_BYPASS_AUTH === '1') {
-        console.log('[webDebug] OAuth bypass enabled (WEB_DEBUG_BYPASS_AUTH=1)');
+        // データベース初期化（スタブでも必要）
+        await stubBotClient.initializeDatabase();
+
+        // 設定サーバーを起動
+        const port = process.env.WEB_DEBUG_PORT ? parseInt(process.env.WEB_DEBUG_PORT) : 3001;
+        const settingsServer = new SettingsServer(stubBotClient, port);
+        await settingsServer.start();
+
+        console.log('✅ Web Debug Server が正常に起動しました！');
+        console.log(`🌐 Web ダッシュボード: http://localhost:${port}`);
+    } catch (error) {
+        console.error('Web Debug Server 起動エラー:', error);
+        process.exit(1);
     }
-    if (process.env.WEB_DEBUG_NO_PERSIST === '1') {
-        console.log('[webDebug] Session persistence disabled (WEB_DEBUG_NO_PERSIST=1)');
-    }
-
-    process.on('SIGINT', async () => {
-        console.log('\n[webDebug] stopping...');
-        await server.stop();
-        process.exit(0);
-    });
 }
 
-main().catch((e) => {
-    console.error('[webDebug] failed to start:', e);
-    process.exit(1);
-});
+// アプリケーションを起動
+main();

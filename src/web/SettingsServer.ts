@@ -3,10 +3,15 @@ process.on('warning', (warning) => {
     if (warning.name === 'MaxListenersExceededWarning') return;
     console.warn(warning);
 });
+console.log('SettingsServer.ts loaded');
 import express, { Express, Request, Response } from 'express';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 import cors from 'cors';
-import path from 'path';
-import { Logger } from '../utils/Logger.js';
+// import { Logger } from '../utils/Logger.js';
 import { BotClient } from '../core/BotClient.js';
 import { SessionService } from './services/SessionService.js';
 import { ProfileService } from './services/ProfileService.js';
@@ -41,7 +46,7 @@ export class SettingsServer {
     private botClient: BotClient;
     private server: any;
 
-    constructor(botClient: BotClient, port: number = 3000) {
+    constructor(botClient: any, port: number = 3000) {
         this.app = express();
         // Disable ETag generation for API responses to avoid 304 cached responses
         this.app.disable('etag');
@@ -52,11 +57,13 @@ export class SettingsServer {
 
         this.setupMiddleware();
         this.setupRoutes();
-        // Initialize StatsManager if bot client is available
+        // Initialize StatsManager if bot client is available and has a valid Discord client
         try {
-            statsManagerSingleton.init(this.botClient.client);
+            if (this.botClient.client && typeof this.botClient.client.on === 'function') {
+                statsManagerSingleton.init(this.botClient.client);
+            }
         } catch (e) {
-            Logger.warn('Failed to init StatsManager:', e);
+            (global as any).Logger.warn('Failed to init StatsManager:', e);
         }
 
         // 定期的に期限切れの共有エディターをクリーンアップ
@@ -199,7 +206,7 @@ export class SettingsServer {
     this.app.get(['/feedback', '/feedback/:id', /^\/preview\/.*$/], previewHandler as any);
 
         // 静的ファイルの配信
-        this.app.use(express.static(path.join(__dirname, '..', '..', 'dist', 'web')));
+        this.app.use(express.static(join(__dirname, '..', '..', 'dist', 'web')));
 
         // SPAのフォールバック（GETかつ/apiで始まらないリクエストに対してindex.htmlを返す）
         // path-to-regexp のバージョン差による '*' パースエラーを回避するため、
@@ -208,14 +215,14 @@ export class SettingsServer {
             // DEBUG: ブラウザから来たリクエストのURL（クエリ含む）をログ出力して、
             // クライアントが送った query string がサーバに届いているか確認する
             // 一時的なログなので調査完了後は削除してOK
-            Logger.info(`[SPA Fallback] incoming request: ${req.originalUrl}`);
+            (global as any).Logger.info(`[SPA Fallback] incoming request: ${req.originalUrl}`);
             // APIルートは次へ
             if (req.path.startsWith('/api')) return next();
 
             // GETのみをSPAフォールバックとして扱う
             if (req.method !== 'GET') return next();
 
-            const indexPath = path.join(__dirname, '..', '..', 'dist', 'web', 'index.html');
+            const indexPath = join(__dirname, '..', '..', 'dist', 'web', 'index.html');
             res.sendFile(indexPath, (err) => {
                 if (err) next(err);
             });
@@ -227,17 +234,18 @@ export class SettingsServer {
      * サーバーの起動
      */
     public async start(): Promise<void> {
+        console.log('SettingsServer.start called');
         return new Promise((resolve) => {
             // 明示的に 0.0.0.0 にバインドして外部からアクセス可能にする
             this.server = this.app.listen(this.port, '0.0.0.0', () => {
-                Logger.info(`Webサーバーをポート ${this.port} で起動しました (bound to 0.0.0.0)`);
+                (global as any).Logger.info(`Webサーバーをポート ${this.port} で起動しました (bound to 0.0.0.0)`);
                 
                 // WebSocketサーバーをセットアップ
                 try {
                     setupWebSocketServer(this.server, this.sessionService.getSessions());
-                    Logger.info('WebSocketサーバーを起動しました (path: /ws/feedback)');
+                    (global as any).Logger.info('WebSocketサーバーを起動しました (path: /ws/feedback)');
                 } catch (error) {
-                    Logger.error('WebSocketサーバーの起動に失敗しました:', error);
+                    (global as any).Logger.error('WebSocketサーバーの起動に失敗しました:', error);
                 }
                 
                 resolve();
@@ -252,7 +260,7 @@ export class SettingsServer {
         return new Promise((resolve) => {
             if (this.server) {
                 this.server.close(() => {
-                    Logger.info('設定サーバーを停止しました');
+                    (global as any).Logger.info('設定サーバーを停止しました');
                     resolve();
                 });
             } else {

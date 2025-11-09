@@ -1,10 +1,14 @@
 import fs from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import crypto from 'crypto';
 // Import the implementation directly to avoid executing pdf-parse's top-level test harness
 import * as pdfParseModule from 'pdf-parse/lib/pdf-parse.js';
 const pdfParse: (data: Buffer | Uint8Array | ArrayBuffer | { data: Buffer | Uint8Array | ArrayBuffer }) => Promise<any> = (pdfParseModule as any).default || (pdfParseModule as any);
 import { config } from '../config';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Simple in-file vector store using JSON. Not optimized for production.
 type VectorItem = {

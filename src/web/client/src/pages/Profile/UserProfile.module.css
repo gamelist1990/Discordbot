@@ -696,10 +696,6 @@
         grid-template-columns: 1fr;
     }
 
-    .tab span:not(.material-icons) {
-        display: none;
-    }
-
     .modalContent {
         max-height: 100vh;
         border-radius: 0;
