@@ -103,4 +103,3 @@ tools: ['runNotebooks', 'search', 'runCommands', 'runTasks', 'microsoft/playwrig
 - 重大レベルを `Critical/High/Medium/Low` に分類、CI CI: 不合格は High 以上と判断してもよい。
 
 ---
-このファイルはエージェントの振る舞い方針（エグゼキューションガイド）を記述したもので、実際の自動操作に関しては明示的なトリガーとユーザー承認が要ります。

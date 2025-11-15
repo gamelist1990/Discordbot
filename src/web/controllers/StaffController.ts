@@ -420,16 +420,16 @@ export class StaffController {
             }, 30000);
 
             // クライアントが切断した場合のクリーンアップ
-            req.on('close', () => {
+            req.on('close', async () => {
                 if (intervalId) clearInterval(intervalId);
                 clearInterval(keepAliveId);
                 if (eventListener) {
                     try {
-                        const { getPrivateChatEmitter } = require('../../core/PrivateChatEvents.js');
+                        const { getPrivateChatEmitter } = await import('../../core/PrivateChatEvents.js');
                         const emitter = getPrivateChatEmitter();
                         emitter.removeListener('privateChatEvent', eventListener as any);
                     } catch (e) {
-                        // require may not be available in ESM or other issues; ignore
+                        // dynamic import may fail; ignore and continue cleanup
                     }
                 }
                 console.log(`SSE 接続を閉じました (Guild: ${session.guildId})`);

@@ -1,4 +1,4 @@
-import { SlashCommandBuilder, ChatInputCommandInteraction, EmbedBuilder, Client, Guild, MessageFlags, PermissionFlagsBits } from 'discord.js';
+import { SlashCommandBuilder, ChatInputCommandInteraction, EmbedBuilder, Client, Guild, PermissionFlagsBits } from 'discord.js';
 import { SlashCommand } from '../../types/command.js';
 import { PermissionLevel } from '../../web/types/permission.js';
 
@@ -46,7 +46,7 @@ const serversCommand: SlashCommand = {
             })
             .setTimestamp();
 
-        await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
+        await interaction.reply({ embeds: [embed], ephemeral: true });
     }
 };
 

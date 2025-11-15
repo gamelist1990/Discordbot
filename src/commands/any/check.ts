@@ -1,4 +1,4 @@
-import { SlashCommandBuilder, ChatInputCommandInteraction, EmbedBuilder, MessageFlags } from 'discord.js';
+import { SlashCommandBuilder, ChatInputCommandInteraction, EmbedBuilder } from 'discord.js';
 import { SlashCommand } from '../../types/command.js';
 import { antiCheatManager } from '../../core/anticheat/AntiCheatManager.js';
 
@@ -15,7 +15,7 @@ const checkCommand: SlashCommand = {
 
     async execute(interaction: ChatInputCommandInteraction): Promise<void> {
         if (!interaction.guild) {
-            await interaction.reply({ content: 'このコマンドはサーバー内でのみ使用できます。', flags: MessageFlags.Ephemeral });
+            await interaction.reply({ content: 'このコマンドはサーバー内でのみ使用できます。', ephemeral: true });
             return;
         }
 
@@ -64,10 +64,10 @@ const checkCommand: SlashCommand = {
                 )
                 .setTimestamp();
 
-            await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
+            await interaction.reply({ embeds: [embed], ephemeral: true });
         } catch (error) {
             console.error('Error in /check command:', error);
-            await interaction.reply({ content: '信頼スコアの取得中にエラーが発生しました。', flags: MessageFlags.Ephemeral });
+            await interaction.reply({ content: '信頼スコアの取得中にエラーが発生しました。', ephemeral: true });
         }
     }
 };

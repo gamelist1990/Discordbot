@@ -1,4 +1,4 @@
-import { SlashCommandBuilder, ChatInputCommandInteraction, MessageFlags, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
+import { SlashCommandBuilder, ChatInputCommandInteraction, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
 import { SlashCommand } from '../../types/command.js';
 import { PermissionLevel } from '../../web/types/permission.js';
 import { config } from '../../config.js';
@@ -25,7 +25,7 @@ const webCommand: SlashCommand = {
         await interaction.reply({ 
             content: '以下のボタンからWebインターフェースにアクセスできます：',
             components: [row],
-            flags: MessageFlags.Ephemeral 
+            ephemeral: true 
         });
     }
 };

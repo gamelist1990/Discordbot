@@ -222,7 +222,20 @@ export class Database {
      * @returns 完全なファイルパス
      */
     private getFilePath(key: string): string {
-        return path.join(this.dataDir, `${key}.json`);
+        // normalize key and prevent directory traversal
+        // If key is absolute path, strip leading separators
+        const safeKey = key.replace(/^([A-Za-z]:)?[\\/]+/, '');
+
+        // construct the intended file path and resolve it
+        const filePath = path.resolve(this.dataDir, `${safeKey}.json`);
+
+        // ensure the resolved file path is within our data directory
+        const resolvedDataDir = path.resolve(this.dataDir);
+        if (!filePath.startsWith(resolvedDataDir + path.sep) && filePath !== resolvedDataDir) {
+            throw new Error('Invalid database key (path traversal attempt detected)');
+        }
+
+        return filePath;
     }
 
     /**

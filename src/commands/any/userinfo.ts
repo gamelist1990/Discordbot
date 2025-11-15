@@ -1,4 +1,4 @@
-import { SlashCommandBuilder, ChatInputCommandInteraction, EmbedBuilder, MessageFlags } from 'discord.js';
+import { SlashCommandBuilder, ChatInputCommandInteraction, EmbedBuilder } from 'discord.js';
 import { SlashCommand } from '../../types/command.js';
 import { PermissionLevel } from '../../web/types/permission.js';
 
@@ -23,7 +23,7 @@ const userinfoCommand: SlashCommand = {
         if (!interaction.guild) {
             await interaction.reply({ 
                 content: 'このコマンドはサーバー内でのみ使用できます。', 
-                flags: MessageFlags.Ephemeral 
+                ephemeral: true 
             });
             return;
         }
@@ -34,7 +34,7 @@ const userinfoCommand: SlashCommand = {
         if (!member) {
             await interaction.reply({ 
                 content: 'ユーザー情報を取得できませんでした。', 
-                flags: MessageFlags.Ephemeral 
+                ephemeral: true 
             });
             return;
         }

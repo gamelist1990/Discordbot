@@ -48,13 +48,12 @@ export const executeModalHandler = async (interaction: ModalSubmitInteraction): 
     } catch (error) {
         Logger.error(`❌ Modal ハンドラー実行エラー [${interaction.customId}]:`, error);
 
-        const { MessageFlags } = await import('discord.js');
         const errorMessage = 'モーダルの処理中にエラーが発生しました。';
         
         if (interaction.replied || interaction.deferred) {
             await interaction.editReply({ content: errorMessage }).catch(() => {});
         } else {
-            await interaction.reply({ content: errorMessage, flags: MessageFlags.Ephemeral }).catch(() => {});
+            await interaction.reply({ content: errorMessage, ephemeral: true }).catch(() => {});
         }
         return false;
     }

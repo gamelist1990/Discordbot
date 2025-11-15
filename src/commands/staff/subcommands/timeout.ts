@@ -1,4 +1,4 @@
-import { ChatInputCommandInteraction, PermissionFlagsBits, EmbedBuilder, MessageFlags } from 'discord.js';
+import { ChatInputCommandInteraction, PermissionFlagsBits, EmbedBuilder } from 'discord.js';
 import { SlashCommandSubcommandBuilder, SlashCommandUserOption, SlashCommandStringOption } from 'discord.js';
 
 export default {
@@ -52,7 +52,7 @@ export default {
         const durationStr = interaction.options.getString('duration', false);
         const reason = interaction.options.getString('reason', false) || `Command by ${interaction.user.tag}`;
 
-        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        await interaction.deferReply({ ephemeral: true });
 
         try {
             const member = await interaction.guild.members.fetch(user.id).catch(() => null);

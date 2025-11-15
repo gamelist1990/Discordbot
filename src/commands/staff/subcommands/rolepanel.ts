@@ -11,7 +11,6 @@ import {
     SlashCommandChannelOption,
     ButtonInteraction,
     GuildMemberRoleManager,
-    MessageFlags,
     StringSelectMenuBuilder,
     StringSelectMenuInteraction,
     StringSelectMenuOptionBuilder
@@ -65,7 +64,7 @@ export default {
             if (!interaction.guild || interaction.guild.id !== guildId) {
                 await interaction.reply({
                     content: '❌ このパネルは別のサーバー用です。',
-                    flags: MessageFlags.Ephemeral
+                    ephemeral: true
                 });
                 return;
             }
@@ -74,7 +73,7 @@ export default {
             if (!member) {
                 await interaction.reply({
                     content: '❌ メンバー情報を取得できませんでした。',
-                    flags: MessageFlags.Ephemeral
+                    ephemeral: true
                 });
                 return;
             }
@@ -84,7 +83,7 @@ export default {
             if (!preset) {
                 await interaction.reply({
                     content: '❌ このプリセットは削除されました。',
-                    flags: MessageFlags.Ephemeral
+                    ephemeral: true
                 });
                 return;
             }
@@ -110,7 +109,7 @@ export default {
             } else {
                 await interaction.reply({
                     content: `❌ エラー: ${errorMsg}`,
-                    flags: MessageFlags.Ephemeral
+                    ephemeral: true
                 });
             }
         }
@@ -146,7 +145,7 @@ export default {
         if (options.length === 0) {
             await interaction.reply({
                 content: '❌ 選択可能なロールが見つかりません。',
-                flags: MessageFlags.Ephemeral
+                ephemeral: true
             });
             return;
         }
@@ -169,7 +168,7 @@ export default {
         await interaction.reply({
             content: `🎭 **${preset.name}** - ロールを選択してください`,
             components: [row],
-            flags: MessageFlags.Ephemeral
+            ephemeral: true
         });
     },
 
@@ -244,7 +243,7 @@ export default {
         if (!interaction.guild) {
             await interaction.reply({
                 content: '❌ このコマンドはサーバー内でのみ使用できます。',
-                flags: MessageFlags.Ephemeral
+                ephemeral: true
             });
             return;
         }
@@ -254,7 +253,7 @@ export default {
         if (!botMember || !botMember.permissions.has(PermissionFlagsBits.ManageRoles)) {
             await interaction.reply({
                 content: '❌ Botに「ロールの管理」権限がありません。',
-                flags: MessageFlags.Ephemeral
+                ephemeral: true
             });
             return;
         }
@@ -268,12 +267,12 @@ export default {
         if (!targetChannel || !isTextChannel) {
             await interaction.reply({
                 content: '❌ 有効なテキストチャンネルを指定してください。',
-                flags: MessageFlags.Ephemeral
+                ephemeral: true
             });
             return;
         }
 
-        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        await interaction.deferReply({ ephemeral: true });
 
         try {
             // プリセットを取得

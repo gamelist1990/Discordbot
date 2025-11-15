@@ -1,7 +1,6 @@
 import {
     ChatInputCommandInteraction,
     ModalSubmitInteraction,
-    MessageFlags,
     EmbedBuilder,
     TextInputStyle
 } from 'discord.js';
@@ -38,7 +37,7 @@ export const handleStaffInfoModal = async (interaction: ModalSubmitInteraction):
         if (!message) {
             await interaction.reply({
                 content: '❌ メッセージを入力してください。',
-                flags: MessageFlags.Ephemeral
+                ephemeral: true
             });
             return;
         }
@@ -48,7 +47,7 @@ export const handleStaffInfoModal = async (interaction: ModalSubmitInteraction):
         if (!channel || !('send' in channel)) {
             await interaction.reply({
                 content: '❌ テキストチャンネルで実行してください。',
-                flags: MessageFlags.Ephemeral
+                ephemeral: true
             });
             return;
         }
@@ -66,7 +65,7 @@ export const handleStaffInfoModal = async (interaction: ModalSubmitInteraction):
 
             await interaction.reply({
                 content: '✅ アナウンスを送信しました（Embed形式）',
-                flags: MessageFlags.Ephemeral
+                ephemeral: true
             });
         } else {
             await (channel as any).send(message);
@@ -74,7 +73,7 @@ export const handleStaffInfoModal = async (interaction: ModalSubmitInteraction):
 
             await interaction.reply({
                 content: '✅ アナウンスを送信しました（テキスト形式）',
-                flags: MessageFlags.Ephemeral
+                ephemeral: true
             });
         }
     } catch (error) {
@@ -84,7 +83,7 @@ export const handleStaffInfoModal = async (interaction: ModalSubmitInteraction):
         if (interaction.replied || interaction.deferred) {
             await interaction.editReply({ content: errorMessage }).catch(() => {});
         } else {
-            await interaction.reply({ content: errorMessage, flags: MessageFlags.Ephemeral }).catch(() => {});
+            await interaction.reply({ content: errorMessage, ephemeral: true }).catch(() => {});
         }
     }
 };

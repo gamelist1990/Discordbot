@@ -1,4 +1,4 @@
-import { Events, Interaction, MessageFlags, StringSelectMenuInteraction, ButtonInteraction } from 'discord.js';
+import { Events, Interaction, StringSelectMenuInteraction, ButtonInteraction } from 'discord.js';
 import { BotClient } from './BotClient.js';
 import { CommandRegistry } from './CommandRegistry.js';
 import { EnhancedSlashCommand } from '../types/enhanced-command.js';
@@ -154,7 +154,7 @@ export class EventHandler {
                 if (command.guildOnly && !interaction.guild) {
                     await interaction.reply({ 
                         content: '❌ このコマンドはサーバー内でのみ使用できます。', 
-                        flags: MessageFlags.Ephemeral 
+                        ephemeral: true
                     });
                     return;
                 }
@@ -177,7 +177,7 @@ export class EventHandler {
 
                         await interaction.reply({ 
                             content: `❌ このコマンドを実行する権限がありません。（必要権限: ${command.permissionLevel}）`, 
-                            flags: MessageFlags.Ephemeral 
+                            ephemeral: true
                         });
                         return;
                     }
@@ -201,7 +201,7 @@ export class EventHandler {
 
                         await interaction.reply({
                             content: `⏳ クールダウン中です。${timeLeft.toFixed(1)}秒後に再実行できます。`,
-                            flags: MessageFlags.Ephemeral
+                            ephemeral: true
                         });
                         return;
                     }
@@ -243,9 +243,9 @@ export class EventHandler {
                 const errorMessage = 'コマンドの実行中にエラーが発生しました。';
                 
                 if (interaction.replied || interaction.deferred) {
-                    await interaction.followUp({ content: errorMessage, flags: MessageFlags.Ephemeral }).catch(() => {});
+                    await interaction.followUp({ content: errorMessage, ephemeral: true }).catch(() => {});
                 } else {
-                    await interaction.reply({ content: errorMessage, flags: MessageFlags.Ephemeral }).catch(() => {});
+                    await interaction.reply({ content: errorMessage, ephemeral: true }).catch(() => {});
                 }
             }
         });

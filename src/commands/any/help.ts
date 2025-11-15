@@ -1,4 +1,4 @@
-import { SlashCommandBuilder, ChatInputCommandInteraction, EmbedBuilder, MessageFlags } from 'discord.js';
+import { SlashCommandBuilder, ChatInputCommandInteraction, EmbedBuilder } from 'discord.js';
 import { CommandRegistry } from '../../core/CommandRegistry.js';
 import { SlashCommand } from '../../types/command.js';
 import { PermissionLevel } from '../../web/types/permission.js';
@@ -32,7 +32,7 @@ const helpCommand: SlashCommand = {
         if (commands.length === 0) {
             await interaction.reply({ 
                 content: '❌ 登録されているコマンドがありません。', 
-                flags: MessageFlags.Ephemeral 
+                ephemeral: true 
             });
             return;
         }
@@ -81,7 +81,7 @@ const helpCommand: SlashCommand = {
             }
         }
 
-        await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
+        await interaction.reply({ embeds: [embed], ephemeral: true });
     }
 };
 

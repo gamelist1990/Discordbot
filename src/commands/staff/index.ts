@@ -1,7 +1,7 @@
 import { 
     SlashCommandBuilder, 
     ChatInputCommandInteraction, 
-    MessageFlags
+    // MessageFlags
 } from 'discord.js';
 import fs from 'fs/promises';
 import path from 'path';
@@ -145,7 +145,7 @@ async function buildStaffCommand(): Promise<SlashCommand> {
                 // 不明なサブコマンド
                 await interaction.reply({
                     content: `❌ 不明なサブコマンド: ${subcommand}`,
-                    flags: MessageFlags.Ephemeral
+                    ephemeral: true
                 });
             } catch (error) {
                 console.error(`Staff command error (${subcommand}):`, error);
@@ -160,7 +160,7 @@ async function buildStaffCommand(): Promise<SlashCommand> {
                 } else {
                     await interaction.reply({
                         content: `❌ コマンドの実行中にエラーが発生しました: ${errorMessage}`,
-                        flags: MessageFlags.Ephemeral
+                        ephemeral: true
                     });
                 }
             }

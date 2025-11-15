@@ -1,4 +1,4 @@
-import { ChatInputCommandInteraction, MessageFlags, EmbedBuilder } from 'discord.js';
+import { ChatInputCommandInteraction, EmbedBuilder } from 'discord.js';
 import config from '../../config';
 import { PermissionLevel } from '../../web/types/permission.js';
 
@@ -20,7 +20,7 @@ export const commandHandler = {
         if (!interaction.guild) {
             await interaction.reply({
                 content: '❌ このコマンドはサーバー内でのみ使用できます。',
-                flags: MessageFlags.Ephemeral
+                ephemeral: true
             });
             return;
         }
@@ -74,7 +74,7 @@ export const commandHandler = {
                         ]
                     }
                 ],
-                flags: MessageFlags.Ephemeral
+                ephemeral: true
             });
 
             console.log(`Todo URL送信: ${interaction.user.tag} (guild: ${guildId})`);
@@ -82,7 +82,7 @@ export const commandHandler = {
             console.error('Todo コマンドエラー:', error);
             await interaction.reply({
                 content: '❌ Todo URLの送信中にエラーが発生しました。',
-                flags: MessageFlags.Ephemeral
+                ephemeral: true
             });
         }
     }

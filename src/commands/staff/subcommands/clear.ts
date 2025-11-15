@@ -1,4 +1,4 @@
-import { ChatInputCommandInteraction, TextChannel, PermissionFlagsBits, MessageFlags } from 'discord.js';
+import { ChatInputCommandInteraction, TextChannel, PermissionFlagsBits } from 'discord.js';
 
 export default {
     name: 'clear',
@@ -17,7 +17,7 @@ export default {
 
     async execute(interaction: ChatInputCommandInteraction): Promise<void> {
         if (!interaction.guild) {
-            await interaction.reply({ content: '❌ このコマンドはサーバー内でのみ使用できます。', flags: MessageFlags.Ephemeral });
+            await interaction.reply({ content: '❌ このコマンドはサーバー内でのみ使用できます。', ephemeral: true });
             return;
         }
 
@@ -25,22 +25,22 @@ export default {
         const channel = interaction.channel as TextChannel | null;
 
         if (!channel) {
-            await interaction.reply({ content: '❌ このチャンネルで実行できません。', flags: MessageFlags.Ephemeral });
+            await interaction.reply({ content: '❌ このチャンネルで実行できません。', ephemeral: true });
             return;
         }
 
         if (!interaction.memberPermissions?.has(PermissionFlagsBits.ManageMessages)) {
-            await interaction.reply({ content: '❌ このコマンドを実行する権限がありません（Manage Messages）。', flags: MessageFlags.Ephemeral });
+            await interaction.reply({ content: '❌ このコマンドを実行する権限がありません（Manage Messages）。', ephemeral: true });
             return;
         }
 
         const count = interaction.options.getInteger('count', true);
         if (isNaN(count) || count < 1 || count > 100) {
-            await interaction.reply({ content: '❌ 削除数は 1〜100 の間で指定してください。', flags: MessageFlags.Ephemeral });
+            await interaction.reply({ content: '❌ 削除数は 1〜100 の間で指定してください。', ephemeral: true });
             return;
         }
 
-        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+        await interaction.deferReply({ ephemeral: true });
 
         try {
             // bulkDelete は 14日より古いメッセージは削除できない点に注意

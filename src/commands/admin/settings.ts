@@ -1,4 +1,4 @@
-import { SlashCommandBuilder, ChatInputCommandInteraction, PermissionFlagsBits, MessageFlags } from 'discord.js';
+import { SlashCommandBuilder, ChatInputCommandInteraction, PermissionFlagsBits } from 'discord.js';
 import { SlashCommand } from '../../types/command.js';
 import { PermissionLevel } from '../../web/types/permission.js';
 
@@ -20,7 +20,7 @@ const settingsCommand: SlashCommand = {
             if (!interaction.guildId) {
                 await interaction.reply({
                     content: '❌ このコマンドはサーバー内でのみ使用できます。',
-                    flags: MessageFlags.Ephemeral,
+                        ephemeral: true,
                 });
                 return;
             }
@@ -29,7 +29,7 @@ const settingsCommand: SlashCommand = {
             if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) {
                 await interaction.reply({
                     content: '❌ このコマンドを実行するには管理者権限が必要です。',
-                    flags: MessageFlags.Ephemeral,
+                        ephemeral: true,
                 });
                 return;
             }
@@ -41,13 +41,13 @@ const settingsCommand: SlashCommand = {
                          `以下のURLから管理サーバー一覧・設定画面にアクセスできます：\n` +
                          `${settingsUrl}\n\n` +
                          `※このURLは常時有効です。Discordアカウントで認証後、管理権限のあるサーバーのみ設定できます。`,
-                flags: MessageFlags.Ephemeral,
+                    ephemeral: true,
             });
         } catch (error) {
             console.error('設定コマンドエラー:', error);
             await interaction.reply({
                 content: '❌ 設定URLの生成中にエラーが発生しました。',
-                flags: MessageFlags.Ephemeral,
+                    ephemeral: true,
             });
         }
     },

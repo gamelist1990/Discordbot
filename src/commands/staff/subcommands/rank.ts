@@ -4,7 +4,6 @@ import {
     PermissionFlagsBits,
     ChannelType,
     SlashCommandSubcommandBuilder,
-    MessageFlags,
     TextChannel
 } from 'discord.js';
 import { rankManager } from '../../../core/RankManager.js';
@@ -68,7 +67,7 @@ export default {
         if (!interaction.guild) {
             await interaction.reply({
                 content: '❌ このコマンドはサーバー内でのみ使用できます。',
-                flags: MessageFlags.Ephemeral
+                ephemeral: true
             });
             return;
         }
@@ -78,7 +77,7 @@ export default {
         if (!member?.permissions.has(PermissionFlagsBits.ManageGuild)) {
             await interaction.reply({
                 content: '❌ このコマンドを使用するには「サーバー管理」権限が必要です。',
-                flags: MessageFlags.Ephemeral
+                ephemeral: true
             });
             return;
         }
@@ -109,7 +108,7 @@ export default {
                 default:
                     await interaction.reply({
                         content: '❌ 不明なアクションです。',
-                        flags: MessageFlags.Ephemeral
+                        ephemeral: true
                     });
             }
         } catch (error) {
@@ -123,7 +122,7 @@ export default {
             } else {
                 await interaction.reply({
                     content: replyContent,
-                    flags: MessageFlags.Ephemeral
+                    ephemeral: true
                 });
             }
         }
@@ -134,7 +133,7 @@ export default {
  * プリセット一覧を表示
  */
 async function handleListPresets(interaction: ChatInputCommandInteraction, guildId: string): Promise<void> {
-    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    await interaction.deferReply({ ephemeral: true });
 
     const data = await rankManager.getRankingData(guildId);
 
@@ -167,7 +166,7 @@ async function handleListPresets(interaction: ChatInputCommandInteraction, guild
  * ランクパネルを作成
  */
 async function handleCreatePanel(interaction: ChatInputCommandInteraction, guildId: string): Promise<void> {
-    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    await interaction.deferReply({ ephemeral: true });
 
     const presetName = interaction.options.getString('preset') || 'default';
     const channel = interaction.options.getChannel('channel') as TextChannel || interaction.channel as TextChannel;
@@ -226,7 +225,7 @@ async function handleCreatePanel(interaction: ChatInputCommandInteraction, guild
  * パネルを削除
  */
 async function handleDeletePanel(interaction: ChatInputCommandInteraction, guildId: string): Promise<void> {
-    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    await interaction.deferReply({ ephemeral: true });
 
     const data = await rankManager.getRankingData(guildId);
     const panelIds = Object.keys(data.panels);
@@ -270,7 +269,7 @@ async function handleDeletePanel(interaction: ChatInputCommandInteraction, guild
  * ユーザーにXPを付与
  */
 async function handleAddXp(interaction: ChatInputCommandInteraction, guildId: string): Promise<void> {
-    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    await interaction.deferReply({ ephemeral: true });
 
     const user = interaction.options.getUser('user');
     const xp = interaction.options.getInteger('value');
@@ -330,7 +329,7 @@ async function handleSetXp(interaction: ChatInputCommandInteraction, guildId: st
  * ランキングを表示
  */
 async function handleShowRanking(interaction: ChatInputCommandInteraction, guildId: string): Promise<void> {
-    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    await interaction.deferReply({ ephemeral: true });
 
     const leaderboard = await rankManager.getLeaderboard(guildId, 10);
 

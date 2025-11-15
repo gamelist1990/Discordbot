@@ -1,4 +1,4 @@
-import { SlashCommandBuilder, ChatInputCommandInteraction, EmbedBuilder, MessageFlags } from 'discord.js';
+import { SlashCommandBuilder, ChatInputCommandInteraction, EmbedBuilder } from 'discord.js';
 import { SlashCommand } from '../../types/command.js';
 import { PermissionLevel } from '../../web/types/permission.js';
 import { rankManager } from '../../core/RankManager.js';
@@ -24,7 +24,7 @@ const rankCommand: SlashCommand = {
         if (!interaction.guild) {
             await interaction.reply({ 
                 content: 'このコマンドはサーバー内でのみ使用できます。', 
-                flags: MessageFlags.Ephemeral 
+                ephemeral: true 
             });
             return;
         }
