@@ -35,8 +35,8 @@ const TriggerManager: React.FC = () => {
     })();
 
     const [triggers, setTriggers] = useState<Trigger[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
+    const [, setLoading] = useState(true);
+    const [, setError] = useState<string | null>(null);
     const [guildId, setGuildId] = useState<string>('');
     const [guilds, setGuilds] = useState<Guild[]>([]);
     const [loadingGuilds, setLoadingGuilds] = useState(true);
@@ -58,7 +58,7 @@ const TriggerManager: React.FC = () => {
             credentials: 'include'
         })
             .then(res => res.json())
-            .then(async (data) => {
+            .then(async () => {
                 // Try to fetch accessible guilds first
                 try {
                     const res = await fetch('/api/staff/guilds', {
@@ -80,7 +80,7 @@ const TriggerManager: React.FC = () => {
                         
                         // Check if saved guild exists in fetched guilds
                         let selectedGuildId = '';
-                        if (savedGuildId && fetchedGuilds.some(g => g.id === savedGuildId)) {
+                        if (savedGuildId && fetchedGuilds.some((g: any) => g.id === savedGuildId)) {
                             selectedGuildId = savedGuildId;
                         } else {
                             // Use first available guild

@@ -332,6 +332,8 @@ const MinecraftViewerEnhanced = () => {
     } catch (e) { setIsMobile(false); }
   }, []);
   const [screenshotPreview, setScreenshotPreview] = useState<string | null>(null);
+  const [isExportingImage, setIsExportingImage] = useState<boolean>(false);
+  const [isExportingGLB, setIsExportingGLB] = useState<boolean>(false);
 
   const openImageForSaveMobile = async () => {
     try {
@@ -386,6 +388,69 @@ const MinecraftViewerEnhanced = () => {
     } catch (e) {
       console.error('openImageForSaveMobile failed', e);
       setError('画像生成に失敗しました');
+    }
+  };
+
+  const exportImageHighRes = async (scale?: number) => {
+    try {
+      setIsExportingImage(true);
+      if (!viewerRef.current) { setError('ビューアが準備されていません'); return; }
+      const blob = await viewerRef.current.exportImage?.(scale);
+      if (!blob) { setError('画像のエクスポートに失敗しました'); return; }
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `minecraft_skin_${new Date().toISOString().slice(0,19).replace(/:/g,'-')}.png`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      setError(null);
+    } catch (e) {
+      console.error('exportImageHighRes failed', e);
+      setError('画像のエクスポートに失敗しました');
+    }
+    finally {
+      setIsExportingImage(false);
+    }
+  };
+
+  const exportGLBHandler = async () => {
+    try {
+      setIsExportingGLB(true);
+      if (!viewerRef.current) { setError('ビューアが準備されていません'); return; }
+      // Quick check: if viewer does not expose a skinned mesh, warn the user that bones won't be included
+      try {
+        const internal = viewerRef.current._viewer;
+        let foundSkinned = false;
+        if (internal && typeof internal.traverse === 'function') {
+          internal.traverse((o: any) => { if (!foundSkinned && o && o.isSkinnedMesh) foundSkinned = true; });
+        }
+        if (!foundSkinned) {
+          const ok = confirm('このモデルにはスキンのスケルトン（ボーン）が含まれていない可能性があります。GLB（glTF）にボーンが含まれない場合がありますが続行しますか？');
+          if (!ok) { setIsExportingGLB(false); return; }
+        }
+      } catch (e) { /* non-critical */ }
+      // call wrapper export
+      // Prefer GLB exporter (glTF binary). Older viewer APIs still exportFBX alias -> GLB.
+      const blob = await viewerRef.current.exportGLB?.({ includeBones: true }) ?? await viewerRef.current.exportFBX?.({ includeBones: true });
+      if (!blob) { setError('モデルのエクスポートに失敗しました'); return; }
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const ext = blob.type === 'model/gltf-binary' ? 'glb' : 'bin';
+      a.download = `minecraft_model_${new Date().toISOString().slice(0,19).replace(/:/g,'-')}.${ext}`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      setError(null);
+    } catch (e) {
+      console.error('exportGLBHandler failed', e);
+      setError('モデルのエクスポートに失敗しました');
+    }
+    finally {
+      setIsExportingGLB(false);
     }
   };
 
@@ -1040,6 +1105,10 @@ const MinecraftViewerEnhanced = () => {
               <div style={{ marginTop: 12 }}>
                 <button className="btn btn-primary" onClick={() => viewerRef.current?.setFrontView?.()}>前面表示</button>
                 <button className="btn btn-secondary btn-small" style={{ marginLeft: 8 }} onClick={() => resetView()}>リセット</button>
+                <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
+                  <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => exportImageHighRes(2)} disabled={isExportingImage}>{isExportingImage ? '書き出し中...' : 'PNG 2x'}</button>
+                  <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => exportGLBHandler()} disabled={isExportingGLB}>{isExportingGLB ? '書き出し中...' : '📦 GLB'}</button>
+                </div>
               </div>
             </div>
           )}
@@ -1070,6 +1139,15 @@ const MinecraftViewerEnhanced = () => {
                     </button>
                   </div>
                 )}
+                <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                  <button className="btn btn-secondary" onClick={() => exportImageHighRes(1)} style={{ flex: 1 }} disabled={isExportingImage}>{isExportingImage ? '書き出し中...' : 'PNG 1x'}</button>
+                  <button className="btn btn-secondary" onClick={() => exportImageHighRes(2)} style={{ flex: 1 }} disabled={isExportingImage}>{isExportingImage ? '書き出し中...' : 'PNG 2x'}</button>
+                  <button className="btn btn-secondary" onClick={() => exportImageHighRes(4)} style={{ flex: 1 }} disabled={isExportingImage}>{isExportingImage ? '書き出し中...' : 'PNG 4x'}</button>
+                </div>
+                <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                  <button className="btn btn-secondary" onClick={() => exportGLBHandler()} style={{ width: '100%' }} disabled={isExportingGLB}>{isExportingGLB ? '書き出し中...' : '📦 GLBでダウンロード (.glb)'}</button>
+                </div>
+                <div style={{ marginTop: 6, fontSize: 12, color: 'var(--muted)' }}>※ 注意: ボーン(スケルトン)は viewer が SkinnedMesh として提供している場合に含まれます。含まれていない場合はボーンなしのメッシュ単体で出力されます。</div>
               </div>
 
               {/* Save Current Preset */}

@@ -29,6 +29,12 @@ export type SkinViewerHandle = {
   loadPanorama?: (url: string) => Promise<void>;
   // Screenshot functionality
   takeScreenshot?: () => Promise<string>;
+  // Export high-resolution image Blob (png). scale is optional number factor (e.g. 2 for 2x)
+  exportImage?: (scale?: number) => Promise<Blob | null>;
+  // Export viewer object (player model) to glTF binary (GLB). Options: includeBones (include skeleton if present)
+  exportFBX?: (opts?: { binary?: boolean, includeBones?: boolean }) => Promise<Blob | null>;
+  // glTF binary (GLB) exporter rather than FBX. Recommend using GLB for Blender compatibility.
+  exportGLB?: (opts?: { includeBones?: boolean }) => Promise<Blob | null>;
   // Camera state management
   getCameraState?: () => { position: { x: number; y: number; z: number }; target: { x: number; y: number; z: number }; zoom: number; fov: number } | null;
   setCameraState?: (state: { position: { x: number; y: number; z: number }; target: { x: number; y: number; z: number }; zoom: number; fov: number }) => void;
@@ -1112,5 +1118,126 @@ export async function createSkin3dViewer(container: HTMLElement, opts?: { skin?:
     });
   }
 
-  return { loadSkin, destroy, el, setFrontView, setZoom, setRotation, setAutoRotate, enableControls, setPoseMode, setFov, setPartRotation, enablePartPicking, setOnPartSelected, getCurrentPartRotation, setBackgroundColor, loadBackground, loadPanorama, takeScreenshot, getCameraState, setCameraState, getPoseState, setPoseState, setPartVisibility, togglePartVisibility, isPartVisible, _viewer: viewer };
+  // Export higher-resolution image Blob (PNG). Optionally rescale by 'scale' (e.g. 2 -> 2x image dimensions).
+  async function exportImage(scale?: number): Promise<Blob | null> {
+    try {
+      if (!viewer) return null;
+      const anyViewer: any = viewer;
+
+      // Acquire renderer
+      let renderer: any = anyViewer.renderer || anyViewer._renderer || (anyViewer.view && anyViewer.view.renderer) || null;
+      if (!renderer) {
+        // Try the deep search fallback used in takeScreenshot
+        const visited = new Set();
+        const findRenderer = (obj: any): any => {
+          if (!obj || typeof obj !== 'object' || visited.has(obj)) return null;
+          visited.add(obj);
+          try { if (obj.isWebGLRenderer || (obj.domElement && obj.getContext)) return obj; } catch (e) {}
+          for (const key in obj) {
+            if (!Object.prototype.hasOwnProperty.call(obj, key)) continue;
+            if (key === 'parent' || key === '__proto__') continue;
+            try { const res = findRenderer(obj[key]); if (res) return res; } catch (e) {}
+          }
+          return null;
+        };
+        renderer = findRenderer(anyViewer);
+      }
+      if (!renderer || !renderer.domElement) return null;
+
+      const canvas: HTMLCanvasElement = renderer.domElement as HTMLCanvasElement;
+      // const devicePixelRatio = (window && window.devicePixelRatio) || 1; // unused
+
+      const oldWidth = canvas.width;
+      const oldHeight = canvas.height;
+      const oldSize = { w: oldWidth, h: oldHeight };
+      // compute new size if scale provided
+      let targetW = oldWidth;
+      let targetH = oldHeight;
+      if (scale && typeof scale === 'number' && scale > 0) {
+        targetW = Math.max(1, Math.floor(oldWidth * scale));
+        targetH = Math.max(1, Math.floor(oldHeight * scale));
+      }
+      try {
+        if (targetW !== oldWidth || targetH !== oldHeight) {
+          renderer.setSize && renderer.setSize(targetW, targetH, false);
+          // wait a frame to allow renderer to resize
+          await new Promise(r => requestAnimationFrame(r));
+        }
+      } catch (e) { /* non-critical */ }
+
+      // Reuse takeScreenshot for best-effort pixel read/taint handling
+      const dataUrl = await takeScreenshot();
+      if (!dataUrl || typeof dataUrl !== 'string') {
+        // restore size
+        try { renderer.setSize && renderer.setSize(oldSize.w, oldSize.h, false); } catch (e) {}
+        return null;
+      }
+      // Convert dataURL to blob
+      const parts = dataUrl.split(',');
+      const meta = parts[0] || '';
+      const b64 = parts[1] || '';
+      const m = meta.match(/:(.*?);/);
+      const mime = m ? m[1] : 'image/png';
+      const binary = atob(b64);
+      const len = binary.length;
+      const u8 = new Uint8Array(len);
+      for (let i = 0; i < len; i++) u8[i] = binary.charCodeAt(i);
+      const blob = new Blob([u8], { type: mime });
+
+      // restore size
+      try { renderer.setSize && renderer.setSize(oldSize.w, oldSize.h, false); } catch (e) {}
+      return blob;
+    } catch (e) {
+      console.debug('exportImage failed', e);
+      return null;
+    }
+  }
+
+  // Export the viewer model (or specified internal root) to glTF binary (GLB).
+  async function exportGLB(opts?: { includeBones?: boolean }): Promise<Blob | null> {
+    try {
+      if (!viewer) return null;
+      const anyViewer: any = viewer;
+      const { GLTFExporter } = await import('three/examples/jsm/exporters/GLTFExporter.js');
+      const gltfExporter = new GLTFExporter();
+      const target = anyViewer.playerObject?.skin || anyViewer.playerWrapper || anyViewer.model || anyViewer.playerObject || anyViewer;
+      if (!target) {
+        console.warn('No exportable scene object found inside viewer for GLB export');
+        return null;
+      }
+
+      // Check if SkinnedMesh present when includeBones is requested
+      const includeBones = opts?.includeBones !== false;
+      let foundSkinned = false;
+      if (includeBones) {
+        if (typeof target.traverse === 'function') {
+          target.traverse((o: any) => { if (!foundSkinned && o && o.isSkinnedMesh) foundSkinned = true; });
+        }
+      }
+      if (includeBones && !foundSkinned) {
+        console.debug('exportGLB: includeBones requested but no SkinnedMesh found — resulting GLB may lack a skeleton');
+      }
+
+      const gltfBuffer: ArrayBuffer = await new Promise((resolve, reject) => {
+        try {
+          // Many versions of GLTFExporter.parse accept (input, onCompleted, onError, options)
+          // Use onError=null and pass options as 4th arg to avoid typed overload mismatches.
+          (gltfExporter.parse as any)(target, (res: any) => {
+            if (res instanceof ArrayBuffer) resolve(res); else resolve(res as ArrayBuffer);
+          }, undefined, { binary: true });
+        } catch (err) { reject(err); }
+      });
+      return new Blob([gltfBuffer], { type: 'model/gltf-binary' });
+    } catch (e) {
+      console.error('exportGLB failed', e);
+      return null;
+    }
+  }
+
+  // For backwards compatibility, alias exportFBX to exportGLB (glTF-binary) as FBX is not necessary
+  const exportFBXAlias = async (opts?: { binary?: boolean; includeBones?: boolean }) => {
+    // includeBones flagged in old API maps to new includeBones behavior
+    return await exportGLB({ includeBones: opts?.includeBones });
+  };
+  return { loadSkin, destroy, el, setFrontView, setZoom, setRotation, setAutoRotate, enableControls, setPoseMode, setFov, setPartRotation, enablePartPicking, setOnPartSelected, getCurrentPartRotation, setBackgroundColor, loadBackground, loadPanorama, takeScreenshot, exportImage, exportFBX: exportFBXAlias, exportGLB, getCameraState, setCameraState, getPoseState, setPoseState, setPartVisibility, togglePartVisibility, isPartVisible, _viewer: viewer };
 }
