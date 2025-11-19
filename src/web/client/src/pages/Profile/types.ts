@@ -15,6 +15,7 @@ export type Card = {
     color?: string;
     align?: 'left' | 'center' | 'right';
     fontWeight?: string;
+    fontFamily?: string;
     [key: string]: any;
   };
 };

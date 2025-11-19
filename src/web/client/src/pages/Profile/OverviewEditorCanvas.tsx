@@ -1,5 +1,6 @@
 import React from 'react';
 import { Rnd } from 'react-rnd';
+import { motion, AnimatePresence } from 'framer-motion';
 import { Card } from './types';
 import styles from './ProfileSettings.module.css';
 
@@ -75,9 +76,11 @@ const OverviewEditorCanvas: React.FC<OverviewEditorCanvasProps> = ({
             opacity: card.opacity ?? 1,
             transform: `rotate(${card.rotation || 0}deg)`,
             padding: '4px',
-            overflow: 'auto',
+            overflow: 'hidden',
             userSelect: 'none',
             pointerEvents: 'none',
+            whiteSpace: 'pre-wrap',
+            fontFamily: card.meta?.fontFamily || 'inherit',
           }}
         >
           {card.content}
@@ -89,44 +92,34 @@ const OverviewEditorCanvas: React.FC<OverviewEditorCanvasProps> = ({
 
   return (
     <div className={styles.editorContainer}>
-      <div className={styles.editorToolbar}>
+      <AnimatePresence>
         {selectedId && (
-          <>
-            <button
-              onClick={() => onDuplicateCard?.(selectedId)}
-              className={styles.toolButton}
-              title="複製"
-            >
+          <motion.div 
+            className={styles.editorToolbar}
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.2 }}
+          >
+            <button onClick={() => onDuplicateCard?.(selectedId)} className={styles.toolButton} title="複製">
               <span className="material-icons">content_copy</span>
             </button>
-            <button
-              onClick={() => onDeleteCard?.(selectedId)}
-              className={styles.toolButton}
-              title="削除"
-            >
-              <span className="material-icons">delete</span>
-            </button>
-            <button
-              onClick={() => onBringForward?.(selectedId)}
-              className={styles.toolButton}
-              title="前面へ"
-            >
+            <button onClick={() => onBringForward?.(selectedId)} className={styles.toolButton} title="前面へ">
               <span className="material-icons">flip_to_front</span>
             </button>
-            <button
-              onClick={() => onSendBackward?.(selectedId)}
-              className={styles.toolButton}
-              title="背面へ"
-            >
+            <button onClick={() => onSendBackward?.(selectedId)} className={styles.toolButton} title="背面へ">
               <span className="material-icons">flip_to_back</span>
             </button>
-          </>
+            <div className={styles.toolbarDivider} />
+            <button onClick={() => onDeleteCard?.(selectedId)} className={`${styles.toolButton} ${styles.toolButtonDanger}`} title="削除">
+              <span className="material-icons">delete</span>
+            </button>
+          </motion.div>
         )}
-      </div>
+      </AnimatePresence>
 
       <div
         className={styles.canvasWrap}
-        // make canvas responsive: allow it to expand to container width on small screens
         style={{ width: '100%', maxWidth: typeof width === 'number' ? `${width}px` : width, height, position: 'relative' }}
         onClick={(e) => {
           if (e.target === e.currentTarget) {
@@ -154,7 +147,14 @@ const OverviewEditorCanvas: React.FC<OverviewEditorCanvasProps> = ({
             }`}
             onClick={() => onSelectCard(card.id)}
           >
-            {renderCardContent(card)}
+            <motion.div
+              initial={{ opacity: 0, scale: 0.8 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ duration: 0.2 }}
+              style={{ width: '100%', height: '100%' }}
+            >
+              {renderCardContent(card)}
+            </motion.div>
           </Rnd>
         ))}
       </div>

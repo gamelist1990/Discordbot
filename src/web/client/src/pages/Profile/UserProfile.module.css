@@ -1,13 +1,13 @@
-/* Twitter-like Profile UI - Responsive Design */
+/* iOS-style Profile UI - Responsive Design */
 
 .container {
-    /* Use full width layout so cards can fill the page */
     width: 100%;
     max-width: none;
     margin: 0;
-    background: #fff;
+    background: var(--ios-bg);
     min-height: 100vh;
     padding: 0;
+    color: var(--ios-text-primary);
 }
 
 /* Loading & Error States */
@@ -19,13 +19,14 @@
     justify-content: center;
     padding: 60px 20px;
     text-align: center;
+    min-height: 50vh;
 }
 
 .spinner {
     width: 40px;
     height: 40px;
-    border: 3px solid #E1E8ED;
-    border-top-color: #1DA1F2;
+    border: 3px solid var(--ios-divider);
+    border-top-color: var(--ios-blue);
     border-radius: 50%;
     animation: spin 0.8s linear infinite;
 }
@@ -36,131 +37,149 @@
 
 .errorState h2 {
     margin: 16px 0 8px;
-    color: #14171A;
+    color: var(--ios-text-primary);
+    font-weight: 600;
 }
 
 .errorState p {
-    color: #657786;
+    color: var(--ios-text-secondary);
     margin-bottom: 20px;
 }
 
 .button {
-    background: #1DA1F2;
+    background: var(--ios-blue);
     color: white;
     border: none;
     padding: 12px 24px;
     border-radius: 9999px;
-    font-weight: bold;
+    font-weight: 600;
     font-size: 15px;
     cursor: pointer;
-    transition: background 0.2s;
+    transition: transform 0.1s, opacity 0.2s;
 }
 
-.button:hover {
-    background: #1A91DA;
+.button:active {
+    transform: scale(0.96);
+    opacity: 0.9;
 }
 
 /* Banner */
 .banner {
     width: 100%;
     height: 200px;
-    background: #CFD9DE;
+    background: var(--ios-divider);
+    position: relative;
 }
 
 /* Profile Header */
 .profileHeader {
-    padding: 0 16px;
-    border-bottom: 1px solid #E1E8ED;
+    padding: 0 20px;
+    background: var(--ios-surface);
+    border-bottom: 1px solid var(--ios-divider);
+    padding-bottom: 20px;
 }
 
 .profileHeaderContent {
     display: flex;
     justify-content: space-between;
     align-items: flex-end;
-    margin-top: -75px;
-    margin-bottom: 12px;
+    margin-top: -60px;
+    margin-bottom: 16px;
+    position: relative;
 }
 
 .avatarContainer {
     position: relative;
+    z-index: 2;
 }
 
 .avatar {
-    width: 134px;
-    height: 134px;
+    width: 120px;
+    height: 120px;
     border-radius: 50%;
-    border: 4px solid #fff;
-    background: #fff;
+    border: 4px solid var(--ios-surface);
+    background: var(--ios-surface);
     display: block;
+    box-shadow: var(--ios-shadow);
+    object-fit: cover;
 }
 
 .editButton {
-    background: transparent;
-    color: #0F1419;
-    border: 1px solid #CFD9DE;
-    padding: 10px 16px;
+    background: rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    color: var(--ios-text-primary);
+    border: 1px solid var(--ios-divider);
+    padding: 8px 16px;
     border-radius: 9999px;
-    font-weight: bold;
-    font-size: 15px;
+    font-weight: 600;
+    font-size: 14px;
     cursor: pointer;
     transition: background 0.2s;
-    margin-bottom: 12px;
+    margin-bottom: 10px;
 }
 
 .editButton:hover {
-    background: rgba(15, 20, 25, 0.1);
+    background: var(--ios-divider);
 }
 
 /* Profile Info */
 .profileInfo {
-    padding-bottom: 16px;
+    padding-bottom: 8px;
 }
 
 .displayName {
-    font-size: 20px;
-    font-weight: 800;
-    color: #0F1419;
-    margin: 0 0 4px 0;
+    font-size: 24px;
+    font-weight: 700;
+    color: var(--ios-text-primary);
+    margin: 0 0 2px 0;
+    letter-spacing: -0.5px;
 }
 
 .username {
     font-size: 15px;
-    color: #536471;
+    color: var(--ios-text-secondary);
     margin: 0 0 12px 0;
 }
 
 .pronouns {
-    font-size: 15px;
-    color: #536471;
-    margin: 0 0 12px 0;
+    font-size: 14px;
+    color: var(--ios-text-secondary);
+    background: var(--ios-bg);
+    padding: 4px 8px;
+    border-radius: 6px;
+    display: inline-block;
+    margin-bottom: 12px;
 }
 
 .bio {
     font-size: 15px;
-    color: #0F1419;
-    margin: 0 0 12px 0;
+    color: var(--ios-text-primary);
+    margin: 0 0 16px 0;
     white-space: pre-wrap;
     word-wrap: break-word;
+    line-height: 1.5;
 }
 
 .metadata {
     display: flex;
     flex-wrap: wrap;
-    gap: 12px;
-    margin-bottom: 12px;
+    gap: 16px;
+    margin-bottom: 16px;
 }
 
 .metaItem {
     display: flex;
     align-items: center;
-    gap: 4px;
-    font-size: 15px;
-    color: #536471;
+    gap: 6px;
+    font-size: 14px;
+    color: var(--ios-text-secondary);
     text-decoration: none;
+    transition: color 0.2s;
 }
 
 .metaItem:hover {
-    text-decoration: underline;
+    color: var(--ios-blue);
 }
 
 .metaItem .material-icons {
@@ -170,35 +189,48 @@
 .emojis {
     display: flex;
     gap: 8px;
-    margin-bottom: 12px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
 }
 
 .emoji {
-    font-size: 24px;
+    font-size: 22px;
+    background: var(--ios-bg);
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
     cursor: default;
 }
 
 .stats {
     display: flex;
-    gap: 20px;
+    gap: 24px;
 }
 
 .stat {
     display: flex;
-    gap: 4px;
+    gap: 6px;
     font-size: 15px;
-    color: #536471;
+    color: var(--ios-text-secondary);
 }
 
 .stat strong {
-    color: #0F1419;
-    font-weight: 700;
+    color: var(--ios-text-primary);
+    font-weight: 600;
 }
 
 /* Tabs */
 .tabs {
     display: flex;
-    border-bottom: 1px solid #E1E8ED;
+    background: var(--ios-surface);
+    position: sticky;
+    top: 0; /* Sticky header support if needed */
+    z-index: 10;
+    padding: 0 16px;
+    border-bottom: 1px solid var(--ios-divider);
 }
 
 .tab {
@@ -210,54 +242,51 @@
     padding: 16px;
     background: transparent;
     border: none;
-    color: #536471;
+    color: var(--ios-text-secondary);
     font-size: 15px;
     font-weight: 500;
     cursor: pointer;
     position: relative;
-    transition: background 0.2s;
+    transition: color 0.2s;
 }
 
 .tab:hover {
-    background: rgba(15, 20, 25, 0.1);
-}
-
-.tab .material-icons {
-    font-size: 20px;
+    color: var(--ios-text-primary);
 }
 
 .tabActive {
-    color: #0F1419;
-    font-weight: 700;
+    color: var(--ios-blue);
+    font-weight: 600;
 }
 
-.tabActive::after {
-    content: '';
+.tabIndicator {
     position: absolute;
     bottom: 0;
     left: 0;
     right: 0;
-    height: 4px;
-    background: #1DA1F2;
-    border-radius: 9999px;
+    height: 3px;
+    background: var(--ios-blue);
+    border-radius: 3px 3px 0 0;
 }
 
 /* Content */
 .content {
-    padding: 16px 20px;
+    padding: 20px;
+    max-width: 1200px;
+    margin: 0 auto;
 }
 
 .overview {
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    gap: 20px;
 }
 
-/* Two-column overview layout: preview (left) and overview/stats (right) */
+/* Two-column overview layout */
 .overviewGrid {
     display: grid;
-    grid-template-columns: 1fr 340px;
-    gap: 20px;
+    grid-template-columns: 1fr 320px;
+    gap: 24px;
     align-items: start;
 }
 
@@ -266,233 +295,202 @@
         grid-template-columns: 1fr;
     }
 }
+
 .previewColumn {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 16px;
 }
+
 .sideColumn {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 16px;
 }
 
-/* In the right column, make stat cards stack vertically */
-.sideColumn .statsGrid {
+/* Preview Canvas */
+.previewCanvasWrapper {
+    width: 100%;
     display: flex;
-    flex-direction: column;
-    gap: 12px;
-}
-.sideColumn .statCard {
-    display: flex;
-    gap: 12px;
-    align-items: center;
-}
-
-@media (max-width: 900px) {
-    /* On mobile/tablet, make the stats grid use a 2-column layout for better use of space */
-    .sideColumn .statsGrid {
-        display: grid;
-        grid-template-columns: repeat(2, 1fr);
-        gap: 12px;
-    }
-}
-
-@media (max-width: 600px) {
-    /* On very small screens, stack everything in a single column */
-    .sideColumn .statsGrid {
-        grid-template-columns: 1fr;
-    }
-}
-
-/* Full-width overview grid used by preview and profile page */
-.previewGrid {
-    display: grid;
-    /* Let cards size naturally and wrap, so the whole collection can be centered */
-    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-    grid-auto-rows: auto;
-    gap: 12px;
     justify-content: center;
-    justify-items: center;
+    align-items: flex-start;
+    background: var(--ios-surface);
+    border-radius: var(--ios-radius-lg);
+    padding: 20px;
+    box-shadow: var(--ios-shadow);
+    overflow: hidden;
 }
+
 .previewCanvas {
     position: relative;
     width: 100%;
     background: transparent;
-    border: 1px solid #E9ECEF;
-    border-radius: 12px;
-    overflow: visible; /* allow cards to be fully visible, including rotated ones */
+    overflow: visible;
     display: flex;
-    justify-content: center; /* center inner canvas horizontally */
-    align-items: flex-start; /* keep top alignment while horizontally centered */
-    padding: 24px; /* more breathing room so rotated/offset cards don't touch the border */
-    box-sizing: border-box;
-}
-.previewCanvasWrapper {
-    width: 100%;
-    margin-top: 12px;
-    display: flex;
-    justify-content: center; /* center the inner canvas horizontally */
+    justify-content: center;
     align-items: flex-start;
-    padding-bottom: 24px; /* provide breathing room so cards don't overlap following sections */
 }
 
-@media (max-width: 600px) {
-    .previewCanvasWrapper {
-        padding-bottom: 32px; /* extra space on mobile for better separation */
-    }
-}
 .previewInnerCanvas {
     position: relative;
     will-change: transform;
     margin: 0 auto;
-    max-width: none;
-    transform-origin: top center; /* ensure CSS fallback matches inline style */
+    transform-origin: top center;
 }
+
 .previewCanvasCard {
     position: absolute;
-    background: #fff;
-    border: 1px solid #E9ECEF;
-    border-radius: 12px;
+    background: var(--ios-surface);
+    border-radius: var(--ios-radius-md);
     padding: 8px;
     box-sizing: border-box;
     display: flex;
     align-items: center;
     justify-content: center;
-    overflow: visible; /* don't clip card contents */
+    overflow: visible;
+    box-shadow: var(--ios-shadow);
 }
-.previewCard {
-    background: #fff;
-    border: 1px solid #E9ECEF;
-    border-radius: 12px;
-    padding: 10px;
-    overflow: visible; /* allow full content to be visible */
-    display:flex;
-    align-items:center;
-    justify-content:center;
-}
-.cardText { font-size:15px; color:#111; text-align:center; padding:8px; }
+
+.cardText { font-size:15px; color:var(--ios-text-primary); text-align:center; padding:8px; }
 .cardImage { width:100%; height:100%; object-fit:cover; border-radius:8px }
-.cardSticker { width:64px; height:64px; object-fit:contain }
+.cardSticker { width:100%; height:100%; object-fit:contain }
 .cardStickerText { font-size:28px }
 
 .emptyState {
-    padding: 48px 24px;
+    padding: 60px 24px;
     text-align: center;
-    color: #657786;
+    color: var(--ios-text-secondary);
     font-size: 15px;
-    background: #F7F9F9;
-    border: 1px solid #E1E8ED;
-    border-radius: 12px;
-    margin: 12px 0;
+    background: var(--ios-surface);
+    border-radius: var(--ios-radius-lg);
+    box-shadow: var(--ios-shadow);
 }
 
+/* Stats Grid */
 .statsGrid {
     display: grid;
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: 1fr;
     gap: 12px;
 }
 
 .statCard {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 16px;
     padding: 16px;
-    border: 1px solid #E1E8ED;
-    border-radius: 16px;
-    transition: background 0.2s;
+    background: var(--ios-surface);
+    border-radius: var(--ios-radius-lg);
+    box-shadow: var(--ios-shadow);
+    transition: transform 0.2s;
 }
 
 .statCard:hover {
-    background: #F7F9F9;
+    transform: translateY(-2px);
 }
 
 .statCard .material-icons {
-    font-size: 32px;
-    color: #1DA1F2;
+    font-size: 28px;
+    color: var(--ios-blue);
+    background: rgba(0, 122, 255, 0.1);
+    padding: 8px;
+    border-radius: 12px;
 }
 
 .statCard strong {
     display: block;
-    font-size: 20px;
+    font-size: 18px;
     font-weight: 700;
-    color: #0F1419;
+    color: var(--ios-text-primary);
 }
 
 .statCard p {
     font-size: 13px;
-    color: #536471;
+    color: var(--ios-text-secondary);
     margin: 0;
 }
 
+/* Ranking Overview */
 .rankingOverview {
-    border: 1px solid #E1E8ED;
-    padding: 12px;
-    border-radius: 12px;
+    background: var(--ios-surface);
+    padding: 16px;
+    border-radius: var(--ios-radius-lg);
+    box-shadow: var(--ios-shadow);
+}
+
+.rankingOverview h3 {
+    font-size: 16px;
+    font-weight: 600;
+    margin: 0 0 12px 0;
+    color: var(--ios-text-primary);
 }
 
 .rankingItem {
-    display:flex;
-    align-items:center;
-    gap:12px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
 }
 
 /* Servers */
 .servers {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 16px;
 }
 
 .serverCard {
     display: flex;
-    gap: 12px;
+    gap: 16px;
     padding: 16px;
-    border: 1px solid #E1E8ED;
-    border-radius: 16px;
-    transition: background 0.2s;
+    background: var(--ios-surface);
+    border-radius: var(--ios-radius-lg);
+    box-shadow: var(--ios-shadow);
+    transition: transform 0.2s;
     cursor: pointer;
 }
 
 .serverCard:hover {
-    background: #F7F9F9;
+    transform: translateY(-2px);
+    box-shadow: var(--ios-shadow-lg);
 }
 
 .serverIcon {
-    width: 48px;
-    height: 48px;
+    width: 56px;
+    height: 56px;
     flex-shrink: 0;
 }
 
 .serverIcon img {
     width: 100%;
     height: 100%;
-    border-radius: 50%;
+    border-radius: 16px; /* iOS style rounded square */
     object-fit: cover;
 }
 
 .serverIconPlaceholder {
     width: 100%;
     height: 100%;
-    border-radius: 50%;
-    background: #1DA1F2;
+    border-radius: 16px;
+    background: var(--ios-blue);
     color: white;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 20px;
+    font-size: 24px;
     font-weight: 700;
 }
 
 .serverInfo {
     flex: 1;
     min-width: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
 }
 
 .serverInfo h3 {
     font-size: 16px;
-    font-weight: 700;
-    color: #0F1419;
+    font-weight: 600;
+    color: var(--ios-text-primary);
     margin: 0 0 4px 0;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -501,178 +499,126 @@
 
 .serverInfo p {
     font-size: 14px;
-    color: #536471;
-    margin: 0 0 8px 0;
-}
-
-.serverStats {
-    font-size: 13px;
-    color: #536471;
-}
-
-/* Activity */
-.activity {
-    padding: 40px 20px;
-    text-align: center;
-}
-
-.comingSoon {
-    color: #536471;
-    font-size: 15px;
-}
-
-/* Modal */
-.modal {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: rgba(0, 0, 0, 0.4);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 1000;
-    padding: 16px;
-}
-
-.modalContent {
-    background: white;
-    border-radius: 16px;
-    width: 100%;
-    max-width: 600px;
-    max-height: 90vh;
-    overflow-y: auto;
-    box-shadow: 0 0 15px rgba(101, 119, 134, 0.2);
-}
-
-.modalHeader {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 16px 20px;
-    border-bottom: 1px solid #E1E8ED;
-}
-
-.modalHeader h2 {
-    font-size: 20px;
-    font-weight: 700;
-    color: #0F1419;
+    color: var(--ios-text-secondary);
     margin: 0;
 }
 
-.closeButton {
-    background: transparent;
-    border: none;
-    color: #0F1419;
-    cursor: pointer;
-    padding: 4px;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: background 0.2s;
-}
-
-.closeButton:hover {
-    background: rgba(15, 20, 25, 0.1);
-}
-
-.modalBody {
-    padding: 20px;
-}
-
-.formGroup {
-    margin-bottom: 20px;
-}
-
-.formGroup label {
-    display: block;
-    font-size: 14px;
-    font-weight: 600;
-    color: #0F1419;
-    margin-bottom: 8px;
-}
-
-.formGroup input,
-.formGroup textarea {
-    width: 100%;
-    padding: 12px;
-    border: 1px solid #CFD9DE;
-    border-radius: 8px;
-    font-size: 15px;
-    font-family: inherit;
-    transition: border-color 0.2s;
-}
-
-.formGroup input:focus,
-.formGroup textarea:focus {
-    outline: none;
-    border-color: #1DA1F2;
-}
-
-.formGroup textarea {
-    resize: vertical;
-    min-height: 100px;
-}
-
-.charCount {
-    display: block;
-    text-align: right;
-    font-size: 13px;
-    color: #536471;
+.serverStats {
+    font-size: 12px;
+    color: var(--ios-text-tertiary);
     margin-top: 4px;
 }
 
-.modalFooter {
+/* Ranking Tab */
+.ranking {
     display: flex;
-    justify-content: flex-end;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.rankingList {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 16px;
+}
+
+.rankingCard {
+    background: var(--ios-surface);
+    border-radius: var(--ios-radius-lg);
+    overflow: hidden;
+    box-shadow: var(--ios-shadow);
+    transition: transform 0.2s;
+}
+
+.rankingCard:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--ios-shadow-lg);
+}
+
+.rankingHeader {
+    padding: 16px;
+    background: rgba(0,0,0,0.02);
+    border-bottom: 1px solid var(--ios-divider);
+}
+
+.guildInfo {
+    display: flex;
+    align-items: center;
     gap: 12px;
-    padding: 16px 20px;
-    border-top: 1px solid #E1E8ED;
 }
 
-.cancelButton {
-    background: transparent;
-    color: #0F1419;
-    border: 1px solid #CFD9DE;
-    padding: 10px 16px;
-    border-radius: 9999px;
-    font-weight: 700;
-    font-size: 15px;
-    cursor: pointer;
-    transition: background 0.2s;
+.guildIcon {
+    width: 40px;
+    height: 40px;
+    border-radius: 12px;
+    object-fit: cover;
 }
 
-.cancelButton:hover {
-    background: rgba(15, 20, 25, 0.1);
-}
-
-.saveButton {
-    background: #1DA1F2;
+.guildIconPlaceholder {
+    width: 40px;
+    height: 40px;
+    border-radius: 12px;
+    background: var(--ios-blue);
     color: white;
-    border: none;
-    padding: 10px 16px;
-    border-radius: 9999px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
     font-weight: 700;
-    font-size: 15px;
-    cursor: pointer;
-    transition: background 0.2s;
 }
 
-.saveButton:hover {
-    background: #1A91DA;
+.guildName {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--ios-text-primary);
+}
+
+.rankingLabel {
+    margin: 0;
+    font-size: 12px;
+    color: var(--ios-text-secondary);
+}
+
+.rankingDetails {
+    display: flex;
+    justify-content: space-around;
+    padding: 16px;
+}
+
+.rankingItem {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 4px;
+}
+
+.rankingItem .material-icons {
+    font-size: 24px;
+    color: var(--ios-blue);
+    margin-bottom: 4px;
+}
+
+.rankingValue {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--ios-text-primary);
+}
+
+.rankingKey {
+    font-size: 12px;
+    color: var(--ios-text-secondary);
 }
 
 /* Responsive Design */
 @media (max-width: 600px) {
     .banner {
-        height: 150px;
+        height: 140px;
     }
 
-    /* Mobile: stack avatar and controls vertically to avoid overlap with banner */
     .profileHeaderContent {
-        margin-top: -50px;
+        margin-top: -40px;
         flex-direction: column;
         align-items: flex-start;
     }
@@ -684,157 +630,23 @@
     }
 
     .avatar {
-        width: 100px;
-        height: 100px;
+        width: 90px;
+        height: 90px;
     }
 
     .displayName {
-        font-size: 18px;
+        font-size: 22px;
     }
 
-    .statsGrid {
-        grid-template-columns: 1fr;
-    }
-
-    .modalContent {
-        max-height: 100vh;
-        border-radius: 0;
-    }
-
-    /* Improve preview canvas on mobile */
-    .previewCanvas {
+    .content {
         padding: 16px;
     }
-
-    .previewCanvasCard {
-        /* Ensure cards remain visible on mobile */
-        min-width: 80px;
-        min-height: 60px;
+    
+    .previewCanvasWrapper {
+        padding: 12px;
     }
-
-    /* Better content padding on mobile */
-    .content {
-        padding: 12px 16px;
-    }
-}
-
-@media (min-width: 700px) {
-    .container {
-        border-left: 1px solid #E1E8ED;
-        border-right: 1px solid #E1E8ED;
-    }
-}
-
-/* Ranking Tab Styles */
-.ranking {
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-}
-
-.rankingList {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-}
-
-.rankingCard {
-    border: 1px solid #E1E8ED;
-    border-radius: 16px;
-    overflow: hidden;
-    background: white;
-    transition: transform 0.2s, box-shadow 0.2s;
-}
-
-.rankingCard:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-}
-
-.rankingHeader {
-    padding: 16px;
-    background: #F7F9F9;
-    border-bottom: 1px solid #E1E8ED;
-}
-
-.guildInfo {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-}
-
-.guildIcon {
-    width: 48px;
-    height: 48px;
-    border-radius: 50%;
-    object-fit: cover;
-}
-
-.guildIconPlaceholder {
-    width: 48px;
-    height: 48px;
-    border-radius: 50%;
-    background: #1DA1F2;
-    color: white;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 20px;
-    font-weight: 700;
-}
-
-.guildName {
-    margin: 0;
-    font-size: 16px;
-    font-weight: 700;
-    color: #0F1419;
-}
-
-.rankingLabel {
-    margin: 0;
-    font-size: 13px;
-    color: #536471;
-}
-
-.rankingDetails {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-    gap: 16px;
-    padding: 16px;
-}
-
-.rankingItem {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-}
-
-.rankingItem .material-icons {
-    font-size: 32px;
-    color: #1DA1F2;
-}
-
-.rankingValue {
-    font-size: 20px;
-    font-weight: 700;
-    color: #0F1419;
-}
-
-.rankingKey {
-    font-size: 13px;
-    color: #536471;
-}
-
-@media (max-width: 600px) {
-    .rankingDetails {
+    
+    .servers, .rankingList {
         grid-template-columns: 1fr;
-    }
-
-    .rankingItem .material-icons {
-        font-size: 24px;
-    }
-
-    .rankingValue {
-        font-size: 18px;
     }
 }

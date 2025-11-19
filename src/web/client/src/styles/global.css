@@ -39,12 +39,66 @@
   --sidebar-width: 240px;
   --border-radius: 8px;
   --shadow: 0 1px 2px 0 rgba(60,64,67,0.3);
+
+  /* iOS-like Theme Tokens */
+  --ios-bg: #F2F2F7;
+  --ios-surface: #FFFFFF;
+  --ios-surface-secondary: #FFFFFF;
+  --ios-text-primary: #000000;
+  --ios-text-secondary: #8E8E93;
+  --ios-text-tertiary: #C7C7CC;
+  --ios-divider: #C6C6C8;
+  --ios-blue: #007AFF;
+  --ios-green: #34C759;
+  --ios-red: #FF3B30;
+  --ios-orange: #FF9500;
+  --ios-yellow: #FFCC00;
+  --ios-purple: #AF52DE;
+  --ios-indigo: #5856D6;
+  --ios-pink: #FF2D55;
+  --ios-teal: #5AC8FA;
+  --ios-cyan: #32ADE6;
+  
+  --ios-shadow: 0 2px 8px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.04);
+  --ios-shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.08), 0 4px 8px rgba(0, 0, 0, 0.04);
+  
+  --ios-radius-sm: 8px;
+  --ios-radius-md: 12px;
+  --ios-radius-lg: 16px;
+  --ios-radius-xl: 24px;
+  
+  --ios-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ios-bg: #000000;
+    --ios-surface: #1C1C1E;
+    --ios-surface-secondary: #2C2C2E;
+    --ios-text-primary: #FFFFFF;
+    --ios-text-secondary: #8E8E93;
+    --ios-text-tertiary: #48484A;
+    --ios-divider: #38383A;
+    --ios-blue: #0A84FF;
+    --ios-green: #30D158;
+    --ios-red: #FF453A;
+    --ios-orange: #FF9F0A;
+    --ios-yellow: #FFD60A;
+    --ios-purple: #BF5AF2;
+    --ios-indigo: #5E5CE6;
+    --ios-pink: #FF375F;
+    --ios-teal: #64D2FF;
+    --ios-cyan: #64D2FF;
+    
+    --ios-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+    --ios-shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.3);
+  }
 }
 
 body {
-  font-family: 'Roboto', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-  background-color: var(--background-primary);
-  color: var(--text-primary);
+  font-family: var(--ios-font-family);
+  background-color: var(--ios-bg);
+  color: var(--ios-text-primary);
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;

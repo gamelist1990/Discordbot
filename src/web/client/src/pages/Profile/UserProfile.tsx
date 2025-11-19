@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { motion, AnimatePresence } from 'framer-motion';
 import styles from './UserProfile.module.css';
 
 interface GuildStats {
@@ -372,7 +373,12 @@ const UserProfile: React.FC = () => {
     }
 
     return (
-        <div className={styles.container}>
+        <motion.div 
+            className={styles.container}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.4 }}
+        >
             {/* Header Banner */}
             <div className={styles.banner} style={getBannerStyle()} />
 
@@ -465,6 +471,13 @@ const UserProfile: React.FC = () => {
                 >
                     <span className="material-icons">dashboard</span>
                     <span>概要</span>
+                    {activeTab === 'posts' && (
+                        <motion.div 
+                            className={styles.tabIndicator} 
+                            layoutId="activeTab"
+                            transition={{ type: "spring", stiffness: 500, damping: 30 }}
+                        />
+                    )}
                 </button>
                 <button
                     className={`${styles.tab} ${activeTab === 'servers' ? styles.tabActive : ''}`}
@@ -472,6 +485,13 @@ const UserProfile: React.FC = () => {
                 >
                     <span className="material-icons">dns</span>
                     <span>サーバー</span>
+                    {activeTab === 'servers' && (
+                        <motion.div 
+                            className={styles.tabIndicator} 
+                            layoutId="activeTab"
+                            transition={{ type: "spring", stiffness: 500, damping: 30 }}
+                        />
+                    )}
                 </button>
                 <button
                     className={`${styles.tab} ${activeTab === 'ranking' ? styles.tabActive : ''}`}
@@ -479,216 +499,265 @@ const UserProfile: React.FC = () => {
                 >
                     <span className="material-icons">emoji_events</span>
                     <span>ランキング</span>
+                    {activeTab === 'ranking' && (
+                        <motion.div 
+                            className={styles.tabIndicator} 
+                            layoutId="activeTab"
+                            transition={{ type: "spring", stiffness: 500, damping: 30 }}
+                        />
+                    )}
                 </button>
             </div>
 
             {/* Tab Content */}
             <div className={styles.content}>
-                {activeTab === 'posts' && (
-                    <div className={styles.overview}>
-                        {/* Two-column layout: left preview canvas, right overview stats */}
-                        <div className={styles.overviewGrid}>
-                            <div className={styles.previewColumn}>
-                                {/* Render overviewConfig cards if present */}
-                                {profileData.customProfile?.overviewConfig && ((profileData.customProfile.overviewConfig as any).cards || []).length > 0 && (
-                                    <div className={styles.previewCanvasWrapper} ref={previewRef}>
-                                        {(() => {
-                                            const rawCards = (profileData.customProfile.overviewConfig as any).cards || [];
-                                            const baseCanvasWidth = (profileData.customProfile.overviewConfig && profileData.customProfile.overviewConfig.canvasWidth) || 800;
-                                            const hasPx = rawCards.length > 0 && rawCards[0].pxW !== undefined;
-                                            const cards: Card[] = hasPx ? rawCards : migrateGridToPx(rawCards, baseCanvasWidth, 12);
+                <AnimatePresence mode="wait">
+                    {activeTab === 'posts' && (
+                        <motion.div 
+                            key="posts"
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: -10 }}
+                            transition={{ duration: 0.2 }}
+                            className={styles.overview}
+                        >
+                            {/* Two-column layout: left preview canvas, right overview stats */}
+                            <div className={styles.overviewGrid}>
+                                <div className={styles.previewColumn}>
+                                    {/* Render overviewConfig cards if present */}
+                                    {profileData.customProfile?.overviewConfig && ((profileData.customProfile.overviewConfig as any).cards || []).length > 0 && (
+                                        <div className={styles.previewCanvasWrapper} ref={previewRef}>
+                                            {(() => {
+                                                const rawCards = (profileData.customProfile.overviewConfig as any).cards || [];
+                                                const baseCanvasWidth = (profileData.customProfile.overviewConfig && profileData.customProfile.overviewConfig.canvasWidth) || 800;
+                                                const hasPx = rawCards.length > 0 && rawCards[0].pxW !== undefined;
+                                                const cards: Card[] = hasPx ? rawCards : migrateGridToPx(rawCards, baseCanvasWidth, 12);
 
-                                            const canvasWidth = baseCanvasWidth;
-                                            const canvasHeight = getCanvasHeight(cards);
+                                                const canvasWidth = baseCanvasWidth;
+                                                const canvasHeight = getCanvasHeight(cards);
 
-                                            return (
-                                                <div
-                                                    className={styles.previewCanvas}
-                                                    style={{ width: '100%', height: (canvasHeight * scale + 48) + 'px' }}
-                                                >
+                                                return (
                                                     <div
-                                                        className={styles.previewInnerCanvas}
-                                                        style={{
-                                                            width: canvasWidth + 'px',
-                                                            height: canvasHeight + 'px',
-                                                            transform: `scale(${scale})`,
-                                                            transformOrigin: 'top center',
-                                                        }}
+                                                        className={styles.previewCanvas}
+                                                        style={{ width: '100%', height: (canvasHeight * scale + 48) + 'px' }}
                                                     >
-                                                        {cards.map((c) => {
-                                                            const left = Math.round(c.x);
-                                                            const top = Math.round(c.y);
-                                                            const width = Math.round(c.pxW);
-                                                            const height = Math.round(c.pxH);
-                                                            return (
-                                                                <div
-                                                                    key={c.id}
-                                                                    className={styles.previewCanvasCard}
-                                                                    style={{
-                                                                        left: left + 'px',
-                                                                        top: top + 'px',
-                                                                        width: width + 'px',
-                                                                        height: height + 'px',
-                                                                        transform: `rotate(${c.rotation || 0}deg)`,
-                                                                        zIndex: c.zIndex || 1,
-                                                                        opacity: c.opacity == null ? 1 : c.opacity,
-                                                                    }}
-                                                                >
-                                                                    {c.type === 'text' && (
-                                                                        <div style={{ fontSize: c.meta?.fontSize || 14, color: c.meta?.color || '#111', textAlign: c.meta?.align || 'left' }}>
-                                                                            {c.content}
-                                                                        </div>
-                                                                    )}
-                                                                    {c.type === 'image' && c.content && <img src={c.content} alt="card" className={styles.cardImage} />}
-                                                                    {c.type === 'sticker' && (
-                                                                        c.content && /^https?:\/\//.test(c.content) ? <img src={c.content} className={styles.cardSticker} alt="sticker"/> : <div className={styles.cardStickerText}>{c.content}</div>
-                                                                    )}
-                                                                </div>
-                                                            );
-                                                        })}
+                                                        <div
+                                                            className={styles.previewInnerCanvas}
+                                                            style={{
+                                                                width: canvasWidth + 'px',
+                                                                height: canvasHeight + 'px',
+                                                                transform: `scale(${scale})`,
+                                                                transformOrigin: 'top center',
+                                                            }}
+                                                        >
+                                                            {cards.map((c) => {
+                                                                const left = Math.round(c.x);
+                                                                const top = Math.round(c.y);
+                                                                const width = Math.round(c.pxW);
+                                                                const height = Math.round(c.pxH);
+                                                                return (
+                                                                    <div
+                                                                        key={c.id}
+                                                                        className={styles.previewCanvasCard}
+                                                                        style={{
+                                                                            left: left + 'px',
+                                                                            top: top + 'px',
+                                                                            width: width + 'px',
+                                                                            height: height + 'px',
+                                                                            transform: `rotate(${c.rotation || 0}deg)`,
+                                                                            zIndex: c.zIndex || 1,
+                                                                            opacity: c.opacity == null ? 1 : c.opacity,
+                                                                        }}
+                                                                    >
+                                                                        {c.type === 'text' && (
+                                                                            <div style={{ 
+                                                                                fontSize: c.meta?.fontSize || 14, 
+                                                                                color: c.meta?.color || '#111', 
+                                                                                textAlign: c.meta?.align || 'left',
+                                                                                fontWeight: c.meta?.fontWeight || 'normal',
+                                                                                fontFamily: c.meta?.fontFamily || 'inherit',
+                                                                                whiteSpace: 'pre-wrap',
+                                                                                width: '100%',
+                                                                                height: '100%',
+                                                                                overflow: 'hidden'
+                                                                            }}>
+                                                                                {c.content}
+                                                                            </div>
+                                                                        )}
+                                                                        {c.type === 'image' && c.content && <img src={c.content} alt="card" className={styles.cardImage} />}
+                                                                        {c.type === 'sticker' && (
+                                                                            c.content && /^https?:\/\//.test(c.content) ? <img src={c.content} className={styles.cardSticker} alt="sticker"/> : <div className={styles.cardStickerText}>{c.content}</div>
+                                                                        )}
+                                                                    </div>
+                                                                );
+                                                            })}
+                                                        </div>
                                                     </div>
-                                                </div>
-                                            );
-                                        })()}
-                                    </div>
-                                )}
-
-                                {/* If no custom cards, show a friendly empty state placeholder */}
-                                {!profileData.customProfile?.overviewConfig && (
-                                    <div className={styles.emptyState}>カスタム概要がありません</div>
-                                )}
-                            </div>
-
-                            <aside className={styles.sideColumn}>
-                                <div className={styles.statsGrid}>
-                                    <div className={styles.statCard}>
-                                        <span className="material-icons">message</span>
-                                        <div>
-                                            <strong>{profileData.totalStats.totalMessages.toLocaleString()}</strong>
-                                            <p>総メッセージ数</p>
-                                        </div>
-                                    </div>
-                                    <div className={styles.statCard}>
-                                        <span className="material-icons">link</span>
-                                        <div>
-                                            <strong>{profileData.totalStats.totalLinks.toLocaleString()}</strong>
-                                            <p>リンク送信</p>
-                                        </div>
-                                    </div>
-                                    <div className={styles.statCard}>
-                                        <span className="material-icons">image</span>
-                                        <div>
-                                            <strong>{profileData.totalStats.totalMedia.toLocaleString()}</strong>
-                                            <p>メディア送信</p>
-                                        </div>
-                                    </div>
-                                    <div className={styles.statCard}>
-                                        <span className="material-icons">groups</span>
-                                        <div>
-                                            <strong>{profileData.totalStats.totalServers}</strong>
-                                            <p>参加サーバー</p>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                {overviewRanking && (
-                                    <div className={styles.rankingOverview}>
-                                        <h3>ランキング (自分の順位)</h3>
-                                        <div className={styles.rankingItem}>
-                                            <img src={overviewRanking.userEntry.avatar || ''} alt="avatar" style={{width:48,height:48,borderRadius:8}} />
-                                            <div style={{marginLeft:10}}>
-                                                <div style={{fontWeight:700}}>{overviewRanking.userEntry.username}</div>
-                                                <div style={{fontSize:12,color:'#666'}}>{overviewRanking.guild.name} • {overviewRanking.userEntry.rank}位 • {overviewRanking.userEntry.xp} Pt</div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                )}
-                            </aside>
-                        </div>
-                    </div>
-                )}
-
-                {activeTab === 'servers' && (
-                    <div className={styles.servers}>
-                        {profileData.guilds.map(guild => (
-                            <div key={guild.id} className={styles.serverCard}>
-                                <div className={styles.serverIcon}>
-                                    {guild.iconURL ? (
-                                        <img src={guild.iconURL} alt={guild.name} />
-                                    ) : (
-                                        <div className={styles.serverIconPlaceholder}>
-                                            {guild.name.charAt(0).toUpperCase()}
+                                                );
+                                            })()}
                                         </div>
                                     )}
-                                </div>
-                                <div className={styles.serverInfo}>
-                                    <h3>{guild.name}</h3>
-                                    {guild.memberCount && <p>{guild.memberCount.toLocaleString()} メンバー</p>}
-                                    <div className={styles.serverStats}>
-                                        <span>{guild.totalMessages.toLocaleString()} メッセージ</span>
-                                    </div>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                )}
 
-                {activeTab === 'ranking' && (
-                    <div className={styles.ranking}>
-                        {guildTops.length === 0 ? (
-                            <p className={styles.comingSoon}>ランキング情報を取得中...</p>
-                        ) : (
-                            <div className={styles.rankingList}>
-                                {guildTops.map((g, i) => (
-                                    <div key={g.guild.id || i} className={styles.rankingCard}>
-                                        <div className={styles.rankingHeader}>
-                                            <div className={styles.guildInfo}>
-                                                {g.guild.iconURL ? (
-                                                    <img src={g.guild.iconURL} alt={g.guild.name} className={styles.guildIcon} />
-                                                ) : (
-                                                    <div className={styles.guildIconPlaceholder}>
-                                                        {g.guild.name.charAt(0).toUpperCase()}
-                                                    </div>
-                                                )}
-                                                <div>
-                                                    <h4 className={styles.guildName}>{g.guild.name}</h4>
-                                                    <p className={styles.rankingLabel}>自分のランキング</p>
+                                    {/* If no custom cards, show a friendly empty state placeholder */}
+                                    {!profileData.customProfile?.overviewConfig && (
+                                        <div className={styles.emptyState}>カスタム概要がありません</div>
+                                    )}
+                                </div>
+
+                                <aside className={styles.sideColumn}>
+                                    <div className={styles.statsGrid}>
+                                        <motion.div whileHover={{ scale: 1.02 }} className={styles.statCard}>
+                                            <span className="material-icons">message</span>
+                                            <div>
+                                                <strong>{profileData.totalStats.totalMessages.toLocaleString()}</strong>
+                                                <p>総メッセージ数</p>
+                                            </div>
+                                        </motion.div>
+                                        <motion.div whileHover={{ scale: 1.02 }} className={styles.statCard}>
+                                            <span className="material-icons">link</span>
+                                            <div>
+                                                <strong>{profileData.totalStats.totalLinks.toLocaleString()}</strong>
+                                                <p>リンク送信</p>
+                                            </div>
+                                        </motion.div>
+                                        <motion.div whileHover={{ scale: 1.02 }} className={styles.statCard}>
+                                            <span className="material-icons">image</span>
+                                            <div>
+                                                <strong>{profileData.totalStats.totalMedia.toLocaleString()}</strong>
+                                                <p>メディア送信</p>
+                                            </div>
+                                        </motion.div>
+                                        <motion.div whileHover={{ scale: 1.02 }} className={styles.statCard}>
+                                            <span className="material-icons">groups</span>
+                                            <div>
+                                                <strong>{profileData.totalStats.totalServers}</strong>
+                                                <p>参加サーバー</p>
+                                            </div>
+                                        </motion.div>
+                                    </div>
+
+                                    {overviewRanking && (
+                                        <div className={styles.rankingOverview}>
+                                            <h3>ランキング (自分の順位)</h3>
+                                            <div className={styles.rankingItem}>
+                                                <img src={overviewRanking.userEntry.avatar || ''} alt="avatar" style={{width:48,height:48,borderRadius:8}} />
+                                                <div style={{marginLeft:10}}>
+                                                    <div style={{fontWeight:700}}>{overviewRanking.userEntry.username}</div>
+                                                    <div style={{fontSize:12,color:'var(--ios-text-secondary)'}}>{overviewRanking.guild.name} • {overviewRanking.userEntry.rank}位 • {overviewRanking.userEntry.xp} Pt</div>
                                                 </div>
                                             </div>
                                         </div>
-                                        <div className={styles.rankingDetails}>
-                                            <div className={styles.rankingItem}>
-                                                <span className="material-icons">emoji_events</span>
-                                                <div>
-                                                    <div className={styles.rankingValue}>{g.userEntry.rank}位</div>
-                                                    <div className={styles.rankingKey}>順位</div>
-                                                </div>
+                                    )}
+                                </aside>
+                            </div>
+                        </motion.div>
+                    )}
+
+                    {activeTab === 'servers' && (
+                        <motion.div 
+                            key="servers"
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: -10 }}
+                            transition={{ duration: 0.2 }}
+                            className={styles.servers}
+                        >
+                            {profileData.guilds.map(guild => (
+                                <motion.div 
+                                    key={guild.id} 
+                                    className={styles.serverCard}
+                                    whileHover={{ scale: 1.02 }}
+                                    whileTap={{ scale: 0.98 }}
+                                >
+                                    <div className={styles.serverIcon}>
+                                        {guild.iconURL ? (
+                                            <img src={guild.iconURL} alt={guild.name} />
+                                        ) : (
+                                            <div className={styles.serverIconPlaceholder}>
+                                                {guild.name.charAt(0).toUpperCase()}
                                             </div>
-                                            <div className={styles.rankingItem}>
-                                                <span className="material-icons">stars</span>
-                                                <div>
-                                                    <div className={styles.rankingValue}>{(g.userEntry.xp || g.userEntry.score || 0).toLocaleString()}</div>
-                                                    <div className={styles.rankingKey}>ポイント</div>
-                                                </div>
-                                            </div>
-                                            <div className={styles.rankingItem}>
-                                                <span className="material-icons">person</span>
-                                                <div>
-                                                    <div className={styles.rankingValue}>{g.userEntry.username || g.userEntry.userId}</div>
-                                                    <div className={styles.rankingKey}>ユーザー</div>
-                                                </div>
-                                            </div>
+                                        )}
+                                    </div>
+                                    <div className={styles.serverInfo}>
+                                        <h3>{guild.name}</h3>
+                                        {guild.memberCount && <p>{guild.memberCount.toLocaleString()} メンバー</p>}
+                                        <div className={styles.serverStats}>
+                                            <span>{guild.totalMessages.toLocaleString()} メッセージ</span>
                                         </div>
                                     </div>
-                                ))}
-                            </div>
-                        )}
-                    </div>
-                )}
+                                </motion.div>
+                            ))}
+                        </motion.div>
+                    )}
+
+                    {activeTab === 'ranking' && (
+                        <motion.div 
+                            key="ranking"
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: -10 }}
+                            transition={{ duration: 0.2 }}
+                            className={styles.ranking}
+                        >
+                            {guildTops.length === 0 ? (
+                                <p className={styles.comingSoon}>ランキング情報を取得中...</p>
+                            ) : (
+                                <div className={styles.rankingList}>
+                                    {guildTops.map((g, i) => (
+                                        <motion.div 
+                                            key={g.guild.id || i} 
+                                            className={styles.rankingCard}
+                                            whileHover={{ y: -4 }}
+                                        >
+                                            <div className={styles.rankingHeader}>
+                                                <div className={styles.guildInfo}>
+                                                    {g.guild.iconURL ? (
+                                                        <img src={g.guild.iconURL} alt={g.guild.name} className={styles.guildIcon} />
+                                                    ) : (
+                                                        <div className={styles.guildIconPlaceholder}>
+                                                            {g.guild.name.charAt(0).toUpperCase()}
+                                                        </div>
+                                                    )}
+                                                    <div>
+                                                        <h4 className={styles.guildName}>{g.guild.name}</h4>
+                                                        <p className={styles.rankingLabel}>自分のランキング</p>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div className={styles.rankingDetails}>
+                                                <div className={styles.rankingItem}>
+                                                    <span className="material-icons">emoji_events</span>
+                                                    <div>
+                                                        <div className={styles.rankingValue}>{g.userEntry.rank}位</div>
+                                                        <div className={styles.rankingKey}>順位</div>
+                                                    </div>
+                                                </div>
+                                                <div className={styles.rankingItem}>
+                                                    <span className="material-icons">stars</span>
+                                                    <div>
+                                                        <div className={styles.rankingValue}>{(g.userEntry.xp || g.userEntry.score || 0).toLocaleString()}</div>
+                                                        <div className={styles.rankingKey}>ポイント</div>
+                                                    </div>
+                                                </div>
+                                                <div className={styles.rankingItem}>
+                                                    <span className="material-icons">person</span>
+                                                    <div>
+                                                        <div className={styles.rankingValue}>{g.userEntry.username || g.userEntry.userId}</div>
+                                                        <div className={styles.rankingKey}>ユーザー</div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </motion.div>
+                                    ))}
+                                </div>
+                            )}
+                        </motion.div>
+                    )}
+                </AnimatePresence>
             </div>
 
             {/* Editing moved to full-screen settings page */}
-        </div>
+        </motion.div>
     );
 };
 
