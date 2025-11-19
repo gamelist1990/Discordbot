@@ -35,6 +35,8 @@ export interface UserCustomProfile {
     emoji: string;                // 絵文字またはカスタム絵文字ID
     label?: string;               // ラベル (例: "気分", "趣味")
   }>;
+  // お気に入りの画像 URL
+  favoriteImage?: string;        // 画像の URL （任意）
   
   // バッジ
   badges?: Array<{

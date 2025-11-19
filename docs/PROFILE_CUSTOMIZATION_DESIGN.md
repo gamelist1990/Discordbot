@@ -46,6 +46,8 @@ interface UserCustomProfile {
     emoji: string;                // 絵文字またはカスタム絵文字ID
     label?: string;               // ラベル (例: "気分", "趣味")
   }>;
+  // お気に入り画像（任意）
+  favoriteImage?: string; // 画像URL
   
   // バッジ
   badges?: Array<{
@@ -122,6 +124,8 @@ interface UserCustomProfile {
 - website: 有効なURL形式
 - themeColor: 有効なHEXカラーコード
 - favoriteEmojis: 最大10個
+ - favoriteEmojis: 最大10個
+ - favoriteImage: 有効なURL（省略可）
 ```
 
 #### 3. プリセットバナー取得 API

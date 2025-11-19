@@ -55,8 +55,10 @@ const CardInspector: React.FC<CardInspectorProps> = ({
             <h4 className={styles.sectionTitle}>配置・サイズ</h4>
             <div className={styles.row2}>
                 <div className={styles.formGroup}>
-                    <label>X</label>
+                    <label htmlFor="cardX">X</label>
                     <input
+                        id="cardX"
+                        name="cardX"
                         className={styles.input}
                         type="number"
                         value={Math.round(card.x)}
@@ -64,8 +66,10 @@ const CardInspector: React.FC<CardInspectorProps> = ({
                     />
                 </div>
                 <div className={styles.formGroup}>
-                    <label>Y</label>
+                    <label htmlFor="cardY">Y</label>
                     <input
+                        id="cardY"
+                        name="cardY"
                         className={styles.input}
                         type="number"
                         value={Math.round(card.y)}
@@ -75,8 +79,10 @@ const CardInspector: React.FC<CardInspectorProps> = ({
             </div>
             <div className={styles.row2}>
                 <div className={styles.formGroup}>
-                    <label>幅</label>
+                    <label htmlFor="cardWidth">幅</label>
                     <input
+                        id="cardWidth"
+                        name="cardWidth"
                         className={styles.input}
                         type="number"
                         value={Math.round(card.pxW)}
@@ -84,8 +90,10 @@ const CardInspector: React.FC<CardInspectorProps> = ({
                     />
                 </div>
                 <div className={styles.formGroup}>
-                    <label>高さ</label>
+                    <label htmlFor="cardHeight">高さ</label>
                     <input
+                        id="cardHeight"
+                        name="cardHeight"
                         className={styles.input}
                         type="number"
                         value={Math.round(card.pxH)}
@@ -99,8 +107,10 @@ const CardInspector: React.FC<CardInspectorProps> = ({
             <h4 className={styles.sectionTitle}>外観</h4>
             <div className={styles.row2}>
                 <div className={styles.formGroup}>
-                    <label>回転 (°)</label>
+                    <label htmlFor="cardRotation">回転 (°)</label>
                     <input
+                        id="cardRotation"
+                        name="cardRotation"
                         className={styles.input}
                         type="number"
                         value={card.rotation || 0}
@@ -108,8 +118,10 @@ const CardInspector: React.FC<CardInspectorProps> = ({
                     />
                 </div>
                 <div className={styles.formGroup}>
-                    <label>不透明度</label>
+                    <label htmlFor="cardOpacity">不透明度</label>
                     <input
+                        id="cardOpacity"
+                        name="cardOpacity"
                         className={styles.input}
                         type="number"
                         value={card.opacity ?? 1}
@@ -121,8 +133,10 @@ const CardInspector: React.FC<CardInspectorProps> = ({
                 </div>
             </div>
             <div className={styles.formGroup}>
-                <label>重なり順 (Z-Index)</label>
+                <label htmlFor="cardZIndex">重なり順 (Z-Index)</label>
                 <input
+                    id="cardZIndex"
+                    name="cardZIndex"
                     className={styles.input}
                     type="number"
                     value={card.zIndex || 1}
@@ -136,8 +150,10 @@ const CardInspector: React.FC<CardInspectorProps> = ({
             <h4 className={styles.sectionTitle}>テキストスタイル</h4>
             <div className={styles.row2}>
                 <div className={styles.formGroup}>
-                <label>サイズ</label>
+                <label htmlFor="cardFontSize">サイズ</label>
                 <input
+                    id="cardFontSize"
+                    name="cardFontSize"
                     className={styles.input}
                     type="number"
                     value={card.meta?.fontSize || 14}
@@ -149,9 +165,11 @@ const CardInspector: React.FC<CardInspectorProps> = ({
                 />
                 </div>
                 <div className={styles.formGroup}>
-                <label>色</label>
+                <label htmlFor="cardFontColor">色</label>
                 <div style={{display:'flex', alignItems:'center', gap:8}}>
                     <input
+                        id="cardFontColor"
+                        name="cardFontColor"
                         type="color"
                         style={{width:40, height:40, padding:0, border:'none', borderRadius:8, cursor:'pointer'}}
                         value={card.meta?.color || '#000000'}
@@ -162,6 +180,8 @@ const CardInspector: React.FC<CardInspectorProps> = ({
                         }
                     />
                     <input 
+                        id="cardFontColorHex"
+                        name="cardFontColorHex"
                         className={styles.input}
                         value={card.meta?.color || '#000000'}
                         onChange={(e) => onChange({ meta: { ...card.meta, color: e.target.value } })}

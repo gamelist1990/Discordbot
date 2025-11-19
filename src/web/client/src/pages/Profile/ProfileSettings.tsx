@@ -148,9 +148,9 @@ const ProfileSettings: React.FC = () => {
 
                     <div className={styles.section}>
                         <h3 className={styles.sectionTitle}>場所・リンク</h3>
-                            <div className={styles.formGroup}>
-                            <label>場所（国）</label>
-                            <div className={styles.countryList}>
+                            <fieldset className={styles.formGroup}>
+                                <legend className={styles.sectionTitleSmall}>場所（国）</legend>
+                                <div className={styles.countryList}>
                                 {COUNTRIES.map(c => (
                                     <button key={c.code} type="button" className={`${styles.countryBtn} ${loc.code === c.code ? styles.countryActive : ''}`} onClick={() => pickCountry(c)}>
                                         <span className={styles.emoji}>{c.emoji}</span>
@@ -162,7 +162,7 @@ const ProfileSettings: React.FC = () => {
                                 <input id="locationLabel" name="locationLabel" className={styles.input} placeholder="カスタムラベル（例: 日本）" value={loc.label || ''} onChange={(e) => setProfile({...profile, location: {...loc, label: e.target.value}})} />
                                 <input id="locationUrl" name="locationUrl" autoComplete="off" className={styles.input} placeholder="場所のリンク (任意)" value={loc.url || ''} onChange={(e) => setProfile({...profile, location: {...loc, url: e.target.value}})} />
                             </div>
-                        </div>
+                            </fieldset>
 
                         <div className={styles.formGroup}>
                             <label htmlFor="website">ウェブサイト</label>
@@ -173,7 +173,8 @@ const ProfileSettings: React.FC = () => {
                     <div className={styles.section}>
                         <h3 className={styles.sectionTitle}>デザイン</h3>
                         <div className={styles.formGroup}>
-                            <label>バナー</label>
+                            <fieldset>
+                                <legend className={styles.sectionTitleSmall}>バナー</legend>
                             <div style={{display:'flex',gap:8,alignItems:'center'}}>
                                 <select id="bannerType" name="bannerType" className={styles.select} style={{width:'auto'}} value={(profile.banner && profile.banner.type) || 'color'} onChange={(e) => setProfile({...profile, banner: { ...(profile.banner||{}), type: e.target.value }})}>
                                     <option value="color">カラー</option>
@@ -181,6 +182,7 @@ const ProfileSettings: React.FC = () => {
                                 </select>
                                 <input id="bannerValue" name="bannerValue" autoComplete="off" className={styles.input} value={(profile.banner && profile.banner.value) || ''} onChange={(e) => setProfile({...profile, banner: { ...(profile.banner||{}), value: e.target.value }})} placeholder="#RRGGBB または 画像URL" />
                             </div>
+                            </fieldset>
                         </div>
                     </div>
                 </div>

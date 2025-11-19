@@ -46,6 +46,7 @@ export class ProfileService {
       activitySource: profile.activitySource !== undefined ? profile.activitySource : existing?.activitySource,
       themeColor: profile.themeColor !== undefined ? profile.themeColor : existing?.themeColor,
       favoriteEmojis: profile.favoriteEmojis !== undefined ? profile.favoriteEmojis : existing?.favoriteEmojis,
+      favoriteImage: profile.favoriteImage !== undefined ? profile.favoriteImage : existing?.favoriteImage,
       badges: profile.badges !== undefined ? profile.badges : existing?.badges,
       privacy: profile.privacy !== undefined ? profile.privacy : existing?.privacy || {
         showStats: true,
@@ -102,6 +103,10 @@ export class ProfileService {
     
     if (profile.favoriteEmojis && profile.favoriteEmojis.length > 10) {
       errors.push('Maximum 10 favorite emojis allowed');
+    }
+
+    if (profile.favoriteImage) {
+      try { new URL(profile.favoriteImage); } catch { errors.push('Invalid favoriteImage URL'); }
     }
 
     if (profile.overviewConfig && profile.overviewConfig.widgets && profile.overviewConfig.widgets.length > 6) {

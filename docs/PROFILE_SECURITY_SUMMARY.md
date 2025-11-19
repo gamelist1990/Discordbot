@@ -39,6 +39,8 @@ CodeQLは4件のアラートを報告しましたが、これらはすべて以�
 - website: 有効なURL形式（new URL()で検証）
 - themeColor: HEXカラーコード形式 (#RRGGBB)
 - favoriteEmojis: 最大10個
+ - favoriteEmojis: 最大10個
+ - favoriteImage: 有効なURL（省略可）
 ```
 
 ### 3. プライバシー制御
