@@ -308,53 +308,20 @@
     gap: 16px;
 }
 
-/* Preview Canvas */
-.previewCanvasWrapper {
+/* Favorite Image */
+.favoriteImageWrapper {
     width: 100%;
-    display: flex;
-    justify-content: center;
-    align-items: flex-start;
-    background: var(--ios-surface);
     border-radius: var(--ios-radius-lg);
-    padding: 20px;
-    box-shadow: var(--ios-shadow);
     overflow: hidden;
-}
-
-.previewCanvas {
-    position: relative;
-    width: 100%;
-    background: transparent;
-    overflow: visible;
-    display: flex;
-    justify-content: center;
-    align-items: flex-start;
-}
-
-.previewInnerCanvas {
-    position: relative;
-    will-change: transform;
-    margin: 0 auto;
-    transform-origin: top center;
-}
-
-.previewCanvasCard {
-    position: absolute;
-    background: var(--ios-surface);
-    border-radius: var(--ios-radius-md);
-    padding: 8px;
-    box-sizing: border-box;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    overflow: visible;
     box-shadow: var(--ios-shadow);
+    background: var(--ios-surface);
 }
 
-.cardText { font-size:15px; color:var(--ios-text-primary); text-align:center; padding:8px; }
-.cardImage { width:100%; height:100%; object-fit:cover; border-radius:8px }
-.cardSticker { width:100%; height:100%; object-fit:contain }
-.cardStickerText { font-size:28px }
+.favoriteImage {
+    width: 100%;
+    height: auto;
+    display: block;
+}
 
 .emptyState {
     padding: 60px 24px;
@@ -407,27 +374,6 @@
     font-size: 13px;
     color: var(--ios-text-secondary);
     margin: 0;
-}
-
-/* Ranking Overview */
-.rankingOverview {
-    background: var(--ios-surface);
-    padding: 16px;
-    border-radius: var(--ios-radius-lg);
-    box-shadow: var(--ios-shadow);
-}
-
-.rankingOverview h3 {
-    font-size: 16px;
-    font-weight: 600;
-    margin: 0 0 12px 0;
-    color: var(--ios-text-primary);
-}
-
-.rankingItem {
-    display: flex;
-    align-items: center;
-    gap: 12px;
 }
 
 /* Servers */
@@ -640,10 +586,6 @@
 
     .content {
         padding: 16px;
-    }
-    
-    .previewCanvasWrapper {
-        padding: 12px;
     }
     
     .servers, .rankingList {

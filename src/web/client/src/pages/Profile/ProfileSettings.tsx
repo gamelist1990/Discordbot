@@ -1,12 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import styles from './ProfileSettings.module.css';
 import { COUNTRIES } from '../../data/countries';
-import OverviewEditorCanvas from './OverviewEditorCanvas';
-import CardInspector from './CardInspector';
-import StickerPicker from './StickerPicker';
-import { Card, migrateGridToPx } from './types';
 
 interface LocationField {
     label?: string;
@@ -26,7 +22,7 @@ interface CustomProfile {
     themeColor?: string;
     privacy?: any;
     favoriteEmojis?: any[];
-    overviewConfig?: any;
+    favoriteImage?: string; // New field
 }
 
 const ProfileSettings: React.FC = () => {
@@ -34,28 +30,8 @@ const ProfileSettings: React.FC = () => {
     const [loading, setLoading] = useState(true);
     const [profile, setProfile] = useState<Partial<CustomProfile>>({});
     const [error, setError] = useState<string | null>(null);
-    const [guildEmojis, setGuildEmojis] = useState<any[]>([]);
-    const [cards, setCards] = useState<Card[]>([]);
-    const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
-    const [showStickerPicker, setShowStickerPicker] = useState(false);
-    const [isMobileInspectorOpen, setIsMobileInspectorOpen] = useState(false);
 
-    useEffect(() => { fetchProfile(); fetchGuildEmojis(); }, []);
-
-    // Debugging: log CSS module classes to ensure mapping
-    useEffect(() => {
-        // eslint-disable-next-line no-console
-        console.debug('[ProfileSettings] styles.canvasWrapper ->', styles.canvasWrapper);
-    }, []);
-
-    useEffect(() => {
-        if (selectedCardId) {
-            // On mobile, open inspector when card selected
-            if (window.innerWidth < 1200) {
-                setIsMobileInspectorOpen(true);
-            }
-        }
-    }, [selectedCardId]);
+    useEffect(() => { fetchProfile(); }, []);
 
     const fetchProfile = async () => {
         try {
@@ -64,14 +40,6 @@ const ProfileSettings: React.FC = () => {
             if (res.ok) {
                 const data = await res.json();
                 setProfile(data || {});
-                
-                const existingCards = (data?.overviewConfig?.cards || []);
-                if (existingCards.length > 0 && existingCards[0].w !== undefined) {
-                    const migratedCards = migrateGridToPx(existingCards, 600, 12);
-                    setCards(migratedCards);
-                } else {
-                    setCards(existingCards);
-                }
             } else {
                 setError('プロフィールが取得できませんでした');
             }
@@ -83,79 +51,17 @@ const ProfileSettings: React.FC = () => {
         }
     };
 
-    const fetchGuildEmojis = async () => {
-        try {
-            const res = await fetch('/api/user/emojis', { credentials: 'include' });
-            if (res.ok) {
-                const data = await res.json();
-                setGuildEmojis(data.guilds || []);
-            }
-        } catch (e) {
-            // ignore
-        }
-    };
-
     const pickCountry = (c: any) => {
         const loc = profile.location || {};
         setProfile({ ...(profile || {}), location: { label: c.label, code: c.code, emoji: c.emoji, url: loc.url } });
-    };
-
-    const addCard = (type: 'text' | 'image' | 'sticker') => {
-        const id = `card_${Date.now()}`;
-        const newCard: Card = {
-            id,
-            type,
-            content: type === 'text' ? '新しいテキスト' : '',
-            x: 16,
-            y: 16,
-            pxW: 160,
-            pxH: 80,
-            zIndex: cards.length + 1,
-        };
-        setCards([...cards, newCard]);
-        setSelectedCardId(id);
-    };
-
-    const updateCard = (id: string, patch: Partial<Card>) => {
-        setCards(cards.map((c) => (c.id === id ? { ...c, ...patch } : c)));
-    };
-
-    const removeCard = (id: string) => {
-        setCards(cards.filter((c) => c.id !== id));
-        if (selectedCardId === id) setSelectedCardId(null);
-    };
-
-    const duplicateCard = (id: string) => {
-        const card = cards.find((c) => c.id === id);
-        if (!card) return;
-        const newId = `card_${Date.now()}`;
-        const newCard = { ...card, id: newId, x: card.x + 16, y: card.y + 16 };
-        setCards([...cards, newCard]);
-        setSelectedCardId(newId);
-    };
-
-    const bringForward = (id: string) => {
-        const card = cards.find((c) => c.id === id);
-        if (!card) return;
-        const maxZ = Math.max(...cards.map((c) => c.zIndex || 1));
-        updateCard(id, { zIndex: maxZ + 1 });
-    };
-
-    const sendBackward = (id: string) => {
-        const card = cards.find((c) => c.id === id);
-        if (!card) return;
-        const minZ = Math.min(...cards.map((c) => c.zIndex || 1));
-        updateCard(id, { zIndex: Math.max(1, minZ - 1) });
     };
 
     const handleSave = async () => {
         try {
             const body = {
                 ...profile,
-                overviewConfig: {
-                    ...(profile.overviewConfig || {}),
-                    cards: cards,
-                },
+                // Remove overviewConfig if it exists to clean up
+                overviewConfig: undefined, 
             };
             const res = await fetch('/api/user/profile/custom', {
                 method: 'PUT',
@@ -178,14 +84,13 @@ const ProfileSettings: React.FC = () => {
     if (loading) return <div className={styles.container}><div style={{padding:60,textAlign:'center'}}>読み込み中...</div></div>;
 
     const loc = profile.location || {};
-    const selectedCard = cards.find((c) => c.id === selectedCardId) || null;
 
     return (
         <motion.div 
             className={styles.container}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ duration: 0.4 }}
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, ease: "easeOut" }}
         >
             <div className={styles.header}>
                 <h2>プロフィール設定</h2>
@@ -197,30 +102,53 @@ const ProfileSettings: React.FC = () => {
 
             {error && <div style={{color:'var(--ios-red)', marginBottom: 20, textAlign:'center'}}>{error}</div>}
 
-            <div className={styles.grid}>
-                {/* Left Column: Basic Info Form */}
+            <div className={styles.singleColumnGrid}>
                 <div className={styles.formColumn}>
                     <div className={styles.section}>
                         <h3 className={styles.sectionTitle}>基本情報</h3>
                         <div className={styles.formGroup}>
-                            <label>表示名</label>
-                            <input className={styles.input} value={profile.displayName || ''} onChange={(e) => setProfile({...profile, displayName: e.target.value})} />
+                            <label htmlFor="displayName">表示名</label>
+                            <input id="displayName" name="displayName" autoComplete="name" className={styles.input} value={profile.displayName || ''} onChange={(e) => setProfile({...profile, displayName: e.target.value})} />
                         </div>
 
                         <div className={styles.formGroup}>
-                            <label>自己紹介</label>
-                            <textarea className={styles.textarea} value={profile.bio || ''} onChange={(e) => setProfile({...profile, bio: e.target.value})} />
+                            <label htmlFor="bio">自己紹介</label>
+                            <textarea id="bio" name="bio" autoComplete="off" className={styles.textarea} value={profile.bio || ''} onChange={(e) => setProfile({...profile, bio: e.target.value})} />
                         </div>
                         
                         <div className={styles.formGroup}>
-                            <label>代名詞 (Pronouns)</label>
-                            <input className={styles.input} value={profile.pronouns || ''} onChange={(e) => setProfile({...profile, pronouns: e.target.value})} placeholder="例: he/him, she/her" />
+                            <label htmlFor="pronouns">代名詞 (Pronouns)</label>
+                            <input id="pronouns" name="pronouns" autoComplete="nickname" className={styles.input} value={profile.pronouns || ''} onChange={(e) => setProfile({...profile, pronouns: e.target.value})} placeholder="例: he/him, she/her" />
+                        </div>
+                    </div>
+
+                    <div className={styles.section}>
+                        <h3 className={styles.sectionTitle}>お気に入りの画像</h3>
+                        <div className={styles.formGroup}>
+                            <label htmlFor="favoriteImage">画像URL</label>
+                            <input 
+                                id="favoriteImage"
+                                name="favoriteImage"
+                                autoComplete="off"
+                                className={styles.input} 
+                                value={profile.favoriteImage || ''} 
+                                onChange={(e) => setProfile({...profile, favoriteImage: e.target.value})} 
+                                placeholder="https://example.com/image.png" 
+                            />
+                            <p style={{fontSize: 12, color: 'var(--ios-text-secondary)', marginTop: 8}}>
+                                プロフィールに大きく表示されるお気に入りの画像を設定できます。
+                            </p>
+                            {profile.favoriteImage && (
+                                <div style={{marginTop: 16, borderRadius: 12, overflow: 'hidden', border: '1px solid var(--ios-divider)'}}>
+                                    <img src={profile.favoriteImage} alt="Preview" style={{width: '100%', height: 'auto', display: 'block'}} />
+                                </div>
+                            )}
                         </div>
                     </div>
 
                     <div className={styles.section}>
                         <h3 className={styles.sectionTitle}>場所・リンク</h3>
-                        <div className={styles.formGroup}>
+                            <div className={styles.formGroup}>
                             <label>場所（国）</label>
                             <div className={styles.countryList}>
                                 {COUNTRIES.map(c => (
@@ -231,14 +159,14 @@ const ProfileSettings: React.FC = () => {
                                 ))}
                             </div>
                             <div style={{display:'flex', flexDirection:'column', gap:12}}>
-                                <input className={styles.input} placeholder="カスタムラベル（例: 日本）" value={loc.label || ''} onChange={(e) => setProfile({...profile, location: {...loc, label: e.target.value}})} />
-                                <input className={styles.input} placeholder="場所のリンク (任意)" value={loc.url || ''} onChange={(e) => setProfile({...profile, location: {...loc, url: e.target.value}})} />
+                                <input id="locationLabel" name="locationLabel" className={styles.input} placeholder="カスタムラベル（例: 日本）" value={loc.label || ''} onChange={(e) => setProfile({...profile, location: {...loc, label: e.target.value}})} />
+                                <input id="locationUrl" name="locationUrl" autoComplete="off" className={styles.input} placeholder="場所のリンク (任意)" value={loc.url || ''} onChange={(e) => setProfile({...profile, location: {...loc, url: e.target.value}})} />
                             </div>
                         </div>
 
                         <div className={styles.formGroup}>
-                            <label>ウェブサイト</label>
-                            <input className={styles.input} value={profile.website || ''} onChange={(e) => setProfile({...profile, website: e.target.value})} />
+                            <label htmlFor="website">ウェブサイト</label>
+                            <input id="website" name="website" autoComplete="url" className={styles.input} value={profile.website || ''} onChange={(e) => setProfile({...profile, website: e.target.value})} />
                         </div>
                     </div>
 
@@ -247,127 +175,16 @@ const ProfileSettings: React.FC = () => {
                         <div className={styles.formGroup}>
                             <label>バナー</label>
                             <div style={{display:'flex',gap:8,alignItems:'center'}}>
-                                <select className={styles.select} style={{width:'auto'}} value={(profile.banner && profile.banner.type) || 'color'} onChange={(e) => setProfile({...profile, banner: { ...(profile.banner||{}), type: e.target.value }})}>
+                                <select id="bannerType" name="bannerType" className={styles.select} style={{width:'auto'}} value={(profile.banner && profile.banner.type) || 'color'} onChange={(e) => setProfile({...profile, banner: { ...(profile.banner||{}), type: e.target.value }})}>
                                     <option value="color">カラー</option>
                                     <option value="image">画像URL</option>
                                 </select>
-                                <input className={styles.input} value={(profile.banner && profile.banner.value) || ''} onChange={(e) => setProfile({...profile, banner: { ...(profile.banner||{}), value: e.target.value }})} placeholder="#RRGGBB または 画像URL" />
+                                <input id="bannerValue" name="bannerValue" autoComplete="off" className={styles.input} value={(profile.banner && profile.banner.value) || ''} onChange={(e) => setProfile({...profile, banner: { ...(profile.banner||{}), value: e.target.value }})} placeholder="#RRGGBB または 画像URL" />
                             </div>
                         </div>
                     </div>
                 </div>
-
-                {/* Middle Column: Canvas Editor */}
-                <div className={styles.canvasColumn}>
-                    <div className={styles.canvasToolbar}>
-                        <motion.button whileHover={{scale:1.05}} whileTap={{scale:0.95}} className={styles.toolButton} onClick={() => addCard('text')}>
-                            <span className="material-icons">text_fields</span> テキスト
-                        </motion.button>
-                        <motion.button whileHover={{scale:1.05}} whileTap={{scale:0.95}} className={styles.toolButton} onClick={() => addCard('image')}>
-                            <span className="material-icons">image</span> 画像
-                        </motion.button>
-                        <motion.button whileHover={{scale:1.05}} whileTap={{scale:0.95}} className={styles.toolButton} onClick={() => { addCard('sticker'); setShowStickerPicker(true); }}>
-                            <span className="material-icons">emoji_emotions</span> ステッカー
-                        </motion.button>
-                    </div>
-
-                    <div className={styles.canvasWrapper}>
-                        <OverviewEditorCanvas
-                            cards={cards}
-                            width={360}
-                            height={400}
-                            onUpdateCard={updateCard}
-                            onSelectCard={setSelectedCardId}
-                            selectedId={selectedCardId}
-                            gridSnap={8}
-                            onDuplicateCard={duplicateCard}
-                            onDeleteCard={removeCard}
-                            onBringForward={bringForward}
-                            onSendBackward={sendBackward}
-                        />
-                    </div>
-                    <p style={{textAlign:'center', fontSize:13, color:'var(--ios-text-secondary)'}}>
-                        ドラッグして移動、端を掴んでリサイズできます
-                    </p>
-                </div>
-
-                {/* Right Column: Inspector (Desktop) */}
-                <div className={styles.inspectorColumn}>
-                    <AnimatePresence mode="wait">
-                        {selectedCard ? (
-                            <motion.div
-                                key="inspector"
-                                initial={{ opacity: 0, x: 20 }}
-                                animate={{ opacity: 1, x: 0 }}
-                                exit={{ opacity: 0, x: 20 }}
-                            >
-                                <CardInspector
-                                    card={selectedCard}
-                                    onChange={(patch) => updateCard(selectedCard.id, patch)}
-                                    onClose={() => setSelectedCardId(null)}
-                                />
-                            </motion.div>
-                        ) : (
-                            <motion.div
-                                key="empty"
-                                initial={{ opacity: 0 }}
-                                animate={{ opacity: 1 }}
-                                style={{ padding: 40, textAlign: 'center', color: 'var(--ios-text-secondary)' }}
-                            >
-                                <span className="material-icons" style={{ fontSize: 48, marginBottom: 16, opacity: 0.5 }}>touch_app</span>
-                                <p>カードを選択して編集</p>
-                            </motion.div>
-                        )}
-                    </AnimatePresence>
-                </div>
             </div>
-
-            {/* Sticker Picker Modal */}
-            {showStickerPicker && (
-                <StickerPicker
-                    guildEmojis={guildEmojis}
-                    onPick={(url) => {
-                        if (selectedCardId) {
-                            updateCard(selectedCardId, { content: url });
-                        }
-                        setShowStickerPicker(false);
-                    }}
-                />
-            )}
-
-            {/* Mobile Inspector Modal/Sheet */}
-            <AnimatePresence>
-                {isMobileInspectorOpen && selectedCard && (
-                    <motion.div 
-                        className={styles.mobileInspectorOverlay}
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        onClick={() => setIsMobileInspectorOpen(false)}
-                    >
-                        <motion.div 
-                            className={styles.mobileInspectorSheet}
-                            initial={{ y: '100%' }}
-                            animate={{ y: 0 }}
-                            exit={{ y: '100%' }}
-                            transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-                            onClick={(e) => e.stopPropagation()}
-                        >
-                            <div className={styles.mobileInspectorHeader}>
-                                <h3>カード設定</h3>
-                                <button onClick={() => setIsMobileInspectorOpen(false)} className={styles.closeButton}>
-                                    <span className="material-icons">close</span>
-                                </button>
-                            </div>
-                            <CardInspector
-                                card={selectedCard}
-                                onChange={(patch) => updateCard(selectedCard.id, patch)}
-                                onClose={() => setIsMobileInspectorOpen(false)}
-                            />
-                        </motion.div>
-                    </motion.div>
-                )}
-            </AnimatePresence>
         </motion.div>
     );
 };

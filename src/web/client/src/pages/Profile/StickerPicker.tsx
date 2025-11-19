@@ -72,10 +72,12 @@ const StickerPicker: React.FC<StickerPickerProps> = ({
 
         <div className={styles.stickerPickerBody}>
           <div className={styles.formGroup}>
-            <label>画像URLから追加</label>
+            <label htmlFor="stickerUrlInput">画像URLから追加</label>
             <div style={{ display: 'flex', gap: '8px' }}>
               <input
                 className={styles.input}
+                id="stickerUrlInput"
+                name="stickerUrlInput"
                 type="text"
                 value={urlInput}
                 onChange={(e) => setUrlInput(e.target.value)}
@@ -89,10 +91,12 @@ const StickerPicker: React.FC<StickerPickerProps> = ({
           </div>
 
           <div className={styles.formGroup}>
-            <label>サーバー絵文字から選択</label>
+            <label htmlFor="stickerSearchInput">サーバー絵文字から選択</label>
             <div className={styles.searchBox}>
                 <span className="material-icons">search</span>
                 <input
+                  id="stickerSearchInput"
+                  name="stickerSearchInput"
                     type="text"
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}

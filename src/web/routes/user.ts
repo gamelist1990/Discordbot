@@ -33,6 +33,7 @@ interface GuildInfo {
     mediaMessages?: number;
     role?: string;
     joinedAt?: string;
+    viewerIsMember?: boolean;
 }
 
 /**
@@ -200,11 +201,15 @@ export function createUserRoutes(
                 let role: string | undefined = undefined;
                 let roles: string[] = [];
                 let joinedAt: string | undefined = undefined;
+                let isMember = false;
+
+                let guildObj: any = null;
                 try {
-                    const guildObj = botClient.client.guilds.cache.get(g.id as string);
+                    guildObj = botClient.client.guilds.cache.get(g.id as string);
                     if (guildObj) {
                         const member = await guildObj.members.fetch(requestedUserId).catch(() => null);
                         if (member) {
+                            isMember = true;
                             role = member.roles?.highest?.name || undefined;
                             joinedAt = member.joinedAt ? member.joinedAt.toISOString() : undefined;
                             // get full role names (exclude @everyone)
@@ -216,6 +221,9 @@ export function createUserRoutes(
                 } catch (e) {
                     // ignore
                 }
+
+                // If user is not a member of this guild (as seen by the bot), skip it
+                if (!isMember) continue;
 
                 // Read real counts from StatsManager/database if available
                 let totalMessages = 0;
@@ -280,6 +288,13 @@ export function createUserRoutes(
                     // ignore and keep zeros
                 }
 
+                // Check whether the current session viewer is also a member of the guild
+                let viewerIsMember = false;
+                try {
+                    const viewerMember = await guildObj.members.fetch(currentUser.userId).catch(() => null);
+                    if (viewerMember) viewerIsMember = true;
+                } catch (e) { /* ignore */ }
+
                 userGuilds.push({
                     id: g.id,
                     name: g.name,
@@ -304,6 +319,7 @@ export function createUserRoutes(
                     // @ts-ignore - extend GuildInfo at runtime
                     roles,
                     joinedAt,
+                    viewerIsMember,
                 });
             }
             // 総統計を計算 - 各サーバーの統計を合算

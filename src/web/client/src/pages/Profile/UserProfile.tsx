@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import styles from './UserProfile.module.css';
@@ -14,6 +14,7 @@ interface GuildStats {
     memberCount?: number;
     joinedAt?: string;
     role?: string;
+    viewerIsMember?: boolean;
 }
 
 interface FavoriteEmoji {
@@ -44,6 +45,7 @@ interface Profile {
         };
         website?: string;
         favoriteEmojis?: FavoriteEmoji[];
+        favoriteImage?: string;
         banner?: {
             type: 'color' | 'gradient' | 'image';
             value: string;
@@ -52,15 +54,8 @@ interface Profile {
                 direction: string;
             };
         };
-        overviewConfig?: {
-            canvasWidth: number;
-            cards: any[];
-            widgets?: any[];
-        };
     };
 }
-
-import { migrateGridToPx, Card } from './types';
 
 const UserProfile: React.FC = () => {
     const { userId: urlUserId } = useParams<{ userId: string }>();
@@ -71,44 +66,7 @@ const UserProfile: React.FC = () => {
     const [isOwnProfile, setIsOwnProfile] = useState(true);
     const [sessionUser, setSessionUser] = useState<{ userId?: string; username?: string } | null>(null);
     const [error, setError] = useState<string | null>(null);
-    // Editing flows moved to separate settings page; keep state minimal here.
-    const [overviewRanking, setOverviewRanking] = useState<{ guild: GuildStats; userEntry: any; } | null>(null);
     const [guildTops, setGuildTops] = useState<Array<{ guild: GuildStats; userEntry: any; }>>([]);
-    const previewRef = useRef<HTMLDivElement | null>(null);
-    const [scale, setScale] = useState<number>(1);
-
-    const getCanvasHeight = (cards: Card[]) => {
-        if (!cards || cards.length === 0) return 300;
-        let max = 0;
-        for (const c of cards) {
-            const bottom = (c.y || 0) + (c.pxH || 0);
-            if (bottom > max) max = bottom;
-        }
-        return Math.max(300, max);
-    };
-
-    useEffect(() => {
-        const handleResize = () => {
-            try {
-                const baseCanvasWidth = (profileData?.customProfile?.overviewConfig && profileData!.customProfile!.overviewConfig.canvasWidth) || 800;
-                const parentWidth = previewRef.current ? previewRef.current.clientWidth : 0;
-                if (parentWidth > 0) {
-                    // prevent overly tiny scaling on narrow screens
-                        const raw = parentWidth / baseCanvasWidth;
-                        // On small mobile widths prefer a larger minimum scale so preview remains readable
-                        const minScale = parentWidth < 480 ? 0.9 : 0.5;
-                        setScale(Math.max(raw, minScale));
-                } else {
-                    setScale(1);
-                }
-            } catch (e) {
-                setScale(1);
-            }
-        };
-        handleResize();
-        window.addEventListener('resize', handleResize);
-        return () => window.removeEventListener('resize', handleResize);
-    }, [profileData]);
 
     useEffect(() => {
         checkAuthentication();
@@ -122,6 +80,8 @@ const UserProfile: React.FC = () => {
         try {
             const tops: any[] = [];
             for (const g of profileData!.guilds) {
+                // Skip guilds where the viewer is not a member unless this is the user's own profile
+                if (!isOwnProfile && !g.viewerIsMember) continue;
                 try {
                     // Get guild rankings to get presets
                     const guildResp = await fetch(`/api/rank/guild/${g.id}`, { credentials: 'include' });
@@ -238,48 +198,6 @@ const UserProfile: React.FC = () => {
             if (response.ok) {
                 const data = await response.json();
                 setProfileData(data);
-                // If user has overviewConfig requesting ranking, fetch top for the first widget
-                try {
-                    const widgets = data.customProfile?.overviewConfig?.widgets || [];
-                    const rankingWidget = widgets.find((w: any) => w.type === 'ranking' && w.guildId);
-                    if (rankingWidget) {
-                        // Get guild rankings to get presets
-                        const guildResp = await fetch(`/api/rank/guild/${rankingWidget.guildId}`, { credentials: 'include' });
-                        if (guildResp.ok) {
-                            const guildData = await guildResp.json();
-                            if (guildData.presets && guildData.presets.length > 0) {
-
-                                let bestEntry: any = null;
-
-                                // Check each preset
-                                for (const preset of guildData.presets) {
-                                    try {
-                                        const resp = await fetch(`/api/rank/leaderboard/${rankingWidget.guildId}?preset=${preset.name}&limit=1000`, { credentials: 'include' });
-                                        if (!resp.ok) continue;
-                                        const rd = await resp.json();
-                                        if (rd && rd.leaderboard && rd.leaderboard.length > 0) {
-                                            const userEntry = rd.leaderboard.find((entry: any) => entry.userId === data.id);
-                                            if (userEntry) {
-                                                const rank = rd.leaderboard.findIndex((entry: any) => entry.userId === data.id) + 1;
-                                                if (!bestEntry || userEntry.xp > bestEntry.xp) {
-                                                    bestEntry = { ...userEntry, rank, preset: preset.name };
-                                                }
-                                            }
-                                        }
-                                    } catch (e) {
-                                        // ignore per-preset errors
-                                    }
-                                }
-
-                                if (bestEntry) {
-                                    setOverviewRanking({ guild: guildData.guild || { id: rankingWidget.guildId, name: 'Unknown' }, userEntry: bestEntry });
-                                }
-                            }
-                        }
-                    }
-                } catch (e) {
-                    // ignore overview ranking errors
-                }
             } else if (response.status === 403) {
                 setError('このプロフィールは非公開です');
             } else if (response.status === 404) {
@@ -302,8 +220,6 @@ const UserProfile: React.FC = () => {
     const handleEditProfile = () => {
         navigate('/settings/profile');
     };
-
-    // Profile saving handled in `/settings/profile` (navigates there).
 
     const getBannerStyle = () => {
         const banner = profileData?.customProfile?.banner;
@@ -524,83 +440,25 @@ const UserProfile: React.FC = () => {
                             {/* Two-column layout: left preview canvas, right overview stats */}
                             <div className={styles.overviewGrid}>
                                 <div className={styles.previewColumn}>
-                                    {/* Render overviewConfig cards if present */}
-                                    {profileData.customProfile?.overviewConfig && ((profileData.customProfile.overviewConfig as any).cards || []).length > 0 && (
-                                        <div className={styles.previewCanvasWrapper} ref={previewRef}>
-                                            {(() => {
-                                                const rawCards = (profileData.customProfile.overviewConfig as any).cards || [];
-                                                const baseCanvasWidth = (profileData.customProfile.overviewConfig && profileData.customProfile.overviewConfig.canvasWidth) || 800;
-                                                const hasPx = rawCards.length > 0 && rawCards[0].pxW !== undefined;
-                                                const cards: Card[] = hasPx ? rawCards : migrateGridToPx(rawCards, baseCanvasWidth, 12);
-
-                                                const canvasWidth = baseCanvasWidth;
-                                                const canvasHeight = getCanvasHeight(cards);
-
-                                                return (
-                                                    <div
-                                                        className={styles.previewCanvas}
-                                                        style={{ width: '100%', height: (canvasHeight * scale + 48) + 'px' }}
-                                                    >
-                                                        <div
-                                                            className={styles.previewInnerCanvas}
-                                                            style={{
-                                                                width: canvasWidth + 'px',
-                                                                height: canvasHeight + 'px',
-                                                                transform: `scale(${scale})`,
-                                                                transformOrigin: 'top center',
-                                                            }}
-                                                        >
-                                                            {cards.map((c) => {
-                                                                const left = Math.round(c.x);
-                                                                const top = Math.round(c.y);
-                                                                const width = Math.round(c.pxW);
-                                                                const height = Math.round(c.pxH);
-                                                                return (
-                                                                    <div
-                                                                        key={c.id}
-                                                                        className={styles.previewCanvasCard}
-                                                                        style={{
-                                                                            left: left + 'px',
-                                                                            top: top + 'px',
-                                                                            width: width + 'px',
-                                                                            height: height + 'px',
-                                                                            transform: `rotate(${c.rotation || 0}deg)`,
-                                                                            zIndex: c.zIndex || 1,
-                                                                            opacity: c.opacity == null ? 1 : c.opacity,
-                                                                        }}
-                                                                    >
-                                                                        {c.type === 'text' && (
-                                                                            <div style={{ 
-                                                                                fontSize: c.meta?.fontSize || 14, 
-                                                                                color: c.meta?.color || '#111', 
-                                                                                textAlign: c.meta?.align || 'left',
-                                                                                fontWeight: c.meta?.fontWeight || 'normal',
-                                                                                fontFamily: c.meta?.fontFamily || 'inherit',
-                                                                                whiteSpace: 'pre-wrap',
-                                                                                width: '100%',
-                                                                                height: '100%',
-                                                                                overflow: 'hidden'
-                                                                            }}>
-                                                                                {c.content}
-                                                                            </div>
-                                                                        )}
-                                                                        {c.type === 'image' && c.content && <img src={c.content} alt="card" className={styles.cardImage} />}
-                                                                        {c.type === 'sticker' && (
-                                                                            c.content && /^https?:\/\//.test(c.content) ? <img src={c.content} className={styles.cardSticker} alt="sticker"/> : <div className={styles.cardStickerText}>{c.content}</div>
-                                                                        )}
-                                                                    </div>
-                                                                );
-                                                            })}
-                                                        </div>
-                                                    </div>
-                                                );
-                                            })()}
+                                    {/* Favorite Image Display */}
+                                    {profileData.customProfile?.favoriteImage ? (
+                                        <motion.div 
+                                            className={styles.favoriteImageWrapper}
+                                            initial={{ opacity: 0, scale: 0.95 }}
+                                            animate={{ opacity: 1, scale: 1 }}
+                                            transition={{ duration: 0.5 }}
+                                        >
+                                            <img 
+                                                src={profileData.customProfile.favoriteImage} 
+                                                alt="Favorite" 
+                                                className={styles.favoriteImage} 
+                                            />
+                                        </motion.div>
+                                    ) : (
+                                        <div className={styles.emptyState}>
+                                            <span className="material-icons" style={{fontSize: 48, marginBottom: 16, opacity: 0.5}}>image</span>
+                                            <p>お気に入りの画像が設定されていません</p>
                                         </div>
-                                    )}
-
-                                    {/* If no custom cards, show a friendly empty state placeholder */}
-                                    {!profileData.customProfile?.overviewConfig && (
-                                        <div className={styles.emptyState}>カスタム概要がありません</div>
                                     )}
                                 </div>
 
@@ -635,19 +493,6 @@ const UserProfile: React.FC = () => {
                                             </div>
                                         </motion.div>
                                     </div>
-
-                                    {overviewRanking && (
-                                        <div className={styles.rankingOverview}>
-                                            <h3>ランキング (自分の順位)</h3>
-                                            <div className={styles.rankingItem}>
-                                                <img src={overviewRanking.userEntry.avatar || ''} alt="avatar" style={{width:48,height:48,borderRadius:8}} />
-                                                <div style={{marginLeft:10}}>
-                                                    <div style={{fontWeight:700}}>{overviewRanking.userEntry.username}</div>
-                                                    <div style={{fontSize:12,color:'var(--ios-text-secondary)'}}>{overviewRanking.guild.name} • {overviewRanking.userEntry.rank}位 • {overviewRanking.userEntry.xp} Pt</div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    )}
                                 </aside>
                             </div>
                         </motion.div>
@@ -755,8 +600,6 @@ const UserProfile: React.FC = () => {
                     )}
                 </AnimatePresence>
             </div>
-
-            {/* Editing moved to full-screen settings page */}
         </motion.div>
     );
 };

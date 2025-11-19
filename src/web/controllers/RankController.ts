@@ -726,7 +726,6 @@ export class RankController {
         }
 
         // 認証済みの場合はユーザーがこのギルドのメンバーかチェック（認証されていない場合は公開で許可）
-        Logger.info(`getGuildRankings called. guildId=${guildId}, session=${!!session}`);
         const isMember = !!session?.guildIds?.includes(guildId);
         if (session && !isMember) {
             res.status(403).json({ error: 'Access denied' });
