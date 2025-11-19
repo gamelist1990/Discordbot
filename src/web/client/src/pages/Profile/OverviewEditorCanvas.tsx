@@ -31,6 +31,11 @@ const OverviewEditorCanvas: React.FC<OverviewEditorCanvasProps> = ({
   onBringForward,
   onSendBackward,
 }) => {
+  // Debugging: log CSS module classes to ensure mapping
+  React.useEffect(() => {
+    // eslint-disable-next-line no-console
+    console.debug('[OverviewEditorCanvas] styles.canvasWrap ->', styles.canvasWrap);
+  }, []);
   const handleDragStop = (id: string, d: any) => {
     onUpdateCard(id, { x: d.x, y: d.y });
   };

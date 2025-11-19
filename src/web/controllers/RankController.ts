@@ -717,7 +717,7 @@ export class RankController {
      * ギルドのランキング情報を取得（ウェブランキングボード用）
      */
     async getGuildRankings(req: Request, res: Response): Promise<void> {
-        const session = (req as any).session as SettingsSession;
+        const session = (req as any).session as SettingsSession | undefined;
         const { id: guildId } = req.params;
 
         if (!guildId) {
@@ -725,9 +725,10 @@ export class RankController {
             return;
         }
 
-        // ユーザーがこのギルドのメンバーかチェック
-        const isMember = session.guildIds?.includes(guildId);
-        if (!isMember) {
+        // 認証済みの場合はユーザーがこのギルドのメンバーかチェック（認証されていない場合は公開で許可）
+        Logger.info(`getGuildRankings called. guildId=${guildId}, session=${!!session}`);
+        const isMember = !!session?.guildIds?.includes(guildId);
+        if (session && !isMember) {
             res.status(403).json({ error: 'Access denied' });
             return;
         }

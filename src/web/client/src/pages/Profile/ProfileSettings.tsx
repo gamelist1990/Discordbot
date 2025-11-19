@@ -42,6 +42,12 @@ const ProfileSettings: React.FC = () => {
 
     useEffect(() => { fetchProfile(); fetchGuildEmojis(); }, []);
 
+    // Debugging: log CSS module classes to ensure mapping
+    useEffect(() => {
+        // eslint-disable-next-line no-console
+        console.debug('[ProfileSettings] styles.canvasWrapper ->', styles.canvasWrapper);
+    }, []);
+
     useEffect(() => {
         if (selectedCardId) {
             // On mobile, open inspector when card selected

@@ -69,6 +69,8 @@ export function createPublicRankRoutes(
     // 公開エンドポイント（認証不要）
     router.get('/panel/:guildId/:panelId', (req, res) => controller.getPanelLeaderboard(req, res));
     router.get('/leaderboard/:guildId/presets/:presetName', (req, res) => controller.getPresetLeaderboard(req, res));
+    // ギルドのランキング情報を公開（認証不要）
+    router.get('/guild/:id', (req, res) => controller.getGuildRankings(req, res));
 
     return router;
 }
