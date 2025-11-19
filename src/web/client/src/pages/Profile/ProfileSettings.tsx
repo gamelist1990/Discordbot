@@ -38,7 +38,7 @@ const ProfileSettings: React.FC = () => {
     const [cards, setCards] = useState<Card[]>([]);
     const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
     const [showStickerPicker, setShowStickerPicker] = useState(false);
-    const [, setIsMobileInspectorOpen] = useState(false);
+    const [isMobileInspectorOpen, setIsMobileInspectorOpen] = useState(false);
 
     useEffect(() => { fetchProfile(); fetchGuildEmojis(); }, []);
 
@@ -330,7 +330,38 @@ const ProfileSettings: React.FC = () => {
             )}
 
             {/* Mobile Inspector Modal/Sheet */}
-            {/* Note: In a real app, use a proper Sheet component. Here we use a simple fixed overlay for mobile if needed. */}
+            <AnimatePresence>
+                {isMobileInspectorOpen && selectedCard && (
+                    <motion.div 
+                        className={styles.mobileInspectorOverlay}
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        onClick={() => setIsMobileInspectorOpen(false)}
+                    >
+                        <motion.div 
+                            className={styles.mobileInspectorSheet}
+                            initial={{ y: '100%' }}
+                            animate={{ y: 0 }}
+                            exit={{ y: '100%' }}
+                            transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+                            onClick={(e) => e.stopPropagation()}
+                        >
+                            <div className={styles.mobileInspectorHeader}>
+                                <h3>カード設定</h3>
+                                <button onClick={() => setIsMobileInspectorOpen(false)} className={styles.closeButton}>
+                                    <span className="material-icons">close</span>
+                                </button>
+                            </div>
+                            <CardInspector
+                                card={selectedCard}
+                                onChange={(patch) => updateCard(selectedCard.id, patch)}
+                                onClose={() => setIsMobileInspectorOpen(false)}
+                            />
+                        </motion.div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
         </motion.div>
     );
 };
