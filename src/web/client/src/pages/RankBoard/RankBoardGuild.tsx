@@ -117,39 +117,35 @@ const RankBoardGuild: React.FC = () => {
 
     return (
         <div className={styles.container}>
-            <div className={styles.header}>
-                <div className={styles.guildInfo}>
+            <div className={styles.hero}>
+                <div className={styles.heroContent}>
                     {guild.icon && (
-                            <img
-                                src={getGuildIconUrl(guild.id, guild.icon)}
-                                alt={guild.name}
-                                className={styles.guildIcon}
-                            />
-                        )}
-                    <div>
-                        <h1>{guild.name}</h1>
-                        <p>ランキングパネル一覧</p>
+                        <img
+                            src={getGuildIconUrl(guild.id, guild.icon)}
+                            alt={guild.name}
+                            className={styles.guildIcon}
+                            style={{ width: 80, height: 80, margin: '0 auto 16px', display: 'block' }}
+                        />
+                    )}
+                    <h1 className={styles.heroTitle}>{guild.name}</h1>
+                    <p className={styles.heroSubtitle}>ランキングパネル一覧</p>
+                    <div style={{ marginTop: '20px' }}>
+                        <button
+                            className={styles.backBtn}
+                            onClick={() => navigate('/rank')}
+                        >
+                            <span className="material-icons">arrow_back</span>
+                            戻る
+                        </button>
                     </div>
                 </div>
-                <button
-                    className={styles.backBtn}
-                    onClick={() => navigate('/rank')}
-                >
-                    <span className="material-icons">arrow_back</span>
-                    戻る
-                </button>
             </div>
 
-            <div className={styles.panels}>
-                <div className={styles.panelsHeader}>
-                    <h2>利用可能なランキング</h2>
-                    <p>表示したいランキングパネルを選択してください</p>
-                </div>
-
+            <div className={styles.mainContent}>
                 <div className={styles.panelsList}>
                     {panels.length === 0 ? (
                         <div className={styles.empty}>
-                            <span className="material-icons">leaderboard</span>
+                            <span className="material-icons" style={{ fontSize: '48px', marginBottom: '16px' }}>leaderboard</span>
                             <p>このサーバーにはランキングパネルがありません</p>
                         </div>
                     ) : (
@@ -162,15 +158,15 @@ const RankBoardGuild: React.FC = () => {
                                 <div className={styles.panelIcon}>
                                     <span className="material-icons">leaderboard</span>
                                 </div>
-                                <div className={styles.panelDetails}>
+                                <div className={styles.panelDetails}> // Note: panelDetails is not in new CSS? Wait, I removed it?
                                     <h3 className={styles.panelName}>{panel.preset} ランキング</h3>
                                     <p className={styles.panelInfo}>
                                         トップ {panel.topCount || 10} •
                                         最終更新: {formatDate(panel.lastUpdate)}
                                     </p>
                                 </div>
-                                <div className={styles.panelAction}>
-                                    <span className="material-icons">chevron_right</span>
+                                <div className={styles.guildAction}> {/* Reusing guildAction for chevron */}
+                                    <span className="material-icons">arrow_forward</span>
                                 </div>
                             </div>
                         ))

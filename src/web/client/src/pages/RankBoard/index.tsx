@@ -149,7 +149,7 @@ const RankBoard: React.FC = () => {
         if (rankings.length === 0) {
             return (
                 <div className={styles.empty}>
-                    <span className="material-icons">leaderboard</span>
+                    <span className="material-icons" style={{ fontSize: '48px', marginBottom: '16px' }}>leaderboard</span>
                     <p>このビューにランキングデータがありません</p>
                 </div>
             );
@@ -231,37 +231,36 @@ const RankBoard: React.FC = () => {
 
     return (
         <div className={styles.container}>
-            <div className={styles.header}>
-                <div className={styles.guildInfo}>
+            <div className={styles.hero}>
+                <div className={styles.heroContent}>
                     {guild.icon && (
                         <img
                             src={getGuildIconUrl(guild.id, guild.icon)}
                             alt={guild.name}
                             className={styles.guildIcon}
+                            style={{ width: 80, height: 80, margin: '0 auto 16px', display: 'block' }}
                         />
                     )}
-                    <div>
-                        <h1>{guild.name}</h1>
-                        <p>サーバーランキング</p>
+                    <h1 className={styles.heroTitle}>{guild.name}</h1>
+                    <p className={styles.heroSubtitle}>
+                        {panel.preset} ランキング
+                        <span style={{ display: 'block', fontSize: '0.9rem', marginTop: '8px', opacity: 0.8 }}>
+                            最終更新: {formatDate(panel.lastUpdate)}
+                        </span>
+                    </p>
+                    <div style={{ marginTop: '20px' }}>
+                        <button
+                            className={styles.backBtn}
+                            onClick={() => navigate(`/rank/${guildId}`)}
+                        >
+                            <span className="material-icons">arrow_back</span>
+                            戻る
+                        </button>
                     </div>
                 </div>
-                <button
-                    className={styles.backBtn}
-                    onClick={() => navigate(`/rank/${guildId}`)}
-                >
-                    <span className="material-icons">arrow_back</span>
-                    戻る
-                </button>
             </div>
 
-            <div className={styles.rankings}>
-                <div className={styles.rankingsHeader}>
-                    <h2>🏆 {panel.preset} ランキング</h2>
-                    <p className={styles.lastUpdate}>
-                        最終更新: {formatDate(panel.lastUpdate)}
-                    </p>
-                </div>
-
+            <div className={styles.mainContent}>
                 {/* タブメニュー */}
                 <div className={styles.tabContainer}>
                     <button
@@ -320,7 +319,7 @@ const RankBoard: React.FC = () => {
                                     </div>
                                     <div className={styles.rankSectionList}>
                                         {(rankingsByRank.get(rankDef.name)?.length || 0) === 0 ? (
-                                            <div className={styles.empty}>
+                                            <div className={styles.empty} style={{ padding: '20px' }}>
                                                 <p>このランクにはプレイヤーがいません</p>
                                             </div>
                                         ) : (

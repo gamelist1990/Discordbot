@@ -80,25 +80,18 @@ const RankBoardHome: React.FC = () => {
 
     return (
         <div className={styles.container}>
-            <div className={styles.header}>
-                <div className={styles.guildInfo}>
-                    <div>
-                        <h1>🏆 ランキングボード</h1>
-                        <p>参加しているサーバーのランキングを表示</p>
-                    </div>
+            <div className={styles.hero}>
+                <div className={styles.heroContent}>
+                    <h1 className={styles.heroTitle}>🏆 ランキングボード</h1>
+                    <p className={styles.heroSubtitle}>参加しているサーバーのランキングを表示</p>
                 </div>
             </div>
 
-            <div className={styles.guilds}>
-                <div className={styles.guildsHeader}>
-                    <h2>サーバー一覧</h2>
-                    <p>ランキングを表示したいサーバーを選択してください</p>
-                </div>
-
+            <div className={styles.mainContent}>
                 <div className={styles.guildsGrid}>
                     {guilds.length === 0 ? (
                         <div className={styles.empty}>
-                            <span className="material-icons">group</span>
+                            <span className="material-icons" style={{ fontSize: '48px', marginBottom: '16px' }}>group_off</span>
                             <p>参加しているサーバーが見つかりません</p>
                         </div>
                     ) : (
@@ -127,7 +120,7 @@ const RankBoardHome: React.FC = () => {
                                     <p className={styles.guildId}>ID: {guild.id}</p>
                                 </div>
                                 <div className={styles.guildAction}>
-                                    <span className="material-icons">chevron_right</span>
+                                    <span className="material-icons">arrow_forward</span>
                                 </div>
                             </div>
                         ))
