@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { SettingsSession } from '../types/index.js';
 import { BotClient } from '../../core/BotClient.js';
+import { userHasAdminOrManageFlag } from '../routes/permissionsUtils.js';
 
 /**
  * スタッフコントローラー
@@ -51,7 +52,7 @@ export class StaffController {
                     });
                     if (resp.ok) {
                         const guilds = await resp.json() as Array<any>;
-                        userGuilds = guilds.filter(g => (g.permissions & 0x8) || (g.owner === true));
+                        userGuilds = guilds.filter(g => userHasAdminOrManageFlag(g));
                     }
                 } catch (e) {
                     console.warn('[StaffController.getAccessibleGuilds] Error fetching user guilds:', e);
@@ -59,7 +60,46 @@ export class StaffController {
             }
 
             const botGuildIds = new Set(botGuilds.map(g => g.id));
-            const filtered = userGuilds.filter(g => botGuildIds.has(g.id));
+
+            // If OAuth-based guild fetch failed or returned empty, fall back to the session guild list
+            if ((!userGuilds || userGuilds.length === 0) && session) {
+                console.warn('[StaffController.getAccessibleGuilds] OAuth guilds fetch returned empty - falling back to session data');
+                const sessionGuildIds: string[] = [];
+                if (session.guildIds && session.guildIds.length > 0) {
+                    sessionGuildIds.push(...session.guildIds);
+                } else if (session.guildId) {
+                    sessionGuildIds.push(session.guildId);
+                }
+
+                const sessionPermissionsMap = new Map<string, number>();
+                (session.permissions || []).forEach(p => {
+                    if (p && p.guildId) sessionPermissionsMap.set(p.guildId, p.level);
+                });
+
+                userGuilds = sessionGuildIds
+                    .filter(gid => botGuildIds.has(gid))
+                    .filter(gid => {
+                        const lvl = sessionPermissionsMap.get(gid) ?? session.permission ?? 0;
+                        return typeof lvl === 'number' ? lvl >= 1 : Number(lvl) >= 1;
+                    })
+                    .map(gid => {
+                        const botGuild = botGuilds.find(g => g.id === gid);
+                        if (botGuild) {
+                            return {
+                                id: botGuild.id,
+                                name: botGuild.name,
+                                icon: botGuild.icon,
+                                memberCount: botGuild.memberCount,
+                                permissionLevel: sessionPermissionsMap.get(gid) ?? session.permission ?? ((session.permissions || []).some(p => p.level >= 3) ? 3 : 0)
+                            };
+                        }
+                        // If bot doesn't have cache info for guild, still include a minimal object
+                        return { id: gid, name: gid, icon: undefined, permissionLevel: sessionPermissionsMap.get(gid) ?? session.permission ?? ((session.permissions || []).some(p => p.level >= 3) ? 3 : 0) };
+                    });
+            }
+
+            const filtered = (userGuilds || []).filter(g => botGuildIds.has(g.id))
+                .map(g => ({ id: g.id, name: g.name, icon: (g.icon !== undefined ? g.icon : null) }));
 
             res.json({ guilds: filtered });
         } catch (error) {

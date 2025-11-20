@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { BotClient } from '../../core/BotClient.js';
 import { verifyAuth, getCurrentUser } from '../middleware/auth.js';
+import { userHasAdminOrManageFlag } from './permissionsUtils.js';
 import { SettingsSession } from '../types';
 import { ProfileService } from '../services/ProfileService.js';
 import { UserCustomProfile } from '../types/profile.js';
@@ -74,7 +75,7 @@ export function createUserRoutes(
             const currentUser = getCurrentUser(req);
 
             // デバッグログ: セッション情報とユーザー情報を出力
-       
+
 
             if (!currentUser) {
                 res.status(401).json({ error: 'Unauthorized' });
@@ -344,7 +345,7 @@ export function createUserRoutes(
 
             // カスタムプロフィール情報を取得
             const customProfile = await profileService.getCustomProfile(requestedUserId);
-            
+
             // プライバシーチェック: 他人のプロフィールを見る場合
             let filteredCustomProfile = customProfile;
             if (requestedUserId !== currentUser.userId && customProfile) {
@@ -380,7 +381,7 @@ export function createUserRoutes(
                     console.warn(`Failed to fetch user info for ${requestedUserId}:`, e);
                 }
             }
-            
+
             if (!targetUserInfo) {
                 // Fallback to basic info
                 targetUserInfo = {
@@ -407,7 +408,7 @@ export function createUserRoutes(
                 customProfile: filteredCustomProfile || undefined,
             };
 
-         
+
 
             res.json(userProfile);
         } catch (error) {
@@ -433,7 +434,7 @@ export function createUserRoutes(
 
             // Get stats manager
             const statsMgr = (await import('../../core/StatsManager.js')).statsManagerSingleton.instance;
-            
+
             if (!statsMgr) {
                 res.status(503).json({ error: 'Stats manager not available' });
                 return;
@@ -516,7 +517,7 @@ export function createUserRoutes(
                     if (resp.ok) {
                         const guilds = await resp.json() as Array<any>;
                         // 管理者権限(0x8)または管理権限(0x20)を持つサーバーのみ抽出
-                        userGuilds = guilds.filter(g => (g.permissions & 0x8) || (g.owner === true));
+                        userGuilds = guilds.filter(g => userHasAdminOrManageFlag(g));
                     }
                 } catch (e) {
                     console.warn('[UserGuilds] Error fetching user guilds:', e);

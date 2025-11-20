@@ -4,6 +4,8 @@ import crypto from 'crypto';
 import config from '../../config.js';
 // import { Logger } from '../../utils/Logger.js';
 import { SettingsSession } from '../types';
+import { parsePermissionBitfield } from './permissionsUtils.js';
+import { PermissionFlagsBits } from 'discord.js';
 import { database } from '../../core/Database.js';
 import fs from 'fs';
 import path from 'path';
@@ -358,20 +360,31 @@ export function createAuthRoutes(
                             level = 1;
                         } else if (g.owner) {
                             level = 2;
-                        } else if (g.permissions & 0x20) {
-                            level = 3;
-                        } else if (g.permissions & 0x8) {
-                            level = 1;
+                        } else {
+                            // Handle permission bitfields which may be string/number/bigint
+                            const perms = parsePermissionBitfield(g.permissions);
+                            const manageGuildFlag = Number((PermissionFlagsBits as any).ManageGuild || PermissionFlagsBits.ManageGuild || 0);
+                            const adminFlag = Number(PermissionFlagsBits.Administrator);
+                            if (perms & manageGuildFlag) {
+                                level = 3;
+                            } else if (perms & adminFlag) {
+                                level = 1;
+                            }
                         }
                     }
                 } catch (e) {
                     // fallback: owner/権限フラグ
                     if (g.owner) {
                         level = 2;
-                    } else if (g.permissions & 0x20) {
-                        level = 3;
-                    } else if (g.permissions & 0x8) {
-                        level = 1;
+                    } else {
+                        const perms = parsePermissionBitfield(g.permissions);
+                        const manageGuildFlag = Number((PermissionFlagsBits as any).ManageGuild || PermissionFlagsBits.ManageGuild || 0);
+                        const adminFlag = Number(PermissionFlagsBits.Administrator);
+                        if (perms & manageGuildFlag) {
+                            level = 3;
+                        } else if (perms & adminFlag) {
+                            level = 1;
+                        }
                     }
                 }
                 permissions.push({ guildId: g.id, level });

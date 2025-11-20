@@ -51,27 +51,33 @@ const HomePage: React.FC = () => {
         return (
             <div className={styles.loadingContainer}>
                 <div className={styles.spinner}></div>
-                <p>読み込み中...</p>
             </div>
         );
     }
 
     return (
         <div className={styles.page}>
+            <div className={styles.backgroundBlob}></div>
+            <div className={styles.backgroundBlob2}></div>
             
             <main className={styles.main}>
                 {/* Hero Section */}
                 <section className={styles.hero}>
                     <div className={styles.heroContent}>
-                        <h1 className={styles.heroTitle}>Discord Bot 管理システム</h1>
+                        <div className={styles.heroBadge}>New Design</div>
+                        <h1 className={styles.heroTitle}>
+                            Discord Bot<br />
+                            <span className={styles.heroTitleGradient}>Management System</span>
+                        </h1>
                         <p className={styles.heroDescription}>
-                            強力な管理機能を備えたDiscord Botで、サーバーの運営をより効率的に
+                            次世代のDiscordサーバー管理ツール。<br />
+                            直感的な操作と強力な機能で、あなたのコミュニティをサポートします。
                         </p>
                         <div className={styles.heroActions}>
                             {user ? (
                                 <button className={styles.primaryBtn} onClick={() => navigate('/profile')}>
                                     <span className="material-icons">person</span>
-                                    プロフィールを見る
+                                    マイページへ
                                 </button>
                             ) : (
                                 <button 
@@ -79,7 +85,7 @@ const HomePage: React.FC = () => {
                                     onClick={() => window.location.href = '/api/auth/discord'}
                                 >
                                     <span className="material-icons">login</span>
-                                    Discord でログイン
+                                    Discordでログイン
                                 </button>
                             )}
                             <button className={styles.secondaryBtn} onClick={() => navigate('/settings')}>
@@ -93,141 +99,114 @@ const HomePage: React.FC = () => {
                 {/* Status Cards */}
                 {status && (
                     <section className={styles.statusSection}>
-                        <h2 className={styles.sectionTitle}>Bot ステータス</h2>
-                        <div className={styles.cardsGrid}>
-                            <div className={styles.card}>
-                                <div className={styles.cardIcon} style={{ background: '#E8F0FE' }}>
-                                    <span className="material-icons" style={{ color: '#4285F4' }}>power_settings_new</span>
+                        <div className={styles.glassCard}>
+                            <div className={styles.statusGrid}>
+                                <div className={styles.statusItem}>
+                                    <div className={`${styles.statusIcon} ${styles.iconBlue}`}>
+                                        <span className="material-icons">power_settings_new</span>
+                                    </div>
+                                    <div className={styles.statusInfo}>
+                                        <span className={styles.statusLabel}>System Status</span>
+                                        <span className={styles.statusValue}>
+                                            <span className={`${styles.statusDot} ${status.ready ? styles.online : styles.offline}`}></span>
+                                            {status.ready ? 'Online' : 'Offline'}
+                                        </span>
+                                    </div>
                                 </div>
-                                <div className={styles.cardContent}>
-                                    <h3 className={styles.cardTitle}>ステータス</h3>
-                                    <p className={styles.cardValue}>
-                                        <span className={`${styles.statusDot} ${status.ready ? styles.online : styles.offline}`}></span>
-                                        {status.ready ? 'オンライン' : 'オフライン'}
-                                    </p>
-                                </div>
-                            </div>
 
-                            <div className={styles.card}>
-                                <div className={styles.cardIcon} style={{ background: '#E6F4EA' }}>
-                                    <span className="material-icons" style={{ color: '#34A853' }}>schedule</span>
-                                </div>
-                                <div className={styles.cardContent}>
-                                    <h3 className={styles.cardTitle}>稼働時間</h3>
-                                    <p className={styles.cardValue}>{status.uptimeFormatted}</p>
-                                </div>
-                            </div>
+                                <div className={styles.divider}></div>
 
-                            <div className={styles.card}>
-                                <div className={styles.cardIcon} style={{ background: '#FEF7E0' }}>
-                                    <span className="material-icons" style={{ color: '#F9AB00' }}>groups</span>
+                                <div className={styles.statusItem}>
+                                    <div className={`${styles.statusIcon} ${styles.iconGreen}`}>
+                                        <span className="material-icons">schedule</span>
+                                    </div>
+                                    <div className={styles.statusInfo}>
+                                        <span className={styles.statusLabel}>Uptime</span>
+                                        <span className={styles.statusValue}>{status.uptimeFormatted}</span>
+                                    </div>
                                 </div>
-                                <div className={styles.cardContent}>
-                                    <h3 className={styles.cardTitle}>サーバー数</h3>
-                                    <p className={styles.cardValue}>{status.guildCount} / {status.maxGuilds}</p>
-                                </div>
-                            </div>
 
-                            <div className={styles.card}>
-                                <div className={styles.cardIcon} style={{ background: '#FCE8E6' }}>
-                                    <span className="material-icons" style={{ color: '#EA4335' }}>code</span>
-                                </div>
-                                <div className={styles.cardContent}>
-                                    <h3 className={styles.cardTitle}>バージョン</h3>
-                                    <p className={styles.cardValue}>{status.version}</p>
+                                <div className={styles.divider}></div>
+
+                                <div className={styles.statusItem}>
+                                    <div className={`${styles.statusIcon} ${styles.iconOrange}`}>
+                                        <span className="material-icons">dns</span>
+                                    </div>
+                                    <div className={styles.statusInfo}>
+                                        <span className={styles.statusLabel}>Servers</span>
+                                        <span className={styles.statusValue}>{status.guildCount} / {status.maxGuilds}</span>
+                                    </div>
                                 </div>
                             </div>
                         </div>
                     </section>
                 )}
 
-                {/* Features Section */}
+                {/* Features Grid */}
                 <section className={styles.featuresSection}>
-                    <h2 className={styles.sectionTitle}>主な機能</h2>
+                    <h2 className={styles.sectionTitle}>Features</h2>
                     <div className={styles.featuresGrid}>
                         <div className={styles.featureCard}>
-                            <div className={styles.featureIcon}>
+                            <div className={`${styles.featureIcon} ${styles.iconPurple}`}>
                                 <span className="material-icons">security</span>
                             </div>
                             <h3>権限管理</h3>
-                            <p>きめ細かな権限設定で、サーバーの安全性を確保</p>
+                            <p>詳細な権限設定でサーバーを安全に保ちます。</p>
                         </div>
 
                         <div className={styles.featureCard}>
-                            <div className={styles.featureIcon}>
+                            <div className={`${styles.featureIcon} ${styles.iconPink}`}>
                                 <span className="material-icons">analytics</span>
                             </div>
-                            <h3>統計情報</h3>
-                            <p>サーバーの活動状況をリアルタイムで把握</p>
+                            <h3>統計分析</h3>
+                            <p>サーバーの活動状況を可視化します。</p>
                         </div>
 
                         <div className={styles.featureCard}>
-                            <div className={styles.featureIcon}>
+                            <div className={`${styles.featureIcon} ${styles.iconCyan}`}>
                                 <span className="material-icons">support_agent</span>
                             </div>
-                            <h3>モデレーション</h3>
-                            <p>効率的なモデレーション機能でサーバーを健全に保つ</p>
+                            <h3>サポート</h3>
+                            <p>迅速なモデレーション機能を提供します。</p>
                         </div>
 
                         <div className={styles.featureCard}>
-                            <div className={styles.featureIcon}>
+                            <div className={`${styles.featureIcon} ${styles.iconYellow}`}>
                                 <span className="material-icons">task_alt</span>
                             </div>
-                            <h3>Todo管理</h3>
-                            <p>プロジェクト管理とタスク共有を簡単に</p>
-                        </div>
-
-                        <div className={styles.featureCard}>
-                            <div className={styles.featureIcon}>
-                                <span className="material-icons">games</span>
-                            </div>
-                            <h3>ゲーム機能</h3>
-                            <p>おみくじ、オセロ、○×ゲームなど楽しい機能</p>
-                        </div>
-
-                        <div className={styles.featureCard}>
-                            <div className={styles.featureIcon}>
-                                <span className="material-icons">extension</span>
-                            </div>
-                            <h3>拡張性</h3>
-                            <p>プラグインシステムで機能を簡単に追加</p>
+                            <h3>タスク管理</h3>
+                            <p>プロジェクトの進捗を管理・共有できます。</p>
                         </div>
                     </div>
                 </section>
 
-                {/* Getting Started Section */}
+                {/* Getting Started */}
                 <section className={styles.gettingStarted}>
-                    <h2 className={styles.sectionTitle}>使い方</h2>
-                    <div className={styles.steps}>
-                        <div className={styles.step}>
-                            <div className={styles.stepNumber}>1</div>
-                            <div className={styles.stepContent}>
-                                <h3>Botを招待</h3>
-                                <p>管理者権限でBotをDiscordサーバーに追加</p>
+                    <div className={styles.glassCardLarge}>
+                        <h2 className={styles.sectionTitle}>How to Start</h2>
+                        <div className={styles.stepsContainer}>
+                            <div className={styles.stepItem}>
+                                <div className={styles.stepNumber}>1</div>
+                                <div className={styles.stepContent}>
+                                    <h3>Invite Bot</h3>
+                                    <p>Botをサーバーに招待</p>
+                                </div>
                             </div>
-                        </div>
-
-                        <div className={styles.stepArrow}>
-                            <span className="material-icons">arrow_forward</span>
-                        </div>
-
-                        <div className={styles.step}>
-                            <div className={styles.stepNumber}>2</div>
-                            <div className={styles.stepContent}>
-                                <h3>設定コマンド</h3>
-                                <p>/settings コマンドで設定画面にアクセス</p>
+                            <div className={styles.stepLine}></div>
+                            <div className={styles.stepItem}>
+                                <div className={styles.stepNumber}>2</div>
+                                <div className={styles.stepContent}>
+                                    <h3>Setup</h3>
+                                    <p>コマンドで初期設定</p>
+                                </div>
                             </div>
-                        </div>
-
-                        <div className={styles.stepArrow}>
-                            <span className="material-icons">arrow_forward</span>
-                        </div>
-
-                        <div className={styles.step}>
-                            <div className={styles.stepNumber}>3</div>
-                            <div className={styles.stepContent}>
-                                <h3>カスタマイズ</h3>
-                                <p>権限やロールを設定して運用開始</p>
+                            <div className={styles.stepLine}></div>
+                            <div className={styles.stepItem}>
+                                <div className={styles.stepNumber}>3</div>
+                                <div className={styles.stepContent}>
+                                    <h3>Enjoy</h3>
+                                    <p>運用スタート！</p>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -235,7 +214,7 @@ const HomePage: React.FC = () => {
             </main>
 
             <footer className={styles.footer}>
-                <p>&copy; 2024 Discord Bot. All rights reserved.</p>
+                <p>&copy; 2024 Discord Bot System. All rights reserved.</p>
             </footer>
         </div>
     );
