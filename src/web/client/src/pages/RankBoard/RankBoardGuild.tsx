@@ -158,7 +158,7 @@ const RankBoardGuild: React.FC = () => {
                                 <div className={styles.panelIcon}>
                                     <span className="material-icons">leaderboard</span>
                                 </div>
-                                <div className={styles.panelDetails}> // Note: panelDetails is not in new CSS? Wait, I removed it?
+                                <div className={styles.panelDetails}>
                                     <h3 className={styles.panelName}>{panel.preset} ランキング</h3>
                                     <p className={styles.panelInfo}>
                                         トップ {panel.topCount || 10} •
