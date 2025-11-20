@@ -4,24 +4,22 @@
   justify-content: center;
   align-items: center;
   min-height: 100vh;
-  background: var(--background-tertiary);
-  color: var(--text-primary);
+  background: #F2F2F7;
+  color: #1d1d1f;
 }
 
 .spinner {
   width: 48px;
   height: 48px;
-  border: 4px solid var(--background-secondary);
-  border-top-color: var(--primary-color);
+  border: 4px solid rgba(0, 0, 0, 0.1);
+  border-top-color: #4285F4;
   border-radius: 50%;
-  animation: spin 1s linear infinite;
-  margin-bottom: 1rem;
+  animation: spin 1s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  margin-bottom: 16px;
 }
 
 @keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
+  to { transform: rotate(360deg); }
 }
 
 .error {
@@ -30,21 +28,21 @@
   justify-content: center;
   align-items: center;
   min-height: 100vh;
-  background: var(--background-tertiary);
-  color: var(--text-primary);
+  background: #F2F2F7;
+  color: #1d1d1f;
   text-align: center;
-  padding: 2rem;
+  padding: 32px;
 }
 
 .error h2 {
-  font-size: 2rem;
-  margin-bottom: 1rem;
-  color: #ed4245;
+  font-size: 24px;
+  margin-bottom: 16px;
+  color: #EA4335;
 }
 
 .error p {
-  font-size: 1rem;
-  color: var(--text-secondary);
+  font-size: 16px;
+  color: #86868b;
 }
 
 .comingSoon {
@@ -52,39 +50,58 @@
   flex-direction: column;
   justify-content: center;
   align-items: center;
-  min-height: 60vh;
+  min-height: 400px;
   text-align: center;
-  padding: 2rem;
-  background: var(--background-secondary);
-  border-radius: 12px;
-  margin: 2rem;
+  padding: 48px;
+  background: rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(20px);
+  border-radius: 32px;
+  margin: 0 auto;
+  max-width: 800px;
+  box-shadow: 
+    0 20px 40px -12px rgba(0, 0, 0, 0.05),
+    0 0 0 1px rgba(255, 255, 255, 0.6) inset;
+  animation: fadeIn 0.5s ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .comingSoonIcon {
-  font-size: 4rem;
-  margin-bottom: 1rem;
-  opacity: 0.7;
+  font-size: 64px;
+  margin-bottom: 24px;
+  opacity: 1;
+  filter: drop-shadow(0 4px 8px rgba(0,0,0,0.1));
+  animation: float 3s ease-in-out infinite;
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
 }
 
 .comingSoon h2 {
-  font-size: 2rem;
-  margin-bottom: 1rem;
-  color: var(--text-primary);
-  font-weight: 600;
+  font-size: 28px;
+  margin-bottom: 12px;
+  color: #1d1d1f;
+  font-weight: 700;
 }
 
 .comingSoon p {
-  font-size: 1.1rem;
-  color: var(--text-secondary);
-  margin-bottom: 1.5rem;
+  font-size: 16px;
+  color: #86868b;
+  margin-bottom: 32px;
 }
 
 .comingSoonText {
-  font-size: 1.2rem;
-  font-weight: 500;
-  color: var(--primary-color);
-  background: var(--background-primary);
-  padding: 0.5rem 1rem;
-  border-radius: 20px;
-  border: 1px solid var(--primary-color);
+  font-size: 14px;
+  font-weight: 600;
+  color: #4285F4;
+  background: rgba(66, 133, 244, 0.1);
+  padding: 8px 20px;
+  border-radius: 100px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
 }

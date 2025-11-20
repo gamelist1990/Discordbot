@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { BotClient } from '../../core/BotClient.js';
 import { verifyAuth, getCurrentUser } from '../middleware/auth.js';
 import { userHasAdminOrManageFlag } from './permissionsUtils.js';
+import { PermissionFlagsBits } from 'discord.js';
 import { SettingsSession } from '../types';
 import { ProfileService } from '../services/ProfileService.js';
 import { UserCustomProfile } from '../types/profile.js';
@@ -526,9 +527,52 @@ export function createUserRoutes(
 
             // Botが参加しているサーバーのみ返す
             const botGuildIds = new Set(botGuilds.map(g => g.id));
+
+            // If OAuth fetch result is empty, fallback to session's guild list
+            if ((!userGuilds || userGuilds.length === 0) && user) {
+                console.warn('[UserGuilds] OAuth guilds empty; falling back to session.guildIds/permissions');
+                const sessionGuildIds: string[] = [];
+                if (Array.isArray((user as any).guildIds) && (user as any).guildIds.length > 0) {
+                    (sessionGuildIds as string[]).push(...(user as any).guildIds);
+                } else if ((user as any).guildId) {
+                    sessionGuildIds.push((user as any).guildId);
+                }
+
+                const sessionPermMap = new Map<string, number>();
+                ((user as any).permissions || []).forEach((p: any) => {
+                    if (p && p.guildId) sessionPermMap.set(p.guildId, p.level);
+                });
+
+                userGuilds = sessionGuildIds
+                    .filter(gid => botGuildIds.has(gid))
+                    // require ADMIN level (>=2) for management view
+                    .filter(gid => {
+                        const lvl = sessionPermMap.get(gid) ?? (user as any).permission ?? 0;
+                        return typeof lvl === 'number' ? lvl >= 2 : Number(lvl) >= 2;
+                    })
+                    .map(gid => {
+                        const bg = botGuilds.find(bg => bg.id === gid);
+                        const lvl = (user as any).permissions?.find((p: any) => p.guildId === gid)?.level ?? (user as any).permission ?? 0;
+                        const isOwner = Array.isArray((user as any).owners) ? (user as any).owners.includes((user as any).userId) : (lvl >= 3);
+                        const permsNum = lvl >= 3 ? Number(PermissionFlagsBits.Administrator) : (lvl >= 2 ? Number(((PermissionFlagsBits as any).ManageGuild || 0)) : 0);
+                        if (bg) return { id: bg.id, name: bg.name, icon: bg.icon, memberCount: bg.memberCount, owner: isOwner, permissions: permsNum };
+                        return { id: gid, name: gid, icon: undefined, memberCount: 0, owner: isOwner, permissions: permsNum };
+                    });
+            }
+
             const filtered = userGuilds.filter(g => botGuildIds.has(g.id));
 
-            res.json({ guilds: filtered });
+            // Sanitize guild objects to avoid BigInt values (e.g., PermissionFlagsBits)
+            const safeGuilds = filtered.map(g => ({
+                id: g.id,
+                name: g.name,
+                icon: (g as any).icon ?? null,
+                memberCount: Number((g as any).memberCount || 0),
+                owner: Boolean((g as any).owner || false),
+                permissions: Number(((g as any).permissions !== undefined) ? (g as any).permissions : 0)
+            }));
+
+            res.json({ guilds: safeGuilds });
         } catch (error) {
             console.error('Failed to get user guilds:', error);
             res.status(500).json({ error: 'Internal server error' });

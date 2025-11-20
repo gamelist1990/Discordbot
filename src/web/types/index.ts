@@ -11,6 +11,10 @@ export interface SettingsSession {
     avatar?: string | null;
     permission?: number; // 後方互換
     permissions?: GuildPermission[];
+    // Additional fields present in some session objects
+    owners?: string[];
+    isOwner?: boolean;
+    permissionLevel?: number;
     expiresAt: number;
     token?: string;
     createdAt?: number;

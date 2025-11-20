@@ -64,10 +64,9 @@ const HomePage: React.FC = () => {
                 {/* Hero Section */}
                 <section className={styles.hero}>
                     <div className={styles.heroContent}>
-                        <div className={styles.heroBadge}>New Design</div>
+                        <div className={styles.heroBadge}>Premium Edition</div>
                         <h1 className={styles.heroTitle}>
-                            Discord Bot<br />
-                            <span className={styles.heroTitleGradient}>Management System</span>
+                            PEX<span className={styles.heroTitleGradient}>Server</span>
                         </h1>
                         <p className={styles.heroDescription}>
                             次世代のDiscordサーバー管理ツール。<br />

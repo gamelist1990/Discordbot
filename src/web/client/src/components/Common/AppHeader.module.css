@@ -1,12 +1,17 @@
-/* Google Material Design inspired header */
+/* Google Material Design inspired header with Glassmorphism */
 .header {
-    background: white;
-    border-bottom: 1px solid #E8EAED;
-    box-shadow: 0 1px 2px 0 rgba(60,64,67,0.3);
+    background: rgba(255, 255, 255, 0.85);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-bottom: 1px solid rgba(232, 234, 237, 0.5);
+    box-shadow: 0 2px 10px rgba(60,64,67,0.05), 0 1px 2px rgba(60,64,67,0.05);
     position: sticky;
     top: 0;
     /* Force header to the very top of stacking contexts */
     z-index: 999999;
+    overflow: visible; /* allow dropdowns to expand without creating scrollbars */
+    height: var(--header-height);
+    transition: all 0.3s ease;
 }
 
 .container {
@@ -36,21 +41,28 @@
     font-size: 18px;
     font-weight: 500;
     cursor: pointer;
-    border-radius: 4px;
-    transition: background 0.2s;
+    border-radius: 8px;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .logoBtn:hover {
-    background: #F8F9FA;
+    background: rgba(66, 133, 244, 0.08);
+    transform: translateY(-1px);
 }
 
 .logoBtn .material-icons {
     font-size: 24px;
     color: #4285F4;
+    transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.logoBtn:hover .material-icons {
+    transform: rotate(-15deg) scale(1.1);
 }
 
 .logoText {
     font-family: 'Roboto', 'Arial', sans-serif;
+    letter-spacing: -0.5px;
 }
 
 .nav {
@@ -71,16 +83,29 @@
     font-size: 14px;
     font-weight: 500;
     cursor: pointer;
-    border-radius: 4px;
-    transition: background 0.2s;
+    border-radius: 8px;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .navBtn:hover {
-    background: #F8F9FA;
+    background: rgba(248, 249, 250, 0.8);
+    color: #202124;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+}
+
+.navBtn:active {
+    transform: translateY(0);
 }
 
 .navBtn .material-icons {
     font-size: 20px;
+    transition: transform 0.2s ease;
+}
+
+.navBtn:hover .material-icons {
+    transform: scale(1.1);
+    color: #4285F4;
 }
 
 .right {
@@ -101,14 +126,17 @@
     height: 40px;
     border: none;
     background: transparent;
-    border-radius: 50%;
+    border-radius: 12px;
     cursor: pointer;
-    transition: background 0.2s;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
     color: #5F6368;
 }
 
 .appMenuBtn:hover {
-    background: #F8F9FA;
+    background: rgba(248, 249, 250, 0.8);
+    color: #202124;
+    transform: translateY(-2px) rotate(90deg);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.05);
 }
 
 .appMenuBtn .material-icons {
@@ -117,14 +145,16 @@
 
 .appMenu {
     position: absolute;
-    top: calc(100% + 8px);
+    top: calc(100% + 12px);
     right: 0;
-    background: white;
-    border-radius: 8px;
-    box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(10px);
+    border-radius: 16px;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.1);
     padding: 16px;
-    animation: slideDown 0.2s ease-out;
+    animation: slideDown 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     z-index: 99999999999;
+    border: 1px solid rgba(255,255,255,0.5);
 }
 
 .appGrid {
@@ -143,21 +173,28 @@
     padding: 16px;
     border: none;
     background: transparent;
-    border-radius: 8px;
+    border-radius: 12px;
     cursor: pointer;
-    transition: background 0.2s;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
     color: #202124;
     font-size: 13px;
     text-align: center;
 }
 
 .appItem:hover {
-    background: #F8F9FA;
+    background: rgba(66, 133, 244, 0.05);
+    transform: translateY(-2px);
 }
 
 .appItem .material-icons {
     font-size: 32px;
     color: #5F6368;
+    transition: all 0.2s ease;
+}
+
+.appItem:hover .material-icons {
+    color: #4285F4;
+    transform: scale(1.1);
 }
 
 .appItem span:last-child {
@@ -174,21 +211,29 @@
     align-items: center;
     gap: 12px;
     padding: 6px 12px;
-    border: 1px solid #E8EAED;
+    border: 1px solid rgba(232, 234, 237, 0.8);
     border-radius: 24px;
-    background: white;
+    background: rgba(255, 255, 255, 0.8);
     cursor: pointer;
-    transition: box-shadow 0.2s;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .userButton:hover {
-    box-shadow: 0 1px 2px 0 rgba(60,64,67,0.3);
+    box-shadow: 0 4px 12px rgba(60,64,67,0.1);
+    background: white;
+    transform: translateY(-1px);
+    border-color: transparent;
 }
 
 .avatar {
     width: 32px;
     height: 32px;
     border-radius: 50%;
+    transition: transform 0.2s ease;
+}
+
+.userButton:hover .avatar {
+    transform: scale(1.05);
 }
 
 .userInfo {
@@ -210,24 +255,26 @@
 
 .userMenu {
     position: absolute;
-    top: calc(100% + 8px);
+    top: calc(100% + 12px);
     right: 0;
-    background: white;
-    border-radius: 8px;
-    box-shadow: 0 2px 10px rgba(0,0,0,0.2);
-    min-width: 200px;
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(10px);
+    border-radius: 16px;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+    min-width: 220px;
     overflow: hidden;
-    animation: slideDown 0.2s ease-out;
+    animation: slideDown 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    border: 1px solid rgba(255,255,255,0.5);
 }
 
 @keyframes slideDown {
     from {
         opacity: 0;
-        transform: translateY(-8px);
+        transform: translateY(-10px) scale(0.98);
     }
     to {
         opacity: 1;
-        transform: translateY(0);
+        transform: translateY(0) scale(1);
     }
 }
 
@@ -236,28 +283,34 @@
     align-items: center;
     gap: 12px;
     width: 100%;
-    padding: 12px 16px;
+    padding: 12px 20px;
     border: none;
     background: transparent;
     color: #202124;
     font-size: 14px;
     cursor: pointer;
-    transition: background 0.2s;
+    transition: all 0.2s;
     text-align: left;
 }
 
 .menuItem:hover {
-    background: #F8F9FA;
+    background: rgba(66, 133, 244, 0.05);
+    padding-left: 24px; /* 少し右に動く */
 }
 
 .menuItem .material-icons {
     font-size: 20px;
     color: #5F6368;
+    transition: color 0.2s;
+}
+
+.menuItem:hover .material-icons {
+    color: #4285F4;
 }
 
 .divider {
     height: 1px;
-    background: #E8EAED;
+    background: rgba(232, 234, 237, 0.6);
     margin: 4px 0;
 }
 
@@ -265,20 +318,27 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 8px 16px;
+    padding: 8px 20px;
     border: 1px solid #4285F4;
-    border-radius: 4px;
+    border-radius: 8px;
     background: #4285F4;
     color: white;
     font-size: 14px;
     font-weight: 500;
     cursor: pointer;
-    transition: background 0.2s;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 2px 4px rgba(66, 133, 244, 0.2);
 }
 
 .loginBtn:hover {
     background: #1A73E8;
     border-color: #1A73E8;
+    transform: translateY(-2px);
+    box-shadow: 0 6px 12px rgba(66, 133, 244, 0.3);
+}
+
+.loginBtn:active {
+    transform: translateY(0);
 }
 
 .loginBtn .material-icons {

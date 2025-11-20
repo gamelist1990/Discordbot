@@ -1,70 +1,167 @@
+/* Modern Elegant Design for Settings List */
+
 .container {
-  max-width: 800px;
+  max-width: 1200px;
   margin: 40px auto;
-  padding: 24px;
-  background: #fff;
-  border-radius: 12px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+  padding: 40px;
+  animation: fadeIn 0.5s ease-out;
 }
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.container h1 {
+  font-size: 32px;
+  font-weight: 800;
+  color: #1d1d1f;
+  margin-bottom: 40px;
+  text-align: center;
+  letter-spacing: -1px;
+  background: linear-gradient(135deg, #1d1d1f 0%, #434344 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
 .guildList {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
   gap: 24px;
-  margin-top: 24px;
 }
+
 .guildCard {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  background: #f7f9fa;
-  border-radius: 8px;
-  padding: 16px 24px;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.04);
-  min-width: 320px;
+  background: rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-radius: 24px;
+  padding: 32px;
+  box-shadow: 
+    0 10px 30px -10px rgba(0, 0, 0, 0.05),
+    0 0 0 1px rgba(255, 255, 255, 0.6) inset;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  border: 1px solid rgba(0, 0, 0, 0.03);
+  position: relative;
+  overflow: hidden;
 }
+
+.guildCard:hover {
+  transform: translateY(-8px);
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 20px 40px -10px rgba(0, 0, 0, 0.1);
+}
+
 .guildIcon {
-  width: 56px;
-  height: 56px;
-  border-radius: 50%;
-  background: #e3e7ed;
+  width: 80px;
+  height: 80px;
+  border-radius: 24px;
+  background: #F2F2F7;
   display: flex;
   align-items: center;
   justify-content: center;
   overflow: hidden;
-  margin-right: 20px;
+  margin-bottom: 20px;
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);
+  transition: transform 0.3s ease;
 }
+
+.guildCard:hover .guildIcon {
+  transform: scale(1.05);
+}
+
 .guildIcon img {
   width: 100%;
   height: 100%;
   object-fit: cover;
 }
+
 .defaultIcon {
-  font-size: 2rem;
-  color: #888;
+  font-size: 32px;
+  color: #86868b;
+  font-weight: 600;
 }
+
 .guildInfo {
-  flex: 1;
+  width: 100%;
+  text-align: center;
 }
+
+.guildInfo h2 {
+  font-size: 18px;
+  font-weight: 600;
+  color: #1d1d1f;
+  margin-bottom: 20px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .openBtn {
-  background: #1976d2;
+  width: 100%;
+  background: linear-gradient(135deg, #4285F4 0%, #1A73E8 100%);
   color: #fff;
   border: none;
-  border-radius: 4px;
-  padding: 8px 20px;
-  font-size: 1rem;
+  border-radius: 100px;
+  padding: 12px 24px;
+  font-size: 14px;
+  font-weight: 600;
   cursor: pointer;
-  margin-top: 8px;
-  transition: background 0.2s;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 4px 12px rgba(66, 133, 244, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
 }
+
 .openBtn:hover {
-  background: #1565c0;
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px rgba(66, 133, 244, 0.3);
 }
+
+.openBtn:active {
+  transform: translateY(0);
+}
+
 .loading {
   text-align: center;
-  color: #888;
-  margin: 40px 0;
+  color: #86868b;
+  margin: 80px 0;
+  font-size: 16px;
 }
+
 .error {
-  color: #d32f2f;
+  color: #EA4335;
   text-align: center;
-  margin: 40px 0;
+  margin: 80px 0;
+  background: rgba(255, 255, 255, 0.8);
+  padding: 40px;
+  border-radius: 24px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+}
+
+.error p {
+  margin-bottom: 20px;
+  color: #1d1d1f;
+  font-size: 16px;
+}
+
+/* Mobile Responsive */
+@media (max-width: 768px) {
+  .container {
+    padding: 20px;
+    margin: 20px auto;
+  }
+
+  .container h1 {
+    font-size: 24px;
+    margin-bottom: 32px;
+  }
+
+  .guildList {
+    grid-template-columns: 1fr;
+  }
 }
