@@ -18,6 +18,12 @@ const detectorDescriptions: Record<string, string> = {
     imageSpam: '画像スパムの検知。短時間    に大量の画像を送信するユーザーを検知します。'
 };
 
+const humanizeDetectorName = (key: string) => {
+    // camelCase -> Title Case + spaces
+    const parts = key.replace(/([A-Z])/g, ' $1').split(/_|\s+/).filter(Boolean);
+    return parts.map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' ');
+};
+
 
 const useIsMobile = (breakpoint = 768) => {
     const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' ? window.innerWidth < breakpoint : false);
@@ -71,6 +77,8 @@ const AntiCheatUnified: React.FC = () => {
 
     const [activeView, setActiveView] = useState<'settings' | 'logs' | 'trust' | 'overview'>('settings');
     const [searchTerm, setSearchTerm] = useState('');
+    const [expandedLogIds, setExpandedLogIds] = useState<Record<string, boolean>>({});
+    const [severityFilter, setSeverityFilter] = useState<'all'|'low'|'medium'|'high'>('all');
     const [trustSearchTerm, setTrustSearchTerm] = useState('');
     const [modalOpen, setModalOpen] = useState(false);
     const [editIndex, setEditIndex] = useState<number | null>(null);
@@ -144,6 +152,8 @@ const AntiCheatUnified: React.FC = () => {
         await updateSettings({ enabled: !settings.enabled });
     };
 
+    const enabledDetectorsCount = Object.values(settings.detectors || {}).filter((d: any) => d?.enabled).length;
+
     const handleAddPunishment = () => {
         setEditIndex(null);
         setNewThreshold('');
@@ -208,6 +218,11 @@ const AntiCheatUnified: React.FC = () => {
         setConfirmModalMessage(message);
         setConfirmModalCallback(() => callback);
         setConfirmModalOpen(true);
+    };
+
+    const toggleAllDetectors = async (enable: boolean) => {
+        const newDetectors = Object.entries(settings.detectors || {}).reduce((acc, [k, v]) => ({ ...acc, [k]: { ...(v || {}), enabled: enable } }), {} as any);
+        await updateSettings({ detectors: newDetectors });
     };
 
     // iOS-like switch component (small, self-contained)
@@ -338,6 +353,15 @@ const AntiCheatUnified: React.FC = () => {
         );
     };
 
+    const copyToClipboard = async (text: string) => {
+        try {
+            await navigator.clipboard.writeText(text);
+            try { (window as any).web?.notify?.('コピーしました', 'success', 'クリップボード', 1500); } catch {}
+        } catch (e) {
+            try { (window as any).web?.notify?.('コピーに失敗しました', 'error', 'エラー', 1500); } catch {}
+        }
+    };
+
     // Show only currently timed-out users in the logs view and apply search
     const filteredLogs = logs && Array.isArray(logs)
         ? logs.filter((log) => {
@@ -348,6 +372,13 @@ const AntiCheatUnified: React.FC = () => {
             return (log.userId || '').toLowerCase().includes(q) || (log.reason || '').toLowerCase().includes(q) || (username || '').toLowerCase().includes(q);
         })
         : [];
+
+            const severityForLog = (log: any) => {
+                const sc = Math.abs(log.scoreDelta || 0);
+                if (sc >= 10) return 'high';
+                if (sc >= 4) return 'medium';
+                return 'low';
+            };
 
     const filteredTrustData = userTrustData && typeof userTrustData === 'object' && !Array.isArray(userTrustData)
         ? Object.entries(userTrustData as Record<string, UserTrustDataWithUser>).filter(([userId]) =>
@@ -363,7 +394,10 @@ const AntiCheatUnified: React.FC = () => {
             <AntiCheatLayout activeTab={activeView} onTabChange={(t) => setActiveView(t as any)}>
                 <div className={styles.container}>
                     <div className={styles.header}>
-                        <h1>🛡️ AntiCheat</h1>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                            <h1><span className={`${styles.statusDot} ${settings.enabled ? styles.statusDotOn : styles.statusDotOff}`} />🛡️ AntiCheat</h1>
+                            <div style={{ fontSize: '0.85rem', color: 'var(--ac-muted)' }}>有効な検知: {enabledDetectorsCount}</div>
+                        </div>
                         <button
                             className={`${styles.toggleBtn} ${settings.enabled ? styles.toggleActive : ''}`}
                             onClick={handleToggleEnabled}
@@ -384,6 +418,11 @@ const AntiCheatUnified: React.FC = () => {
                             <div className={styles.card}>
                                 <div className={styles.cardHeader}><h2>ステータス</h2></div>
                                 <div className={styles.cardBody}>
+                                    <div className={styles.detectorControls}>
+                                        <div className={styles.detectorLabel}>一括操作:</div>
+                                        <button className={styles.toggleAllBtn} onClick={() => toggleAllDetectors(true)}>すべて有効</button>
+                                        <button className={styles.toggleAllBtn} onClick={() => toggleAllDetectors(false)}>すべて無効</button>
+                                    </div>
                                     <div className={styles.statusItem}>
                                         <span>システム</span>
                                         <span className={settings.enabled ? styles.statusOn : styles.statusOff}>{settings.enabled ? '有効' : '無効'}</span>
@@ -399,9 +438,9 @@ const AntiCheatUnified: React.FC = () => {
                                 <div className={styles.cardHeader}><h2>検知</h2></div>
                                 <div className={styles.cardBody}>
                                     {Object.entries(settings.detectors || {}).map(([name, config]) => (
-                                        <div key={name} className={styles.detectorRow}>
+                                        <div key={name} className={`${styles.detectorRow} ${config?.enabled ? styles.detectorEnabled : ''}`}>
                                             <div className={styles.detectorInfo}>
-                                                <span className={styles.detectorName}>{name}</span>
+                                                <span className={styles.detectorName}>{humanizeDetectorName(name)}</span>
                                                 {detectorDescriptions[name] && (
                                                     <div className={styles.detectorDescription}>{detectorDescriptions[name]}</div>
                                                 )}
@@ -543,15 +582,26 @@ const AntiCheatUnified: React.FC = () => {
                     {activeView === 'logs' && (
                         <div className={styles.content}>
                             <div className={styles.logsHeader}>
+                                <input type="text" placeholder="ユーザーIDまたは理由で検索..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className={styles.searchInput} />
+                                <select value={severityFilter} onChange={(e) => setSeverityFilter(e.target.value as any)} className={styles.input} style={{ width: '40%' }}>
+                                    <option value="all">すべて</option>
+                                    <option value="low">低</option>
+                                    <option value="medium">中</option>
+                                    <option value="high">高</option>
+                                </select>
                                 <button className={styles.refreshBtn} onClick={() => refetchLogs()} disabled={logsLoading}>🔄 更新</button>
                             </div>
                             {logsLoading ? <div className={styles.loading}>読み込み中...</div> : filteredLogs.length === 0 ? <div className={styles.noLogs}>検知ログがありません</div> : (
                                 <div className={styles.logsList}>
-                                    {filteredLogs.map((log) => (
-                                        <div key={log.messageId} className={styles.logCard}>
+                                    {filteredLogs.filter(log => severityFilter === 'all' ? true : severityForLog(log) === severityFilter).map((log) => (
+                                        <div key={log.messageId} className={`${styles.logCard} ${severityForLog(log) === 'high' ? styles.logRowHigh : severityForLog(log) === 'medium' ? styles.logRowMedium : styles.logRowLow}`}>
                                             <div className={styles.logHeader}>
                                                 <span className={styles.logTime}>{new Date(log.timestamp).toLocaleString('ja-JP')}</span>
-                                                <span className={styles.logScore}>+{log.scoreDelta}</span>
+                                                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                                    <span className={styles.logScore}>+{log.scoreDelta}</span>
+                                                    <span className={`${styles.severityBadge} ${severityForLog(log) === 'high' ? styles.severityHigh : severityForLog(log) === 'medium' ? styles.severityMedium : styles.severityLow}`}>{severityForLog(log).toUpperCase()}</span>
+                                                    <button aria-label="詳細" className={styles.expandArrow + (expandedLogIds[log.messageId] ? ' ' + styles.expandOpen : '')} onClick={() => setExpandedLogIds(prev => ({ ...prev, [log.messageId]: !prev[log.messageId] }))}>▸</button>
+                                                </div>
                                             </div>
                                             <div className={styles.logBody}>
                                                 {(() => {
@@ -560,7 +610,13 @@ const AntiCheatUnified: React.FC = () => {
                                                         <div className={styles.logUser}>
                                                             <div className={styles.userInfo}>
                                                                 <div className={styles.displayName}>{displayName || '不明'}</div>
-                                                                <div className={styles.userId}><code>{log.userId}</code></div>
+                                                                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                                                                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                                                                        <div className={styles.userId}><code>{log.userId}</code></div>
+                                                                        <button className={styles.btnIcon} onClick={() => copyToClipboard(log.userId)}>コピー</button>
+                                                                    </div>
+                                                                    <button className={styles.btnIcon} onClick={() => copyToClipboard(log.userId)} aria-label="コピー">コピー</button>
+                                                                </div>
                                                             </div>
                                                         </div>
                                                     );
@@ -751,7 +807,10 @@ const AntiCheatUnified: React.FC = () => {
         <AntiCheatLayout activeTab={activeView} onTabChange={(t) => setActiveView(t as any)}>
             <div className={styles.layout}>
                 <div className={styles.header}>
-                    <h1 className={styles.title}>🛡️ AntiCheat 管理</h1>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        <h1 className={styles.title}><span className={`${styles.statusDot} ${settings.enabled ? styles.statusDotOn : styles.statusDotOff}`} />🛡️ AntiCheat 管理</h1>
+                        <div style={{ fontSize: '0.9rem', color: 'var(--ac-muted)' }}>有効な検知: {enabledDetectorsCount}</div>
+                    </div>
                     <div className={styles.headerActions}>
                         <button className={`${styles.btn} ${settings.enabled ? styles.btnDanger : styles.btnSuccess}`} onClick={handleToggleEnabled}>{settings.enabled ? '無効化' : '有効化'}</button>
                     </div>
@@ -767,15 +826,20 @@ const AntiCheatUnified: React.FC = () => {
                     <div className={styles.content}>
                         <div className={styles.section}>
                             <h2>検知リスト</h2>
+                            <div className={styles.detectorControls}>
+                                <div className={styles.detectorLabel}>一括操作:</div>
+                                <button className={styles.toggleAllBtn} onClick={() => toggleAllDetectors(true)}>すべて有効</button>
+                                <button className={styles.toggleAllBtn} onClick={() => toggleAllDetectors(false)}>すべて無効</button>
+                            </div>
                             <div className={styles.detectorsList}>
                                 {Object.entries(settings.detectors || {}).map(([name, config]) => (
-                                    <div key={name} className={styles.detectorItem}>
+                                    <div key={name} className={`${styles.detectorItem} ${config?.enabled ? styles.detectorEnabled : ''}`}>
                                             <div className={styles.detectorHeader}>
                                                 <label className={styles.switch}>
                                                     <IOSCheckbox checked={!!config?.enabled} onChange={async (v) => { await updateSettings({ detectors: { ...(settings.detectors || {}), [name]: { ...config, enabled: v } } }); }} />
                                                 </label>
                                                 <div className={styles.detectorInfo}>
-                                                    <span className={styles.detectorName}>{name}</span>
+                                                    <span className={styles.detectorName}>{humanizeDetectorName(name)}</span>
                                                     {detectorDescriptions[name] && (
                                                         <div className={styles.detectorDescription}>
                                                             {detectorDescriptions[name]}
@@ -946,6 +1010,12 @@ const AntiCheatUnified: React.FC = () => {
                     <div className={styles.content}>
                         <div className={styles.logsHeader}>
                             <input type="text" placeholder="ユーザーIDまたは理由で検索..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className={styles.searchInput} />
+                            <select value={severityFilter} onChange={(e) => setSeverityFilter(e.target.value as any)} className={styles.input} style={{ width: '160px' }}>
+                                <option value="all">すべての重大度</option>
+                                <option value="low">低</option>
+                                <option value="medium">中</option>
+                                <option value="high">高</option>
+                            </select>
                             <button className={styles.btnSecondary} onClick={() => refetchLogs()}>🔄 更新</button>
                         </div>
 
@@ -956,8 +1026,8 @@ const AntiCheatUnified: React.FC = () => {
                                         <tr><th>時刻</th><th>ユーザーID</th><th>検知</th><th>スコア増加</th><th>理由</th><th>操作</th></tr>
                                     </thead>
                                     <tbody>
-                                        {filteredLogs.map((log) => (
-                                            <tr key={log.messageId}>
+                                        {filteredLogs.filter(log => severityFilter === 'all' ? true : severityForLog(log) === severityFilter).map((log) => (
+                                            <tr key={log.messageId} className={severityForLog(log) === 'high' ? styles.highlightRow : ''}>
                                                 <td>{new Date(log.timestamp).toLocaleString('ja-JP')}</td>
                                                 <td className={styles.userCell}>
                                                     <div className={styles.userInfo}>
@@ -966,8 +1036,8 @@ const AntiCheatUnified: React.FC = () => {
                                                     </div>
                                                 </td>
                                                 <td><span className={styles.detectorBadge}>{log.detector}</span></td>
-                                                <td className={styles.scoreDelta}>+{log.scoreDelta}</td>
-                                                <td className={styles.reason}>{log.reason}</td>
+                                                <td className={styles.scoreDelta}>+{log.scoreDelta} <span className={`${styles.severityBadge} ${severityForLog(log) === 'high' ? styles.severityHigh : severityForLog(log) === 'medium' ? styles.severityMedium : styles.severityLow}`} style={{ marginLeft: 8 }}>{severityForLog(log).toUpperCase()}</span></td>
+                                                <td className={styles.reason} title={log.reason}>{log.reason}</td>
                                                 <td><button className={styles.btnSmall} onClick={() => handleRevokeTimeout(log.userId, log.messageId)} disabled={executing}>解除</button></td>
                                             </tr>
                                         ))}
@@ -1021,7 +1091,10 @@ const AntiCheatUnified: React.FC = () => {
                                                         <div className={styles.userName}>
                                                             {(trustData as UserTrustDataWithUser).displayName || (trustData as UserTrustDataWithUser).username || '不明'}
                                                         </div>
-                                                        <div className={styles.userId}>{userId}</div>
+                                                        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                                                            <div className={styles.userId}>{userId}</div>
+                                                            <button className={styles.btnIcon} onClick={() => copyToClipboard(userId)}>コピー</button>
+                                                        </div>
                                                     </div>
                                                 </td>
                                                 <td className={styles.trustScore}>

@@ -68,6 +68,20 @@
   color: var(--ac-on-surface);
 }
 
+.statusDot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-right: 8px;
+}
+.statusDotOn {
+  background: var(--ac-success);
+}
+.statusDotOff {
+  background: var(--ac-muted);
+}
+
 .toggleBtn {
   padding: var(--space-sm) var(--space-md);
   border: none;
@@ -329,11 +343,45 @@ input:checked + .slider:before {
   padding: var(--space-md);
 }
 
+/* Severity highlights for log cards */
+.logRowLow {
+  border-left: 4px solid rgba(52,197,89,0.12);
+}
+.logRowMedium {
+  border-left: 4px solid rgba(255,149,0,0.16);
+}
+.logRowHigh {
+  border-left: 4px solid rgba(255,59,48,0.18);
+}
+
+.severityBadge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: white;
+}
+.severityLow { background: var(--ac-success); }
+.severityMedium { background: var(--ac-warning); }
+.severityHigh { background: var(--ac-danger); }
+
 .logHeader {
   display: flex;
   justify-content: space-between;
   align-items: center;
   margin-bottom: var(--space-sm);
+}
+
+.expandArrow {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  transform: rotate(0deg);
+  transition: transform 0.18s ease;
+}
+.expandOpen {
+  transform: rotate(90deg);
 }
 
 .logTime {
@@ -542,6 +590,25 @@ input:checked + .slider:before {
   grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
   gap: var(--space-md);
 }
+.detectorControls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-md);
+}
+.detectorControls .label {
+  font-weight: 600;
+  color: var(--ac-on-surface-secondary);
+}
+.toggleAllBtn {
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--ac-border);
+  background: var(--ac-surface-tertiary);
+  cursor: pointer;
+  color: var(--ac-on-surface);
+}
+.toggleAllBtn:hover { background: var(--ac-surface-secondary); }
 
 .detectorItem {
   padding: var(--space-md);
@@ -553,6 +620,11 @@ input:checked + .slider:before {
 
 .detectorItem:hover {
   box-shadow: var(--shadow-sm);
+}
+
+.detectorEnabled {
+  border: 1px solid rgba(0,122,255,0.15);
+  background: linear-gradient(180deg, rgba(0,122,255,0.03), transparent);
 }
 
 .detectorHeader {
@@ -780,6 +852,17 @@ input:checked + .slider:before {
 .btnSmall:hover {
   background: #d63027;
 }
+
+.btnIcon {
+  padding: 4px 8px;
+  border: 1px solid var(--ac-border);
+  border-radius: 6px;
+  background: var(--ac-surface);
+  color: var(--ac-on-surface);
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.btnIcon:hover { background: var(--ac-surface-secondary); }
 
 .trustInfo {
   text-align: center;
@@ -1168,3 +1251,5 @@ input:checked + .slider:before {
   color: var(--ac-muted);
   font-weight: 400;
 }
+.logsTable .highlightRow td { background: linear-gradient(90deg, rgba(250,250,250,0.02), rgba(250,250,250,0)); }
+.highlightRow { /* helper class for rows */ }
