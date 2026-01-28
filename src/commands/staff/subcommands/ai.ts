@@ -2,7 +2,7 @@
 import { ChatInputCommandInteraction, MessageFlags, DiscordAPIError } from 'discord.js';
 import { OpenAIChatManager } from '../../../core/OpenAIChatManager';
 import { OpenAIChatCompletionMessage, OpenAIChatCompletionChunk } from '../../../types/openai';
-import { statusToolDefinition, statusToolHandler, weatherToolDefinition, weatherToolHandler, timeToolDefinition, timeToolHandler, countPhraseToolDefinition, countPhraseToolHandler, userInfoToolDefinition, userInfoToolHandler } from './ai-tools';
+import { statusToolDefinition, statusToolHandler, weatherToolDefinition, weatherToolHandler, timeToolDefinition, timeToolHandler, countPhraseToolDefinition, countPhraseToolHandler, userInfoToolDefinition, userInfoToolHandler, memoListDefinition, memoListHandler, memoGetDefinition, memoGetHandler, memoCreateDefinition, memoCreateHandler, memoUpdateDefinition, memoUpdateHandler, memoDeleteDefinition, memoDeleteHandler, memoSearchDefinition, memoSearchHandler } from './ai-tools';
 import { PdfRAGManager } from '../../../core/PdfRAGManager';
 import { database } from '../../../core/Database.js';
 
@@ -241,6 +241,13 @@ export const subcommandHandler = {
         // ユーザー情報取得
         chatManager.registerTool(userInfoToolDefinition, userInfoToolHandler);
 
+        // メモ管理ツール（create, list, get, update, delete, search）
+        chatManager.registerTool(memoListDefinition, memoListHandler);
+        chatManager.registerTool(memoGetDefinition, memoGetHandler);
+        chatManager.registerTool(memoCreateDefinition, memoCreateHandler);
+        chatManager.registerTool(memoUpdateDefinition, memoUpdateHandler);
+        chatManager.registerTool(memoDeleteDefinition, memoDeleteHandler);
+        chatManager.registerTool(memoSearchDefinition, memoSearchHandler);
 
         // ツール実行時のコンテキストとして interaction を設定
         chatManager.setToolContext(interaction);
