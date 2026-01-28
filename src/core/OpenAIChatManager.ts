@@ -15,6 +15,9 @@ interface ChatOptions {
     maxTokens?: number;
     topP?: number;
     stream?: boolean;
+    // optional overrides for endpoint/key to support fallbacks (e.g., OpenAI-compatible proxies)
+    apiEndpoint?: string;
+    apiKey?: string;
 }
 
 export class OpenAIChatManager {
@@ -78,11 +81,13 @@ export class OpenAIChatManager {
         };
 
         try {
-            const response = await fetch(`${this.apiEndpoint}/chat/completions`, {
+            const endpoint = options?.apiEndpoint || this.apiEndpoint;
+            const key = options?.apiKey || this.apiKey;
+            const response = await fetch(`${endpoint}/chat/completions`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${this.apiKey}`,
+                    'Authorization': `Bearer ${key}`,
                 },
                 body: JSON.stringify(payload),
             });
@@ -125,11 +130,13 @@ export class OpenAIChatManager {
         };
 
         try {
-            const response = await fetch(`${this.apiEndpoint}/chat/completions`, {
+            const endpoint = options?.apiEndpoint || this.apiEndpoint;
+            const key = options?.apiKey || this.apiKey;
+            const response = await fetch(`${endpoint}/chat/completions`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${this.apiKey}`,
+                    'Authorization': `Bearer ${key}`,
                 },
                 body: JSON.stringify(payload),
             });

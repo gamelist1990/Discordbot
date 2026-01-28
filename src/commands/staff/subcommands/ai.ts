@@ -2,7 +2,7 @@
 import { ChatInputCommandInteraction, MessageFlags, DiscordAPIError } from 'discord.js';
 import { OpenAIChatManager } from '../../../core/OpenAIChatManager';
 import { OpenAIChatCompletionMessage, OpenAIChatCompletionChunk } from '../../../types/openai';
-import { statusToolDefinition, statusToolHandler, weatherToolDefinition, weatherToolHandler, timeToolDefinition, timeToolHandler, countPhraseToolDefinition, countPhraseToolHandler, userInfoToolDefinition, userInfoToolHandler, memoListDefinition, memoListHandler, memoGetDefinition, memoGetHandler, memoCreateDefinition, memoCreateHandler, memoUpdateDefinition, memoUpdateHandler, memoDeleteDefinition, memoDeleteHandler, memoSearchDefinition, memoSearchHandler } from './ai-tools';
+import { statusToolDefinition, statusToolHandler, weatherToolDefinition, weatherToolHandler, timeToolDefinition, timeToolHandler, countPhraseToolDefinition, countPhraseToolHandler, userInfoToolDefinition, userInfoToolHandler, memoListDefinition, memoListHandler, memoGetDefinition, memoGetHandler, memoCreateDefinition, memoCreateHandler, memoUpdateDefinition, memoUpdateHandler, memoDeleteDefinition, memoDeleteHandler, memoSearchDefinition, memoSearchHandler, collectHistoryDefinition, collectHistoryHandler, fetchMessageLinkDefinition, fetchMessageLinkHandler } from './ai-tools';
 import { PdfRAGManager } from '../../../core/PdfRAGManager';
 import { database } from '../../../core/Database.js';
 
@@ -249,6 +249,10 @@ export const subcommandHandler = {
         chatManager.registerTool(memoDeleteDefinition, memoDeleteHandler);
         chatManager.registerTool(memoSearchDefinition, memoSearchHandler);
 
+        // チャンネル履歴収集ツールとメッセージリンクツール
+        chatManager.registerTool(collectHistoryDefinition, collectHistoryHandler);
+        chatManager.registerTool(fetchMessageLinkDefinition, fetchMessageLinkHandler);
+
         // ツール実行時のコンテキストとして interaction を設定
         chatManager.setToolContext(interaction);
 
@@ -394,7 +398,7 @@ export const subcommandHandler = {
             // ストリーミングレスポンスを追加（まず GPT-4o を試す）
             let modelToUse = 'gpt-4o';
 
-            const attemptStream = async (model: string) => {
+            const attemptStream = async (model: string, opts: { apiEndpoint?: string, apiKey?: string } = {}) => {
                 await chatManager.streamMessage(
                     messages,
                     (chunk: OpenAIChatCompletionChunk) => {
@@ -409,7 +413,7 @@ export const subcommandHandler = {
                             }
                         }
                     },
-                    { temperature: 0.7, model: model }
+                    { model: model, apiEndpoint: opts.apiEndpoint, apiKey: opts.apiKey }
                 );
             };
 
@@ -421,7 +425,16 @@ export const subcommandHandler = {
                     modelToUse = 'gpt-4o-mini';
                     responseContent = ''; // レスポンスをリセット
                     lastUpdateTime = Date.now();
-                    await attemptStream(modelToUse);
+                    try {
+                        await attemptStream(modelToUse);
+                    } catch (err2: any) {
+                        console.warn('gpt-4o-mini でも失敗しました。外部フォールバックを試行します: https://capi.voids.top/v2/ (claude-opus-4-5-20251101)');
+                        // 外部互換 API にフォールバック
+                        const fallbackModel = 'claude-opus-4-5-20251101';
+                        responseContent = '';
+                        lastUpdateTime = Date.now();
+                        await attemptStream(fallbackModel, { apiEndpoint: 'https://capi.voids.top/v2/' });
+                    }
                 } else {
                     throw error; // 再スロー
                 }
@@ -490,7 +503,7 @@ export const subcommandHandler = {
                                         updateDiscordMessage(interaction, formatResponse(responseContent));
                                     }
                                 }
-                            }, { temperature: 0.7, model: 'gpt-4o-mini' });
+                            }, { model: 'gpt-4o-mini' });
 
                             // 成功したら送信
                             await safeRespond({ content: formatResponse(responseContent, true) });
