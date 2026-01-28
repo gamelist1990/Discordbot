@@ -4,6 +4,7 @@ import { OpenAIChatManager } from '../../../core/OpenAIChatManager';
 import { OpenAIChatCompletionMessage, OpenAIChatCompletionChunk } from '../../../types/openai';
 import { statusToolDefinition, statusToolHandler, weatherToolDefinition, weatherToolHandler, timeToolDefinition, timeToolHandler, countPhraseToolDefinition, countPhraseToolHandler, userInfoToolDefinition, userInfoToolHandler } from './ai-tools';
 import { PdfRAGManager } from '../../../core/PdfRAGManager';
+import { database } from '../../../core/Database.js';
 
 // レート制限の設定
 const userRateLimits = new Map<string, { lastUsed: number, count: number }>();
@@ -25,11 +26,16 @@ export const subcommandHandler = {
             .addStringOption((opt: any) =>
                 opt.setName('prompt')
                     .setDescription('AIに送信するプロンプト')
-                    .setRequired(true)
+                    .setRequired(false)
             )
             .addAttachmentOption((opt: any) =>
                 opt.setName('attachment')
                     .setDescription('添付ファイル (JSON, text, JS, TSなど。動画は未対応)')
+                    .setRequired(false)
+            )
+            .addBooleanOption((opt: any) =>
+                opt.setName('export_dataset')
+                    .setDescription('（任意）このサーバーの会話 dataset を JSON でダウンロードします（staff専用）')
                     .setRequired(false)
             )
 
@@ -58,7 +64,24 @@ export const subcommandHandler = {
             return;
         }
 
-        const prompt = interaction.options.getString('prompt', true);
+        const prompt = interaction.options.getString('prompt', false);
+        const exportDataset = interaction.options.getBoolean('export_dataset', false);
+
+        // dataset のエクスポートがリクエストされている場合はそれを優先して送信
+        if (exportDataset) {
+            const guildId = interaction.guild?.id || 'global';
+            try {
+                const dataset = await getConversationDataset(guildId, 100);
+                const buffer = Buffer.from(JSON.stringify(dataset, null, 2), 'utf-8');
+                await interaction.reply({ content: `📥 dataset (${dataset.length} 件)`, files: [{ attachment: buffer, name: `dataset_${guildId}_${Date.now()}.json` }], flags: MessageFlags.Ephemeral });
+                return;
+            } catch (err) {
+                console.error('dataset export error:', err);
+                await interaction.reply({ content: '❌ dataset の取得に失敗しました。', flags: MessageFlags.Ephemeral });
+                return;
+            }
+        }
+
         const attachment = interaction.options.getAttachment('attachment');
 
         // prompt と attachment を受け取ったらすぐに defer してインタラクションの期限切れを防止
@@ -158,13 +181,16 @@ export const subcommandHandler = {
                     const { fileId, chunksIndexed } = await rag.indexPdfBuffer(buffer);
                     console.info(`Indexed PDF ${attachment.name} -> ${chunksIndexed} chunks (fileId=${fileId})`);
 
-                    // Query relevant chunks for current prompt
-                    const relevant = await rag.queryRelevant(prompt, 3);
-                    if (relevant && relevant.length > 0) {
-                        // プレフィックスとして関連チャンクを挿入
-                        const ragText = relevant.map(r => `【関連】(score:${r.score.toFixed(3)}) ${r.text}`).join('\n\n');
-                        attachmentContent = `添付PDF (${attachment.name}) の関連情報:
-\n${ragText}`;
+                    // Query relevant chunks for current prompt (prompt がない場合は関連検索をスキップ)
+                    if (prompt) {
+                        const relevant = await rag.queryRelevant(prompt, 3);
+                        if (relevant && relevant.length > 0) {
+                            // プレフィックスとして関連チャンクを挿入
+                            const ragText = relevant.map(r => `【関連】(score:${r.score.toFixed(3)}) ${r.text}`).join('\n\n');
+                            attachmentContent = `添付PDF (${attachment.name}) の関連情報:\n\n${ragText}`;
+                        } else {
+                            attachmentContent = `添付PDF (${attachment.name}): (関連情報なし)`;
+                        }
                     } else {
                         attachmentContent = `添付PDF (${attachment.name}): (関連情報なし)`;
                     }
@@ -277,6 +303,27 @@ export const subcommandHandler = {
                     // include display name and timestamp so AI can see who said what and when
                     historyMessages.push({ role: role as any, content: `[${timeStr}] ${display}: ${msg.content}` });
                 }
+
+                // チャンネルからの履歴が不足している場合は永続化データセットから補う（最大10件）
+                if (historyMessages.length === 0) {
+                    try {
+                        const guildId = interaction.guild?.id || 'global';
+                        const dataset = await getConversationDataset(guildId, 10);
+                        if (dataset && dataset.length > 0) {
+                            historyMessages.push({
+                                role: 'system',
+                                content: '以下は過去の会話ログです。文脈理解のための参考情報として扱ってください。'
+                            });
+                            for (const entry of dataset) {
+                                const time = new Date(entry.timestamp).toLocaleString();
+                                historyMessages.push({ role: 'user', content: `[${time}] ${entry.userName || entry.userId}: ${entry.prompt}` });
+                                if (entry.response) historyMessages.push({ role: 'assistant', content: entry.response });
+                            }
+                        }
+                    } catch (dsErr) {
+                        console.error('dataset retrieval error:', dsErr);
+                    }
+                }
             }
         } catch (e) {
             // fetch 失敗時は conversationHistory の文字列を fallback として使う
@@ -383,6 +430,13 @@ export const subcommandHandler = {
             // 完了レスポンスを安全に送信（期限切れ等は safeRespond がフォールバックする）
             await safeRespond({ content: cleanedResponse, files: codeFiles.length > 0 ? codeFiles : undefined, ephemeral: interactionExpired });
 
+            // 会話をデータセットに保存（最新100件に切り詰め）
+            try {
+                await saveConversationDatasetEntry(interaction, prompt, cleanedResponse, /* incomplete */ false);
+            } catch (dbErr) {
+                console.error('dataset save error:', dbErr);
+            }
+
         } catch (error: any) {
             console.error('AIストリームでエラーが発生:', error);
 
@@ -434,6 +488,11 @@ export const subcommandHandler = {
                             // 成功したら送信
                             await safeRespond({ content: formatResponse(responseContent, true) });
                             isCompleted = true;
+                            try {
+                                await saveConversationDatasetEntry(interaction, sanitized, responseContent, false);
+                            } catch (dbErr) {
+                                console.error('dataset save error:', dbErr);
+                            }
                             return; // 正常終了
                         } catch (retryErr) {
                             console.error('自動サニタイズ再試行に失敗:', retryErr);
@@ -485,6 +544,15 @@ export const subcommandHandler = {
                 await safeRespond({ content: formatResponse(responseContent, true) });
             } catch (e) {
                 console.error('safeRespond エラー:', e);
+            }
+
+            // 未完了レスポンスでも部分的な結果があればデータセットに保存（incomplete=true）
+            if (responseContent && responseContent.trim().length > 0) {
+                try {
+                    await saveConversationDatasetEntry(interaction, prompt, responseContent, true);
+                } catch (dbErr) {
+                    console.error('dataset save error (incomplete):', dbErr);
+                }
             }
         }
     }
@@ -607,6 +675,55 @@ function getFileExtension(language: string): string {
     };
 
     return extensions[language.toLowerCase()] || 'txt';
+}
+
+// 会話データセットの型
+type DatasetEntry = {
+    id: string;
+    timestamp: number;
+    userId: string;
+    userName?: string;
+    prompt: string;
+    response?: string;
+    incomplete?: boolean;
+};
+
+// データセットを保存するユーティリティ
+async function saveConversationDatasetEntry(interaction: ChatInputCommandInteraction, prompt: string | null, response?: string, incomplete = false): Promise<void> {
+    const guildId = interaction.guild?.id || 'global';
+    const entry: DatasetEntry = {
+        id: `${Date.now()}_${Math.random().toString(36).substring(2,8)}`,
+        timestamp: Date.now(),
+        userId: interaction.user.id,
+        userName: interaction.user.username,
+        prompt: prompt ?? '',
+        response,
+        incomplete
+    };
+
+    const key = `Guild/${guildId}/dataset`;
+    try {
+        const existing: DatasetEntry[] = (await database.get(guildId, key, [])) || [];
+        existing.push(entry);
+        // 最新100件のみ保持
+        const trimmed = existing.slice(-100);
+        await database.set(guildId, key, trimmed);
+    } catch (err) {
+        console.error('saveConversationDatasetEntry error:', err);
+        throw err;
+    }
+}
+
+// データセットを取得するユーティリティ
+async function getConversationDataset(guildId: string, limit = 100): Promise<DatasetEntry[]> {
+    const key = `Guild/${guildId}/dataset`;
+    try {
+        const existing: DatasetEntry[] = (await database.get(guildId, key, [])) || [];
+        return existing.slice(-limit);
+    } catch (err) {
+        console.error('getConversationDataset error:', err);
+        return [];
+    }
 }
 
 // サニタイズされた system prompt を生成・マージする
