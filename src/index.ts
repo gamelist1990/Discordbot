@@ -1,6 +1,7 @@
 ﻿import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import type { Client } from 'discord.js';
 import { BotClient } from './core/BotClient.js';
 import { EventHandler } from './core/EventHandler.js';
 import { CommandLoader } from './core/CommandLoader.js';
@@ -20,6 +21,10 @@ interface Config {
 
 let botClient: BotClient | null = null;
 let settingsServer: SettingsServer | null = null;
+let guild890315487962095637Integration: {
+    initialize(client: Client): Promise<void>;
+    destroy(): Promise<void>;
+} | null = null;
 
 /**
  * 設定ファイルを読み込む
@@ -134,6 +139,11 @@ async function main() {
         // Bot を準備完了にマーク
         await statusManager.markReady(botClient.getGuildCount());
 
+        // Guild 専用連携を起動
+        const integrationModule = await import('./integrations/guild890315487962095637/index.js');
+        guild890315487962095637Integration = integrationModule.guild890315487962095637Integration;
+        await guild890315487962095637Integration.initialize(botClient.client);
+
         // 設定サーバーを起動
         Logger.info('🌐 設定サーバーを起動します...');
         settingsServer = new SettingsServer(botClient, 3000);
@@ -191,29 +201,22 @@ process.on('uncaughtException', (error) => {
  * 終了処理
  */
 process.on('SIGINT', async () => {
-    Logger.info('\n🛑 終了処理を開始します...');
-    if (statusManager) {
-        await statusManager.cleanup();
-    }
-    if (settingsServer) {
-        await settingsServer.stop();
-    }
-    if (botClient) {
-                // Web ダッシュボードの URL は config の BASE_URL を表示する
-                try {
-                    // ...existing code...
-                } catch (e) { /* noop */ }
-                import('./config.js').then((cfg) => {
-                    Logger.info(`🌐 Web ダッシュボード: ${cfg.default.BASE_URL}`);
-                }).catch(() => {
-                    Logger.info(`🌐 Web ダッシュボード: http://localhost:3000`);
-                });
-    }
-    process.exit(0);
+    await shutdown();
 });
 
 process.on('SIGTERM', async () => {
+    await shutdown();
+});
+
+// アプリケーションを起動
+main();
+
+async function shutdown(): Promise<void> {
     Logger.info('\n🛑 終了処理を開始します...');
+
+    if (guild890315487962095637Integration) {
+        await guild890315487962095637Integration.destroy();
+    }
     if (statusManager) {
         await statusManager.cleanup();
     }
@@ -223,8 +226,6 @@ process.on('SIGTERM', async () => {
     if (botClient) {
         await botClient.destroy();
     }
-    process.exit(0);
-});
 
-// アプリケーションを起動
-main();
+    process.exit(0);
+}
