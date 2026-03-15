@@ -1,6 +1,6 @@
 import { TIME_ZONE } from './constants.js';
 
-const NO_RECORD_LABEL = '\u8a18\u9332\u306a\u3057';
+const DEFAULT_NO_RECORD_LABEL = 'No record';
 
 const timestampFormatter = new Intl.DateTimeFormat('ja-JP', {
     timeZone: TIME_ZONE,
@@ -13,9 +13,9 @@ const timestampFormatter = new Intl.DateTimeFormat('ja-JP', {
     hour12: false,
 });
 
-export function formatTimestamp(timestamp: number | null): string {
+export function formatTimestamp(timestamp: number | null, noRecordLabel = DEFAULT_NO_RECORD_LABEL): string {
     if (!timestamp) {
-        return NO_RECORD_LABEL;
+        return noRecordLabel;
     }
 
     return `${timestampFormatter.format(new Date(timestamp))} JST`;

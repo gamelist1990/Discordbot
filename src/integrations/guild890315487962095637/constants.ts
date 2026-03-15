@@ -12,3 +12,5 @@ export const ONLINE_COLOR = 0x2ecc71;
 export const OFFLINE_COLOR = 0xe74c3c;
 export const DATA_DIR = path.join(process.cwd(), 'Data', 'integrations', 'guild890315487962095637');
 export const STATE_FILE = path.join(DATA_DIR, 'server-status-state.json');
+export const OFFLINE_IMAGE_FONT_FAMILY = 'Guild890315487962095637StatusJP';
+export const OFFLINE_IMAGE_FONT_FILE = path.join(process.cwd(), 'assets', 'fonts', 'NotoSansJP[wght].ttf');
