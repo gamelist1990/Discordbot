@@ -1,5 +1,7 @@
 import { TIME_ZONE } from './constants.js';
 
+const NO_RECORD_LABEL = '\u8a18\u9332\u306a\u3057';
+
 const timestampFormatter = new Intl.DateTimeFormat('ja-JP', {
     timeZone: TIME_ZONE,
     year: 'numeric',
@@ -13,7 +15,7 @@ const timestampFormatter = new Intl.DateTimeFormat('ja-JP', {
 
 export function formatTimestamp(timestamp: number | null): string {
     if (!timestamp) {
-        return 'No record';
+        return NO_RECORD_LABEL;
     }
 
     return `${timestampFormatter.format(new Date(timestamp))} JST`;
