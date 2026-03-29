@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAppToast } from "../../AppToastProvider";
 import styles from "./RoleManager.module.css";
 
@@ -30,6 +30,7 @@ interface Guild {
 
 const RoleManagerPage: React.FC = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [loading, setLoading] = useState(true);
   const [accessibleGuilds, setAccessibleGuilds] = useState<Guild[]>([]);
   const [selectedGuildId, setSelectedGuildId] = useState<string | null>(null);
@@ -96,6 +97,8 @@ const RoleManagerPage: React.FC = () => {
       return { addToast: undefined } as any;
     }
   })();
+  const initialGuildId = searchParams.get("guildId");
+  const returnTo = searchParams.get("returnTo");
 
   // Handle role toggle in form
   const handleRoleToggle = (roleId: string, checked: boolean) => {
@@ -116,7 +119,11 @@ const RoleManagerPage: React.FC = () => {
         });
         if (res.ok) {
           const data = await res.json();
-          setAccessibleGuilds(data.guilds || []);
+          const guilds = data.guilds || [];
+          setAccessibleGuilds(guilds);
+          if (initialGuildId && guilds.some((guild: Guild) => guild.id === initialGuildId)) {
+            setSelectedGuildId(initialGuildId);
+          }
         }
       } catch (err) {
         console.error("Failed to load guilds:", err);
@@ -126,7 +133,7 @@ const RoleManagerPage: React.FC = () => {
     };
 
     loadGuilds();
-  }, []);
+  }, [initialGuildId]);
 
   // Load presets and roles when guild is selected
   useEffect(() => {
@@ -291,7 +298,7 @@ const RoleManagerPage: React.FC = () => {
           </div>
           <button
             className={styles.backButton}
-            onClick={() => navigate("/staff")}
+            onClick={() => navigate(returnTo || "/staff")}
           >
             <i className="material-icons">arrow_back</i>
             戻る

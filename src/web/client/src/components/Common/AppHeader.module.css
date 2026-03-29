@@ -1,34 +1,36 @@
 .header {
   position: sticky;
   top: 0;
-  z-index: 100;
-  backdrop-filter: blur(14px);
-  background: color-mix(in srgb, var(--app-surface-strong) 92%, transparent);
+  z-index: 120;
   border-bottom: 1px solid var(--app-border);
+  background: color-mix(in srgb, var(--app-surface-strong) 94%, transparent);
+  backdrop-filter: blur(12px);
 }
 
 .container {
   display: grid;
   grid-template-columns: auto 1fr auto;
   align-items: center;
-  gap: 24px;
-  width: min(1360px, calc(100% - 32px));
+  gap: 28px;
+  width: min(1440px, calc(100% - 32px));
   min-height: var(--header-height);
   margin: 0 auto;
+}
+
+.brandZone {
+  display: inline-flex;
+  align-items: center;
+  gap: 18px;
+  min-width: 0;
 }
 
 .brand {
   display: inline-flex;
   align-items: center;
   gap: 14px;
-  padding: 12px 0;
+  padding: 0;
   background: transparent;
   color: var(--app-ink);
-  transition: opacity 0.2s ease;
-}
-
-.brand:hover {
-  opacity: 0.92;
 }
 
 .brandMark {
@@ -37,10 +39,8 @@
   justify-content: center;
   width: 46px;
   height: 46px;
-  border-radius: var(--radius-sm);
-  background: var(--app-surface);
   border: 1px solid var(--app-border-strong);
-  box-shadow: var(--app-shadow-sm);
+  background: var(--app-surface);
 }
 
 .brandLogo {
@@ -51,280 +51,293 @@
 
 .brandCopy {
   display: grid;
+  gap: 2px;
   text-align: left;
 }
 
 .brandTitle {
+  color: var(--app-ink);
+  font-family: var(--font-display);
   font-size: 1rem;
   font-weight: 700;
   letter-spacing: -0.02em;
 }
 
-.brandSubtitle {
-  color: var(--app-ink-soft);
-  font-size: 0.72rem;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-
-.nav {
-  display: flex;
-  justify-content: center;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.navLink {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 14px;
-  border-radius: var(--radius-xs);
-  background: transparent;
-  color: var(--app-ink-soft);
-  font-size: 0.92rem;
-  font-weight: 600;
-  border: 1px solid transparent;
-}
-
-.navLink:hover {
-  background: var(--app-surface);
-  color: var(--app-ink);
-  border-color: var(--app-border);
-}
-
-.navLinkActive {
-  background: color-mix(in srgb, var(--app-accent) 10%, var(--app-surface));
-  color: var(--app-accent-strong);
-  border-color: color-mix(in srgb, var(--app-accent) 28%, var(--app-border));
-}
-
-.navLink .material-icons {
-  font-size: 18px;
-}
-
-.actions {
-  display: inline-flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 12px;
-}
-
-.loadingText {
-  color: var(--app-ink-soft);
-  font-size: 0.82rem;
-}
-
-.iconButton,
-.loginButton,
-.userButton,
-.menuCard,
-.menuRow {
-  transition:
-    transform 0.2s ease,
-    background 0.2s ease,
-    box-shadow 0.2s ease,
-    border-color 0.2s ease,
-    color 0.2s ease;
-}
-
-.iconButton {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 42px;
-  height: 42px;
-  border-radius: var(--radius-xs);
-  background: var(--app-surface);
-  color: var(--app-ink);
-  border: 1px solid var(--app-border);
-  box-shadow: var(--app-shadow-sm);
-}
-
-.iconButton:hover {
-  background: var(--app-surface-strong);
-  border-color: var(--app-border-strong);
-}
-
-.loginButton {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 11px 16px;
-  border-radius: var(--radius-xs);
-  background: linear-gradient(180deg, var(--app-accent), var(--app-accent-strong));
-  color: #fff;
-  box-shadow: 0 10px 24px color-mix(in srgb, var(--app-accent) 20%, transparent);
-  font-weight: 700;
-}
-
-.loginButton:hover {
-  box-shadow: 0 14px 28px color-mix(in srgb, var(--app-accent) 26%, transparent);
-}
-
-.workspaceMenu,
-.userMenu {
-  position: relative;
-}
-
-.userButton {
-  display: inline-flex;
-  align-items: center;
-  gap: 12px;
-  padding: 6px 10px 6px 6px;
-  border-radius: var(--radius-sm);
-  background: var(--app-surface);
-  color: var(--app-ink);
-  border: 1px solid var(--app-border);
-  box-shadow: var(--app-shadow-sm);
-}
-
-.userButton:hover {
-  background: var(--app-surface-strong);
-}
-
-.avatar {
-  width: 36px;
-  height: 36px;
-  border-radius: var(--radius-xs);
-  object-fit: cover;
-  background: rgba(16, 35, 59, 0.08);
-}
-
-.userCopy {
-  display: grid;
-  text-align: left;
-  line-height: 1.2;
-}
-
-.userName {
-  font-size: 0.9rem;
-  font-weight: 700;
-}
-
-.userMeta {
-  color: var(--app-ink-soft);
-  font-size: 0.72rem;
-}
-
-.panel {
-  position: absolute;
-  top: calc(100% + 12px);
-  right: 0;
-  min-width: 240px;
-  padding: 14px;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--app-border-strong);
-  background: var(--app-surface-strong);
-  box-shadow: var(--app-shadow-lg);
-}
-
-.panelHeader {
-  display: grid;
-  gap: 4px;
-  margin-bottom: 12px;
-}
-
-.panelHeader h2 {
-  margin: 0;
-  font-size: 1rem;
-  color: var(--app-ink);
-}
-
-.panelEyebrow {
+.brandSubtitle,
+.surfaceLabel,
+.accountMeta,
+.sessionHint,
+.menuEyebrow,
+.menuMeta {
   color: var(--app-ink-soft);
   font-size: 0.72rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
-.menuGrid {
+.surfaceBadge {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-  width: 290px;
+  gap: 2px;
+  min-width: 0;
+  padding-left: 18px;
+  border-left: 1px solid var(--app-border);
 }
 
-.menuCard {
-  display: grid;
-  justify-items: start;
-  gap: 8px;
-  padding: 14px 12px;
-  border-radius: var(--radius-sm);
-  background: var(--app-surface-soft);
+.surfaceBadge strong {
   color: var(--app-ink);
-  border: 1px solid var(--app-border);
-  text-align: left;
+  font-size: 0.92rem;
+  font-weight: 600;
+  white-space: nowrap;
 }
 
-.menuCard:hover,
-.menuRow:hover {
-  background: color-mix(in srgb, var(--app-accent) 8%, var(--app-surface-soft));
-  border-color: color-mix(in srgb, var(--app-accent) 18%, var(--app-border));
+.nav {
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  gap: 4px;
 }
 
-.menuCard .material-icons,
-.menuRow .material-icons {
-  font-size: 20px;
-  color: var(--app-accent-strong);
+.navLink {
+  min-height: 42px;
+  padding: 0 14px;
+  border: 1px solid transparent;
+  border-bottom-color: transparent;
+  background: transparent;
+  color: var(--app-ink-soft);
+  font-size: 0.9rem;
+  font-weight: 700;
 }
 
-.panelStack {
-  display: grid;
+.navLink:hover {
+  color: var(--app-ink);
+  background: var(--app-surface-soft);
+}
+
+.navLinkActive {
+  color: var(--app-ink);
+  border-color: var(--app-border);
+  border-bottom-color: var(--app-accent-strong);
+  background: color-mix(in srgb, var(--app-accent) 7%, var(--app-surface));
+}
+
+.utility {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.themeButton,
+.accountButton,
+.loginButton,
+.mobileToggle,
+.menuAction {
+  transition:
+    background 0.18s ease,
+    border-color 0.18s ease,
+    color 0.18s ease,
+    box-shadow 0.18s ease,
+    transform 0.18s ease;
+}
+
+.themeButton,
+.mobileToggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   gap: 8px;
+  min-height: 42px;
+  padding: 0 12px;
+  border: 1px solid var(--app-border);
+  background: var(--app-surface);
+  color: var(--app-ink);
 }
 
-.menuRow {
+.themeButton:hover,
+.accountButton:hover,
+.menuAction:hover,
+.loginButton:hover,
+.mobileToggle:hover {
+  border-color: var(--app-border-strong);
+  background: var(--app-surface-strong);
+  box-shadow: var(--app-shadow-sm);
+}
+
+.utilityText {
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.accountWrap {
+  position: relative;
+}
+
+.accountButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 228px;
+  min-height: 42px;
+  padding: 6px 10px 6px 6px;
+  border: 1px solid var(--app-border);
+  background: var(--app-surface);
+  color: var(--app-ink);
+}
+
+.avatar {
+  width: 34px;
+  height: 34px;
+  object-fit: cover;
+  border: 1px solid var(--app-border);
+}
+
+.accountCopy {
+  display: grid;
+  flex: 1 1 auto;
+  text-align: left;
+  line-height: 1.2;
+}
+
+.accountName,
+.menuHeader strong {
+  color: var(--app-ink);
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+.menuPanel {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  display: grid;
+  gap: 6px;
+  width: 288px;
+  padding: 10px;
+  border: 1px solid var(--app-border-strong);
+  background: var(--app-surface-strong);
+  box-shadow: var(--app-shadow-lg);
+}
+
+.menuHeader {
+  display: grid;
+  gap: 3px;
+  padding: 10px 10px 12px;
+  border-bottom: 1px solid var(--app-border);
+}
+
+.menuAction {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  min-height: 42px;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--app-ink);
+}
+
+.menuActionLeft {
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  width: 100%;
-  padding: 12px 14px;
-  border-radius: var(--radius-sm);
-  background: var(--app-surface-soft);
-  color: var(--app-ink);
-  border: 1px solid var(--app-border);
-  text-align: left;
+  font-weight: 600;
 }
 
-@media (max-width: 980px) {
+.dangerAction {
+  color: var(--app-danger);
+}
+
+.loginButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 0 16px;
+  border: 1px solid var(--app-accent-strong);
+  background: var(--app-accent-strong);
+  color: #fff;
+  font-weight: 700;
+}
+
+.mobileToggle {
+  display: none;
+  padding: 0 10px;
+}
+
+@media (max-width: 1080px) {
   .container {
-    grid-template-columns: auto auto;
-    justify-content: space-between;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 16px;
+  }
+
+  .surfaceBadge {
+    display: none;
   }
 
   .nav {
+    position: absolute;
+    top: calc(100% - 1px);
+    left: 0;
+    right: 0;
+    display: none;
+    flex-direction: column;
+    gap: 0;
+    padding: 12px 16px 16px;
+    border-bottom: 1px solid var(--app-border);
+    background: color-mix(in srgb, var(--app-surface-strong) 96%, transparent);
+    backdrop-filter: blur(12px);
+  }
+
+  .navOpen {
+    display: flex;
+  }
+
+  .navLink {
+    justify-content: flex-start;
+    min-height: 46px;
+    padding: 0 14px;
+    border: 1px solid transparent;
+    border-left-width: 3px;
+  }
+
+  .navLinkActive {
+    border-left-color: var(--app-accent-strong);
+    border-bottom-color: var(--app-border);
+  }
+
+  .mobileToggle {
+    display: inline-flex;
+  }
+
+  .sessionHint {
     display: none;
   }
 }
 
-@media (max-width: 640px) {
+@media (max-width: 720px) {
   .container {
-    width: min(1360px, calc(100% - 20px));
+    width: min(1440px, calc(100% - 20px));
     min-height: 70px;
-    gap: 12px;
+    gap: 10px;
   }
 
   .brandSubtitle,
-  .userCopy {
+  .accountCopy,
+  .utilityText {
     display: none;
   }
 
-  .brandMark {
-    width: 40px;
-    height: 40px;
-  }
-
-  .userButton {
+  .accountButton {
+    min-width: auto;
     padding-right: 6px;
   }
 
-  .menuGrid {
-    width: min(260px, calc(100vw - 64px));
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .panel {
-    right: -6px;
+  .themeButton,
+  .mobileToggle {
+    padding: 0 10px;
   }
 }

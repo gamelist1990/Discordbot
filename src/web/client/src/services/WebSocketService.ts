@@ -230,9 +230,3 @@ export class WebSocketService {
     }
 }
 
-/**
- * Feedback用WebSocketサービスのシングルトンインスタンス
- */
-export const feedbackWS = new WebSocketService(
-    `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws/feedback`
-);

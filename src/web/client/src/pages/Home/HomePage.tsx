@@ -45,13 +45,13 @@ const workflowSteps = [
   },
   {
     title: '状態を追い続ける',
-    description: 'ステータス、フィードバック、ランキングを見ながら運用改善を回します。',
+    description: 'ステータス、ログ、ランキングを見ながら運用改善を回します。',
   },
 ];
 
 const quickLinks = [
   { title: 'サーバー管理', description: '管理対象サーバーへ進む', path: '/settings', icon: 'tune' },
-  { title: 'フィードバック', description: '要望と改善状況を確認する', path: '/feedback', icon: 'forum' },
+  { title: 'スタッフ運用', description: 'AntiCheat と運用サービスへ進む', path: '/staff', icon: 'shield' },
   { title: 'ランキング', description: '活動データと公開パネルを確認する', path: '/rank', icon: 'leaderboard' },
 ];
 

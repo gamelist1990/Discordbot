@@ -19,7 +19,6 @@ interface AppHeaderProps {
 interface NavItem {
   label: string;
   path: string;
-  icon: string;
 }
 
 const AppHeader: React.FC<AppHeaderProps> = ({ user: userProp, onLogout }) => {
@@ -27,11 +26,10 @@ const AppHeader: React.FC<AppHeaderProps> = ({ user: userProp, onLogout }) => {
   const location = useLocation();
   const { theme, toggleTheme } = useTheme();
   const [showUserMenu, setShowUserMenu] = useState(false);
-  const [showWorkspaceMenu, setShowWorkspaceMenu] = useState(false);
+  const [showMobileNav, setShowMobileNav] = useState(false);
   const [user, setUser] = useState<UserInfo | null | undefined>(userProp);
   const [loading, setLoading] = useState(userProp === undefined);
   const userMenuRef = useRef<HTMLDivElement>(null);
-  const workspaceMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (userProp !== undefined) {
@@ -62,15 +60,15 @@ const AppHeader: React.FC<AppHeaderProps> = ({ user: userProp, onLogout }) => {
   }, [userProp]);
 
   useEffect(() => {
+    setShowUserMenu(false);
+    setShowMobileNav(false);
+  }, [location.pathname]);
+
+  useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       const target = event.target as Node;
-
       if (userMenuRef.current && !userMenuRef.current.contains(target)) {
         setShowUserMenu(false);
-      }
-
-      if (workspaceMenuRef.current && !workspaceMenuRef.current.contains(target)) {
-        setShowWorkspaceMenu(false);
       }
     };
 
@@ -80,34 +78,45 @@ const AppHeader: React.FC<AppHeaderProps> = ({ user: userProp, onLogout }) => {
 
   const canSeeStaff = Boolean(user?.permissionLevel && user.permissionLevel >= 1);
 
-  const primaryItems = useMemo<NavItem[]>(
-    () => [
-      { label: 'ホーム', path: '/', icon: 'home' },
-      { label: 'ランキング', path: '/rank', icon: 'leaderboard' },
-      { label: 'サーバー管理', path: '/settings', icon: 'tune' },
-      { label: 'フィードバック', path: '/feedback', icon: 'forum' },
-    ],
-    []
-  );
-
-  const workspaceItems = useMemo<NavItem[]>(() => {
+  const primaryItems = useMemo<NavItem[]>(() => {
     const items: NavItem[] = [
-      { label: 'プロフィール', path: '/profile', icon: 'person' },
-      { label: 'サーバー管理', path: '/settings', icon: 'tune' },
-      { label: 'フィードバック', path: '/feedback', icon: 'forum' },
-      { label: 'ランキング', path: '/rank', icon: 'leaderboard' },
+      { label: 'ホーム', path: '/' },
+      { label: 'ランキング', path: '/rank' },
+      { label: 'サーバー管理', path: '/settings' },
     ];
 
     if (canSeeStaff) {
-      items.push({ label: 'スタッフ', path: '/staff', icon: 'shield' });
+      items.push({ label: 'スタッフ', path: '/staff' });
     }
 
     return items;
   }, [canSeeStaff]);
 
+  const currentSurface = useMemo(() => {
+    if (location.pathname.startsWith('/staff/anticheat')) {
+      return 'AntiCheat';
+    }
+    if (location.pathname.startsWith('/staff/rolemanager')) {
+      return 'Role Manager';
+    }
+    if (location.pathname.startsWith('/staff')) {
+      return 'Staff Workspace';
+    }
+    if (location.pathname.startsWith('/settings')) {
+      return 'Server Management';
+    }
+    if (location.pathname.startsWith('/rank')) {
+      return 'Rank Board';
+    }
+    if (location.pathname.startsWith('/profile')) {
+      return 'Profile';
+    }
+    return 'Operations Workspace';
+  }, [location.pathname]);
+
   const goTo = (path: string) => {
     setShowUserMenu(false);
-    setShowWorkspaceMenu(false);
+    setShowMobileNav(false);
     navigate(path);
   };
 
@@ -149,17 +158,27 @@ const AppHeader: React.FC<AppHeaderProps> = ({ user: userProp, onLogout }) => {
   return (
     <header className={styles.header}>
       <div className={styles.container}>
-        <button className={styles.brand} onClick={() => goTo('/')} type="button">
-          <span className={styles.brandMark}>
-            <img src={logoMark} alt="PEXServer" className={styles.brandLogo} />
-          </span>
-          <span className={styles.brandCopy}>
-            <span className={styles.brandTitle}>PEXServer</span>
-            <span className={styles.brandSubtitle}>Operations workspace for Discord teams</span>
-          </span>
-        </button>
+        <div className={styles.brandZone}>
+          <button className={styles.brand} onClick={() => goTo('/')} type="button">
+            <span className={styles.brandMark}>
+              <img src={logoMark} alt="PEXServer" className={styles.brandLogo} />
+            </span>
+            <span className={styles.brandCopy}>
+              <span className={styles.brandTitle}>PEXServer</span>
+              <span className={styles.brandSubtitle}>Discord operation console</span>
+            </span>
+          </button>
 
-        <nav className={styles.nav} aria-label="Primary">
+          <div className={styles.surfaceBadge}>
+            <span className={styles.surfaceLabel}>Surface</span>
+            <strong>{currentSurface}</strong>
+          </div>
+        </div>
+
+        <nav
+          className={`${styles.nav} ${showMobileNav ? styles.navOpen : ''}`}
+          aria-label="Primary"
+        >
           {primaryItems.map((item) => (
             <button
               key={item.path}
@@ -167,26 +186,16 @@ const AppHeader: React.FC<AppHeaderProps> = ({ user: userProp, onLogout }) => {
               onClick={() => goTo(item.path)}
               type="button"
             >
-              <span className="material-icons">{item.icon}</span>
-              <span>{item.label}</span>
+              {item.label}
             </button>
           ))}
-          {canSeeStaff ? (
-            <button
-              className={`${styles.navLink} ${isActive('/staff') ? styles.navLinkActive : ''}`}
-              onClick={() => goTo('/staff')}
-              type="button"
-            >
-              <span className="material-icons">shield</span>
-              <span>スタッフ</span>
-            </button>
-          ) : null}
         </nav>
 
-        <div className={styles.actions}>
-          {loading ? <span className={styles.loadingText}>セッション確認中...</span> : null}
+        <div className={styles.utility}>
+          {loading ? <span className={styles.sessionHint}>セッション確認中...</span> : null}
+
           <button
-            className={styles.iconButton}
+            className={styles.themeButton}
             onClick={toggleTheme}
             type="button"
             aria-label={theme === 'light' ? 'ダークテーマへ切り替え' : 'ライトテーマへ切り替え'}
@@ -195,86 +204,84 @@ const AppHeader: React.FC<AppHeaderProps> = ({ user: userProp, onLogout }) => {
             <span className="material-icons">
               {theme === 'light' ? 'dark_mode' : 'light_mode'}
             </span>
+            <span className={styles.utilityText}>{theme === 'light' ? 'Dark' : 'Light'}</span>
           </button>
 
           {!loading && user ? (
-            <>
-              <div className={styles.workspaceMenu} ref={workspaceMenuRef}>
-                <button
-                  className={styles.iconButton}
-                  onClick={() => setShowWorkspaceMenu((prev) => !prev)}
-                  type="button"
-                  aria-label="ワークスペースメニュー"
-                >
-                  <span className="material-icons">dashboard_customize</span>
-                </button>
-
-                {showWorkspaceMenu ? (
-                  <div className={styles.panel}>
-                    <div className={styles.panelHeader}>
-                      <span className={styles.panelEyebrow}>Workspace</span>
-                      <h2>移動先を選択</h2>
-                    </div>
-                    <div className={styles.menuGrid}>
-                      {workspaceItems.map((item) => (
-                        <button
-                          key={item.path}
-                          className={styles.menuCard}
-                          onClick={() => goTo(item.path)}
-                          type="button"
-                        >
-                          <span className="material-icons">{item.icon}</span>
-                          <span>{item.label}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
-              </div>
-
-              <div className={styles.userMenu} ref={userMenuRef}>
-                <button
-                  className={styles.userButton}
-                  onClick={() => setShowUserMenu((prev) => !prev)}
-                  type="button"
-                >
-                  <img
-                    className={styles.avatar}
-                    src={avatarSrc}
-                    alt={user.username}
-                    onError={(event) => {
-                      event.currentTarget.src = 'https://cdn.discordapp.com/embed/avatars/0.png';
-                    }}
-                  />
-                  <span className={styles.userCopy}>
-                    <span className={styles.userName}>{user.username}</span>
-                    <span className={styles.userMeta}>ID {user.userId}</span>
+            <div className={styles.accountWrap} ref={userMenuRef}>
+              <button
+                className={styles.accountButton}
+                onClick={() => setShowUserMenu((previous) => !previous)}
+                type="button"
+                aria-expanded={showUserMenu}
+                aria-label="アカウントメニュー"
+              >
+                <img
+                  className={styles.avatar}
+                  src={avatarSrc}
+                  alt={user.username}
+                  onError={(event) => {
+                    event.currentTarget.src = 'https://cdn.discordapp.com/embed/avatars/0.png';
+                  }}
+                />
+                <span className={styles.accountCopy}>
+                  <span className={styles.accountName}>{user.username}</span>
+                  <span className={styles.accountMeta}>
+                    {canSeeStaff ? 'Staff access' : 'Member access'}
                   </span>
-                  <span className="material-icons">
-                    {showUserMenu ? 'expand_less' : 'expand_more'}
-                  </span>
-                </button>
+                </span>
+                <span className="material-icons">
+                  {showUserMenu ? 'expand_less' : 'expand_more'}
+                </span>
+              </button>
 
-                {showUserMenu ? (
-                  <div className={styles.panel}>
-                    <div className={styles.panelHeader}>
-                      <span className={styles.panelEyebrow}>Account</span>
-                      <h2>{user.username}</h2>
-                    </div>
-                    <div className={styles.panelStack}>
-                      <button className={styles.menuRow} onClick={() => goTo('/profile')} type="button">
-                        <span className="material-icons">person</span>
-                        <span>プロフィール</span>
-                      </button>
-                      <button className={styles.menuRow} onClick={handleLogout} type="button">
-                        <span className="material-icons">logout</span>
-                        <span>ログアウト</span>
-                      </button>
-                    </div>
+              {showUserMenu ? (
+                <div className={styles.menuPanel}>
+                  <div className={styles.menuHeader}>
+                    <span className={styles.menuEyebrow}>Account</span>
+                    <strong>{user.username}</strong>
+                    <span className={styles.menuMeta}>ID {user.userId}</span>
                   </div>
-                ) : null}
-              </div>
-            </>
+
+                  <button className={styles.menuAction} onClick={() => goTo('/profile')} type="button">
+                    <span className={styles.menuActionLeft}>
+                      <span className="material-icons">person</span>
+                      <span>プロフィール</span>
+                    </span>
+                    <span className="material-icons">arrow_forward</span>
+                  </button>
+
+                  <button className={styles.menuAction} onClick={() => goTo('/settings')} type="button">
+                    <span className={styles.menuActionLeft}>
+                      <span className="material-icons">tune</span>
+                      <span>サーバー管理</span>
+                    </span>
+                    <span className="material-icons">arrow_forward</span>
+                  </button>
+
+                  {canSeeStaff ? (
+                    <button className={styles.menuAction} onClick={() => goTo('/staff')} type="button">
+                      <span className={styles.menuActionLeft}>
+                        <span className="material-icons">shield</span>
+                        <span>スタッフ運用</span>
+                      </span>
+                      <span className="material-icons">arrow_forward</span>
+                    </button>
+                  ) : null}
+
+                  <button
+                    className={`${styles.menuAction} ${styles.dangerAction}`}
+                    onClick={handleLogout}
+                    type="button"
+                  >
+                    <span className={styles.menuActionLeft}>
+                      <span className="material-icons">logout</span>
+                      <span>ログアウト</span>
+                    </span>
+                  </button>
+                </div>
+              ) : null}
+            </div>
           ) : null}
 
           {!loading && !user ? (
@@ -289,6 +296,16 @@ const AppHeader: React.FC<AppHeaderProps> = ({ user: userProp, onLogout }) => {
               <span>Discordでログイン</span>
             </button>
           ) : null}
+
+          <button
+            className={styles.mobileToggle}
+            onClick={() => setShowMobileNav((previous) => !previous)}
+            type="button"
+            aria-label="メニューを切り替え"
+            aria-expanded={showMobileNav}
+          >
+            <span className="material-icons">{showMobileNav ? 'close' : 'menu'}</span>
+          </button>
         </div>
       </div>
     </header>

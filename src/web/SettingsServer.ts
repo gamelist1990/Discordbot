@@ -15,7 +15,7 @@ import { Logger } from '../utils/Logger.js';
 import { BotClient } from '../core/BotClient.js';
 import { SessionService } from './services/SessionService.js';
 import { ProfileService } from './services/ProfileService.js';
-import { createStatusRoutes, createSessionRoutes, createSettingsRoutes, createStaffRoutes, createAuthRoutes, createUserRoutes, createModRoutes, createFeedbackRoutes, createRolePresetRoutes, createRankRoutes, createWebRankRoutes, createPublicRankRoutes, createAntiCheatRoutes } from './routes/index.js';
+import { createStatusRoutes, createSessionRoutes, createSettingsRoutes, createStaffRoutes, createAuthRoutes, createUserRoutes, createModRoutes, createRolePresetRoutes, createRankRoutes, createWebRankRoutes, createPublicRankRoutes, createAntiCheatRoutes } from './routes/index.js';
 import { createGuildRoutes } from './routes/guild.js';
 import { createProfileController } from './controllers/ProfileController.js';
 import { setupWebSocketServer } from './routes/websocket.js';
@@ -144,8 +144,6 @@ export class SettingsServer {
         this.app.use('/api/user/profile', createProfileController(sessions, this.profileService));
         this.app.use('/api/guilds', createModRoutes(sessions, this.botClient));
         this.app.use('/api', createGuildRoutes(sessions, this.botClient));
-        this.app.use('/api', createFeedbackRoutes(sessions));
-
         this.app.use('/api/staff/anticheat', createAntiCheatRoutes(sessions, this.botClient));
 
     // Temporary debug route to inspect StatsManager buffer
@@ -192,10 +190,7 @@ export class SettingsServer {
         });
 
     // Generic preview handler (mount before static files so crawlers see OG meta)
-    // The handler consults a registry populated by modules (e.g., feedback route registers itself).
-    // Use a RegExp for the preview path to avoid path-to-regexp parameter parsing issues.
-    // Express supports regex paths; this avoids version-specific parameter syntax.
-    this.app.get(['/feedback', '/feedback/:id', /^\/preview\/.*$/], previewHandler as any);
+    this.app.get(/^\/preview\/.*$/, previewHandler as any);
 
         // 静的ファイルの配信
         this.app.use(express.static(join(__dirname, '..', '..', 'dist', 'web')));
@@ -235,7 +230,7 @@ export class SettingsServer {
                 // WebSocketサーバーをセットアップ
                 try {
                     setupWebSocketServer(this.server, this.sessionService.getSessions());
-                    Logger.info('WebSocketサーバーを起動しました (path: /ws/feedback)');
+                    Logger.info('WebSocketサーバーを起動しました');
                 } catch (error) {
                     Logger.error('WebSocketサーバーの起動に失敗しました:', error);
                 }

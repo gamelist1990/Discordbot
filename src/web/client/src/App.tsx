@@ -11,7 +11,6 @@ import RankBoardHome from './pages/RankBoard/RankBoardHome';
 import RankBoardGuild from './pages/RankBoard/RankBoardGuild';
 import RankBoard from './pages/RankBoard';
 import UserProfile from './pages/Profile';
-import FeedbackPage from './pages/Feedback';
 
 import AntiCheatPage from './pages/Staff/AntiCheat';
 import AntiCheatSelector from './pages/Staff/AntiCheatSelector';
@@ -58,7 +57,6 @@ const App: React.FC = () => {
           <Route path="/settings" element={<SettingsListPage />} />
           <Route path="/settings/profile" element={<ProfileSettings />} />
           <Route path="/settings/:guildId" element={<SettingsPage />} />
-          <Route path="/feedback" element={<FeedbackPage />} />
           <Route path="/rank" element={<RankBoardHome />} />
           <Route path="/rank/:guildId" element={<RankBoardGuild />} />
           <Route path="/rank/:guildId/:panelId" element={<RankBoard />} />

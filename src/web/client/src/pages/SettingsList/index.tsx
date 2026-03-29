@@ -135,11 +135,11 @@ const SettingsListPage: React.FC = () => {
         actions={
           <button
             className={styles.primaryButton}
-            onClick={() => navigate('/feedback')}
+            onClick={() => navigate('/staff')}
             type="button"
           >
-            <span className="material-icons">forum</span>
-            改善フィードバックを見る
+            <span className="material-icons">shield</span>
+            スタッフ運用へ
           </button>
         }
         aside={

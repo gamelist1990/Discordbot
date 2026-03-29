@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import type { GuildSettings, Role } from '../../types';
 import styles from './PermissionsTab.module.css';
 
@@ -13,6 +13,19 @@ const PermissionsTab: React.FC<PermissionsTabProps> = ({ settings, roles, onSave
   const [webAuthRoleId, setWebAuthRoleId] = useState(settings.webAuthRoleId || '');
   const [isSaving, setIsSaving] = useState(false);
 
+  useEffect(() => {
+    setStaffRoleId(settings.staffRoleId || '');
+    setWebAuthRoleId(settings.webAuthRoleId || '');
+  }, [settings.staffRoleId, settings.webAuthRoleId]);
+
+  const sortedRoles = useMemo(
+    () => (Array.isArray(roles) ? [...roles].sort((left, right) => right.position - left.position) : []),
+    [roles]
+  );
+
+  const selectedStaffRole = sortedRoles.find((role) => role.id === staffRoleId);
+  const selectedWebAuthRole = sortedRoles.find((role) => role.id === webAuthRoleId);
+
   const handleSave = async () => {
     setIsSaving(true);
     try {
@@ -25,70 +38,73 @@ const PermissionsTab: React.FC<PermissionsTabProps> = ({ settings, roles, onSave
     }
   };
 
-  // ロールを position で降順ソート（roles が配列であることを保証）
-  const sortedRoles = Array.isArray(roles) ? [...roles].sort((a, b) => b.position - a.position) : [];
-
   return (
-    <div className={styles.container}>
-      <h2 className={styles.title}>権限設定</h2>
-      <p className={styles.description}>
-        サーバーの権限ロールを設定します。管理者ロールはシステム側で管理されているため、ここではスタッフロールのみ設定できます。
-      </p>
+    <section className={styles.container}>
+      <div className={styles.header}>
+        <div>
+          <span className={styles.eyebrow}>Permissions</span>
+          <h2>権限ロール</h2>
+          <p>スタッフ権限と WEB 認証付与ロールだけをここで管理します。</p>
+        </div>
 
-      <div className={styles.section}>
-        <label className={styles.label}>
-          <span className={styles.labelText}>スタッフロール</span>
-          <span className={styles.labelDescription}>
-            一般的なモデレーション権限を持つロール
-          </span>
-        </label>
-        <select
-          className={styles.select}
-          value={staffRoleId}
-          onChange={(e) => setStaffRoleId(e.target.value)}
-        >
-          <option value="">-- 選択なし --</option>
-          {sortedRoles.map((role) => (
-            <option key={role.id} value={role.id}>
-              {role.name}
-            </option>
-          ))}
-        </select>
+        <div className={styles.summary}>
+          <div className={styles.summaryRow}>
+            <span>スタッフ</span>
+            <strong>{selectedStaffRole?.name || '未設定'}</strong>
+          </div>
+          <div className={styles.summaryRow}>
+            <span>WEB 認証</span>
+            <strong>{selectedWebAuthRole?.name || '未設定'}</strong>
+          </div>
+        </div>
       </div>
 
-      <div className={styles.section}>
-        <label className={styles.label}>
-          <span className={styles.labelText}>WEB認証ロール</span>
-          <span className={styles.labelDescription}>
-            WEB認証時に自動的に付与されるロール
-          </span>
+      <div className={styles.grid}>
+        <label className={styles.field}>
+          <span className={styles.label}>スタッフロール</span>
+          <span className={styles.help}>モデレーション面へ入れるロールを選択します。</span>
+          <select
+            className={styles.select}
+            value={staffRoleId}
+            onChange={(event) => setStaffRoleId(event.target.value)}
+          >
+            <option value="">未設定</option>
+            {sortedRoles.map((role) => (
+              <option key={role.id} value={role.id}>
+                {role.name}
+              </option>
+            ))}
+          </select>
         </label>
-        <select
-          className={styles.select}
-          value={webAuthRoleId}
-          onChange={(e) => setWebAuthRoleId(e.target.value)}
-        >
-          <option value="">-- 選択なし --</option>
-          {sortedRoles.map((role) => (
-            <option key={role.id} value={role.id}>
-              {role.name}
-            </option>
-          ))}
-        </select>
-      </div>
 
-      {/* 管理者ロールの選択は廃止（サーバ側で管理） */}
+        <label className={styles.field}>
+          <span className={styles.label}>WEB認証ロール</span>
+          <span className={styles.help}>認証完了時に自動付与するロールを選択します。</span>
+          <select
+            className={styles.select}
+            value={webAuthRoleId}
+            onChange={(event) => setWebAuthRoleId(event.target.value)}
+          >
+            <option value="">未設定</option>
+            {sortedRoles.map((role) => (
+              <option key={role.id} value={role.id}>
+                {role.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
 
       <div className={styles.actions}>
-        <button
-          className={styles.saveButton}
-          onClick={handleSave}
-          disabled={isSaving}
-        >
-          {isSaving ? '保存中...' : '設定を保存'}
+        <p className={styles.footnote}>
+          管理者ロールはサーバー側の権限構造に従うため、この画面では明示設定しません。
+        </p>
+        <button className={styles.saveButton} onClick={handleSave} disabled={isSaving} type="button">
+          <span className="material-icons">{isSaving ? 'sync' : 'save'}</span>
+          <span>{isSaving ? '保存中...' : '権限設定を保存'}</span>
         </button>
       </div>
-    </div>
+    </section>
   );
 };
 

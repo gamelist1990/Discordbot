@@ -1,851 +1,274 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import PageShell from '../../../components/PageShell';
+import { fetchGuildInfo } from '../../../services/api';
 import { useAntiCheatActions, useAntiCheatSettings, useDetectionLogs, useUserTrust } from './hooks';
 import styles from './AntiCheat.module.css';
-import {
-    AntiCheatSettings,
-    DetectionLog,
-    DetectorConfig,
-    PunishmentAction,
-    PunishmentThreshold,
-    UserTrustDataWithUser,
-    WordFilterRule
+import type {
+  AntiCheatSettings,
+  DetectionLog,
+  DetectorConfig,
+  PunishmentAction,
+  PunishmentThreshold,
+  UserTrustDataWithUser,
+  WordFilterRule,
 } from './types';
 
-type TabKey = 'overview' | 'rules' | 'punishments' | 'logs' | 'trust';
-
-const DETECTOR_CATALOG = [
-    { key: 'textSpam', title: 'テキストスパム', icon: 'sms', description: '短時間の大量投稿、重複投稿、大文字比率の高い投稿を検知します。' },
-    { key: 'inviteReferral', title: '広告防止 / 紹介', icon: 'campaign', description: 'Discord招待や紹介・広告用のリンクパターンを削除対象として扱います。' },
-    { key: 'redirectLink', title: 'リンク解決', icon: 'link', description: '未知のリダイレクトドメインを解析し、裏のURLと危険性を公開します。' },
-    { key: 'copyPaste', title: 'アンチコピーペースト', icon: 'content_paste_off', description: '詐欺コピペや装飾Unicodeを含む迷惑文面を検知します。' },
-    { key: 'everyoneMention', title: 'アンチ Everyone', icon: 'alternate_email', description: '@everyone / @here と、同名ロールを使った通知を防ぎます。' },
-    { key: 'duplicateMessage', title: 'アンチ重複', icon: 'content_copy', description: '重複投稿の回数に応じて削除とスコア加算を行います。' },
-    { key: 'mentionLimit', title: '最大言及', icon: 'groups', description: 'ユーザー・ロールへの大量メンションを閾値ベースで抑制します。' },
-    { key: 'maxLines', title: '最大行数', icon: 'format_line_spacing', description: '長文スパムを行数単位で抑制し、倍数ごとにスコアを積みます。' },
-    { key: 'wordFilter', title: 'フィルター', icon: 'filter_alt', description: '単語、フレーズ、正規表現ごとに個別スコアを設定できます。' },
-    { key: 'raidDetection', title: '自動アンチレイド', icon: 'security', description: '参加頻度を監視し、短時間参加が増えた時にレイドモードを有効化します。' }
-] as const;
-
-const TAB_LABELS: Record<TabKey, string> = {
-    overview: '概要',
-    rules: '検知ルール',
-    punishments: '処罰',
-    logs: 'ログ',
-    trust: '信頼スコア'
+type ConfigField = {
+  kind: 'number' | 'list';
+  key: string;
+  label: string;
+  defaultValue?: number;
+  min?: number;
+  max?: number;
+  step?: number;
+  wide?: boolean;
+  placeholder?: string;
 };
 
-const EMPTY_PUNISHMENT_ACTION: PunishmentAction = {
-    type: 'timeout',
-    durationSeconds: 600,
-    reasonTemplate: 'AntiCheat violation: threshold {threshold}',
-    notify: true
+type DetectorEntry = {
+  key: string;
+  title: string;
+  description: string;
+  icon: string;
+  fields?: ConfigField[];
 };
 
-function cloneSettings(settings: AntiCheatSettings): AntiCheatSettings {
-    return JSON.parse(JSON.stringify(settings)) as AntiCheatSettings;
-}
+const DETECTORS: DetectorEntry[] = [
+  { key: 'textSpam', title: 'テキストスパム', description: '大量投稿と大文字スパムを検知します。', icon: 'sms', fields: [
+    { kind: 'number', key: 'windowSeconds', label: '監視秒数', defaultValue: 5, min: 1 },
+    { kind: 'number', key: 'rapidMessageCount', label: '大量投稿回数', defaultValue: 6, min: 1 },
+    { kind: 'number', key: 'duplicateThreshold', label: '重複しきい値', defaultValue: 3, min: 1 },
+    { kind: 'number', key: 'capsRatio', label: '大文字比率', defaultValue: 0.88, min: 0, max: 1, step: 0.01 },
+  ] },
+  { key: 'inviteReferral', title: '広告防止 / 紹介', description: '招待リンクと紹介パターンを止めます。', icon: 'campaign', fields: [
+    { kind: 'list', key: 'blockedDomains', label: 'ブロックドメイン', wide: true, placeholder: 'example.com' },
+    { kind: 'list', key: 'blockedPatterns', label: '紹介 / 広告パターン', wide: true, placeholder: 'promo|affiliate' },
+  ] },
+  { key: 'redirectLink', title: 'リンク解決', description: '未知の短縮 URL を展開します。', icon: 'link', fields: [
+    { kind: 'list', key: 'allowDomains', label: '許可ドメイン', wide: true, placeholder: 'google.com' },
+    { kind: 'number', key: 'maxDepth', label: '最大追跡段数', defaultValue: 5, min: 1 },
+    { kind: 'number', key: 'timeoutMs', label: 'タイムアウト(ms)', defaultValue: 2500, min: 500, step: 100 },
+  ] },
+  { key: 'copyPaste', title: 'アンチコピーペースト', description: '詐欺コピペと装飾文字を抑えます。', icon: 'content_paste_off', fields: [
+    { kind: 'number', key: 'minLength', label: '最小文字数', defaultValue: 80, min: 1 },
+    { kind: 'list', key: 'suspiciousTerms', label: '疑わしい語句', wide: true, placeholder: 'free nitro' },
+  ] },
+  { key: 'everyoneMention', title: 'アンチ Everyone', description: '大量通知を防ぎます。', icon: 'alternate_email' },
+  { key: 'duplicateMessage', title: 'アンチ重複', description: '同じ文面の連投を止めます。', icon: 'content_copy', fields: [
+    { kind: 'number', key: 'windowSeconds', label: '監視秒数', defaultValue: 180, min: 1 },
+    { kind: 'number', key: 'deleteFrom', label: '削除開始回数', defaultValue: 2, min: 1 },
+    { kind: 'number', key: 'scoreFrom', label: 'スコア開始回数', defaultValue: 4, min: 1 },
+  ] },
+  { key: 'mentionLimit', title: '最大言及', description: 'ユーザー / ロールの大量メンションを制御します。', icon: 'groups', fields: [
+    { kind: 'number', key: 'maxUserMentions', label: 'ユーザー言及上限', defaultValue: 200, min: 1 },
+    { kind: 'number', key: 'maxRoleMentions', label: 'ロール言及上限', defaultValue: 200, min: 1 },
+  ] },
+  { key: 'maxLines', title: '最大行数', description: '長文スパムを行数で見ます。', icon: 'format_line_spacing', fields: [
+    { kind: 'number', key: 'maxLines', label: '最大行数', defaultValue: 10, min: 1 },
+  ] },
+  { key: 'wordFilter', title: 'フィルター', description: '単語と正規表現の個別ルールです。', icon: 'filter_alt' },
+  { key: 'raidDetection', title: '自動アンチレイド', description: '参加急増時に保護を強めます。', icon: 'security', fields: [
+    { kind: 'number', key: 'joinsPerHour', label: '1時間あたりの参加数', defaultValue: 25, min: 1 },
+    { kind: 'number', key: 'burstCount', label: '短時間バースト数', defaultValue: 10, min: 1 },
+    { kind: 'number', key: 'burstWindowSeconds', label: 'バースト監視秒数', defaultValue: 10, min: 1 },
+    { kind: 'number', key: 'cooldownMinutes', label: '再発動待機(分)', defaultValue: 60, min: 1 },
+  ] },
+];
 
-function formatDate(value?: string | null): string {
-    if (!value) return '未設定';
-    const date = new Date(value);
-    return Number.isNaN(date.getTime()) ? '未設定' : date.toLocaleString('ja-JP');
-}
+const EMPTY_ACTION: PunishmentAction = { type: 'timeout', durationSeconds: 600, reasonTemplate: 'AntiCheat violation: threshold {threshold}', notify: true };
 
-function toMultiline(values: string[]): string {
-    return values.join('\n');
-}
-
-function parseListText(value: string): string[] {
-    return value.split(/\r?\n|,/).map((entry) => entry.trim()).filter(Boolean);
-}
-
-function createWordFilterRule(): WordFilterRule {
-    return {
-        id: `rule-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        label: '',
-        pattern: '',
-        mode: 'contains',
-        score: 1,
-        deleteMessage: true,
-        enabled: true
-    };
-}
+const cloneSettings = (settings: AntiCheatSettings) => JSON.parse(JSON.stringify(settings)) as AntiCheatSettings;
+const parseListText = (value: string) => value.split(/\r?\n|,/).map((entry) => entry.trim()).filter(Boolean);
+const toTextList = (value: unknown) => Array.isArray(value) ? value.join('\n') : '';
+const readNumber = (value: unknown, fallback: number) => Number.isFinite(Number(value)) ? Number(value) : fallback;
+const formatDate = (value?: string | null) => value ? new Date(value).toLocaleString('ja-JP') : '未設定';
+const createWordFilterRule = (): WordFilterRule => ({ id: `rule-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, label: '', pattern: '', mode: 'contains', score: 1, deleteMessage: true, enabled: true });
 
 const AntiCheatUnified: React.FC = () => {
-    const { guildId } = useParams<{ guildId: string }>();
-    const navigate = useNavigate();
-    const { settings, loading, error, updateSettings } = useAntiCheatSettings(guildId || '');
-    const { logs, loading: logsLoading, error: logsError, refetch: refetchLogs } = useDetectionLogs(guildId || '', 60);
-    const { trust, loading: trustLoading, error: trustError, refetch: refetchTrust } = useUserTrust(guildId || '');
-    const { revokeTimeout, resetTrust, executing, error: actionError } = useAntiCheatActions(guildId || '');
-    const [activeTab, setActiveTab] = useState<TabKey>('overview');
-    const [draft, setDraft] = useState<AntiCheatSettings | null>(null);
-    const [excludedRolesText, setExcludedRolesText] = useState('');
-    const [excludedChannelsText, setExcludedChannelsText] = useState('');
-    const [saving, setSaving] = useState(false);
-    const [saveNotice, setSaveNotice] = useState<string | null>(null);
-    const [punishmentDraft, setPunishmentDraft] = useState<PunishmentThreshold>({
-        threshold: 10,
-        actions: [{ ...EMPTY_PUNISHMENT_ACTION }]
-    });
+  const { guildId } = useParams<{ guildId: string }>();
+  const navigate = useNavigate();
+  const { settings, loading, error, updateSettings } = useAntiCheatSettings(guildId || '');
+  const { logs, loading: logsLoading, error: logsError, refetch: refetchLogs } = useDetectionLogs(guildId || '', 40);
+  const { trust, loading: trustLoading, error: trustError, refetch: refetchTrust } = useUserTrust(guildId || '');
+  const { revokeTimeout, resetTrust, executing, error: actionError } = useAntiCheatActions(guildId || '');
+  const [guildName, setGuildName] = useState('AntiCheat');
+  const [draft, setDraft] = useState<AntiCheatSettings | null>(null);
+  const [excludedRolesText, setExcludedRolesText] = useState('');
+  const [excludedChannelsText, setExcludedChannelsText] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [saveNotice, setSaveNotice] = useState<string | null>(null);
 
-    useEffect(() => {
-        if (!settings) return;
-        const nextDraft = cloneSettings(settings);
-        setDraft(nextDraft);
-        setExcludedRolesText(toMultiline(nextDraft.excludedRoles));
-        setExcludedChannelsText(toMultiline(nextDraft.excludedChannels));
-    }, [settings]);
+  useEffect(() => {
+    if (!settings) return;
+    const next = cloneSettings(settings);
+    setDraft(next);
+    setExcludedRolesText(next.excludedRoles.join('\n'));
+    setExcludedChannelsText(next.excludedChannels.join('\n'));
+  }, [settings]);
 
-    const trustEntries = useMemo(() => {
-        if (!trust || Array.isArray(trust)) return [];
-        return Object.entries(trust as Record<string, UserTrustDataWithUser>)
-            .map(([userId, value]) => ({ userId, ...value }))
-            .sort((left, right) => right.score - left.score);
-    }, [trust]);
+  useEffect(() => {
+    if (!guildId) return;
+    fetchGuildInfo(guildId).then((info) => setGuildName(info.name)).catch(() => setGuildName(guildId));
+  }, [guildId]);
 
-    const enabledDetectorCount = useMemo(
-        () => Object.values(draft?.detectors || {}).filter((detector) => detector.enabled).length,
-        [draft]
-    );
+  const trustEntries = useMemo(() => {
+    if (!trust || Array.isArray(trust) || 'score' in (trust as Record<string, unknown>)) return [];
+    return Object.entries(trust as Record<string, UserTrustDataWithUser>)
+      .map(([userId, value]) => ({ userId, ...value }))
+      .sort((left, right) => right.score - left.score);
+  }, [trust]);
 
-    if (!guildId) {
-        return null;
+  if (!guildId) return null;
+
+  const updateDraft = (updater: (current: AntiCheatSettings) => AntiCheatSettings) => setDraft((current) => current ? updater(current) : current);
+  const updateDetector = (detectorKey: string, patch: Partial<DetectorConfig>) => updateDraft((current) => ({ ...current, detectors: { ...current.detectors, [detectorKey]: { ...current.detectors[detectorKey], ...patch } } }));
+  const updateDetectorConfig = (detectorKey: string, field: string, value: unknown) => updateDraft((current) => ({ ...current, detectors: { ...current.detectors, [detectorKey]: { ...current.detectors[detectorKey], config: { ...(current.detectors[detectorKey]?.config || {}), [field]: value } } } }));
+  const updateListDetectorConfig = (detectorKey: string, field: string, value: string) => updateDetectorConfig(detectorKey, field, parseListText(value));
+
+  const addPunishment = () => updateDraft((current) => ({ ...current, punishments: [...current.punishments, { threshold: (current.punishments[current.punishments.length - 1]?.threshold || 0) + 10, actions: [{ ...EMPTY_ACTION }] }] }));
+  const updatePunishment = (index: number, patch: Partial<PunishmentThreshold>) => updateDraft((current) => ({ ...current, punishments: current.punishments.map((item, currentIndex) => currentIndex === index ? { ...item, ...patch } : item) }));
+  const removePunishment = (index: number) => updateDraft((current) => ({ ...current, punishments: current.punishments.filter((_, currentIndex) => currentIndex !== index) }));
+  const addAction = (index: number) => updateDraft((current) => ({ ...current, punishments: current.punishments.map((item, currentIndex) => currentIndex === index ? { ...item, actions: [...item.actions, { ...EMPTY_ACTION }] } : item) }));
+  const updateAction = (thresholdIndex: number, actionIndex: number, patch: Partial<PunishmentAction>) => updateDraft((current) => ({ ...current, punishments: current.punishments.map((item, currentIndex) => currentIndex === thresholdIndex ? { ...item, actions: item.actions.map((action, currentActionIndex) => currentActionIndex === actionIndex ? { ...action, ...patch } : action) } : item) }));
+  const removeAction = (thresholdIndex: number, actionIndex: number) => updateDraft((current) => ({ ...current, punishments: current.punishments.map((item, currentIndex) => currentIndex === thresholdIndex ? { ...item, actions: item.actions.filter((_, currentActionIndex) => currentActionIndex !== actionIndex) } : item) }));
+
+  const wordFilterRules = ((draft?.detectors.wordFilter?.config?.rules as WordFilterRule[] | undefined) || []);
+  const addWordRule = () => updateDetectorConfig('wordFilter', 'rules', [...wordFilterRules, createWordFilterRule()]);
+  const updateWordRule = (ruleId: string, patch: Partial<WordFilterRule>) => updateDetectorConfig('wordFilter', 'rules', wordFilterRules.map((rule) => rule.id === ruleId ? { ...rule, ...patch } : rule));
+  const removeWordRule = (ruleId: string) => updateDetectorConfig('wordFilter', 'rules', wordFilterRules.filter((rule) => rule.id !== ruleId));
+
+  const commitDraft = async () => {
+    if (!draft) return;
+    setSaving(true);
+    setSaveNotice(null);
+    const success = await updateSettings({ ...draft, excludedRoles: parseListText(excludedRolesText), excludedChannels: parseListText(excludedChannelsText) });
+    setSaving(false);
+    if (success) setSaveNotice('AntiCheat 設定を保存しました');
+  };
+
+  const onResetTrust = async (userId: string) => {
+    if (!window.confirm('このユーザーの信頼スコアをリセットしますか？')) return;
+    if (await resetTrust(userId)) { await refetchTrust(); await refetchLogs(); }
+  };
+
+  const onRevokeTimeout = async (log: DetectionLog) => {
+    if (!window.confirm('このタイムアウトを解除しますか？')) return;
+    if (await revokeTimeout(log.userId, false, log.messageId)) { await refetchLogs(); await refetchTrust(); }
+  };
+
+  const renderField = (detectorKey: string, detector: DetectorConfig, field: ConfigField) => {
+    const config = detector.config || {};
+    if (field.kind === 'list') {
+      return (
+        <label key={field.key} className={`${styles.field} ${field.wide ? styles.fieldWide : ''}`}>
+          <span>{field.label}</span>
+          <textarea className={styles.textarea} value={toTextList(config[field.key])} onChange={(event) => updateListDetectorConfig(detectorKey, field.key, event.target.value)} disabled={!detector.enabled} placeholder={field.placeholder} />
+        </label>
+      );
     }
 
-    const commitDraft = async (message: string) => {
-        if (!draft) return;
-        setSaving(true);
-        setSaveNotice(null);
-        const payload: AntiCheatSettings = {
-            ...draft,
-            excludedRoles: parseListText(excludedRolesText),
-            excludedChannels: parseListText(excludedChannelsText)
-        };
-        const success = await updateSettings(payload);
-        setSaving(false);
-        if (success) setSaveNotice(message);
-    };
-
-    const updateDraft = (updater: (current: AntiCheatSettings) => AntiCheatSettings) => {
-        setDraft((current) => (current ? updater(current) : current));
-    };
-
-    const updateDetector = (detectorKey: string, patch: Partial<DetectorConfig>) => {
-        updateDraft((current) => ({
-            ...current,
-            detectors: {
-                ...current.detectors,
-                [detectorKey]: {
-                    ...current.detectors[detectorKey],
-                    ...patch
-                }
-            }
-        }));
-    };
-
-    const updateDetectorConfig = (detectorKey: string, field: string, value: unknown) => {
-        updateDraft((current) => ({
-            ...current,
-            detectors: {
-                ...current.detectors,
-                [detectorKey]: {
-                    ...current.detectors[detectorKey],
-                    config: {
-                        ...(current.detectors[detectorKey]?.config || {}),
-                        [field]: value
-                    }
-                }
-            }
-        }));
-    };
-
-    const wordFilterRules = useMemo(
-        () => ((draft?.detectors.wordFilter?.config?.rules as WordFilterRule[] | undefined) || []),
-        [draft]
-    );
-
-    const addWordFilterRule = () => {
-        updateDetectorConfig('wordFilter', 'rules', [...wordFilterRules, createWordFilterRule()]);
-    };
-
-    const updateWordFilterRule = (ruleId: string, patch: Partial<WordFilterRule>) => {
-        updateDetectorConfig(
-            'wordFilter',
-            'rules',
-            wordFilterRules.map((rule) => (rule.id === ruleId ? { ...rule, ...patch } : rule))
-        );
-    };
-
-    const removeWordFilterRule = (ruleId: string) => {
-        updateDetectorConfig(
-            'wordFilter',
-            'rules',
-            wordFilterRules.filter((rule) => rule.id !== ruleId)
-        );
-    };
-
-    const addPunishment = () => {
-        if (!draft) return;
-        updateDraft((current) => ({
-            ...current,
-            punishments: [...current.punishments, punishmentDraft]
-        }));
-        setPunishmentDraft({
-            threshold: punishmentDraft.threshold + 10,
-            actions: [{ ...EMPTY_PUNISHMENT_ACTION }]
-        });
-    };
-
-    const removePunishment = (index: number) => {
-        updateDraft((current) => ({
-            ...current,
-            punishments: current.punishments.filter((_, currentIndex) => currentIndex !== index)
-        }));
-    };
-
-    const updatePunishment = (index: number, patch: Partial<PunishmentThreshold>) => {
-        updateDraft((current) => ({
-            ...current,
-            punishments: current.punishments.map((item, currentIndex) => (
-                currentIndex === index ? { ...item, ...patch } : item
-            ))
-        }));
-    };
-
-    const updatePunishmentAction = (index: number, patch: Partial<PunishmentAction>) => {
-        updateDraft((current) => ({
-            ...current,
-            punishments: current.punishments.map((item, currentIndex) => {
-                if (currentIndex !== index) {
-                    return item;
-                }
-
-                const currentAction = item.actions[0] || { ...EMPTY_PUNISHMENT_ACTION };
-                return {
-                    ...item,
-                    actions: [{ ...currentAction, ...patch }]
-                };
-            })
-        }));
-    };
-
-    const handleResetTrust = async (userId: string) => {
-        if (!window.confirm('このユーザーの信頼スコアをリセットしますか？')) return;
-        const success = await resetTrust(userId);
-        if (success) {
-            await refetchTrust();
-            await refetchLogs();
-        }
-    };
-
-    const handleRevokeTimeout = async (log: DetectionLog) => {
-        if (!window.confirm('このタイムアウトを解除しますか？')) return;
-        const success = await revokeTimeout(log.userId, false, log.messageId);
-        if (success) {
-            await refetchLogs();
-            await refetchTrust();
-        }
-    };
-
-    const renderDetectorConfig = (detectorKey: string) => {
-        const detector = draft?.detectors[detectorKey];
-        if (!detector) {
-            return null;
-        }
-
-        switch (detectorKey) {
-            case 'textSpam':
-                return (
-                    <div className={styles.inlineFields}>
-                        <label className={styles.field}>
-                            <span>監視秒数</span>
-                            <input type="number" value={detector.config?.windowSeconds ?? 5} onChange={(event) => updateDetectorConfig(detectorKey, 'windowSeconds', Number(event.target.value))} />
-                        </label>
-                        <label className={styles.field}>
-                            <span>大量投稿件数</span>
-                            <input type="number" value={detector.config?.rapidMessageCount ?? 6} onChange={(event) => updateDetectorConfig(detectorKey, 'rapidMessageCount', Number(event.target.value))} />
-                        </label>
-                        <label className={styles.field}>
-                            <span>重複回数</span>
-                            <input type="number" value={detector.config?.duplicateThreshold ?? 3} onChange={(event) => updateDetectorConfig(detectorKey, 'duplicateThreshold', Number(event.target.value))} />
-                        </label>
-                    </div>
-                );
-            case 'inviteReferral':
-                return (
-                    <div className={styles.stack}>
-                        <label className={styles.field}>
-                            <span>追加ブロックドメイン</span>
-                            <textarea value={toMultiline((detector.config?.blockedDomains as string[] | undefined) || [])} onChange={(event) => updateDetectorConfig(detectorKey, 'blockedDomains', parseListText(event.target.value))} placeholder={'example.com\nbad-link.test'} />
-                        </label>
-                        <label className={styles.field}>
-                            <span>追加ブロックパターン</span>
-                            <textarea value={toMultiline((detector.config?.blockedPatterns as string[] | undefined) || [])} onChange={(event) => updateDetectorConfig(detectorKey, 'blockedPatterns', parseListText(event.target.value))} placeholder={'ref=\ninvite_code='} />
-                        </label>
-                    </div>
-                );
-            case 'redirectLink':
-                return (
-                    <div className={styles.inlineFields}>
-                        <label className={styles.field}>
-                            <span>許可リダイレクトドメイン</span>
-                            <textarea value={toMultiline((detector.config?.allowDomains as string[] | undefined) || [])} onChange={(event) => updateDetectorConfig(detectorKey, 'allowDomains', parseListText(event.target.value))} placeholder={'google.com\nx.com\nt.co'} />
-                        </label>
-                        <label className={styles.field}>
-                            <span>最大解決段数</span>
-                            <input type="number" value={detector.config?.maxDepth ?? 5} onChange={(event) => updateDetectorConfig(detectorKey, 'maxDepth', Number(event.target.value))} />
-                        </label>
-                        <label className={styles.field}>
-                            <span>タイムアウト(ms)</span>
-                            <input type="number" value={detector.config?.timeoutMs ?? 2500} onChange={(event) => updateDetectorConfig(detectorKey, 'timeoutMs', Number(event.target.value))} />
-                        </label>
-                    </div>
-                );
-            case 'copyPaste':
-                return (
-                    <div className={styles.inlineFields}>
-                        <label className={styles.field}>
-                            <span>最小文字数</span>
-                            <input type="number" value={detector.config?.minLength ?? 80} onChange={(event) => updateDetectorConfig(detectorKey, 'minLength', Number(event.target.value))} />
-                        </label>
-                        <label className={styles.field}>
-                            <span>追加キーワード</span>
-                            <textarea value={toMultiline((detector.config?.suspiciousTerms as string[] | undefined) || [])} onChange={(event) => updateDetectorConfig(detectorKey, 'suspiciousTerms', parseListText(event.target.value))} placeholder={'free nitro\nsteam gift'} />
-                        </label>
-                    </div>
-                );
-            case 'duplicateMessage':
-                return (
-                    <div className={styles.inlineFields}>
-                        <label className={styles.field}>
-                            <span>監視秒数</span>
-                            <input type="number" value={detector.config?.windowSeconds ?? 180} onChange={(event) => updateDetectorConfig(detectorKey, 'windowSeconds', Number(event.target.value))} />
-                        </label>
-                        <label className={styles.field}>
-                            <span>削除開始回数</span>
-                            <input type="number" value={detector.config?.deleteFrom ?? 2} onChange={(event) => updateDetectorConfig(detectorKey, 'deleteFrom', Number(event.target.value))} />
-                        </label>
-                        <label className={styles.field}>
-                            <span>スコア開始回数</span>
-                            <input type="number" value={detector.config?.scoreFrom ?? 4} onChange={(event) => updateDetectorConfig(detectorKey, 'scoreFrom', Number(event.target.value))} />
-                        </label>
-                    </div>
-                );
-            case 'mentionLimit':
-                return (
-                    <div className={styles.inlineFields}>
-                        <label className={styles.field}>
-                            <span>ユーザー最大言及</span>
-                            <input type="number" value={detector.config?.maxUserMentions ?? 200} onChange={(event) => updateDetectorConfig(detectorKey, 'maxUserMentions', Number(event.target.value))} />
-                        </label>
-                        <label className={styles.field}>
-                            <span>ロール最大言及</span>
-                            <input type="number" value={detector.config?.maxRoleMentions ?? 200} onChange={(event) => updateDetectorConfig(detectorKey, 'maxRoleMentions', Number(event.target.value))} />
-                        </label>
-                    </div>
-                );
-            case 'maxLines':
-                return (
-                    <div className={styles.inlineFields}>
-                        <label className={styles.field}>
-                            <span>最大行数</span>
-                            <input type="number" value={detector.config?.maxLines ?? 10} onChange={(event) => updateDetectorConfig(detectorKey, 'maxLines', Number(event.target.value))} />
-                        </label>
-                    </div>
-                );
-            case 'wordFilter':
-                return (
-                    <div className={styles.stack}>
-                        <div className={styles.ruleToolbar}>
-                            <span className={styles.sectionLabel}>ルール</span>
-                            <button className={styles.secondaryButton} onClick={addWordFilterRule} type="button">
-                                <span className="material-icons">add</span>
-                                ルール追加
-                            </button>
-                        </div>
-                        {wordFilterRules.length === 0 ? (
-                            <div className={styles.emptyPanel}>ルールがまだありません。</div>
-                        ) : (
-                            <div className={styles.ruleList}>
-                                {wordFilterRules.map((rule) => (
-                                    <article key={rule.id} className={styles.ruleCard}>
-                                        <div className={styles.inlineFields}>
-                                            <label className={styles.field}>
-                                                <span>表示名</span>
-                                                <input type="text" value={rule.label} onChange={(event) => updateWordFilterRule(rule.id, { label: event.target.value })} />
-                                            </label>
-                                            <label className={styles.field}>
-                                                <span>パターン</span>
-                                                <input type="text" value={rule.pattern} onChange={(event) => updateWordFilterRule(rule.id, { pattern: event.target.value })} />
-                                            </label>
-                                            <label className={styles.field}>
-                                                <span>モード</span>
-                                                <select value={rule.mode} onChange={(event) => updateWordFilterRule(rule.id, { mode: event.target.value as WordFilterRule['mode'] })}>
-                                                    <option value="contains">contains</option>
-                                                    <option value="exact">exact</option>
-                                                    <option value="regex">regex</option>
-                                                </select>
-                                            </label>
-                                            <label className={styles.field}>
-                                                <span>スコア</span>
-                                                <input type="number" value={rule.score} onChange={(event) => updateWordFilterRule(rule.id, { score: Number(event.target.value) })} />
-                                            </label>
-                                        </div>
-                                        <div className={styles.inlineActions}>
-                                            <label className={styles.toggle}>
-                                                <input type="checkbox" checked={rule.enabled} onChange={(event) => updateWordFilterRule(rule.id, { enabled: event.target.checked })} />
-                                                <span>有効</span>
-                                            </label>
-                                            <label className={styles.toggle}>
-                                                <input type="checkbox" checked={rule.deleteMessage !== false} onChange={(event) => updateWordFilterRule(rule.id, { deleteMessage: event.target.checked })} />
-                                                <span>削除</span>
-                                            </label>
-                                            <button className={styles.dangerButton} onClick={() => removeWordFilterRule(rule.id)} type="button">
-                                                削除
-                                            </button>
-                                        </div>
-                                    </article>
-                                ))}
-                            </div>
-                        )}
-                    </div>
-                );
-            case 'raidDetection':
-                return (
-                    <div className={styles.inlineFields}>
-                        <label className={styles.field}>
-                            <span>1時間あたり参加数</span>
-                            <input type="number" value={detector.config?.joinsPerHour ?? 25} onChange={(event) => updateDetectorConfig(detectorKey, 'joinsPerHour', Number(event.target.value))} />
-                        </label>
-                        <label className={styles.field}>
-                            <span>短時間参加数</span>
-                            <input type="number" value={detector.config?.burstCount ?? 10} onChange={(event) => updateDetectorConfig(detectorKey, 'burstCount', Number(event.target.value))} />
-                        </label>
-                        <label className={styles.field}>
-                            <span>短時間監視秒数</span>
-                            <input type="number" value={detector.config?.burstWindowSeconds ?? 10} onChange={(event) => updateDetectorConfig(detectorKey, 'burstWindowSeconds', Number(event.target.value))} />
-                        </label>
-                        <label className={styles.field}>
-                            <span>再発動待機(分)</span>
-                            <input type="number" value={detector.config?.cooldownMinutes ?? 60} onChange={(event) => updateDetectorConfig(detectorKey, 'cooldownMinutes', Number(event.target.value))} />
-                        </label>
-                    </div>
-                );
-            default:
-                return null;
-        }
-    };
-
-    const renderOverview = () => {
-        if (!draft) return null;
-
-        return (
-            <section className={styles.section}>
-                <div className={styles.metricsGrid}>
-                    <article className={styles.metricCard}>
-                        <span className={styles.sectionLabel}>Status</span>
-                        <strong>{draft.enabled ? 'Enabled' : 'Disabled'}</strong>
-                        <p>AntiCheat 全体の有効状態です。</p>
-                    </article>
-                    <article className={styles.metricCard}>
-                        <span className={styles.sectionLabel}>Detectors</span>
-                        <strong>{enabledDetectorCount}</strong>
-                        <p>現在有効な検知器数です。</p>
-                    </article>
-                    <article className={styles.metricCard}>
-                        <span className={styles.sectionLabel}>Raid Mode</span>
-                        <strong>{draft.raidMode.active ? 'Active' : 'Standby'}</strong>
-                        <p>{draft.raidMode.reason || '現在は通常監視モードです。'}</p>
-                    </article>
-                    <article className={styles.metricCard}>
-                        <span className={styles.sectionLabel}>Avatar Log</span>
-                        <strong>{draft.avatarLogChannelId || 'Unset'}</strong>
-                        <p>アバター変更を記録するログ先です。</p>
-                    </article>
-                </div>
-
-                <div className={styles.formGrid}>
-                    <label className={styles.toggleCard}>
-                        <span className={styles.toggleTitle}>AntiCheat を有効化</span>
-                        <input type="checkbox" checked={draft.enabled} onChange={(event) => setDraft({ ...draft, enabled: event.target.checked })} />
-                    </label>
-                    <label className={styles.field}>
-                        <span>検知ログチャンネルID</span>
-                        <input type="text" value={draft.logChannelId || ''} onChange={(event) => setDraft({ ...draft, logChannelId: event.target.value || null })} placeholder="123456789012345678" />
-                    </label>
-                    <label className={styles.field}>
-                        <span>アバターログチャンネルID</span>
-                        <input type="text" value={draft.avatarLogChannelId || ''} onChange={(event) => setDraft({ ...draft, avatarLogChannelId: event.target.value || null })} placeholder="123456789012345678" />
-                    </label>
-                    <label className={styles.toggleCard}>
-                        <span className={styles.toggleTitle}>自動タイムアウト</span>
-                        <input type="checkbox" checked={draft.autoTimeout.enabled} onChange={(event) => setDraft({ ...draft, autoTimeout: { ...draft.autoTimeout, enabled: event.target.checked } })} />
-                    </label>
-                    <label className={styles.field}>
-                        <span>自動タイムアウト秒数</span>
-                        <input type="number" value={draft.autoTimeout.durationSeconds} onChange={(event) => setDraft({ ...draft, autoTimeout: { ...draft.autoTimeout, durationSeconds: Number(event.target.value) } })} />
-                    </label>
-                    <label className={styles.toggleCard}>
-                        <span className={styles.toggleTitle}>自動メッセージ削除</span>
-                        <input type="checkbox" checked={draft.autoDelete.enabled} onChange={(event) => setDraft({ ...draft, autoDelete: { ...draft.autoDelete, enabled: event.target.checked } })} />
-                    </label>
-                    <label className={styles.field}>
-                        <span>自動削除の監視秒数</span>
-                        <input type="number" value={draft.autoDelete.windowSeconds} onChange={(event) => setDraft({ ...draft, autoDelete: { ...draft.autoDelete, windowSeconds: Number(event.target.value) } })} />
-                    </label>
-                </div>
-
-                <div className={styles.formGrid}>
-                    <label className={styles.field}>
-                        <span>除外ロールID</span>
-                        <textarea value={excludedRolesText} onChange={(event) => setExcludedRolesText(event.target.value)} placeholder="1行またはカンマ区切りで入力" />
-                    </label>
-                    <label className={styles.field}>
-                        <span>除外チャンネルID</span>
-                        <textarea value={excludedChannelsText} onChange={(event) => setExcludedChannelsText(event.target.value)} placeholder="1行またはカンマ区切りで入力" />
-                    </label>
-                </div>
-
-                <div className={styles.inlineActions}>
-                    <button className={styles.primaryButton} onClick={() => commitDraft('概要設定を保存しました。')} type="button" disabled={saving}>
-                        {saving ? '保存中...' : '概要を保存'}
-                    </button>
-                    {draft.raidMode.active ? (
-                        <button className={styles.secondaryButton} onClick={() => setDraft({ ...draft, raidMode: { ...draft.raidMode, active: false, reason: null } })} type="button">
-                            レイドモード状態をクリア
-                        </button>
-                    ) : null}
-                </div>
-            </section>
-        );
-    };
-
-    const renderRules = () => (
-        <section className={styles.section}>
-            <div className={styles.detectorGrid}>
-                {DETECTOR_CATALOG.map((catalog) => {
-                    const detector = draft?.detectors[catalog.key];
-                    if (!detector) return null;
-
-                    return (
-                        <article key={catalog.key} className={styles.detectorCard}>
-                            <div className={styles.detectorHead}>
-                                <div className={styles.detectorInfo}>
-                                    <span className={`material-icons ${styles.detectorIcon}`}>{catalog.icon}</span>
-                                    <div>
-                                        <h3>{catalog.title}</h3>
-                                        <p>{catalog.description}</p>
-                                    </div>
-                                </div>
-                                <label className={styles.toggle}>
-                                    <input type="checkbox" checked={detector.enabled} onChange={(event) => updateDetector(catalog.key, { enabled: event.target.checked })} />
-                                    <span>有効</span>
-                                </label>
-                            </div>
-
-                            <div className={styles.inlineFields}>
-                                <label className={styles.field}>
-                                    <span>スコア</span>
-                                    <input type="number" value={detector.score} onChange={(event) => updateDetector(catalog.key, { score: Number(event.target.value) })} />
-                                </label>
-                                <label className={styles.toggleCard}>
-                                    <span className={styles.toggleTitle}>メッセージ削除</span>
-                                    <input type="checkbox" checked={detector.deleteMessage !== false} onChange={(event) => updateDetector(catalog.key, { deleteMessage: event.target.checked })} />
-                                </label>
-                                <label className={styles.toggleCard}>
-                                    <span className={styles.toggleTitle}>チャンネル通知</span>
-                                    <input type="checkbox" checked={!!detector.notifyChannel} onChange={(event) => updateDetector(catalog.key, { notifyChannel: event.target.checked })} />
-                                </label>
-                            </div>
-
-                            {renderDetectorConfig(catalog.key)}
-                        </article>
-                    );
-                })}
-            </div>
-
-            <div className={styles.inlineActions}>
-                <button className={styles.primaryButton} onClick={() => commitDraft('検知ルールを保存しました。')} type="button" disabled={saving}>
-                    {saving ? '保存中...' : 'ルールを保存'}
-                </button>
-            </div>
-        </section>
-    );
-
-    const renderPunishments = () => (
-        <section className={styles.section}>
-            <div className={styles.stack}>
-                <div className={styles.ruleToolbar}>
-                    <span className={styles.sectionLabel}>Threshold Actions</span>
-                    <button className={styles.secondaryButton} onClick={addPunishment} type="button">
-                        <span className="material-icons">add</span>
-                        閾値を追加
-                    </button>
-                </div>
-                {draft?.punishments.length ? (
-                    <div className={styles.policyList}>
-                        {draft.punishments.map((punishment, index) => {
-                            const action = punishment.actions[0] || EMPTY_PUNISHMENT_ACTION;
-                            return (
-                                <article key={`${punishment.threshold}-${index}`} className={styles.policyCard}>
-                                    <div className={styles.inlineFields}>
-                                        <label className={styles.field}>
-                                            <span>閾値スコア</span>
-                                            <input type="number" value={punishment.threshold} onChange={(event) => updatePunishment(index, { threshold: Number(event.target.value) })} />
-                                        </label>
-                                        <label className={styles.field}>
-                                            <span>処置</span>
-                                            <select value={action.type} onChange={(event) => updatePunishmentAction(index, { type: event.target.value as PunishmentAction['type'] })}>
-                                                <option value="timeout">timeout</option>
-                                                <option value="kick">kick</option>
-                                                <option value="ban">ban</option>
-                                            </select>
-                                        </label>
-                                        <label className={styles.field}>
-                                            <span>秒数</span>
-                                            <input type="number" value={action.durationSeconds || 0} onChange={(event) => updatePunishmentAction(index, { durationSeconds: Number(event.target.value) })} />
-                                        </label>
-                                        <label className={styles.toggle}>
-                                            <input type="checkbox" checked={action.notify !== false} onChange={(event) => updatePunishmentAction(index, { notify: event.target.checked })} />
-                                            <span>ログ通知</span>
-                                        </label>
-                                    </div>
-                                    <label className={styles.field}>
-                                        <span>理由テンプレート</span>
-                                        <input type="text" value={action.reasonTemplate || ''} onChange={(event) => updatePunishmentAction(index, { reasonTemplate: event.target.value })} />
-                                    </label>
-                                    <div className={styles.inlineActions}>
-                                        <button className={styles.dangerButton} onClick={() => removePunishment(index)} type="button">
-                                            閾値を削除
-                                        </button>
-                                    </div>
-                                </article>
-                            );
-                        })}
-                    </div>
-                ) : (
-                    <div className={styles.emptyPanel}>まだ処罰閾値がありません。</div>
-                )}
-            </div>
-            <article className={styles.policyCard}>
-                <h3>新しい閾値の初期値</h3>
-                <div className={styles.inlineFields}>
-                    <label className={styles.field}>
-                        <span>閾値スコア</span>
-                        <input type="number" value={punishmentDraft.threshold} onChange={(event) => setPunishmentDraft({ ...punishmentDraft, threshold: Number(event.target.value) })} />
-                    </label>
-                    <label className={styles.field}>
-                        <span>処置</span>
-                        <select value={punishmentDraft.actions[0]?.type || 'timeout'} onChange={(event) => setPunishmentDraft({ ...punishmentDraft, actions: [{ ...(punishmentDraft.actions[0] || EMPTY_PUNISHMENT_ACTION), type: event.target.value as PunishmentAction['type'] }] })}>
-                            <option value="timeout">timeout</option>
-                            <option value="kick">kick</option>
-                            <option value="ban">ban</option>
-                        </select>
-                    </label>
-                    <label className={styles.field}>
-                        <span>秒数</span>
-                        <input type="number" value={punishmentDraft.actions[0]?.durationSeconds || 0} onChange={(event) => setPunishmentDraft({ ...punishmentDraft, actions: [{ ...(punishmentDraft.actions[0] || EMPTY_PUNISHMENT_ACTION), durationSeconds: Number(event.target.value) }] })} />
-                    </label>
-                </div>
-            </article>
-
-            <div className={styles.inlineActions}>
-                <button className={styles.primaryButton} onClick={() => commitDraft('処罰設定を保存しました。')} type="button" disabled={saving}>
-                    {saving ? '保存中...' : '処罰を保存'}
-                </button>
-            </div>
-        </section>
-    );
-
-    const renderLogs = () => (
-        <section className={styles.section}>
-            {logsLoading ? (
-                <div className={styles.loadingPanel}>ログを読み込んでいます...</div>
-            ) : logs.length === 0 ? (
-                <div className={styles.emptyPanel}>まだ検知ログはありません。</div>
-            ) : (
-                <div className={styles.tableWrap}>
-                    <table className={styles.table}>
-                        <thead>
-                            <tr>
-                                <th>検知器</th>
-                                <th>スコア</th>
-                                <th>理由</th>
-                                <th>時刻</th>
-                                <th>操作</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {logs.map((log) => (
-                                <tr key={`${log.messageId}-${log.timestamp}`}>
-                                    <td>{log.detector}</td>
-                                    <td>{log.scoreDelta}</td>
-                                    <td>
-                                        <div className={styles.logReason}>{log.reason}</div>
-                                        {log.metadata?.finalUrl ? <div className={styles.subtleText}>到達先: {String(log.metadata.finalUrl)}</div> : null}
-                                    </td>
-                                    <td>{formatDate(log.timestamp)}</td>
-                                    <td>
-                                        <div className={styles.inlineActions}>
-                                            {log.metadata?.isTimedOut ? (
-                                                <button className={styles.secondaryButton} onClick={() => handleRevokeTimeout(log)} type="button" disabled={executing}>
-                                                    解除
-                                                </button>
-                                            ) : null}
-                                            <button className={styles.dangerButton} onClick={() => handleResetTrust(log.userId)} type="button" disabled={executing}>
-                                                スコア初期化
-                                            </button>
-                                        </div>
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
-            )}
-        </section>
-    );
-
-    const renderTrust = () => (
-        <section className={styles.section}>
-            {trustLoading ? (
-                <div className={styles.loadingPanel}>信頼スコアを読み込んでいます...</div>
-            ) : trustEntries.length === 0 ? (
-                <div className={styles.emptyPanel}>信頼スコアが付与されたユーザーはいません。</div>
-            ) : (
-                <div className={styles.tableWrap}>
-                    <table className={styles.table}>
-                        <thead>
-                            <tr>
-                                <th>ユーザー</th>
-                                <th>スコア</th>
-                                <th>最終更新</th>
-                                <th>最新理由</th>
-                                <th>操作</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {trustEntries.map((entry) => (
-                                <tr key={entry.userId}>
-                                    <td>
-                                        <div className={styles.userCell}>
-                                            {entry.avatar ? <img src={entry.avatar} alt={entry.username} className={styles.avatar} /> : null}
-                                            <div>
-                                                <strong>{entry.displayName || entry.username}</strong>
-                                                <div className={styles.subtleText}>{entry.userId}</div>
-                                            </div>
-                                        </div>
-                                    </td>
-                                    <td>{entry.score}</td>
-                                    <td>{formatDate(entry.lastUpdated)}</td>
-                                    <td>{entry.history[entry.history.length - 1]?.reason || '履歴なし'}</td>
-                                    <td>
-                                        <button className={styles.dangerButton} onClick={() => handleResetTrust(entry.userId)} type="button" disabled={executing}>
-                                            リセット
-                                        </button>
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
-            )}
-        </section>
-    );
-
-    const renderContent = () => {
-        switch (activeTab) {
-            case 'rules':
-                return renderRules();
-            case 'punishments':
-                return renderPunishments();
-            case 'logs':
-                return renderLogs();
-            case 'trust':
-                return renderTrust();
-            case 'overview':
-            default:
-                return renderOverview();
-        }
-    };
-
     return (
-        <div className={styles.page}>
-            <PageShell
-                eyebrow="AntiCheat Workspace"
-                title="AntiCheat 管理"
-                description={`ギルド単位で検知スコア、削除方針、レイド監視、アバターログまで一元管理します。対象: ${guildId}`}
-                actions={
-                    <>
-                        <button className={styles.secondaryButton} onClick={() => navigate('/staff/anticheat')} type="button">
-                            <span className="material-icons">arrow_back</span>
-                            サーバー選択へ
-                        </button>
-                        <button className={styles.primaryButton} onClick={() => commitDraft('現在の変更を保存しました。')} type="button" disabled={saving || !draft}>
-                            <span className="material-icons">save</span>
-                            {saving ? '保存中...' : '変更を保存'}
-                        </button>
-                    </>
-                }
-                meta={
-                    <>
-                        <span className={styles.metaChip}>スコア制裁</span>
-                        <span className={styles.metaChip}>リダイレクト解析</span>
-                        <span className={styles.metaChip}>アバターログ</span>
-                    </>
-                }
-                aside={
-                    <div className={styles.summary}>
-                        <div className={styles.summaryCard}>
-                            <span className={styles.summaryLabel}>Service</span>
-                            <strong>{draft?.enabled ? 'Online' : 'Paused'}</strong>
-                            <p>{draft?.enabled ? '検知器が稼働しています。' : '現在は停止しています。'}</p>
-                        </div>
-                        <div className={styles.summaryCard}>
-                            <span className={styles.summaryLabel}>Detectors</span>
-                            <strong>{enabledDetectorCount}</strong>
-                            <p>有効化されている検知器の数です。</p>
-                        </div>
-                        <div className={styles.summaryCard}>
-                            <span className={styles.summaryLabel}>Raid Mode</span>
-                            <strong>{draft?.raidMode.active ? 'Active' : 'Standby'}</strong>
-                            <p>{draft?.raidMode.reason || 'レイドモードは待機中です。'}</p>
-                        </div>
-                    </div>
-                }
-            >
-                {loading || !draft ? (
-                    <div className={styles.loadingPanel}>AntiCheat 設定を読み込んでいます...</div>
-                ) : error ? (
-                    <div className={styles.errorPanel}>{error}</div>
-                ) : (
-                    <>
-                        {(saveNotice || actionError || logsError || trustError) ? (
-                            <div className={styles.statusRow}>
-                                {saveNotice ? <div className={styles.noticeSuccess}>{saveNotice}</div> : null}
-                                {actionError ? <div className={styles.noticeError}>{actionError}</div> : null}
-                                {logsError ? <div className={styles.noticeError}>{logsError}</div> : null}
-                                {trustError ? <div className={styles.noticeError}>{trustError}</div> : null}
-                            </div>
-                        ) : null}
-
-                        <div className={styles.tabBar}>
-                            {(Object.keys(TAB_LABELS) as TabKey[]).map((tab) => (
-                                <button key={tab} className={`${styles.tabButton} ${activeTab === tab ? styles.tabButtonActive : ''}`} onClick={() => setActiveTab(tab)} type="button">
-                                    {TAB_LABELS[tab]}
-                                </button>
-                            ))}
-                        </div>
-
-                        {renderContent()}
-                    </>
-                )}
-            </PageShell>
-        </div>
+      <label key={field.key} className={styles.field}>
+        <span>{field.label}</span>
+        <input className={styles.input} type="number" min={field.min} max={field.max} step={field.step} value={readNumber(config[field.key], field.defaultValue || 0)} onChange={(event) => updateDetectorConfig(detectorKey, field.key, Number(event.target.value))} disabled={!detector.enabled} />
+      </label>
     );
+  };
+
+  const renderWordRules = (detector: DetectorConfig) => (
+    <div className={styles.fieldWide}>
+      <div className={styles.inlineHeader}>
+        <strong>フィルタールール</strong>
+        <button className={styles.secondaryButton} onClick={addWordRule} type="button" disabled={!detector.enabled}><span className="material-icons">add</span><span>ルール追加</span></button>
+      </div>
+      {wordFilterRules.length === 0 ? <div className={styles.emptyPanel}>ルールはまだありません。</div> : wordFilterRules.map((rule) => (
+        <div key={rule.id} className={styles.ruleCard}>
+          <div className={styles.detectorGrid}>
+            <label className={styles.field}><span>ラベル</span><input className={styles.input} type="text" value={rule.label} onChange={(event) => updateWordRule(rule.id, { label: event.target.value })} disabled={!detector.enabled} /></label>
+            <label className={styles.field}><span>判定モード</span><select className={styles.select} value={rule.mode} onChange={(event) => updateWordRule(rule.id, { mode: event.target.value as WordFilterRule['mode'] })} disabled={!detector.enabled}><option value="contains">contains</option><option value="exact">exact</option><option value="regex">regex</option></select></label>
+            <label className={`${styles.field} ${styles.fieldWide}`}><span>パターン</span><input className={styles.input} type="text" value={rule.pattern} onChange={(event) => updateWordRule(rule.id, { pattern: event.target.value })} disabled={!detector.enabled} /></label>
+            <label className={styles.field}><span>加算スコア</span><input className={styles.input} type="number" min={0} value={rule.score} onChange={(event) => updateWordRule(rule.id, { score: Number(event.target.value) })} disabled={!detector.enabled} /></label>
+            <label className={styles.checkField}><input type="checkbox" checked={rule.enabled} onChange={(event) => updateWordRule(rule.id, { enabled: event.target.checked })} disabled={!detector.enabled} /><span>有効</span></label>
+            <label className={styles.checkField}><input type="checkbox" checked={Boolean(rule.deleteMessage)} onChange={(event) => updateWordRule(rule.id, { deleteMessage: event.target.checked })} disabled={!detector.enabled} /><span>メッセージを削除</span></label>
+          </div>
+          <button className={styles.dangerButton} onClick={() => removeWordRule(rule.id)} type="button" disabled={!detector.enabled}><span className="material-icons">delete</span><span>削除</span></button>
+        </div>
+      ))}
+    </div>
+  );
+
+  if (loading) return <div className={styles.page}><div className={styles.statePanel}>AntiCheat 設定を読み込んでいます...</div></div>;
+  if (error || !draft) return <div className={styles.page}><div className={styles.statePanel}><h2>エラー</h2><p>{error || '設定の取得に失敗しました'}</p><button className={styles.secondaryButton} onClick={() => navigate(`/settings/${guildId}`)} type="button">サーバー管理へ戻る</button></div></div>;
+
+  return (
+    <div className={styles.page}>
+      <PageShell eyebrow="AntiCheat" title={`${guildName} の保護設定`} description="全体設定、検知、処罰、ログを一枚で管理する画面です。" actions={<><button className={styles.secondaryButton} onClick={() => navigate(`/settings/${guildId}`)} type="button"><span className="material-icons">arrow_back</span><span>サーバー管理へ</span></button><button className={styles.primaryButton} onClick={commitDraft} type="button" disabled={saving}><span className="material-icons">{saving ? 'sync' : 'save'}</span><span>{saving ? '保存中...' : '設定を保存'}</span></button></>} meta={<><span className={styles.metaChip}>{draft.enabled ? '保護有効' : '保護停止'}</span><span className={styles.metaChip}>{Object.values(draft.detectors).filter((detector) => detector.enabled).length} detectors active</span><span className={styles.metaChip}>{draft.punishments.length} thresholds</span></>} aside={<div className={styles.summary}><div className={styles.summaryCard}><span className={styles.summaryLabel}>Status</span><strong>{draft.enabled ? 'Active' : 'Paused'}</strong><p>AntiCheat 全体の状態です。</p></div><div className={styles.summaryCard}><span className={styles.summaryLabel}>Raid mode</span><strong>{draft.raidMode.active ? 'Triggered' : 'Standby'}</strong><p>{draft.raidMode.reason || '待機中です。'}</p></div><div className={styles.summaryCard}><span className={styles.summaryLabel}>Recent logs</span><strong>{logs.length}</strong><p>取得済みの最新ログ件数です。</p></div></div>} compact>
+        {saveNotice ? <div className={styles.noticeSuccess}>{saveNotice}</div> : null}
+        {actionError ? <div className={styles.noticeError}>{actionError}</div> : null}
+
+        <section className={styles.section}>
+          <div className={styles.sectionHeader}><div><span className={styles.sectionLabel}>Overview</span><h2>全体設定</h2></div><p>保護スイッチ、ログ出力先、自動処理を先に固めます。</p></div>
+          <div className={styles.panelGrid}>
+            <article className={styles.panel}>
+              <div className={styles.inlineHeader}><div><strong>保護スイッチ</strong><p>サーバー全体で AntiCheat を有効化します。</p></div><label className={styles.checkField}><input type="checkbox" checked={draft.enabled} onChange={(event) => updateDraft((current) => ({ ...current, enabled: event.target.checked }))} /><span>{draft.enabled ? '有効' : '無効'}</span></label></div>
+              <div className={styles.formGrid}>
+                <label className={styles.field}><span>検知ログチャンネル ID</span><input className={styles.input} type="text" value={draft.logChannelId || ''} onChange={(event) => updateDraft((current) => ({ ...current, logChannelId: event.target.value || null }))} placeholder="123456789012345678" /></label>
+                <label className={styles.field}><span>アバターログチャンネル ID</span><input className={styles.input} type="text" value={draft.avatarLogChannelId || ''} onChange={(event) => updateDraft((current) => ({ ...current, avatarLogChannelId: event.target.value || null }))} placeholder="123456789012345678" /></label>
+              </div>
+            </article>
+            <article className={styles.panel}>
+              <div className={styles.inlineHeader}><div><strong>自動処理</strong><p>削除対象の秒数と自動タイムアウトを管理します。</p></div><div className={`${styles.statusPill} ${draft.raidMode.active ? styles.statusDanger : styles.statusNeutral}`}>{draft.raidMode.active ? 'Raid active' : 'Raid standby'}</div></div>
+              <div className={styles.formGrid}>
+                <label className={styles.checkField}><input type="checkbox" checked={draft.autoDelete.enabled} onChange={(event) => updateDraft((current) => ({ ...current, autoDelete: { ...current.autoDelete, enabled: event.target.checked } }))} /><span>直近メッセージを削除</span></label>
+                <label className={styles.field}><span>削除対象の秒数</span><input className={styles.input} type="number" min={1} value={draft.autoDelete.windowSeconds} onChange={(event) => updateDraft((current) => ({ ...current, autoDelete: { ...current.autoDelete, windowSeconds: Number(event.target.value) } }))} /></label>
+                <label className={styles.checkField}><input type="checkbox" checked={draft.autoTimeout.enabled} onChange={(event) => updateDraft((current) => ({ ...current, autoTimeout: { ...current.autoTimeout, enabled: event.target.checked } }))} /><span>自動タイムアウト</span></label>
+                <label className={styles.field}><span>タイムアウト秒数</span><input className={styles.input} type="number" min={1} value={draft.autoTimeout.durationSeconds} onChange={(event) => updateDraft((current) => ({ ...current, autoTimeout: { ...current.autoTimeout, durationSeconds: Number(event.target.value) } }))} /></label>
+              </div>
+              <div className={styles.raidSummary}><div><span>最新発動</span><strong>{formatDate(draft.raidMode.activatedAt)}</strong></div><div><span>最近の参加数</span><strong>{draft.raidMode.recentJoinCount}</strong></div></div>
+            </article>
+          </div>
+        </section>
+
+        <section className={styles.section}>
+          <div className={styles.sectionHeader}><div><span className={styles.sectionLabel}>Detectors</span><h2>検知ルール</h2></div><p>各ルールのスコア、削除、通知、しきい値を定義します。</p></div>
+          <div className={styles.detectorList}>
+            {DETECTORS.map((entry) => {
+              const detector = draft.detectors[entry.key];
+              if (!detector) return null;
+              return (
+                <article key={entry.key} className={styles.detectorCard}>
+                  <div className={styles.detectorHeader}><div className={styles.iconTitle}><span className={styles.leadingIcon}><span className="material-icons">{entry.icon}</span></span><div><strong>{entry.title}</strong><p>{entry.description}</p></div></div><label className={styles.checkField}><input type="checkbox" checked={detector.enabled} onChange={(event) => updateDetector(entry.key, { enabled: event.target.checked })} /><span>{detector.enabled ? '有効' : '無効'}</span></label></div>
+                  <div className={styles.detectorGrid}>
+                    <label className={styles.field}><span>加算スコア</span><input className={styles.input} type="number" min={0} value={detector.score} onChange={(event) => updateDetector(entry.key, { score: Number(event.target.value) })} disabled={!detector.enabled} /></label>
+                    <label className={styles.checkField}><input type="checkbox" checked={Boolean(detector.deleteMessage)} onChange={(event) => updateDetector(entry.key, { deleteMessage: event.target.checked })} disabled={!detector.enabled} /><span>メッセージを削除</span></label>
+                    <label className={styles.checkField}><input type="checkbox" checked={Boolean(detector.notifyChannel)} onChange={(event) => updateDetector(entry.key, { notifyChannel: event.target.checked })} disabled={!detector.enabled} /><span>公開通知を送る</span></label>
+                    {entry.key === 'wordFilter' ? renderWordRules(detector) : (entry.fields?.map((field) => renderField(entry.key, detector, field)) || <p className={styles.note}>追加の詳細設定はありません。</p>)}
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        </section>
+
+        <section className={styles.section}>
+          <div className={styles.sectionHeader}><div><span className={styles.sectionLabel}>Policies</span><h2>除外設定と処罰</h2></div><p>誤検知を避ける対象と、しきい値到達時の処理を定義します。</p></div>
+          <div className={styles.panelGrid}>
+            <article className={styles.panel}><div className={styles.inlineHeader}><div><strong>除外対象</strong><p>ロール ID とチャンネル ID を改行またはカンマ区切りで入力します。</p></div></div><div className={styles.formGrid}><label className={styles.field}><span>除外ロール</span><textarea className={styles.textarea} value={excludedRolesText} onChange={(event) => setExcludedRolesText(event.target.value)} placeholder="123456789012345678" /></label><label className={styles.field}><span>除外チャンネル</span><textarea className={styles.textarea} value={excludedChannelsText} onChange={(event) => setExcludedChannelsText(event.target.value)} placeholder="123456789012345678" /></label></div></article>
+            <article className={styles.panel}><div className={styles.inlineHeader}><div><strong>スコア到達時の処置</strong><p>しきい値ごとに timeout / kick / ban を並べます。</p></div><button className={styles.secondaryButton} onClick={addPunishment} type="button"><span className="material-icons">add</span><span>しきい値追加</span></button></div>{draft.punishments.length === 0 ? <div className={styles.emptyPanel}>処罰ポリシーはまだありません。</div> : <div className={styles.policyList}>{draft.punishments.map((punishment, thresholdIndex) => <div key={`${punishment.threshold}-${thresholdIndex}`} className={styles.ruleCard}><div className={styles.inlineHeader}><label className={styles.field}><span>しきい値</span><input className={styles.input} type="number" min={0} value={punishment.threshold} onChange={(event) => updatePunishment(thresholdIndex, { threshold: Number(event.target.value) })} /></label><button className={styles.dangerButton} onClick={() => removePunishment(thresholdIndex)} type="button"><span className="material-icons">delete</span><span>削除</span></button></div><div className={styles.actionStack}>{punishment.actions.map((action, actionIndex) => <div key={`${thresholdIndex}-${actionIndex}`} className={styles.actionCard}><div className={styles.formGrid}><label className={styles.field}><span>処置</span><select className={styles.select} value={action.type} onChange={(event) => updateAction(thresholdIndex, actionIndex, { type: event.target.value as PunishmentAction['type'] })}><option value="timeout">timeout</option><option value="kick">kick</option><option value="ban">ban</option></select></label><label className={styles.field}><span>秒数(timeout用)</span><input className={styles.input} type="number" min={1} value={action.durationSeconds || 600} onChange={(event) => updateAction(thresholdIndex, actionIndex, { durationSeconds: Number(event.target.value) })} disabled={action.type !== 'timeout'} /></label><label className={`${styles.field} ${styles.fieldWide}`}><span>理由テンプレート</span><input className={styles.input} type="text" value={action.reasonTemplate || ''} onChange={(event) => updateAction(thresholdIndex, actionIndex, { reasonTemplate: event.target.value })} /></label><label className={styles.checkField}><input type="checkbox" checked={Boolean(action.notify)} onChange={(event) => updateAction(thresholdIndex, actionIndex, { notify: event.target.checked })} /><span>通知を送る</span></label></div><div className={styles.actionToolbar}><button className={styles.secondaryButton} onClick={() => addAction(thresholdIndex)} type="button"><span className="material-icons">add</span><span>処置追加</span></button>{punishment.actions.length > 1 ? <button className={styles.dangerButton} onClick={() => removeAction(thresholdIndex, actionIndex)} type="button"><span className="material-icons">remove</span><span>この処置を削除</span></button> : null}</div></div>)}</div></div>)}</div>}</article>
+          </div>
+        </section>
+
+        <section className={styles.section}>
+          <div className={styles.sectionHeader}><div><span className={styles.sectionLabel}>Activity</span><h2>ログと信頼スコア</h2></div><p>直近の検知と、現在スコアが高いユーザーを確認します。</p></div>
+          <div className={styles.panelGrid}>
+            <article className={styles.panel}><div className={styles.inlineHeader}><div><strong>最新ログ</strong><p>{logsLoading ? 'ログを更新しています...' : `${logs.length} 件を表示中`}</p></div><button className={styles.secondaryButton} onClick={() => refetchLogs()} type="button"><span className="material-icons">refresh</span><span>再取得</span></button></div>{logsError ? <div className={styles.noticeError}>{logsError}</div> : null}<div className={styles.tableWrap}><table className={styles.table}><thead><tr><th>検知</th><th>スコア</th><th>日時</th><th>操作</th></tr></thead><tbody>{logs.length === 0 ? <tr><td colSpan={4} className={styles.emptyCell}>まだ検知ログはありません。</td></tr> : logs.map((log) => <tr key={`${log.messageId}-${log.timestamp}`}><td><div className={styles.logPrimary}>{log.detector}</div><div className={styles.logSecondary}>{log.reason}</div></td><td>{log.scoreDelta}</td><td>{formatDate(log.timestamp)}</td><td>{log.metadata?.isTimedOut ? <button className={styles.inlineButton} onClick={() => onRevokeTimeout(log)} type="button" disabled={executing}>タイムアウト解除</button> : <span className={styles.logSecondary}>-</span>}</td></tr>)}</tbody></table></div></article>
+            <article className={styles.panel}><div className={styles.inlineHeader}><div><strong>信頼スコア</strong><p>{trustLoading ? '信頼スコアを更新しています...' : `${trustEntries.length} 人を表示中`}</p></div><button className={styles.secondaryButton} onClick={() => refetchTrust()} type="button"><span className="material-icons">refresh</span><span>再取得</span></button></div>{trustError ? <div className={styles.noticeError}>{trustError}</div> : null}<div className={styles.tableWrap}><table className={styles.table}><thead><tr><th>ユーザー</th><th>スコア</th><th>更新</th><th>操作</th></tr></thead><tbody>{trustEntries.length === 0 ? <tr><td colSpan={4} className={styles.emptyCell}>監視中のユーザーはいません。</td></tr> : trustEntries.map((entry) => <tr key={entry.userId}><td><div className={styles.userCell}>{entry.avatar ? <img className={styles.userAvatar} src={entry.avatar} alt={entry.displayName || entry.username} /> : <div className={styles.userFallback}>{(entry.displayName || entry.username).charAt(0).toUpperCase()}</div>}<div><div className={styles.logPrimary}>{entry.displayName || entry.username}</div><div className={styles.logSecondary}>{entry.userId}</div></div></div></td><td>{entry.score}</td><td>{formatDate(entry.lastUpdated)}</td><td><button className={styles.inlineButton} onClick={() => onResetTrust(entry.userId)} type="button" disabled={executing}>スコアをリセット</button></td></tr>)}</tbody></table></div></article>
+          </div>
+        </section>
+      </PageShell>
+    </div>
+  );
 };
 
 export default AntiCheatUnified;

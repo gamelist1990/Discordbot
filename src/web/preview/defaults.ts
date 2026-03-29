@@ -7,7 +7,7 @@ const SITE_ICON_PATH = '/assets/icon.png';
 globalPreviewRegistry.register(/^\/$|^\/index(\.html)?$/i, async (path) => {
     return {
         title: 'Home',
-        description: 'このサイトへようこそ — 管理ダッシュボード、フィードバック、タスク管理などの操作をブラウザから行えます。最新の更新や重要なお知らせはここから確認してください。',
+        description: 'このサイトへようこそ。管理ダッシュボード、サーバー運用、ランキング管理などの操作をブラウザから行えます。',
         image: SITE_ICON_PATH,
         url: path,
         type: 'website'
