@@ -90,16 +90,21 @@ export class StatsManager {
     private async flushAll() {
         for (const [guildId, guildMap] of this.buffer.entries()) {
             try {
-                // persist each user's stats into Guild/<guildId>/User/<userId>.json
+                // persist each user's stats into users/<userId>/guilds/<guildId>/stats.json
                 let persistedCount = 0;
                 for (const [userId, counts] of guildMap.entries()) {
-                    const existing = (await database.get<UserCounts>(guildId, `Guild/${guildId}/User/${userId}`, { totalMessages: 0, linkMessages: 0, mediaMessages: 0 })) || { totalMessages: 0, linkMessages: 0, mediaMessages: 0 };
+                    const existing =
+                        (await database.getUserGuildData<UserCounts>(userId, guildId, 'stats', {
+                            totalMessages: 0,
+                            linkMessages: 0,
+                            mediaMessages: 0
+                        })) || { totalMessages: 0, linkMessages: 0, mediaMessages: 0 };
                     const merged = {
                         totalMessages: existing.totalMessages + counts.totalMessages,
                         linkMessages: existing.linkMessages + counts.linkMessages,
                         mediaMessages: existing.mediaMessages + counts.mediaMessages,
                     };
-                    await database.set(guildId, `Guild/${guildId}/User/${userId}`, merged);
+                    await database.setUserGuildData(userId, guildId, 'stats', merged);
                     
                     // Save timestamps to separate file
                     const timestampGuildMap = this.timestampBuffer.get(guildId);
@@ -108,18 +113,20 @@ export class StatsManager {
                         if (timestamps.length > 0) {
                             try {
                                 // Load existing timestamps
-                                const existingTimestamps = await database.get<MessageTimestamp[]>(
-                                    guildId, 
-                                    `Guild/${guildId}/User/${userId}_timestamps`, 
-                                    []
-                                ) || [];
+                                const existingTimestamps =
+                                    (await database.getUserGuildData<MessageTimestamp[]>(
+                                        userId,
+                                        guildId,
+                                        'message-timestamps',
+                                        []
+                                    )) || [];
                                 
                                 // Merge and keep only recent ones (last 1000)
                                 const allTimestamps = [...existingTimestamps, ...timestamps]
                                     .sort((a, b) => b.timestamp - a.timestamp)
                                     .slice(0, this.maxTimestampsPerUser);
                                 
-                                await database.set(guildId, `Guild/${guildId}/User/${userId}_timestamps`, allTimestamps);
+                                await database.setUserGuildData(userId, guildId, 'message-timestamps', allTimestamps);
                             } catch (e) {
                                 console.warn(`Failed to save timestamps for user ${userId} in guild ${guildId}:`, e);
                             }
@@ -141,7 +148,12 @@ export class StatsManager {
     }
 
     async getUserStats(guildId: string, userId: string) {
-        const persisted = (await database.get<UserCounts>(guildId, `Guild/${guildId}/User/${userId}`, { totalMessages: 0, linkMessages: 0, mediaMessages: 0 })) || { totalMessages: 0, linkMessages: 0, mediaMessages: 0 };
+        const persisted =
+            (await database.getUserGuildData<UserCounts>(userId, guildId, 'stats', {
+                totalMessages: 0,
+                linkMessages: 0,
+                mediaMessages: 0
+            })) || { totalMessages: 0, linkMessages: 0, mediaMessages: 0 };
         return persisted;
     }
 
@@ -150,11 +162,13 @@ export class StatsManager {
      */
     async getUserActivityWithTimestamps(guildId: string, userId: string): Promise<MessageTimestamp[]> {
         try {
-            const timestamps = await database.get<MessageTimestamp[]>(
-                guildId, 
-                `Guild/${guildId}/User/${userId}_timestamps`, 
-                []
-            ) || [];
+            const timestamps =
+                (await database.getUserGuildData<MessageTimestamp[]>(
+                    userId,
+                    guildId,
+                    'message-timestamps',
+                    []
+                )) || [];
             return timestamps;
         } catch (e) {
             console.warn(`Failed to get timestamps for user ${userId} in guild ${guildId}:`, e);

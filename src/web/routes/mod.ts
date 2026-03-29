@@ -94,14 +94,16 @@ export function createModRoutes(sessions: Map<string, SettingsSession>, botClien
             let guildAggregates = { totalMessages: 0, totalLinks: 0, totalMedia: 0 };
             let topUsers: Array<{ userId: string; totalMessages: number; linkMessages: number; mediaMessages: number }> = [];
             try {
-                const all = await database.getAll(guildId);
-                for (const [key, s] of Object.entries(all)) {
-                    // expect keys like 'User/<userId>'
-                    if (!key.startsWith('User/')) continue;
-                    const uid = key.replace('User/', '');
-                    const tm = (s as any).totalMessages || 0;
-                    const tl = (s as any).linkMessages || 0;
-                    const im = (s as any).mediaMessages || 0;
+                const userStatsMap = await database.getGuildUserDataMap<{
+                    totalMessages?: number;
+                    linkMessages?: number;
+                    mediaMessages?: number;
+                }>(guildId, 'stats');
+
+                for (const [uid, stats] of Object.entries(userStatsMap)) {
+                    const tm = stats.totalMessages || 0;
+                    const tl = stats.linkMessages || 0;
+                    const im = stats.mediaMessages || 0;
                     guildAggregates.totalMessages += tm;
                     guildAggregates.totalLinks += tl;
                     guildAggregates.totalMedia += im;

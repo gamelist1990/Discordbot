@@ -1,6 +1,12 @@
-/**
- * AntiCheat UI types
- */
+export interface WordFilterRule {
+    id: string;
+    label: string;
+    pattern: string;
+    mode: 'contains' | 'exact' | 'regex';
+    score: number;
+    deleteMessage?: boolean;
+    enabled: boolean;
+}
 
 export interface AntiCheatSettings {
     enabled: boolean;
@@ -9,6 +15,7 @@ export interface AntiCheatSettings {
     excludedRoles: string[];
     excludedChannels: string[];
     logChannelId: string | null;
+    avatarLogChannelId: string | null;
     autoTimeout: {
         enabled: boolean;
         durationSeconds: number;
@@ -17,17 +24,23 @@ export interface AntiCheatSettings {
         enabled: boolean;
         windowSeconds: number;
     };
+    raidMode: RaidModeState;
 }
 
 export interface DetectorConfig {
     enabled: boolean;
-    description?: string;
-    excludeSettings?: {
-        excludedRoles?: string[];
-        excludedChannels?: string[];
-        excludedUsers?: string[];
-    };
+    score: number;
+    deleteMessage?: boolean;
+    notifyChannel?: boolean;
     config?: Record<string, any>;
+}
+
+export interface RaidModeState {
+    active: boolean;
+    activatedAt: string | null;
+    reason: string | null;
+    recentJoinCount: number;
+    lastJoinAt: string | null;
 }
 
 export interface PunishmentThreshold {
@@ -68,6 +81,7 @@ export interface DetectionLog {
     scoreDelta: number;
     reason: string;
     timestamp: string;
+    status?: 'active' | 'revoked';
     metadata?: Record<string, any>;
 }
 

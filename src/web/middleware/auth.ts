@@ -83,6 +83,36 @@ export function verifyAuth(sessions: Map<string, SettingsSession>) {
 }
 
 /**
+ * セッションが存在する場合のみリクエストへ付与する
+ * 未ログイン時はそのまま通す
+ */
+export function attachSessionIfPresent(sessions: Map<string, SettingsSession>) {
+    return (req: Request, _res: Response, next: NextFunction): void => {
+        const token = req.cookies?.sessionId;
+
+        if (!token) {
+            next();
+            return;
+        }
+
+        const session = sessions.get(token);
+        if (!session) {
+            next();
+            return;
+        }
+
+        if (Date.now() > session.expiresAt) {
+            sessions.delete(token);
+            next();
+            return;
+        }
+
+        (req as any).session = session;
+        next();
+    };
+}
+
+/**
  * 現在のユーザー情報を取得
  */
 export function getCurrentUser(req: Request) {

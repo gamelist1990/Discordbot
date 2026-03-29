@@ -16,6 +16,38 @@ export class RankController {
         this.botClient = botClient;
     }
 
+    private sessionHasGuildAccess(session: SettingsSession | undefined, guildId: string): boolean {
+        if (!session) {
+            return false;
+        }
+
+        if (session.guildId === guildId) {
+            return true;
+        }
+
+        return Array.isArray(session.guildIds) && session.guildIds.includes(guildId);
+    }
+
+    private buildGuildInfo(guildId: string) {
+        const guild = this.botClient.client.guilds.cache.get(guildId);
+        const icon = guild?.iconURL() || null;
+
+        return {
+            guild,
+            info: guild ? {
+                id: guild.id,
+                name: guild.name,
+                icon,
+                iconURL: icon
+            } : {
+                id: guildId,
+                name: 'Unknown Guild',
+                icon: null,
+                iconURL: null
+            }
+        };
+    }
+
     /**
      * プリセット一覧を取得
      */
@@ -726,7 +758,7 @@ export class RankController {
         }
 
         // 認証済みの場合はユーザーがこのギルドのメンバーかチェック（認証されていない場合は公開で許可）
-        const isMember = !!session?.guildIds?.includes(guildId);
+        const isMember = this.sessionHasGuildAccess(session, guildId);
         if (session && !isMember) {
             res.status(403).json({ error: 'Access denied' });
             return;
@@ -737,7 +769,7 @@ export class RankController {
             const leaderboard = await rankManager.getLeaderboard(guildId, 50); // トップ50を取得
 
             // ユーザー情報を取得
-            const guild = this.botClient.client.guilds.cache.get(guildId);
+            const { guild, info: guildInfo } = this.buildGuildInfo(guildId);
             const enrichedLeaderboard: Array<{userId: string, username: string, avatar: string | null, xp: number, rank: string}> = [];
 
             for (const entry of leaderboard) {
@@ -763,16 +795,6 @@ export class RankController {
                 }
             }
 
-            const guildInfo = guild ? {
-                id: guild.id,
-                name: guild.name,
-                iconURL: guild.iconURL()
-            } : {
-                id: guildId,
-                name: 'Unknown Guild',
-                iconURL: null
-            };
-
             res.json({
                 guild: guildInfo,
                 leaderboard: enrichedLeaderboard,
@@ -796,7 +818,7 @@ export class RankController {
      * ギルドのパネル一覧を取得（ウェブランキングボード用）
      */
     async getGuildPanels(req: Request, res: Response): Promise<void> {
-        const session = (req as any).session as SettingsSession;
+        const session = (req as any).session as SettingsSession | undefined;
         const { guildId } = req.params;
 
         if (!guildId) {
@@ -805,8 +827,8 @@ export class RankController {
         }
 
         // ユーザーがこのギルドのメンバーかチェック
-        const isMember = session.guildIds?.includes(guildId);
-        if (!isMember) {
+        const isMember = this.sessionHasGuildAccess(session, guildId);
+        if (session && !isMember) {
             res.status(403).json({ error: 'Access denied' });
             return;
         }
@@ -822,16 +844,7 @@ export class RankController {
                 lastUpdate: panel.lastUpdate
             }));
 
-            const guild = this.botClient.client.guilds.cache.get(guildId);
-            const guildInfo = guild ? {
-                id: guild.id,
-                name: guild.name,
-                iconURL: guild.iconURL()
-            } : {
-                id: guildId,
-                name: 'Unknown Guild',
-                iconURL: null
-            };
+            const { info: guildInfo } = this.buildGuildInfo(guildId);
 
             res.json({
                 guild: guildInfo,
@@ -856,7 +869,7 @@ export class RankController {
         }
 
         // ユーザーがこのギルドのメンバーかチェック（セッションが存在する場合のみ）
-        if (session && !session.guildIds?.includes(guildId)) {
+        if (session && !this.sessionHasGuildAccess(session, guildId)) {
             res.status(403).json({ error: 'Access denied' });
             return;
         }
@@ -873,7 +886,7 @@ export class RankController {
             const leaderboard = await rankManager.getLeaderboard(guildId, panel.topCount || 10, 0, panel.preset);
 
             // ユーザー情報を取得
-            const guild = this.botClient.client.guilds.cache.get(guildId);
+            const { guild, info: guildInfo } = this.buildGuildInfo(guildId);
             const enrichedLeaderboard: Array<{userId: string, username: string, avatar: string | null, xp: number, rank: string}> = [];
 
             for (const entry of leaderboard) {
@@ -900,16 +913,6 @@ export class RankController {
             }
 
             const preset = rankingData.rankPresets.find(p => p.name === panel.preset) || rankingData.rankPresets[0];
-            const guildInfo = guild ? {
-                id: guild.id,
-                name: guild.name,
-                iconURL: guild.iconURL()
-            } : {
-                id: guildId,
-                name: 'Unknown Guild',
-                iconURL: null
-            };
-
             res.json({
                 guild: guildInfo,
                 panel: {

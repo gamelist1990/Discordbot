@@ -4,6 +4,7 @@ import { verifyAuth, getCurrentUser } from '../middleware/auth.js';
 import { userHasAdminOrManageFlag } from './permissionsUtils.js';
 import { PermissionFlagsBits } from 'discord.js';
 import { SettingsSession } from '../types';
+import { PermissionLevel } from '../types/permission.js';
 import { ProfileService } from '../services/ProfileService.js';
 import { UserCustomProfile } from '../types/profile.js';
 import { database } from '../../core/Database.js';
@@ -67,6 +68,88 @@ export function createUserRoutes(
     profileService: ProfileService
 ): Router {
     const router = Router();
+
+    const getSessionGuildLevel = (session: SettingsSession, guildId: string): number => {
+        if (Array.isArray(session.permissions)) {
+            const found = session.permissions.find((permission) => permission.guildId === guildId);
+            if (found) {
+                return found.level;
+            }
+        }
+
+        if (session.guildId === guildId && typeof session.permission === 'number') {
+            return session.permission;
+        }
+
+        return 0;
+    };
+
+    const sessionHasGuildAccess = (session: SettingsSession, guildId: string): boolean => {
+        if (session.guildId === guildId) {
+            return true;
+        }
+
+        if (Array.isArray(session.guildIds) && session.guildIds.includes(guildId)) {
+            return true;
+        }
+
+        return getSessionGuildLevel(session, guildId) > PermissionLevel.ANY;
+    };
+
+    const sessionCanManageGuildUserData = async (session: SettingsSession, guildId: string): Promise<boolean> => {
+        if (getSessionGuildLevel(session, guildId) >= PermissionLevel.ADMIN) {
+            return true;
+        }
+
+        const guild = botClient.client.guilds.cache.get(guildId);
+        if (!guild) {
+            return false;
+        }
+
+        const member = await guild.members.fetch(session.userId).catch(() => null);
+        if (!member) {
+            return false;
+        }
+
+        return (
+            member.permissions.has(PermissionFlagsBits.Administrator) ||
+            member.permissions.has(PermissionFlagsBits.ManageGuild)
+        );
+    };
+
+    const sessionCanReadGuildUserData = async (session: SettingsSession, guildId: string): Promise<boolean> => {
+        if (sessionHasGuildAccess(session, guildId)) {
+            return true;
+        }
+
+        const guild = botClient.client.guilds.cache.get(guildId);
+        if (!guild) {
+            return false;
+        }
+
+        const member = await guild.members.fetch(session.userId).catch(() => null);
+        return !!member;
+    };
+
+    const pickTargetUserId = (req: Request, currentUserId: string): string => {
+        const queryUserId = typeof req.query.userId === 'string' ? req.query.userId.trim() : '';
+        if (queryUserId) {
+            return queryUserId;
+        }
+
+        const bodyUserId = typeof req.body?.userId === 'string' ? req.body.userId.trim() : '';
+        return bodyUserId || currentUserId;
+    };
+
+    const pickDataKey = (req: Request): string => {
+        const queryKey = typeof req.query.key === 'string' ? req.query.key.trim() : '';
+        if (queryKey) {
+            return queryKey;
+        }
+
+        return typeof req.body?.key === 'string' ? req.body.key.trim() : '';
+    };
+
     /**
      * ユーザープロフィールを取得
      * ?userId=<userId> で他のユーザーのプロフィールも取得可能
@@ -195,6 +278,7 @@ export function createUserRoutes(
 
             // Build userGuilds only for mutual guilds (where both user and bot are present)
             const userGuilds: GuildInfo[] = [];
+            const statsMgr = (await import('../../core/StatsManager.js')).statsManagerSingleton.instance;
 
             for (const g of botGuilds) {
                 // If we have user's guild list, ensure the user is actually in this guild
@@ -233,10 +317,6 @@ export function createUserRoutes(
                 let linkMessages = 0;
                 let mediaMessages = 0;
                 try {
-                    const statsMgr = (await import('../../core/StatsManager.js')).statsManagerSingleton.instance;
-                    const persisted = (await import('../../core/Database.js')).database;
-
-                    // 1) Try runtime StatsManager
                     if (statsMgr) {
                         const s = await statsMgr.getUserStats(g.id, requestedUserId);
                         if (s) {
@@ -249,39 +329,11 @@ export function createUserRoutes(
                     // 2) If still zeros, try persisted per-guild per-user file
                     if (totalMessages === 0 && linkMessages === 0 && mediaMessages === 0) {
                         try {
-                            // 1) Try per-guild per-user file at namespace=g.id, path=Guild/<guildId>/User/<userId>
-                            const perUser = await persisted.get(g.id, `Guild/${g.id}/User/${requestedUserId}`, null) as any;
+                            const perUser = await database.getUserGuildData<any>(requestedUserId, g.id, 'stats', null);
                             if (perUser) {
                                 totalMessages = perUser.totalMessages || 0;
                                 linkMessages = perUser.linkMessages || 0;
                                 mediaMessages = perUser.mediaMessages || 0;
-                            } else {
-                                // 2) Try global per-user file at root namespace (""), path=User/<userId>
-                                // This file contains per-user global aggregates and optional per-guild breakdowns.
-                                const userFile = await persisted.get('', `User/${requestedUserId}`, null) as any;
-                                if (userFile) {
-                                    // Prefer per-guild breakdown inside global user file if present
-                                    if (userFile.guilds && userFile.guilds[g.id]) {
-                                        const gd = userFile.guilds[g.id];
-                                        totalMessages = gd.totalMessages || 0;
-                                        linkMessages = gd.linkMessages || 0;
-                                        mediaMessages = gd.mediaMessages || 0;
-                                    } else {
-                                        // Otherwise, do not assign the global totals as this guild's totals.
-                                        // Keep zeros (or other fallbacks) rather than copying globalUser.totalMessages
-                                        // which would cause the same counts to appear across multiple guilds.
-                                        // Continue to legacy fallback below.
-                                    }
-                                }
-
-                                // 3) Legacy fallback: aggregated mapping stored under namespace=g.id with key 'user_stats'
-                                if (totalMessages === 0 && linkMessages === 0 && mediaMessages === 0) {
-                                    const rec = await persisted.get(g.id, 'user_stats', {} as any) as Record<string, any> || {};
-                                    const u = rec[requestedUserId] || { totalMessages: 0, linkMessages: 0, mediaMessages: 0 };
-                                    totalMessages = u.totalMessages || 0;
-                                    linkMessages = u.linkMessages || 0;
-                                    mediaMessages = u.mediaMessages || 0;
-                                }
                             }
                         } catch (e) {
                             // ignore and keep zeros
@@ -477,6 +529,175 @@ export function createUserRoutes(
             });
         } catch (error) {
             console.error('Failed to get user activity:', error);
+            res.status(500).json({ error: 'Internal server error' });
+        }
+    });
+
+    /**
+     * ユーザーごとのギルドデータを取得
+     * ?userId=<userId>&key=<key>
+     */
+    router.get('/guilds/:guildId/data', verifyAuth(sessions), async (req: Request, res: Response) => {
+        try {
+            const currentUser = getCurrentUser(req);
+            if (!currentUser) {
+                res.status(401).json({ error: 'Unauthorized' });
+                return;
+            }
+
+            const { guildId } = req.params;
+            const targetUserId = pickTargetUserId(req, currentUser.userId);
+            const key = pickDataKey(req);
+            const canRead = await sessionCanReadGuildUserData(currentUser, guildId);
+            const canManage = await sessionCanManageGuildUserData(currentUser, guildId);
+
+            if (!canRead && !canManage) {
+                res.status(403).json({ error: 'Access denied' });
+                return;
+            }
+
+            if (targetUserId !== currentUser.userId && !canManage) {
+                res.status(403).json({ error: 'Manage Guild permission required' });
+                return;
+            }
+
+            if (key) {
+                if (!(await database.hasUserGuildData(targetUserId, guildId, key))) {
+                    res.status(404).json({ error: 'User guild data not found' });
+                    return;
+                }
+
+                const value = await database.getUserGuildData(targetUserId, guildId, key, null);
+                res.json({
+                    guildId,
+                    userId: targetUserId,
+                    key,
+                    value
+                });
+                return;
+            }
+
+            const data = await database.getAllUserGuildData(targetUserId, guildId);
+            res.json({
+                guildId,
+                userId: targetUserId,
+                data
+            });
+        } catch (error) {
+            console.error('Failed to get guild user data:', error);
+            res.status(500).json({ error: 'Internal server error' });
+        }
+    });
+
+    /**
+     * 管理権限ユーザー向け: ギルド内ユーザーデータの一覧取得
+     * ?key=stats
+     */
+    router.get('/guilds/:guildId/data-map', verifyAuth(sessions), async (req: Request, res: Response) => {
+        try {
+            const currentUser = getCurrentUser(req);
+            if (!currentUser) {
+                res.status(401).json({ error: 'Unauthorized' });
+                return;
+            }
+
+            const { guildId } = req.params;
+            const key = pickDataKey(req) || 'stats';
+
+            if (!(await sessionCanManageGuildUserData(currentUser, guildId))) {
+                res.status(403).json({ error: 'Manage Guild permission required' });
+                return;
+            }
+
+            const users = await database.getGuildUserDataMap(guildId, key);
+            res.json({
+                guildId,
+                key,
+                users
+            });
+        } catch (error) {
+            console.error('Failed to get guild user data map:', error);
+            res.status(500).json({ error: 'Internal server error' });
+        }
+    });
+
+    /**
+     * 管理権限ユーザー向け: ユーザーごとのギルドデータを更新
+     */
+    router.put('/guilds/:guildId/data', verifyAuth(sessions), async (req: Request, res: Response) => {
+        try {
+            const currentUser = getCurrentUser(req);
+            if (!currentUser) {
+                res.status(401).json({ error: 'Unauthorized' });
+                return;
+            }
+
+            const { guildId } = req.params;
+            const targetUserId = pickTargetUserId(req, currentUser.userId);
+            const key = pickDataKey(req);
+
+            if (!key) {
+                res.status(400).json({ error: 'key is required' });
+                return;
+            }
+
+            if (req.body?.value === undefined) {
+                res.status(400).json({ error: 'value is required' });
+                return;
+            }
+
+            if (!(await sessionCanManageGuildUserData(currentUser, guildId))) {
+                res.status(403).json({ error: 'Manage Guild permission required' });
+                return;
+            }
+
+            await database.setUserGuildData(targetUserId, guildId, key, req.body.value);
+            res.json({
+                success: true,
+                guildId,
+                userId: targetUserId,
+                key
+            });
+        } catch (error) {
+            console.error('Failed to update guild user data:', error);
+            res.status(500).json({ error: 'Internal server error' });
+        }
+    });
+
+    /**
+     * 管理権限ユーザー向け: ユーザーごとのギルドデータを削除
+     */
+    router.delete('/guilds/:guildId/data', verifyAuth(sessions), async (req: Request, res: Response) => {
+        try {
+            const currentUser = getCurrentUser(req);
+            if (!currentUser) {
+                res.status(401).json({ error: 'Unauthorized' });
+                return;
+            }
+
+            const { guildId } = req.params;
+            const targetUserId = pickTargetUserId(req, currentUser.userId);
+            const key = pickDataKey(req);
+
+            if (!key) {
+                res.status(400).json({ error: 'key is required' });
+                return;
+            }
+
+            if (!(await sessionCanManageGuildUserData(currentUser, guildId))) {
+                res.status(403).json({ error: 'Manage Guild permission required' });
+                return;
+            }
+
+            const deleted = await database.deleteUserGuildData(targetUserId, guildId, key);
+            res.json({
+                success: deleted,
+                guildId,
+                userId: targetUserId,
+                key
+            });
+        } catch (error) {
+            console.error('Failed to delete guild user data:', error);
             res.status(500).json({ error: 'Internal server error' });
         }
     });

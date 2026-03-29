@@ -11,10 +11,10 @@
 .statePanel,
 .guildCard {
   padding: 20px;
-  border-radius: 22px;
+  border-radius: var(--radius-md);
   border: 1px solid var(--app-border);
-  background: rgba(255, 255, 255, 0.78);
-  box-shadow: var(--app-shadow-md);
+  background: var(--app-surface);
+  box-shadow: var(--app-shadow-sm);
 }
 
 .summaryCard strong {
@@ -78,14 +78,14 @@
   justify-content: center;
   width: 64px;
   height: 64px;
-  border-radius: 20px;
-  background: rgba(15, 91, 216, 0.1);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--app-accent) 10%, var(--app-surface));
   color: var(--app-accent-strong);
-  font-family: var(--font-display);
   font-size: 1.4rem;
   font-weight: 700;
   flex-shrink: 0;
   overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--app-accent) 14%, var(--app-border));
 }
 
 .guildIcon img {
@@ -115,8 +115,9 @@
   display: inline-flex;
   align-items: center;
   padding: 6px 10px;
-  border-radius: 999px;
-  background: rgba(16, 35, 59, 0.06);
+  border-radius: var(--radius-xs);
+  background: var(--app-surface-soft);
+  border: 1px solid var(--app-border);
   color: var(--app-ink-soft);
   font-size: 0.76rem;
   font-weight: 700;
@@ -130,27 +131,28 @@
   align-items: center;
   justify-content: center;
   gap: 8px;
-  border-radius: 999px;
+  border-radius: var(--radius-xs);
   font-weight: 700;
+  border: 1px solid transparent;
 }
 
 .primaryButton {
   padding: 12px 18px;
-  background: linear-gradient(135deg, var(--app-accent), var(--app-accent-strong));
+  background: linear-gradient(180deg, var(--app-accent), var(--app-accent-strong));
   color: #fff;
-  box-shadow: 0 18px 32px rgba(15, 91, 216, 0.2);
+  box-shadow: 0 10px 24px color-mix(in srgb, var(--app-accent) 24%, transparent);
 }
 
 .secondaryButton {
   padding: 12px 16px;
-  background: rgba(244, 239, 231, 0.82);
+  background: var(--app-surface-soft);
   color: var(--app-ink);
   border: 1px solid var(--app-border-strong);
 }
 
 .primaryButton:hover,
 .secondaryButton:hover {
-  transform: translateY(-1px);
+  box-shadow: var(--app-shadow-sm);
 }
 
 @media (max-width: 760px) {

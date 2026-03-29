@@ -48,7 +48,7 @@
   - 静的ファイルの配信
 
 - **StatusManager** (`src/utils/StatusManager.ts`)
-  - Bot の起動時間を JSON ファイルで記録（`Data/bot_status.json`）
+  - Bot の起動時間を JSON ファイルで記録（`Database/system/bot_status.json`）
   - 10秒ごとに自動更新
   - サーバー数やバージョン情報を管理
 
@@ -265,7 +265,7 @@ sseManager.broadcast('feedback', data, (conn) => conn.metadata?.userId === 'user
 Bot の起動時（`src/index.ts`）に以下の順序で実行されます:
 
 1. **StatusManager 初期化**
-   - `Data/bot_status.json` に起動時間を記録
+   - `Database/system/bot_status.json` に起動時間を記録
    - 10秒ごとに自動更新を開始
 
 2. **Bot クライアント起動**
@@ -333,4 +333,4 @@ settingsServer = new SettingsServer(botClient, 3001);
 
 ### 起動時間が正しく表示されない
 
-`Data/bot_status.json` ファイルを削除してから Bot を再起動してください。新しい起動時間が記録されます。
+`Database/system/bot_status.json` ファイルを削除してから Bot を再起動してください。新しい起動時間が記録されます。

@@ -33,6 +33,7 @@ export class EventHandler {
         this.registerInteractionCreateEvent();
         this.registerGuildEvents();
         this.registerMessageEvents();
+        this.registerUserEvents();
         this.registerVoiceEvents();
         this.registerErrorEvents();
     }
@@ -97,6 +98,27 @@ export class EventHandler {
                 }
             } catch (error) {
                 Logger.error('Error handling GuildMemberRemove:', error);
+            }
+        });
+
+        this.botClient.client.on(Events.GuildMemberAdd, async (member) => {
+            try {
+                const { antiCheatManager } = await import('./anticheat/AntiCheatManager.js');
+                await antiCheatManager.onGuildMemberAdd(member);
+            } catch (error) {
+                Logger.debug('Failed to handle AntiCheat on guildMemberAdd:', error);
+            }
+        });
+
+        this.botClient.client.on(Events.GuildMemberUpdate, async (oldMember, newMember) => {
+            try {
+                if (oldMember.partial || newMember.partial) {
+                    return;
+                }
+                const { antiCheatManager } = await import('./anticheat/AntiCheatManager.js');
+                await antiCheatManager.onGuildMemberUpdate(oldMember as any, newMember as any);
+            } catch (error) {
+                Logger.debug('Failed to handle AntiCheat on guildMemberUpdate:', error);
             }
         });
     }
@@ -313,6 +335,20 @@ export class EventHandler {
             } catch (error) {
                 // XP付与エラーは無視（ログに記録のみ）
                 Logger.debug('Failed to handle VC XP:', error);
+            }
+        });
+    }
+
+    private registerUserEvents(): void {
+        this.botClient.client.on(Events.UserUpdate, async (oldUser, newUser) => {
+            try {
+                if (('partial' in oldUser && oldUser.partial) || ('partial' in newUser && newUser.partial)) {
+                    return;
+                }
+                const { antiCheatManager } = await import('./anticheat/AntiCheatManager.js');
+                await antiCheatManager.onUserAvatarUpdate(oldUser as any, newUser as any);
+            } catch (error) {
+                Logger.debug('Failed to handle AntiCheat on userUpdate:', error);
             }
         });
     }

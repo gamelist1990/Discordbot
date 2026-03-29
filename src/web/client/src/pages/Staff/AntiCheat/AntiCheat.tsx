@@ -1,1235 +1,850 @@
-import React, { useEffect, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { useAntiCheatSettings, useDetectionLogs, useAntiCheatActions, useUserTrust } from './hooks';
-import AntiCheatLayout from './AntiCheatLayout';
+import React, { useEffect, useMemo, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+import PageShell from '../../../components/PageShell';
+import { useAntiCheatActions, useAntiCheatSettings, useDetectionLogs, useUserTrust } from './hooks';
 import styles from './AntiCheat.module.css';
-import { UserTrustData, UserTrustDataWithUser } from './types';
+import {
+    AntiCheatSettings,
+    DetectionLog,
+    DetectorConfig,
+    PunishmentAction,
+    PunishmentThreshold,
+    UserTrustDataWithUser,
+    WordFilterRule
+} from './types';
 
-const detectorDescriptions: Record<string, string> = {
-    textSpam: 'テキストメッセージのスパム検知。短時間に大量のメッセージを送信するユーザーを検知します。',
-    mentionSpam: 'メンションの過度な使用を検知。過剰な@メンションを防ぎます。',
-    linkSpam: 'リンクのスパム検知。短時間に大量のリンクを送信するユーザーを検知します。',
-    capsSpam: '大文字の過度な使用を検知。すべて大文字のメッセージを防ぎます。',
-    emojiSpam: '絵文字の過度な使用を検知。過剰な絵文字使用を防ぎます。',
-    raidDetection: 'サーバー襲撃の検知。新規ユーザーの大量参加を監視します。',
-    duplicateMessage: '重複メッセージの検知。同じメッセージの繰り返し送信を防ぎます。',
-    wordFilter: '単語フィルター。禁止された単語やフレーズを含むメッセージを検知します。',
-    inviteFilter: '招待リンクフィルター。Discord招待リンクの送信を防ぎます。',
-    imageSpam: '画像スパムの検知。短時間    に大量の画像を送信するユーザーを検知します。'
+type TabKey = 'overview' | 'rules' | 'punishments' | 'logs' | 'trust';
+
+const DETECTOR_CATALOG = [
+    { key: 'textSpam', title: 'テキストスパム', icon: 'sms', description: '短時間の大量投稿、重複投稿、大文字比率の高い投稿を検知します。' },
+    { key: 'inviteReferral', title: '広告防止 / 紹介', icon: 'campaign', description: 'Discord招待や紹介・広告用のリンクパターンを削除対象として扱います。' },
+    { key: 'redirectLink', title: 'リンク解決', icon: 'link', description: '未知のリダイレクトドメインを解析し、裏のURLと危険性を公開します。' },
+    { key: 'copyPaste', title: 'アンチコピーペースト', icon: 'content_paste_off', description: '詐欺コピペや装飾Unicodeを含む迷惑文面を検知します。' },
+    { key: 'everyoneMention', title: 'アンチ Everyone', icon: 'alternate_email', description: '@everyone / @here と、同名ロールを使った通知を防ぎます。' },
+    { key: 'duplicateMessage', title: 'アンチ重複', icon: 'content_copy', description: '重複投稿の回数に応じて削除とスコア加算を行います。' },
+    { key: 'mentionLimit', title: '最大言及', icon: 'groups', description: 'ユーザー・ロールへの大量メンションを閾値ベースで抑制します。' },
+    { key: 'maxLines', title: '最大行数', icon: 'format_line_spacing', description: '長文スパムを行数単位で抑制し、倍数ごとにスコアを積みます。' },
+    { key: 'wordFilter', title: 'フィルター', icon: 'filter_alt', description: '単語、フレーズ、正規表現ごとに個別スコアを設定できます。' },
+    { key: 'raidDetection', title: '自動アンチレイド', icon: 'security', description: '参加頻度を監視し、短時間参加が増えた時にレイドモードを有効化します。' }
+] as const;
+
+const TAB_LABELS: Record<TabKey, string> = {
+    overview: '概要',
+    rules: '検知ルール',
+    punishments: '処罰',
+    logs: 'ログ',
+    trust: '信頼スコア'
 };
 
-const humanizeDetectorName = (key: string) => {
-    // camelCase -> Title Case + spaces
-    const parts = key.replace(/([A-Z])/g, ' $1').split(/_|\s+/).filter(Boolean);
-    return parts.map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' ');
+const EMPTY_PUNISHMENT_ACTION: PunishmentAction = {
+    type: 'timeout',
+    durationSeconds: 600,
+    reasonTemplate: 'AntiCheat violation: threshold {threshold}',
+    notify: true
 };
 
-
-const useIsMobile = (breakpoint = 768) => {
-    const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' ? window.innerWidth < breakpoint : false);
-    useEffect(() => {
-        const onResize = () => setIsMobile(window.innerWidth < breakpoint);
-        window.addEventListener('resize', onResize);
-        return () => window.removeEventListener('resize', onResize);
-    }, [breakpoint]);
-    return isMobile;
-};
-
-// Parse duration strings like '1d', '2h', '30m', '45s' or plain seconds '300'
-function parseDurationToSeconds(input: string | number | undefined): number {
-    if (input === undefined || input === null) return 0;
-    if (typeof input === 'number') return Math.max(0, Math.floor(input));
-    const s = String(input).trim().toLowerCase();
-    if (!s) return 0;
-    const m = s.match(/^(\d+)\s*([smhd])$/i);
-    if (m) {
-        const n = parseInt(m[1], 10);
-        const unit = m[2];
-        switch (unit) {
-            case 'd': return n * 86400;
-            case 'h': return n * 3600;
-            case 'm': return n * 60;
-            case 's': return n;
-        }
-    }
-    // fallback: numeric seconds
-    const asNum = parseInt(s, 10);
-    return isNaN(asNum) ? 0 : asNum;
+function cloneSettings(settings: AntiCheatSettings): AntiCheatSettings {
+    return JSON.parse(JSON.stringify(settings)) as AntiCheatSettings;
 }
 
-function secondsToInputString(sec: number): string {
-    if (!sec || sec <= 0) return '';
-    if (sec % 86400 === 0) return `${sec / 86400}d`;
-    if (sec % 3600 === 0) return `${sec / 3600}h`;
-    if (sec % 60 === 0) return `${sec / 60}m`;
-    return `${sec}s`;
+function formatDate(value?: string | null): string {
+    if (!value) return '未設定';
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? '未設定' : date.toLocaleString('ja-JP');
+}
+
+function toMultiline(values: string[]): string {
+    return values.join('\n');
+}
+
+function parseListText(value: string): string[] {
+    return value.split(/\r?\n|,/).map((entry) => entry.trim()).filter(Boolean);
+}
+
+function createWordFilterRule(): WordFilterRule {
+    return {
+        id: `rule-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        label: '',
+        pattern: '',
+        mode: 'contains',
+        score: 1,
+        deleteMessage: true,
+        enabled: true
+    };
 }
 
 const AntiCheatUnified: React.FC = () => {
     const { guildId } = useParams<{ guildId: string }>();
     const navigate = useNavigate();
-    const isMobile = useIsMobile(880);
+    const { settings, loading, error, updateSettings } = useAntiCheatSettings(guildId || '');
+    const { logs, loading: logsLoading, error: logsError, refetch: refetchLogs } = useDetectionLogs(guildId || '', 60);
+    const { trust, loading: trustLoading, error: trustError, refetch: refetchTrust } = useUserTrust(guildId || '');
+    const { revokeTimeout, resetTrust, executing, error: actionError } = useAntiCheatActions(guildId || '');
+    const [activeTab, setActiveTab] = useState<TabKey>('overview');
+    const [draft, setDraft] = useState<AntiCheatSettings | null>(null);
+    const [excludedRolesText, setExcludedRolesText] = useState('');
+    const [excludedChannelsText, setExcludedChannelsText] = useState('');
+    const [saving, setSaving] = useState(false);
+    const [saveNotice, setSaveNotice] = useState<string | null>(null);
+    const [punishmentDraft, setPunishmentDraft] = useState<PunishmentThreshold>({
+        threshold: 10,
+        actions: [{ ...EMPTY_PUNISHMENT_ACTION }]
+    });
 
-    const { settings, loading, error, updateSettings } = useAntiCheatSettings(guildId!);
-    const { logs, loading: logsLoading, refetch: refetchLogs } = useDetectionLogs(guildId!, isMobile ? 20 : 50);
-    const { revokeTimeout, resetTrust, executing, error: actionError } = useAntiCheatActions(guildId!);
-    const { trust: userTrustData, loading: trustLoading, error: trustError, refetch: refetchTrust } = useUserTrust(guildId!);
-
-    const [activeView, setActiveView] = useState<'settings' | 'logs' | 'trust' | 'overview'>('settings');
-    const [searchTerm, setSearchTerm] = useState('');
-    const [expandedLogIds, setExpandedLogIds] = useState<Record<string, boolean>>({});
-    const [severityFilter, setSeverityFilter] = useState<'all'|'low'|'medium'|'high'>('all');
-    const [trustSearchTerm, setTrustSearchTerm] = useState('');
-    const [modalOpen, setModalOpen] = useState(false);
-    const [editIndex, setEditIndex] = useState<number | null>(null);
-    const [newThreshold, setNewThreshold] = useState('');
-    const [newDuration, setNewDuration] = useState('');
-    const [newActionType, setNewActionType] = useState<'timeout' | 'kick' | 'ban'>('timeout');
-    const [autoTimeoutInput, setAutoTimeoutInput] = useState('');
-    const [autoDeleteInput, setAutoDeleteInput] = useState('');
-    const [confirmModalOpen, setConfirmModalOpen] = useState(false);
-    const [confirmModalType, setConfirmModalType] = useState<'revokeTimeout' | 'resetTrust' | null>(null);
-    const [confirmModalData, setConfirmModalData] = useState<any>(null);
-    const [confirmModalMessage, setConfirmModalMessage] = useState('');
-    const [confirmModalCallback, setConfirmModalCallback] = useState<(() => void) | null>(null);
-
-    useEffect(() => {
-        setActiveView(isMobile ? 'overview' : 'settings');
-    }, [isMobile]);
-
-    // sync autoTimeout / autoDelete inputs with settings whenever settings change
     useEffect(() => {
         if (!settings) return;
-        setAutoTimeoutInput(secondsToInputString(settings.autoTimeout?.durationSeconds || 0) || String(settings.autoTimeout?.durationSeconds || ''));
-        setAutoDeleteInput(secondsToInputString(settings.autoDelete?.windowSeconds || 0) || String(settings.autoDelete?.windowSeconds || ''));
+        const nextDraft = cloneSettings(settings);
+        setDraft(nextDraft);
+        setExcludedRolesText(toMultiline(nextDraft.excludedRoles));
+        setExcludedChannelsText(toMultiline(nextDraft.excludedChannels));
     }, [settings]);
 
-    // Auto-refresh logs while viewing logs so timed-out entries disappear when timeout ends
-    useEffect(() => {
-        if (activeView !== 'logs') return;
-        const iv = setInterval(() => {
-            refetchLogs();
-        }, 8000);
-        return () => clearInterval(iv);
-    }, [activeView, refetchLogs]);
+    const trustEntries = useMemo(() => {
+        if (!trust || Array.isArray(trust)) return [];
+        return Object.entries(trust as Record<string, UserTrustDataWithUser>)
+            .map(([userId, value]) => ({ userId, ...value }))
+            .sort((left, right) => right.score - left.score);
+    }, [trust]);
+
+    const enabledDetectorCount = useMemo(
+        () => Object.values(draft?.detectors || {}).filter((detector) => detector.enabled).length,
+        [draft]
+    );
 
     if (!guildId) {
-        navigate('/404');
         return null;
     }
 
-    if (loading) {
-        return (
-            <AntiCheatLayout activeTab={activeView} onTabChange={(t) => setActiveView(t as any)}>
-                <div className={isMobile ? styles.container : styles.layout}>
-                    <div className={isMobile ? styles.loading : styles.header}>読み込み中...</div>
-                </div>
-            </AntiCheatLayout>
-        );
-    }
-
-    if (error) {
-        return (
-            <AntiCheatLayout activeTab={activeView} onTabChange={(t) => setActiveView(t as any)}>
-                <div className={isMobile ? styles.container : styles.layout}>
-                    <div className={isMobile ? styles.error : styles.header}>エラー: {error}</div>
-                </div>
-            </AntiCheatLayout>
-        );
-    }
-
-    if (!settings) {
-        return (
-            <AntiCheatLayout activeTab={activeView} onTabChange={(t) => setActiveView(t as any)}>
-                <div className={isMobile ? styles.container : styles.layout}>
-                    <div className={isMobile ? styles.error : styles.header}>設定が見つかりません</div>
-                </div>
-            </AntiCheatLayout>
-        );
-    }
-
-    const handleToggleEnabled = async () => {
-        await updateSettings({ enabled: !settings.enabled });
+    const commitDraft = async (message: string) => {
+        if (!draft) return;
+        setSaving(true);
+        setSaveNotice(null);
+        const payload: AntiCheatSettings = {
+            ...draft,
+            excludedRoles: parseListText(excludedRolesText),
+            excludedChannels: parseListText(excludedChannelsText)
+        };
+        const success = await updateSettings(payload);
+        setSaving(false);
+        if (success) setSaveNotice(message);
     };
 
-    const enabledDetectorsCount = Object.values(settings.detectors || {}).filter((d: any) => d?.enabled).length;
-
-    const handleAddPunishment = () => {
-        setEditIndex(null);
-        setNewThreshold('');
-        setNewDuration('');
-        setNewActionType('timeout');
-        setModalOpen(true);
+    const updateDraft = (updater: (current: AntiCheatSettings) => AntiCheatSettings) => {
+        setDraft((current) => (current ? updater(current) : current));
     };
 
-    const handleEditPunishment = (index: number) => {
-        const p = (settings.punishments || [])[index];
-        if (!p) return;
-        setEditIndex(index);
-        setNewThreshold(String(p.threshold));
-        const action = p.actions && p.actions[0];
-        if (action) {
-            setNewActionType(action.type as any || 'timeout');
-            setNewDuration(action.durationSeconds ? String(action.durationSeconds) : '');
-        } else {
-            setNewActionType('timeout');
-            setNewDuration('');
-        }
-        setModalOpen(true);
-    };
-
-    const handleSavePunishment = async () => {
-        const threshold = parseInt(newThreshold);
-        const duration = parseDurationToSeconds(newDuration);
-
-        if (threshold > 0 && (newActionType !== 'timeout' || duration > 0)) {
-            // Build action according to selected type
-            const action = newActionType === 'timeout'
-                ? ({ type: 'timeout' as const, durationSeconds: duration, reasonTemplate: 'AntiCheat violation: Trust score reached {threshold}', notify: true })
-                : newActionType === 'ban'
-                    ? ({ type: 'ban' as const, durationSeconds: duration || undefined, reasonTemplate: 'AntiCheat violation: Trust score reached {threshold}', notify: true })
-                    : ({ type: 'kick' as const, reasonTemplate: 'AntiCheat violation: Trust score reached {threshold}', notify: true });
-
-            let newPunishments = (settings.punishments || []).slice();
-            if (editIndex !== null && editIndex >= 0 && editIndex < newPunishments.length) {
-                // replace existing
-                newPunishments[editIndex] = { threshold, actions: [action] };
-            } else {
-                // append
-                newPunishments = [...newPunishments, { threshold, actions: [action] }];
-            }
-            await updateSettings({ punishments: newPunishments });
-            setModalOpen(false);
-            setNewThreshold('');
-            setNewDuration('');
-            setNewActionType('timeout');
-            setEditIndex(null);
-        }
-    };
-
-    const handleRemovePunishment = async (index: number) => {
-        const newPunishments = (settings.punishments || []).filter((_, i) => i !== index);
-        await updateSettings({ punishments: newPunishments });
-    };
-
-    const openConfirmModal = (type: 'revokeTimeout' | 'resetTrust', data: any, message: string, callback: () => void) => {
-        setConfirmModalType(type);
-        setConfirmModalData(data);
-        setConfirmModalMessage(message);
-        setConfirmModalCallback(() => callback);
-        setConfirmModalOpen(true);
-    };
-
-    const toggleAllDetectors = async (enable: boolean) => {
-        const newDetectors = Object.entries(settings.detectors || {}).reduce((acc, [k, v]) => ({ ...acc, [k]: { ...(v || {}), enabled: enable } }), {} as any);
-        await updateSettings({ detectors: newDetectors });
-    };
-
-    // iOS-like switch component (small, self-contained)
-    const IOSCheckbox: React.FC<{
-        checked?: boolean;
-        onChange?: (checked: boolean) => void;
-        id?: string;
-    }> = ({ checked = false, onChange, id }) => {
-        return (
-            <button
-                id={id}
-                aria-pressed={checked}
-                onClick={() => onChange?.(!checked)}
-                className={styles.iosSwitch}
-                type="button"
-            >
-                <span className={`${styles.iosSwitchTrack} ${checked ? styles.iosOn : ''}`} />
-                <span className={`${styles.iosSwitchThumb} ${checked ? styles.iosThumbOn : ''}`} />
-            </button>
-        );
-    };
-
-    const closeConfirmModal = () => {
-        setConfirmModalOpen(false);
-        setConfirmModalType(null);
-        setConfirmModalData(null);
-        setConfirmModalMessage('');
-        setConfirmModalCallback(null);
-    };
-
-    const handleConfirmModalConfirm = async () => {
-        if (confirmModalCallback) {
-            if (confirmModalType === 'revokeTimeout') {
-                // revokeTimeoutの場合、チェックボックスの状態に基づいて処理
-                const resetTrustChecked = !!confirmModalData?.resetTrust; // デフォルトはfalse
-                try {
-                    const success = await revokeTimeout(confirmModalData.userId, resetTrustChecked, confirmModalData?.messageId);
-                    if (success) {
-                        try { (window as any).web?.notify?.('タイムアウトを解除しました', 'success', 'タイムアウト解除', 4000); } catch {}
-                    } else {
-                        try { (window as any).web?.notify?.('タイムアウトの解除に失敗しました', 'error', 'エラー', 4000); } catch {}
-                    }
-                    // ログがrevokeされている可能性があるので、常に再取得
-                    refetchLogs();
-                } catch (error) {
-                    console.error('Error revoking timeout:', error);
-                    try { (window as any).web?.notify?.('タイムアウトの解除中にエラーが発生しました', 'error', 'エラー', 4000); } catch {}
-                    // エラー時もログがrevokeされている可能性があるので、再取得
-                    refetchLogs();
-                }
-            } else {
-                // その他の場合は通常のコールバックを実行
-                try {
-                    await confirmModalCallback();
-                } catch (error) {
-                    console.error('Error in confirm modal callback:', error);
-                    try { (window as any).web?.notify?.('操作中にエラーが発生しました', 'error', 'エラー', 4000); } catch {}
+    const updateDetector = (detectorKey: string, patch: Partial<DetectorConfig>) => {
+        updateDraft((current) => ({
+            ...current,
+            detectors: {
+                ...current.detectors,
+                [detectorKey]: {
+                    ...current.detectors[detectorKey],
+                    ...patch
                 }
             }
-        }
-        closeConfirmModal();
+        }));
     };
 
-    const handleRevokeTimeout = async (userId: string, messageId?: string) => {
-        try {
-            // Always show confirmation modal before revoking.
-            // Still attempt to read current timeout state for context, but do not auto-revoke.
-            let isTimedOut = false;
-            try {
-                const response = await fetch(`/api/staff/anticheat/${guildId}/user-timeout/${userId}`, { credentials: 'include' });
-                if (response.ok) {
-                    const data = await response.json();
-                    isTimedOut = !!data?.isTimedOut;
+    const updateDetectorConfig = (detectorKey: string, field: string, value: unknown) => {
+        updateDraft((current) => ({
+            ...current,
+            detectors: {
+                ...current.detectors,
+                [detectorKey]: {
+                    ...current.detectors[detectorKey],
+                    config: {
+                        ...(current.detectors[detectorKey]?.config || {}),
+                        [field]: value
+                    }
                 }
-            } catch (e) {
-                // ignore individual check errors; we'll still show modal
             }
+        }));
+    };
 
-            openConfirmModal(
-                'revokeTimeout',
-                { userId, messageId, isTimedOut, resetTrust: false },
-                isTimedOut ? 'ユーザーは現在タイムアウト中です。タイムアウトを解除しますか？（信頼スコアもリセットしますか）' : '信頼スコアもリセットしますか？',
-                async () => {
-                    const success = await revokeTimeout(userId, false, messageId);
-                    if (success) {
-                        try { (window as any).web?.notify?.('タイムアウトを解除しました', 'success', 'タイムアウト解除', 4000); } catch {}
-                        refetchLogs();
-                    }
+    const wordFilterRules = useMemo(
+        () => ((draft?.detectors.wordFilter?.config?.rules as WordFilterRule[] | undefined) || []),
+        [draft]
+    );
+
+    const addWordFilterRule = () => {
+        updateDetectorConfig('wordFilter', 'rules', [...wordFilterRules, createWordFilterRule()]);
+    };
+
+    const updateWordFilterRule = (ruleId: string, patch: Partial<WordFilterRule>) => {
+        updateDetectorConfig(
+            'wordFilter',
+            'rules',
+            wordFilterRules.map((rule) => (rule.id === ruleId ? { ...rule, ...patch } : rule))
+        );
+    };
+
+    const removeWordFilterRule = (ruleId: string) => {
+        updateDetectorConfig(
+            'wordFilter',
+            'rules',
+            wordFilterRules.filter((rule) => rule.id !== ruleId)
+        );
+    };
+
+    const addPunishment = () => {
+        if (!draft) return;
+        updateDraft((current) => ({
+            ...current,
+            punishments: [...current.punishments, punishmentDraft]
+        }));
+        setPunishmentDraft({
+            threshold: punishmentDraft.threshold + 10,
+            actions: [{ ...EMPTY_PUNISHMENT_ACTION }]
+        });
+    };
+
+    const removePunishment = (index: number) => {
+        updateDraft((current) => ({
+            ...current,
+            punishments: current.punishments.filter((_, currentIndex) => currentIndex !== index)
+        }));
+    };
+
+    const updatePunishment = (index: number, patch: Partial<PunishmentThreshold>) => {
+        updateDraft((current) => ({
+            ...current,
+            punishments: current.punishments.map((item, currentIndex) => (
+                currentIndex === index ? { ...item, ...patch } : item
+            ))
+        }));
+    };
+
+    const updatePunishmentAction = (index: number, patch: Partial<PunishmentAction>) => {
+        updateDraft((current) => ({
+            ...current,
+            punishments: current.punishments.map((item, currentIndex) => {
+                if (currentIndex !== index) {
+                    return item;
                 }
-            );
-        } catch (error) {
-            console.error('Error preparing revoke modal:', error);
-            // As a last resort, still open the modal without additional context
-            openConfirmModal(
-                'revokeTimeout',
-                { userId, messageId, resetTrust: false },
-                '信頼スコアもリセットしますか？',
-                async () => {
-                    const success = await revokeTimeout(userId, false, messageId);
-                    if (success) {
-                        try { (window as any).web?.notify?.('タイムアウトを解除しました', 'success', 'タイムアウト解除', 4000); } catch {}
-                        refetchLogs();
-                    }
-                }
-            );
-        }
+
+                const currentAction = item.actions[0] || { ...EMPTY_PUNISHMENT_ACTION };
+                return {
+                    ...item,
+                    actions: [{ ...currentAction, ...patch }]
+                };
+            })
+        }));
     };
 
     const handleResetTrust = async (userId: string) => {
-        // Prefer display name or username for nicer confirmation message
-        const trustEntry = (userTrustData as any) || {};
-        const userInfo = trustEntry[userId];
-        const display = userInfo?.displayName || userInfo?.username || userId;
-
-        openConfirmModal(
-            'resetTrust',
-            { userId },
-            `${display}（${userId}）の信頼スコアをリセットしますか？`,
-            async () => {
-                const success = await resetTrust(userId);
-                if (success) {
-                    try { (window as any).web?.notify?.('信頼スコアをリセットしました', 'success', '信頼スコアリセット', 4000); } catch {}
-                    refetchTrust();
-                } else {
-                    try { (window as any).web?.notify?.(`信頼スコアのリセットに失敗しました: ${actionError || '不明なエラー'}`, 'error', 'エラー', 4000); } catch {}
-                }
-            }
-        );
-    };
-
-    const copyToClipboard = async (text: string) => {
-        try {
-            await navigator.clipboard.writeText(text);
-            try { (window as any).web?.notify?.('コピーしました', 'success', 'クリップボード', 1500); } catch {}
-        } catch (e) {
-            try { (window as any).web?.notify?.('コピーに失敗しました', 'error', 'エラー', 1500); } catch {}
+        if (!window.confirm('このユーザーの信頼スコアをリセットしますか？')) return;
+        const success = await resetTrust(userId);
+        if (success) {
+            await refetchTrust();
+            await refetchLogs();
         }
     };
 
-    // Show only currently timed-out users in the logs view and apply search
-    const filteredLogs = logs && Array.isArray(logs)
-        ? logs.filter((log) => {
-            const isTimedOut = !!(log.metadata && log.metadata.isTimedOut);
-            if (!isTimedOut) return false;
-            const q = (searchTerm || '').toLowerCase();
-            const username = (log.metadata && ((log.metadata.username || log.metadata.displayName) || '')) as string;
-            return (log.userId || '').toLowerCase().includes(q) || (log.reason || '').toLowerCase().includes(q) || (username || '').toLowerCase().includes(q);
-        })
-        : [];
+    const handleRevokeTimeout = async (log: DetectionLog) => {
+        if (!window.confirm('このタイムアウトを解除しますか？')) return;
+        const success = await revokeTimeout(log.userId, false, log.messageId);
+        if (success) {
+            await refetchLogs();
+            await refetchTrust();
+        }
+    };
 
-            const severityForLog = (log: any) => {
-                const sc = Math.abs(log.scoreDelta || 0);
-                if (sc >= 10) return 'high';
-                if (sc >= 4) return 'medium';
-                return 'low';
-            };
+    const renderDetectorConfig = (detectorKey: string) => {
+        const detector = draft?.detectors[detectorKey];
+        if (!detector) {
+            return null;
+        }
 
-    const filteredTrustData = userTrustData && typeof userTrustData === 'object' && !Array.isArray(userTrustData)
-        ? Object.entries(userTrustData as Record<string, UserTrustDataWithUser>).filter(([userId]) =>
-            userId.toLowerCase().includes(trustSearchTerm.toLowerCase()) ||
-            ((userTrustData as Record<string, UserTrustDataWithUser>)[userId])?.username?.toLowerCase().includes(trustSearchTerm.toLowerCase()) ||
-            ((userTrustData as Record<string, UserTrustDataWithUser>)[userId])?.displayName?.toLowerCase().includes(trustSearchTerm.toLowerCase())
-        )
-        : [];
-
-    // Render mobile layout
-    if (isMobile) {
-        return (
-            <AntiCheatLayout activeTab={activeView} onTabChange={(t) => setActiveView(t as any)}>
-                <div className={styles.container}>
-                    <div className={styles.header}>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                            <h1><span className={`${styles.statusDot} ${settings.enabled ? styles.statusDotOn : styles.statusDotOff}`} />🛡️ AntiCheat</h1>
-                            <div style={{ fontSize: '0.85rem', color: 'var(--ac-muted)' }}>有効な検知: {enabledDetectorsCount}</div>
+        switch (detectorKey) {
+            case 'textSpam':
+                return (
+                    <div className={styles.inlineFields}>
+                        <label className={styles.field}>
+                            <span>監視秒数</span>
+                            <input type="number" value={detector.config?.windowSeconds ?? 5} onChange={(event) => updateDetectorConfig(detectorKey, 'windowSeconds', Number(event.target.value))} />
+                        </label>
+                        <label className={styles.field}>
+                            <span>大量投稿件数</span>
+                            <input type="number" value={detector.config?.rapidMessageCount ?? 6} onChange={(event) => updateDetectorConfig(detectorKey, 'rapidMessageCount', Number(event.target.value))} />
+                        </label>
+                        <label className={styles.field}>
+                            <span>重複回数</span>
+                            <input type="number" value={detector.config?.duplicateThreshold ?? 3} onChange={(event) => updateDetectorConfig(detectorKey, 'duplicateThreshold', Number(event.target.value))} />
+                        </label>
+                    </div>
+                );
+            case 'inviteReferral':
+                return (
+                    <div className={styles.stack}>
+                        <label className={styles.field}>
+                            <span>追加ブロックドメイン</span>
+                            <textarea value={toMultiline((detector.config?.blockedDomains as string[] | undefined) || [])} onChange={(event) => updateDetectorConfig(detectorKey, 'blockedDomains', parseListText(event.target.value))} placeholder={'example.com\nbad-link.test'} />
+                        </label>
+                        <label className={styles.field}>
+                            <span>追加ブロックパターン</span>
+                            <textarea value={toMultiline((detector.config?.blockedPatterns as string[] | undefined) || [])} onChange={(event) => updateDetectorConfig(detectorKey, 'blockedPatterns', parseListText(event.target.value))} placeholder={'ref=\ninvite_code='} />
+                        </label>
+                    </div>
+                );
+            case 'redirectLink':
+                return (
+                    <div className={styles.inlineFields}>
+                        <label className={styles.field}>
+                            <span>許可リダイレクトドメイン</span>
+                            <textarea value={toMultiline((detector.config?.allowDomains as string[] | undefined) || [])} onChange={(event) => updateDetectorConfig(detectorKey, 'allowDomains', parseListText(event.target.value))} placeholder={'google.com\nx.com\nt.co'} />
+                        </label>
+                        <label className={styles.field}>
+                            <span>最大解決段数</span>
+                            <input type="number" value={detector.config?.maxDepth ?? 5} onChange={(event) => updateDetectorConfig(detectorKey, 'maxDepth', Number(event.target.value))} />
+                        </label>
+                        <label className={styles.field}>
+                            <span>タイムアウト(ms)</span>
+                            <input type="number" value={detector.config?.timeoutMs ?? 2500} onChange={(event) => updateDetectorConfig(detectorKey, 'timeoutMs', Number(event.target.value))} />
+                        </label>
+                    </div>
+                );
+            case 'copyPaste':
+                return (
+                    <div className={styles.inlineFields}>
+                        <label className={styles.field}>
+                            <span>最小文字数</span>
+                            <input type="number" value={detector.config?.minLength ?? 80} onChange={(event) => updateDetectorConfig(detectorKey, 'minLength', Number(event.target.value))} />
+                        </label>
+                        <label className={styles.field}>
+                            <span>追加キーワード</span>
+                            <textarea value={toMultiline((detector.config?.suspiciousTerms as string[] | undefined) || [])} onChange={(event) => updateDetectorConfig(detectorKey, 'suspiciousTerms', parseListText(event.target.value))} placeholder={'free nitro\nsteam gift'} />
+                        </label>
+                    </div>
+                );
+            case 'duplicateMessage':
+                return (
+                    <div className={styles.inlineFields}>
+                        <label className={styles.field}>
+                            <span>監視秒数</span>
+                            <input type="number" value={detector.config?.windowSeconds ?? 180} onChange={(event) => updateDetectorConfig(detectorKey, 'windowSeconds', Number(event.target.value))} />
+                        </label>
+                        <label className={styles.field}>
+                            <span>削除開始回数</span>
+                            <input type="number" value={detector.config?.deleteFrom ?? 2} onChange={(event) => updateDetectorConfig(detectorKey, 'deleteFrom', Number(event.target.value))} />
+                        </label>
+                        <label className={styles.field}>
+                            <span>スコア開始回数</span>
+                            <input type="number" value={detector.config?.scoreFrom ?? 4} onChange={(event) => updateDetectorConfig(detectorKey, 'scoreFrom', Number(event.target.value))} />
+                        </label>
+                    </div>
+                );
+            case 'mentionLimit':
+                return (
+                    <div className={styles.inlineFields}>
+                        <label className={styles.field}>
+                            <span>ユーザー最大言及</span>
+                            <input type="number" value={detector.config?.maxUserMentions ?? 200} onChange={(event) => updateDetectorConfig(detectorKey, 'maxUserMentions', Number(event.target.value))} />
+                        </label>
+                        <label className={styles.field}>
+                            <span>ロール最大言及</span>
+                            <input type="number" value={detector.config?.maxRoleMentions ?? 200} onChange={(event) => updateDetectorConfig(detectorKey, 'maxRoleMentions', Number(event.target.value))} />
+                        </label>
+                    </div>
+                );
+            case 'maxLines':
+                return (
+                    <div className={styles.inlineFields}>
+                        <label className={styles.field}>
+                            <span>最大行数</span>
+                            <input type="number" value={detector.config?.maxLines ?? 10} onChange={(event) => updateDetectorConfig(detectorKey, 'maxLines', Number(event.target.value))} />
+                        </label>
+                    </div>
+                );
+            case 'wordFilter':
+                return (
+                    <div className={styles.stack}>
+                        <div className={styles.ruleToolbar}>
+                            <span className={styles.sectionLabel}>ルール</span>
+                            <button className={styles.secondaryButton} onClick={addWordFilterRule} type="button">
+                                <span className="material-icons">add</span>
+                                ルール追加
+                            </button>
                         </div>
-                        <button
-                            className={`${styles.toggleBtn} ${settings.enabled ? styles.toggleActive : ''}`}
-                            onClick={handleToggleEnabled}
-                        >
-                            {settings.enabled ? 'ON' : 'OFF'}
-                        </button>
-                    </div>
-
-                    <div className={styles.nav}>
-                        <button className={`${styles.navBtn} ${activeView === 'overview' ? styles.navBtnActive : ''}`} onClick={() => setActiveView('overview')}>概要</button>
-                        <button className={`${styles.navBtn} ${activeView === 'logs' ? styles.navBtnActive : ''}`} onClick={() => setActiveView('logs')}>ログ</button>
-                        <button className={`${styles.navBtn} ${activeView === 'trust' ? styles.navBtnActive : ''}`} onClick={() => setActiveView('trust')}>信頼</button>
-                    </div>
-
-                    {activeView === 'overview' && (
-                        <div className={styles.content}>
-                            {/* Status, detectors, punishments similar to Mobile.tsx */}
-                            <div className={styles.card}>
-                                <div className={styles.cardHeader}><h2>ステータス</h2></div>
-                                <div className={styles.cardBody}>
-                                    <div className={styles.detectorControls}>
-                                        <div className={styles.detectorLabel}>一括操作:</div>
-                                        <button className={styles.toggleAllBtn} onClick={() => toggleAllDetectors(true)}>すべて有効</button>
-                                        <button className={styles.toggleAllBtn} onClick={() => toggleAllDetectors(false)}>すべて無効</button>
-                                    </div>
-                                    <div className={styles.statusItem}>
-                                        <span>システム</span>
-                                        <span className={settings.enabled ? styles.statusOn : styles.statusOff}>{settings.enabled ? '有効' : '無効'}</span>
-                                    </div>
-                                    <div className={styles.statusItem}>
-                                        <span>自動処罰</span>
-                                        <span className={(settings.punishments?.length || 0) > 0 ? styles.statusOn : styles.statusOff}>{(settings.punishments?.length || 0) > 0 ? '有効' : '無効'}</span>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div className={styles.card}>
-                                <div className={styles.cardHeader}><h2>検知</h2></div>
-                                <div className={styles.cardBody}>
-                                    {Object.entries(settings.detectors || {}).map(([name, config]) => (
-                                        <div key={name} className={`${styles.detectorRow} ${config?.enabled ? styles.detectorEnabled : ''}`}>
-                                            <div className={styles.detectorInfo}>
-                                                <span className={styles.detectorName}>{humanizeDetectorName(name)}</span>
-                                                {detectorDescriptions[name] && (
-                                                    <div className={styles.detectorDescription}>{detectorDescriptions[name]}</div>
-                                                )}
-                                            </div>
-                                            <label className={styles.switch}>
-                                                <IOSCheckbox checked={!!config?.enabled} onChange={async (v) => { await updateSettings({ detectors: { ...(settings.detectors || {}), [name]: { ...config, enabled: v } } }); }} />
+                        {wordFilterRules.length === 0 ? (
+                            <div className={styles.emptyPanel}>ルールがまだありません。</div>
+                        ) : (
+                            <div className={styles.ruleList}>
+                                {wordFilterRules.map((rule) => (
+                                    <article key={rule.id} className={styles.ruleCard}>
+                                        <div className={styles.inlineFields}>
+                                            <label className={styles.field}>
+                                                <span>表示名</span>
+                                                <input type="text" value={rule.label} onChange={(event) => updateWordFilterRule(rule.id, { label: event.target.value })} />
+                                            </label>
+                                            <label className={styles.field}>
+                                                <span>パターン</span>
+                                                <input type="text" value={rule.pattern} onChange={(event) => updateWordFilterRule(rule.id, { pattern: event.target.value })} />
+                                            </label>
+                                            <label className={styles.field}>
+                                                <span>モード</span>
+                                                <select value={rule.mode} onChange={(event) => updateWordFilterRule(rule.id, { mode: event.target.value as WordFilterRule['mode'] })}>
+                                                    <option value="contains">contains</option>
+                                                    <option value="exact">exact</option>
+                                                    <option value="regex">regex</option>
+                                                </select>
+                                            </label>
+                                            <label className={styles.field}>
+                                                <span>スコア</span>
+                                                <input type="number" value={rule.score} onChange={(event) => updateWordFilterRule(rule.id, { score: Number(event.target.value) })} />
                                             </label>
                                         </div>
-                                    ))}
-                                </div>
-                            </div>
-
-                            <div className={styles.card}>
-                                <div className={styles.cardHeader}><h2>通知設定</h2></div>
-                                <div className={styles.cardBody}>
-                                    <div className={styles.formGroup}>
-                                        <label htmlFor="mobileLogChannel">ログチャンネルID</label>
-                                        <input
-                                            id="mobileLogChannel"
-                                            type="text"
-                                            placeholder="例: 123456789012345678"
-                                            value={settings.logChannelId || ''}
-                                            onChange={async (e) => {
-                                                await updateSettings({ logChannelId: e.target.value || null });
-                                            }}
-                                            className={styles.input}
-                                        />
-                                        <p className={styles.inputHint}>検知ログを送信するチャンネルID</p>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div className={styles.card}>
-                                <div className={styles.cardHeader}><h2>自動タイムアウト設定</h2></div>
-                                <div className={styles.cardBody}>
-                                    <div className={styles.formGroup}>
-                                            <label className={styles.checkboxLabel}>
-                                            <IOSCheckbox
-                                                checked={!!settings.autoTimeout?.enabled}
-                                                onChange={async (v) => {
-                                                    await updateSettings({
-                                                        autoTimeout: {
-                                                            enabled: v,
-                                                            durationSeconds: settings.autoTimeout?.durationSeconds || 180
-                                                        }
-                                                    });
-                                                }}
-                                            />
-                                            自動タイムアウトを有効化
-                                        </label>
-                                    </div>
-                                    {settings.autoTimeout?.enabled && (
-                                        <div className={styles.formGroup}>
-                                            <label>タイムアウト時間</label>
-                                            <input
-                                                id="mobileAutoTimeoutInput"
-                                                type="text"
-                                                placeholder="例: 1h / 30m / 300"
-                                                value={autoTimeoutInput}
-                                                onChange={(e) => setAutoTimeoutInput(e.target.value)}
-                                                onBlur={async () => {
-                                                    const seconds = parseDurationToSeconds(autoTimeoutInput) || 180;
-                                                    await updateSettings({ autoTimeout: { enabled: true, durationSeconds: seconds } });
-                                                }}
-                                                className={styles.input}
-                                            />
-                                            <p className={styles.inputHint}>例: `1d` `1h` `30m` `45s` または秒数（自動的に保存はフォーカス外で反映）</p>
-                                        </div>
-                                    )}
-                                    <div className={styles.cardHeader}><h3>自動メッセージ削除</h3></div>
-                                    <div className={styles.cardBody}>
-                                        <div className={styles.formGroup}>
-                                            <label className={styles.checkboxLabel}>
-                                                <IOSCheckbox
-                                                    checked={!!settings.autoDelete?.enabled}
-                                                    onChange={async (v) => {
-                                                        await updateSettings({
-                                                            autoDelete: {
-                                                                enabled: v,
-                                                                windowSeconds: settings.autoDelete?.windowSeconds || 600
-                                                            }
-                                                        });
-                                                    }}
-                                                />
-                                                自動メッセージ削除を有効化
+                                        <div className={styles.inlineActions}>
+                                            <label className={styles.toggle}>
+                                                <input type="checkbox" checked={rule.enabled} onChange={(event) => updateWordFilterRule(rule.id, { enabled: event.target.checked })} />
+                                                <span>有効</span>
                                             </label>
-                                        </div>
-                                        {settings.autoDelete?.enabled && (
-                                            <div className={styles.formGroup}>
-                                                <label>削除対象の過去時間</label>
-                                                <input
-                                                    id="mobileAutoDeleteInput"
-                                                    type="text"
-                                                    placeholder="例: 10m / 600 / 1h"
-                                                    value={autoDeleteInput}
-                                                    onChange={(e) => setAutoDeleteInput(e.target.value)}
-                                                    onBlur={async () => {
-                                                        const seconds = parseDurationToSeconds(autoDeleteInput) || 600;
-                                                        await updateSettings({ autoDelete: { enabled: true, windowSeconds: seconds } });
-                                                    }}
-                                                    className={styles.input}
-                                                />
-                                                <p className={styles.inputHint}>検知時に遡って削除する時間（例: `10m` は10分前まで全て削除）</p>
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* Mobile: allow adding/listing punishment rules */}
-                            <div className={styles.card}>
-                                <div className={styles.cardHeader}><h2>処罰ルール</h2></div>
-                                <div className={styles.cardBody}>
-                                    <button className={styles.btnPrimary} onClick={handleAddPunishment}>+ 処罰ルールを追加</button>
-                                    <div className={styles.punishmentsList} style={{ marginTop: '8px' }}>
-                                        {(settings.punishments?.length || 0) === 0 ? (
-                                            <p className={styles.noPunishments}>処罰ルールが設定されていません</p>
-                                        ) : (
-                                            settings.punishments.map((punishment, index) => (
-                                                <div key={index} className={styles.punishmentItem} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0' }}>
-                                                    <div>
-                                                        <div><strong>しきい値: {punishment.threshold}</strong></div>
-                                                        <div>{punishment.actions.map((action, aIdx) => (<span key={aIdx} className={styles.actionBadge}>{action.type}{action.durationSeconds && ` (${action.durationSeconds}s)`}</span>))}</div>
-                                                    </div>
-                                                            <div style={{ display: 'flex', gap: '8px' }}>
-                                                                <button className={styles.btn} onClick={() => handleEditPunishment(index)}>編集</button>
-                                                                <button className={styles.btnDanger} onClick={() => handleRemovePunishment(index)}>削除</button>
-                                                            </div>
-                                                </div>
-                                            ))
-                                        )}
-                                
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-
-                    {activeView === 'logs' && (
-                        <div className={styles.content}>
-                            <div className={styles.logsHeader}>
-                                <input type="text" placeholder="ユーザーIDまたは理由で検索..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className={styles.searchInput} />
-                                <select value={severityFilter} onChange={(e) => setSeverityFilter(e.target.value as any)} className={styles.input} style={{ width: '40%' }}>
-                                    <option value="all">すべて</option>
-                                    <option value="low">低</option>
-                                    <option value="medium">中</option>
-                                    <option value="high">高</option>
-                                </select>
-                                <button className={styles.refreshBtn} onClick={() => refetchLogs()} disabled={logsLoading}>🔄 更新</button>
-                            </div>
-                            {logsLoading ? <div className={styles.loading}>読み込み中...</div> : filteredLogs.length === 0 ? <div className={styles.noLogs}>検知ログがありません</div> : (
-                                <div className={styles.logsList}>
-                                    {filteredLogs.filter(log => severityFilter === 'all' ? true : severityForLog(log) === severityFilter).map((log) => (
-                                        <div key={log.messageId} className={`${styles.logCard} ${severityForLog(log) === 'high' ? styles.logRowHigh : severityForLog(log) === 'medium' ? styles.logRowMedium : styles.logRowLow}`}>
-                                            <div className={styles.logHeader}>
-                                                <span className={styles.logTime}>{new Date(log.timestamp).toLocaleString('ja-JP')}</span>
-                                                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                                                    <span className={styles.logScore}>+{log.scoreDelta}</span>
-                                                    <span className={`${styles.severityBadge} ${severityForLog(log) === 'high' ? styles.severityHigh : severityForLog(log) === 'medium' ? styles.severityMedium : styles.severityLow}`}>{severityForLog(log).toUpperCase()}</span>
-                                                    <button aria-label="詳細" className={styles.expandArrow + (expandedLogIds[log.messageId] ? ' ' + styles.expandOpen : '')} onClick={() => setExpandedLogIds(prev => ({ ...prev, [log.messageId]: !prev[log.messageId] }))}>▸</button>
-                                                </div>
-                                            </div>
-                                            <div className={styles.logBody}>
-                                                {(() => {
-                                                    const displayName = (log.metadata && (log.metadata.displayName || log.metadata.username)) || '';
-                                                    return (
-                                                        <div className={styles.logUser}>
-                                                            <div className={styles.userInfo}>
-                                                                <div className={styles.displayName}>{displayName || '不明'}</div>
-                                                                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                                                                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                                                                        <div className={styles.userId}><code>{log.userId}</code></div>
-                                                                        <button className={styles.btnIcon} onClick={() => copyToClipboard(log.userId)}>コピー</button>
-                                                                    </div>
-                                                                    <button className={styles.btnIcon} onClick={() => copyToClipboard(log.userId)} aria-label="コピー">コピー</button>
-                                                                </div>
-                                                            </div>
-                                                        </div>
-                                                    );
-                                                })()}
-                                                <div className={styles.logDetector}>検知: <span className={styles.detectorTag}>{log.detector}</span></div>
-                                                <div className={styles.logReason}>{log.reason}</div>
-                                            </div>
-                                            <div className={styles.logActions}><button className={styles.revokeBtn} onClick={() => handleRevokeTimeout(log.userId, log.messageId)} disabled={executing}>解除</button></div>
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
-                    )}
-
-                    {activeView === 'trust' && (
-                        <div className={styles.content}>
-                            <div className={styles.trustHeader}>
-                                <input
-                                    type="text"
-                                    placeholder="ユーザーID、ユーザー名、表示名で検索..."
-                                    value={trustSearchTerm}
-                                    onChange={(e) => setTrustSearchTerm(e.target.value)}
-                                    className={styles.searchInput}
-                                />
-                                <button className={styles.refreshBtn} onClick={() => refetchTrust()} disabled={trustLoading}>
-                                    🔄 更新
-                                </button>
-                            </div>
-                            {trustLoading ? (
-                                <div className={styles.loading}>読み込み中...</div>
-                            ) : trustError ? (
-                                <div className={styles.error}>エラー: {trustError}</div>
-                            ) : filteredTrustData.length === 0 ? (
-                                <div className={styles.noTrustData}>
-                                    {trustSearchTerm ? '検索結果がありません' : '信頼スコアデータがありません'}
-                                </div>
-                            ) : (
-                                <div className={styles.trustList}>
-                                    {filteredTrustData.map(([userId, trustData]) => (
-                                        <div key={userId} className={styles.trustCard}>
-                                            <div className={styles.trustCardHeader}>
-                                                <div className={styles.userInfo}>
-                                                    <span className={styles.displayName}>
-                                                        {(trustData as UserTrustDataWithUser).displayName || (trustData as UserTrustDataWithUser).username || '不明'}
-                                                    </span>
-                                                    <span className={styles.userId}>{userId}</span>
-                                                </div>
-                                                <span className={styles.trustScore}>
-                                                    <span className={(trustData as UserTrustData).score >= 0 ? styles.scorePositive : styles.scoreNegative}>
-                                                        {(trustData as UserTrustData).score}
-                                                    </span>
-                                                </span>
-                                            </div>
-                                            <div className={styles.trustCardBody}>
-                                                <div>最終更新: {new Date((trustData as UserTrustData).lastUpdated).toLocaleString('ja-JP')}</div>
-                                                <div>履歴件数: {(trustData as UserTrustData).history?.length || 0}</div>
-                                            </div>
-                                            <div className={styles.trustCardActions}>
-                                                <button
-                                                    className={styles.revokeBtn}
-                                                    onClick={() => handleResetTrust(userId)}
-                                                    disabled={executing}
-                                                >
-                                                    リセット
-                                                </button>
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
-                    )}
-                </div>
-
-                {/* Punishment Modal */}
-                {modalOpen && (
-                    <div className={styles.modalOverlay} onClick={() => setModalOpen(false)}>
-                        <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
-                            <div className={styles.modalHeader}>
-                                <h2>{editIndex !== null ? '処罰ルールを編集' : '処罰ルールを追加'}</h2>
-                                <button className={styles.modalClose} onClick={() => setModalOpen(false)}>✕</button>
-                            </div>
-                            <div className={styles.modalBody}>
-                                <div className={styles.formGroup}>
-                                    <label htmlFor="threshold">しきい値</label>
-                                    <input
-                                        id="threshold"
-                                        type="number"
-                                        placeholder="例: 5"
-                                        value={newThreshold}
-                                        onChange={(e) => setNewThreshold(e.target.value)}
-                                        className={styles.input}
-                                    />
-                                    <p className={styles.inputHint}>信頼スコアがこの値に達すると処罰が実行されます</p>
-                                </div>
-
-                                <div className={styles.formGroup}>
-                                    <label htmlFor="actionType">処罰タイプ</label>
-                                    <select id="actionType" className={styles.input} value={newActionType} onChange={(e) => setNewActionType(e.target.value as any)}>
-                                        <option value="timeout">Timeout（タイムアウト）</option>
-                                        <option value="kick">Kick（キック）</option>
-                                        <option value="ban">Ban（BAN）</option>
-                                    </select>
-                                    <p className={styles.inputHint}>実行する処罰の種類を選択してください</p>
-                                </div>
-
-                                {newActionType === 'timeout' && (
-                                    <div className={styles.formGroup}>
-                                        <label htmlFor="duration">タイムアウト時間（秒）</label>
-                                        <input
-                                            id="duration"
-                                            type="text"
-                                            placeholder="例: 300 / 1s / 5h"
-                                            value={newDuration}
-                                            onChange={(e) => setNewDuration(e.target.value)}
-                                            className={styles.input}
-                                        />
-                                        <p className={styles.inputHint}>ユーザーがタイムアウトされる時間（秒単位） 例: 1s, 5h, 30m, 1d</p>
-                                    </div>
-                                )}
-                            </div>
-                            <div className={styles.modalFooter}>
-                                <button className={styles.btnSecondary} onClick={() => setModalOpen(false)}>キャンセル</button>
-                                <button
-                                    className={styles.btnPrimary}
-                                    onClick={handleSavePunishment}
-                                    disabled={
-                                        !newThreshold || parseInt(newThreshold) <= 0 || (
-                                            newActionType === 'timeout' && (!newDuration || parseDurationToSeconds(newDuration) <= 0)
-                                        )
-                                    }
-                                >
-                                    {editIndex !== null ? '保存' : '追加'}
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                )}
-
-                {/* Confirmation Modal */}
-                {confirmModalOpen && (
-                    <div className={styles.modalOverlay} onClick={closeConfirmModal}>
-                        <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
-                            <div className={styles.modalHeader}>
-                                <h2>確認</h2>
-                                <button className={styles.modalClose} onClick={closeConfirmModal}>✕</button>
-                            </div>
-                            <div className={styles.modalBody}>
-                                <p className={styles.confirmMessage}>{confirmModalMessage}</p>
-                                {confirmModalType === 'revokeTimeout' && (
-                                    <div className={styles.confirmOptions}>
-                                        <div className={styles.iosCheckboxRow}>
-                                            <IOSCheckbox
-                                                checked={!!confirmModalData?.resetTrust}
-                                                onChange={(v) => setConfirmModalData((prev: any) => ({ ...prev, resetTrust: v }))}
-                                            />
-                                            <button
-                                                type="button"
-                                                className={styles.iosCheckboxLabelText}
-                                                onClick={() => setConfirmModalData((prev: any) => ({ ...prev, resetTrust: !prev?.resetTrust }))}
-                                            >
-                                                信頼スコアもリセットする
+                                            <label className={styles.toggle}>
+                                                <input type="checkbox" checked={rule.deleteMessage !== false} onChange={(event) => updateWordFilterRule(rule.id, { deleteMessage: event.target.checked })} />
+                                                <span>削除</span>
+                                            </label>
+                                            <button className={styles.dangerButton} onClick={() => removeWordFilterRule(rule.id)} type="button">
+                                                削除
                                             </button>
                                         </div>
-                                    </div>
-                                )}
-                            </div>
-                            <div className={styles.modalFooter}>
-                                <button className={styles.btnSecondary} onClick={closeConfirmModal}>キャンセル</button>
-                                <button
-                                    className={styles.btnDanger}
-                                    onClick={handleConfirmModalConfirm}
-                                    disabled={executing}
-                                >
-                                    実行
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                )}
-            </AntiCheatLayout>
-        );
-    }
-
-    // Desktop layout
-    return (
-        <AntiCheatLayout activeTab={activeView} onTabChange={(t) => setActiveView(t as any)}>
-            <div className={styles.layout}>
-                <div className={styles.header}>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                        <h1 className={styles.title}><span className={`${styles.statusDot} ${settings.enabled ? styles.statusDotOn : styles.statusDotOff}`} />🛡️ AntiCheat 管理</h1>
-                        <div style={{ fontSize: '0.9rem', color: 'var(--ac-muted)' }}>有効な検知: {enabledDetectorsCount}</div>
-                    </div>
-                    <div className={styles.headerActions}>
-                        <button className={`${styles.btn} ${settings.enabled ? styles.btnDanger : styles.btnSuccess}`} onClick={handleToggleEnabled}>{settings.enabled ? '無効化' : '有効化'}</button>
-                    </div>
-                </div>
-
-                <div className={styles.tabs}>
-                    <button className={`${styles.tab} ${activeView === 'settings' ? styles.tabActive : ''}`} onClick={() => setActiveView('settings')}>設定</button>
-                    <button className={`${styles.tab} ${activeView === 'logs' ? styles.tabActive : ''}`} onClick={() => setActiveView('logs')}>検知ログ</button>
-                    <button className={`${styles.tab} ${activeView === 'trust' ? styles.tabActive : ''}`} onClick={() => setActiveView('trust')}>信頼スコア</button>
-                </div>
-
-                {activeView === 'settings' && (
-                    <div className={styles.content}>
-                        <div className={styles.section}>
-                            <h2>検知リスト</h2>
-                            <div className={styles.detectorControls}>
-                                <div className={styles.detectorLabel}>一括操作:</div>
-                                <button className={styles.toggleAllBtn} onClick={() => toggleAllDetectors(true)}>すべて有効</button>
-                                <button className={styles.toggleAllBtn} onClick={() => toggleAllDetectors(false)}>すべて無効</button>
-                            </div>
-                            <div className={styles.detectorsList}>
-                                {Object.entries(settings.detectors || {}).map(([name, config]) => (
-                                    <div key={name} className={`${styles.detectorItem} ${config?.enabled ? styles.detectorEnabled : ''}`}>
-                                            <div className={styles.detectorHeader}>
-                                                <label className={styles.switch}>
-                                                    <IOSCheckbox checked={!!config?.enabled} onChange={async (v) => { await updateSettings({ detectors: { ...(settings.detectors || {}), [name]: { ...config, enabled: v } } }); }} />
-                                                </label>
-                                                <div className={styles.detectorInfo}>
-                                                    <span className={styles.detectorName}>{humanizeDetectorName(name)}</span>
-                                                    {detectorDescriptions[name] && (
-                                                        <div className={styles.detectorDescription}>
-                                                            {detectorDescriptions[name]}
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            </div>
-                                    </div>
+                                    </article>
                                 ))}
                             </div>
-                        </div>
-
-                        <div className={styles.section}>
-                            <h2>通知設定</h2>
-                            <p className={styles.hint}>検知ログの送信先チャンネルを設定します（チャンネルID）。</p>
-                            <div className={styles.formGroup}>
-                                <label htmlFor="logChannelId">ログチャンネルID</label>
-                                <input
-                                    id="logChannelId"
-                                    type="text"
-                                    placeholder="例: 123456789012345678"
-                                    value={settings.logChannelId || ''}
-                                    onChange={async (e) => {
-                                        await updateSettings({ logChannelId: e.target.value || null });
-                                    }}
-                                    className={styles.input}
-                                />
-                                <p className={styles.inputHint}>検知ログを送信するチャンネルID（空にすると無効）</p>
-                            </div>
-                        </div>
-
-                        <div className={styles.section}>
-                            <h2>自動処罰設定</h2>
-                            <p className={styles.hint}>信頼スコアがしきい値に達した場合の自動処罰を設定します。デフォルトでは無効です。</p>
-                            <button className={styles.btnPrimary} onClick={handleAddPunishment}>+ 処罰ルールを追加</button>
-                            <div className={styles.punishmentsList}>
-                                {(settings.punishments?.length || 0) === 0 ? (
-                                    <p className={styles.noPunishments}>処罰ルールが設定されていません（ログのみモード）</p>
-                                        ) : (
-                                    settings.punishments.map((punishment, index) => (
-                                        <div key={index} className={styles.punishmentItem}>
-                                            <div className={styles.punishmentInfo}>
-                                                <strong>しきい値: {punishment.threshold}</strong>
-                                                <div>{punishment.actions.map((action, aIdx) => (<span key={aIdx} className={styles.actionBadge}>{action.type}{action.durationSeconds && ` (${action.durationSeconds}s)`}</span>))}</div>
-                                            </div>
-                                            <div style={{ display: 'flex', gap: '8px' }}>
-                                                <button className={styles.btn} onClick={() => handleEditPunishment(index)}>編集</button>
-                                                <button className={styles.btnDanger} onClick={() => handleRemovePunishment(index)}>削除</button>
-                                            </div>
-                                        </div>
-                                    ))
-                                )}
-                            </div>
-                        </div>
-
-                        <div className={styles.section}>
-                            <h2>自動タイムアウト設定</h2>
-                            <p className={styles.hint}>違反検知時に自動でタイムアウトをかける設定です。</p>
-                            <div className={styles.formGroup}>
-                                            <label className={styles.checkboxLabel}>
-                                    <IOSCheckbox
-                                        checked={!!settings.autoTimeout?.enabled}
-                                        onChange={async (v) => {
-                                            await updateSettings({
-                                                autoTimeout: {
-                                                    enabled: v,
-                                                    durationSeconds: settings.autoTimeout?.durationSeconds || 180
-                                                }
-                                            });
-                                        }}
-                                    />
-                                    自動タイムアウトを有効化
-                                </label>
-                            </div>
-                            {settings.autoTimeout?.enabled && (
-                                <div className={styles.formGroup}>
-                                    <label htmlFor="autoTimeoutDuration">タイムアウト時間</label>
-                                    <input
-                                        id="autoTimeoutDuration"
-                                        type="text"
-                                        placeholder="例: 1h / 30m / 300"
-                                        value={autoTimeoutInput}
-                                        onChange={(e) => setAutoTimeoutInput(e.target.value)}
-                                        onBlur={async () => {
-                                            const seconds = parseDurationToSeconds(autoTimeoutInput) || 180;
-                                            await updateSettings({ autoTimeout: { enabled: true, durationSeconds: seconds } });
-                                        }}
-                                        className={styles.input}
-                                    />
-                                    <p className={styles.inputHint}>例: `1d` `1h` `30m` `45s` または秒数（最大7日）</p>
-                                </div>
-                            )}
-
-                            <div className={styles.formGroup}>
-                                <label className={styles.checkboxLabel}>
-                                    <IOSCheckbox
-                                        checked={!!settings.autoDelete?.enabled}
-                                        onChange={async (v) => {
-                                            await updateSettings({
-                                                autoDelete: {
-                                                    enabled: v,
-                                                    windowSeconds: settings.autoDelete?.windowSeconds || 600
-                                                }
-                                            });
-                                        }}
-                                    />
-                                    自動メッセージ削除を有効化
-                                </label>
-                            </div>
-                            {settings.autoDelete?.enabled && (
-                                <div className={styles.formGroup}>
-                                    <label htmlFor="autoDeleteDuration">削除対象の過去時間</label>
-                                    <input
-                                        id="autoDeleteDuration"
-                                        type="text"
-                                        placeholder="例: 10m / 600 / 1h"
-                                        value={autoDeleteInput}
-                                        onChange={(e) => setAutoDeleteInput(e.target.value)}
-                                        onBlur={async () => {
-                                            const seconds = parseDurationToSeconds(autoDeleteInput) || 600;
-                                            await updateSettings({ autoDelete: { enabled: true, windowSeconds: seconds } });
-                                        }}
-                                        className={styles.input}
-                                    />
-                                    <p className={styles.inputHint}>例: `10m` は検知時に10分前までのメッセージを削除します</p>
-                                </div>
-                            )}
-                        </div>
-
-                        <div className={styles.section}>
-                            <h2>除外設定</h2>
-                            <p className={styles.hint}>AntiCheatの対象外とするロール、チャンネル、ユーザーを設定します。</p>
-                            <div className={styles.exclusionSection}>
-                                <div className={styles.formGroup}>
-                                    <label>除外ロールID（カンマ区切り）</label>
-                                    <input
-                                        type="text"
-                                        placeholder="例: 123456789012345678, 876543210987654321"
-                                        value={(settings.excludedRoles || []).join(', ')}
-                                        onChange={async (e) => {
-                                            const roles = e.target.value.split(',').map(r => r.trim()).filter(r => r);
-                                            await updateSettings({ excludedRoles: roles });
-                                        }}
-                                        className={styles.input}
-                                    />
-                                    <p className={styles.inputHint}>これらのロールを持つユーザーはAntiCheatの対象外になります。</p>
-                                </div>
-                                <div className={styles.formGroup}>
-                                    <label>除外チャンネルID（カンマ区切り）</label>
-                                    <input
-                                        type="text"
-                                        placeholder="例: 123456789012345678, 876543210987654321"
-                                        value={(settings.excludedChannels || []).join(', ')}
-                                        onChange={async (e) => {
-                                            const channels = e.target.value.split(',').map(c => c.trim()).filter(c => c);
-                                            await updateSettings({ excludedChannels: channels });
-                                        }}
-                                        className={styles.input}
-                                    />
-                                    <p className={styles.inputHint}>これらのチャンネルでのメッセージはAntiCheatの対象外になります。</p>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                )}
-
-                {activeView === 'logs' && (
-                    <div className={styles.content}>
-                        <div className={styles.logsHeader}>
-                            <input type="text" placeholder="ユーザーIDまたは理由で検索..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className={styles.searchInput} />
-                            <select value={severityFilter} onChange={(e) => setSeverityFilter(e.target.value as any)} className={styles.input} style={{ width: '160px' }}>
-                                <option value="all">すべての重大度</option>
-                                <option value="low">低</option>
-                                <option value="medium">中</option>
-                                <option value="high">高</option>
-                            </select>
-                            <button className={styles.btnSecondary} onClick={() => refetchLogs()}>🔄 更新</button>
-                        </div>
-
-                        {logsLoading ? (<div className={styles.loading}>読み込み中...</div>) : filteredLogs.length === 0 ? (<div className={styles.noLogs}>検知ログがありません</div>) : (
-                            <div className={styles.logsTable}>
-                                <table>
-                                    <thead>
-                                        <tr><th>時刻</th><th>ユーザーID</th><th>検知</th><th>スコア増加</th><th>理由</th><th>操作</th></tr>
-                                    </thead>
-                                    <tbody>
-                                        {filteredLogs.filter(log => severityFilter === 'all' ? true : severityForLog(log) === severityFilter).map((log) => (
-                                            <tr key={log.messageId} className={severityForLog(log) === 'high' ? styles.highlightRow : ''}>
-                                                <td>{new Date(log.timestamp).toLocaleString('ja-JP')}</td>
-                                                <td className={styles.userCell}>
-                                                    <div className={styles.userInfo}>
-                                                        <div className={styles.userName}>{(log.metadata && (log.metadata.displayName || log.metadata.username)) || '不明'}</div>
-                                                        <div className={styles.userId}><code>{log.userId}</code></div>
-                                                    </div>
-                                                </td>
-                                                <td><span className={styles.detectorBadge}>{log.detector}</span></td>
-                                                <td className={styles.scoreDelta}>+{log.scoreDelta} <span className={`${styles.severityBadge} ${severityForLog(log) === 'high' ? styles.severityHigh : severityForLog(log) === 'medium' ? styles.severityMedium : styles.severityLow}`} style={{ marginLeft: 8 }}>{severityForLog(log).toUpperCase()}</span></td>
-                                                <td className={styles.reason} title={log.reason}>{log.reason}</td>
-                                                <td><button className={styles.btnSmall} onClick={() => handleRevokeTimeout(log.userId, log.messageId)} disabled={executing}>解除</button></td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                            </div>
                         )}
                     </div>
-                )}
-
-                {activeView === 'trust' && (
-                    <div className={styles.content}>
-                        <div className={styles.trustHeader}>
-                            <input
-                                type="text"
-                                placeholder="ユーザーID、ユーザー名、表示名で検索..."
-                                value={trustSearchTerm}
-                                onChange={(e) => setTrustSearchTerm(e.target.value)}
-                                className={styles.searchInput}
-                            />
-                            <button className={styles.btnSecondary} onClick={() => refetchTrust()}>
-                                🔄 更新
-                            </button>
-                        </div>
-
-                        {trustLoading ? (
-                            <div className={styles.loading}>読み込み中...</div>
-                        ) : trustError ? (
-                            <div className={styles.error}>エラー: {trustError}</div>
-                        ) : filteredTrustData.length === 0 ? (
-                            <div className={styles.noTrustData}>
-                                {trustSearchTerm ? '検索結果がありません' : '信頼スコアデータがありません'}
-                            </div>
-                        ) : (
-                            <div className={styles.trustTable}>
-                                <table>
-                                    <thead>
-                                        <tr>
-                                            <th>ユーザー</th>
-                                            <th>信頼スコア</th>
-                                            <th>最終更新</th>
-                                            <th>履歴件数</th>
-                                            <th>操作</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {filteredTrustData.map(([userId, trustData]) => (
-                                            <tr key={userId}>
-                                                <td className={styles.userCell}>
-                                                    <div className={styles.userInfo}>
-                                                        <div className={styles.userName}>
-                                                            {(trustData as UserTrustDataWithUser).displayName || (trustData as UserTrustDataWithUser).username || '不明'}
-                                                        </div>
-                                                        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                                                            <div className={styles.userId}>{userId}</div>
-                                                            <button className={styles.btnIcon} onClick={() => copyToClipboard(userId)}>コピー</button>
-                                                        </div>
-                                                    </div>
-                                                </td>
-                                                <td className={styles.trustScore}>
-                                                    <span className={trustData.score >= 0 ? styles.scorePositive : styles.scoreNegative}>
-                                                        {trustData.score}
-                                                    </span>
-                                                </td>
-                                                <td>{new Date(trustData.lastUpdated).toLocaleString('ja-JP')}</td>
-                                                <td>{trustData.history?.length || 0}</td>
-                                                <td>
-                                                    <button
-                                                        className={styles.btnSmall}
-                                                        onClick={() => handleResetTrust(userId)}
-                                                        disabled={executing}
-                                                    >
-                                                        リセット
-                                                    </button>
-                                                </td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                            </div>
-                        )}
+                );
+            case 'raidDetection':
+                return (
+                    <div className={styles.inlineFields}>
+                        <label className={styles.field}>
+                            <span>1時間あたり参加数</span>
+                            <input type="number" value={detector.config?.joinsPerHour ?? 25} onChange={(event) => updateDetectorConfig(detectorKey, 'joinsPerHour', Number(event.target.value))} />
+                        </label>
+                        <label className={styles.field}>
+                            <span>短時間参加数</span>
+                            <input type="number" value={detector.config?.burstCount ?? 10} onChange={(event) => updateDetectorConfig(detectorKey, 'burstCount', Number(event.target.value))} />
+                        </label>
+                        <label className={styles.field}>
+                            <span>短時間監視秒数</span>
+                            <input type="number" value={detector.config?.burstWindowSeconds ?? 10} onChange={(event) => updateDetectorConfig(detectorKey, 'burstWindowSeconds', Number(event.target.value))} />
+                        </label>
+                        <label className={styles.field}>
+                            <span>再発動待機(分)</span>
+                            <input type="number" value={detector.config?.cooldownMinutes ?? 60} onChange={(event) => updateDetectorConfig(detectorKey, 'cooldownMinutes', Number(event.target.value))} />
+                        </label>
                     </div>
-                )}
+                );
+            default:
+                return null;
+        }
+    };
+
+    const renderOverview = () => {
+        if (!draft) return null;
+
+        return (
+            <section className={styles.section}>
+                <div className={styles.metricsGrid}>
+                    <article className={styles.metricCard}>
+                        <span className={styles.sectionLabel}>Status</span>
+                        <strong>{draft.enabled ? 'Enabled' : 'Disabled'}</strong>
+                        <p>AntiCheat 全体の有効状態です。</p>
+                    </article>
+                    <article className={styles.metricCard}>
+                        <span className={styles.sectionLabel}>Detectors</span>
+                        <strong>{enabledDetectorCount}</strong>
+                        <p>現在有効な検知器数です。</p>
+                    </article>
+                    <article className={styles.metricCard}>
+                        <span className={styles.sectionLabel}>Raid Mode</span>
+                        <strong>{draft.raidMode.active ? 'Active' : 'Standby'}</strong>
+                        <p>{draft.raidMode.reason || '現在は通常監視モードです。'}</p>
+                    </article>
+                    <article className={styles.metricCard}>
+                        <span className={styles.sectionLabel}>Avatar Log</span>
+                        <strong>{draft.avatarLogChannelId || 'Unset'}</strong>
+                        <p>アバター変更を記録するログ先です。</p>
+                    </article>
+                </div>
+
+                <div className={styles.formGrid}>
+                    <label className={styles.toggleCard}>
+                        <span className={styles.toggleTitle}>AntiCheat を有効化</span>
+                        <input type="checkbox" checked={draft.enabled} onChange={(event) => setDraft({ ...draft, enabled: event.target.checked })} />
+                    </label>
+                    <label className={styles.field}>
+                        <span>検知ログチャンネルID</span>
+                        <input type="text" value={draft.logChannelId || ''} onChange={(event) => setDraft({ ...draft, logChannelId: event.target.value || null })} placeholder="123456789012345678" />
+                    </label>
+                    <label className={styles.field}>
+                        <span>アバターログチャンネルID</span>
+                        <input type="text" value={draft.avatarLogChannelId || ''} onChange={(event) => setDraft({ ...draft, avatarLogChannelId: event.target.value || null })} placeholder="123456789012345678" />
+                    </label>
+                    <label className={styles.toggleCard}>
+                        <span className={styles.toggleTitle}>自動タイムアウト</span>
+                        <input type="checkbox" checked={draft.autoTimeout.enabled} onChange={(event) => setDraft({ ...draft, autoTimeout: { ...draft.autoTimeout, enabled: event.target.checked } })} />
+                    </label>
+                    <label className={styles.field}>
+                        <span>自動タイムアウト秒数</span>
+                        <input type="number" value={draft.autoTimeout.durationSeconds} onChange={(event) => setDraft({ ...draft, autoTimeout: { ...draft.autoTimeout, durationSeconds: Number(event.target.value) } })} />
+                    </label>
+                    <label className={styles.toggleCard}>
+                        <span className={styles.toggleTitle}>自動メッセージ削除</span>
+                        <input type="checkbox" checked={draft.autoDelete.enabled} onChange={(event) => setDraft({ ...draft, autoDelete: { ...draft.autoDelete, enabled: event.target.checked } })} />
+                    </label>
+                    <label className={styles.field}>
+                        <span>自動削除の監視秒数</span>
+                        <input type="number" value={draft.autoDelete.windowSeconds} onChange={(event) => setDraft({ ...draft, autoDelete: { ...draft.autoDelete, windowSeconds: Number(event.target.value) } })} />
+                    </label>
+                </div>
+
+                <div className={styles.formGrid}>
+                    <label className={styles.field}>
+                        <span>除外ロールID</span>
+                        <textarea value={excludedRolesText} onChange={(event) => setExcludedRolesText(event.target.value)} placeholder="1行またはカンマ区切りで入力" />
+                    </label>
+                    <label className={styles.field}>
+                        <span>除外チャンネルID</span>
+                        <textarea value={excludedChannelsText} onChange={(event) => setExcludedChannelsText(event.target.value)} placeholder="1行またはカンマ区切りで入力" />
+                    </label>
+                </div>
+
+                <div className={styles.inlineActions}>
+                    <button className={styles.primaryButton} onClick={() => commitDraft('概要設定を保存しました。')} type="button" disabled={saving}>
+                        {saving ? '保存中...' : '概要を保存'}
+                    </button>
+                    {draft.raidMode.active ? (
+                        <button className={styles.secondaryButton} onClick={() => setDraft({ ...draft, raidMode: { ...draft.raidMode, active: false, reason: null } })} type="button">
+                            レイドモード状態をクリア
+                        </button>
+                    ) : null}
+                </div>
+            </section>
+        );
+    };
+
+    const renderRules = () => (
+        <section className={styles.section}>
+            <div className={styles.detectorGrid}>
+                {DETECTOR_CATALOG.map((catalog) => {
+                    const detector = draft?.detectors[catalog.key];
+                    if (!detector) return null;
+
+                    return (
+                        <article key={catalog.key} className={styles.detectorCard}>
+                            <div className={styles.detectorHead}>
+                                <div className={styles.detectorInfo}>
+                                    <span className={`material-icons ${styles.detectorIcon}`}>{catalog.icon}</span>
+                                    <div>
+                                        <h3>{catalog.title}</h3>
+                                        <p>{catalog.description}</p>
+                                    </div>
+                                </div>
+                                <label className={styles.toggle}>
+                                    <input type="checkbox" checked={detector.enabled} onChange={(event) => updateDetector(catalog.key, { enabled: event.target.checked })} />
+                                    <span>有効</span>
+                                </label>
+                            </div>
+
+                            <div className={styles.inlineFields}>
+                                <label className={styles.field}>
+                                    <span>スコア</span>
+                                    <input type="number" value={detector.score} onChange={(event) => updateDetector(catalog.key, { score: Number(event.target.value) })} />
+                                </label>
+                                <label className={styles.toggleCard}>
+                                    <span className={styles.toggleTitle}>メッセージ削除</span>
+                                    <input type="checkbox" checked={detector.deleteMessage !== false} onChange={(event) => updateDetector(catalog.key, { deleteMessage: event.target.checked })} />
+                                </label>
+                                <label className={styles.toggleCard}>
+                                    <span className={styles.toggleTitle}>チャンネル通知</span>
+                                    <input type="checkbox" checked={!!detector.notifyChannel} onChange={(event) => updateDetector(catalog.key, { notifyChannel: event.target.checked })} />
+                                </label>
+                            </div>
+
+                            {renderDetectorConfig(catalog.key)}
+                        </article>
+                    );
+                })}
             </div>
 
-            {/* Punishment Modal */}
-            {modalOpen && (
-                <div className={styles.modalOverlay} onClick={() => setModalOpen(false)}>
-                    <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
-                        <div className={styles.modalHeader}>
-                            <h2>{editIndex !== null ? '処罰ルールを編集' : '処罰ルールを追加'}</h2>
-                            <button className={styles.modalClose} onClick={() => setModalOpen(false)}>✕</button>
-                        </div>
-                        <div className={styles.modalBody}>
-                                        <div className={styles.formGroup}>
-                                            <label htmlFor="threshold">しきい値</label>
-                                            <input
-                                                id="threshold"
-                                                type="number"
-                                                placeholder="例: 5"
-                                                value={newThreshold}
-                                                onChange={(e) => setNewThreshold(e.target.value)}
-                                                className={styles.input}
-                                            />
-                                            <p className={styles.inputHint}>信頼スコアがこの値に達すると処罰が実行されます</p>
-                                        </div>
+            <div className={styles.inlineActions}>
+                <button className={styles.primaryButton} onClick={() => commitDraft('検知ルールを保存しました。')} type="button" disabled={saving}>
+                    {saving ? '保存中...' : 'ルールを保存'}
+                </button>
+            </div>
+        </section>
+    );
 
-                                        <div className={styles.formGroup}>
-                                            <label htmlFor="actionType">処罰タイプ</label>
-                                            <select id="actionType" className={styles.input} value={newActionType} onChange={(e) => setNewActionType(e.target.value as any)}>
-                                                <option value="timeout">Timeout（タイムアウト）</option>
-                                                <option value="kick">Kick（キック）</option>
-                                                <option value="ban">Ban（BAN）</option>
+    const renderPunishments = () => (
+        <section className={styles.section}>
+            <div className={styles.stack}>
+                <div className={styles.ruleToolbar}>
+                    <span className={styles.sectionLabel}>Threshold Actions</span>
+                    <button className={styles.secondaryButton} onClick={addPunishment} type="button">
+                        <span className="material-icons">add</span>
+                        閾値を追加
+                    </button>
+                </div>
+                {draft?.punishments.length ? (
+                    <div className={styles.policyList}>
+                        {draft.punishments.map((punishment, index) => {
+                            const action = punishment.actions[0] || EMPTY_PUNISHMENT_ACTION;
+                            return (
+                                <article key={`${punishment.threshold}-${index}`} className={styles.policyCard}>
+                                    <div className={styles.inlineFields}>
+                                        <label className={styles.field}>
+                                            <span>閾値スコア</span>
+                                            <input type="number" value={punishment.threshold} onChange={(event) => updatePunishment(index, { threshold: Number(event.target.value) })} />
+                                        </label>
+                                        <label className={styles.field}>
+                                            <span>処置</span>
+                                            <select value={action.type} onChange={(event) => updatePunishmentAction(index, { type: event.target.value as PunishmentAction['type'] })}>
+                                                <option value="timeout">timeout</option>
+                                                <option value="kick">kick</option>
+                                                <option value="ban">ban</option>
                                             </select>
-                                            <p className={styles.inputHint}>実行する処罰の種類を選択してください</p>
-                                        </div>
-
-                                        {newActionType === 'timeout' && (
-                                            <div className={styles.formGroup}>
-                                                <label htmlFor="duration">タイムアウト時間（秒）</label>
-                                                <input
-                                                    id="duration"
-                                                    type="text"
-                                                    placeholder="例: 300 / 1s / 5h"
-                                                    value={newDuration}
-                                                    onChange={(e) => setNewDuration(e.target.value)}
-                                                    className={styles.input}
-                                                />
-                                                <p className={styles.inputHint}>ユーザーがタイムアウトされる時間（秒単位） 例: 1s, 5h, 30m, 1d</p>
-                                            </div>
-                                        )}
+                                        </label>
+                                        <label className={styles.field}>
+                                            <span>秒数</span>
+                                            <input type="number" value={action.durationSeconds || 0} onChange={(event) => updatePunishmentAction(index, { durationSeconds: Number(event.target.value) })} />
+                                        </label>
+                                        <label className={styles.toggle}>
+                                            <input type="checkbox" checked={action.notify !== false} onChange={(event) => updatePunishmentAction(index, { notify: event.target.checked })} />
+                                            <span>ログ通知</span>
+                                        </label>
                                     </div>
-                                    <div className={styles.modalFooter}>
-                                        <button className={styles.btnSecondary} onClick={() => setModalOpen(false)}>キャンセル</button>
-                                        <button
-                                            className={styles.btnPrimary}
-                                            onClick={handleSavePunishment}
-                                            disabled={
-                                                !newThreshold || parseInt(newThreshold) <= 0 || (
-                                                    newActionType === 'timeout' && (!newDuration || parseDurationToSeconds(newDuration) <= 0)
-                                                )
-                                            }
-                                        >
-                                            追加
+                                    <label className={styles.field}>
+                                        <span>理由テンプレート</span>
+                                        <input type="text" value={action.reasonTemplate || ''} onChange={(event) => updatePunishmentAction(index, { reasonTemplate: event.target.value })} />
+                                    </label>
+                                    <div className={styles.inlineActions}>
+                                        <button className={styles.dangerButton} onClick={() => removePunishment(index)} type="button">
+                                            閾値を削除
                                         </button>
                                     </div>
+                                </article>
+                            );
+                        })}
                     </div>
+                ) : (
+                    <div className={styles.emptyPanel}>まだ処罰閾値がありません。</div>
+                )}
+            </div>
+            <article className={styles.policyCard}>
+                <h3>新しい閾値の初期値</h3>
+                <div className={styles.inlineFields}>
+                    <label className={styles.field}>
+                        <span>閾値スコア</span>
+                        <input type="number" value={punishmentDraft.threshold} onChange={(event) => setPunishmentDraft({ ...punishmentDraft, threshold: Number(event.target.value) })} />
+                    </label>
+                    <label className={styles.field}>
+                        <span>処置</span>
+                        <select value={punishmentDraft.actions[0]?.type || 'timeout'} onChange={(event) => setPunishmentDraft({ ...punishmentDraft, actions: [{ ...(punishmentDraft.actions[0] || EMPTY_PUNISHMENT_ACTION), type: event.target.value as PunishmentAction['type'] }] })}>
+                            <option value="timeout">timeout</option>
+                            <option value="kick">kick</option>
+                            <option value="ban">ban</option>
+                        </select>
+                    </label>
+                    <label className={styles.field}>
+                        <span>秒数</span>
+                        <input type="number" value={punishmentDraft.actions[0]?.durationSeconds || 0} onChange={(event) => setPunishmentDraft({ ...punishmentDraft, actions: [{ ...(punishmentDraft.actions[0] || EMPTY_PUNISHMENT_ACTION), durationSeconds: Number(event.target.value) }] })} />
+                    </label>
                 </div>
-            )}
+            </article>
 
-            {/* Confirmation Modal */}
-            {confirmModalOpen && (
-                <div className={styles.modalOverlay} onClick={closeConfirmModal}>
-                    <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
-                        <div className={styles.modalHeader}>
-                            <h2>確認</h2>
-                            <button className={styles.modalClose} onClick={closeConfirmModal}>✕</button>
-                        </div>
-                        <div className={styles.modalBody}>
-                            <p className={styles.confirmMessage}>{confirmModalMessage}</p>
-                            {confirmModalType === 'revokeTimeout' && (
-                                    <div className={styles.confirmOptions}>
-                                        <div className={styles.iosCheckboxRow}>
-                                            <IOSCheckbox
-                                                checked={!!confirmModalData?.resetTrust}
-                                                onChange={(v) => setConfirmModalData((prev: any) => ({ ...prev, resetTrust: v }))}
-                                            />
-                                            <button
-                                                type="button"
-                                                className={styles.iosCheckboxLabelText}
-                                                onClick={() => setConfirmModalData((prev: any) => ({ ...prev, resetTrust: !prev?.resetTrust }))}
-                                            >
-                                                信頼スコアもリセットする
+            <div className={styles.inlineActions}>
+                <button className={styles.primaryButton} onClick={() => commitDraft('処罰設定を保存しました。')} type="button" disabled={saving}>
+                    {saving ? '保存中...' : '処罰を保存'}
+                </button>
+            </div>
+        </section>
+    );
+
+    const renderLogs = () => (
+        <section className={styles.section}>
+            {logsLoading ? (
+                <div className={styles.loadingPanel}>ログを読み込んでいます...</div>
+            ) : logs.length === 0 ? (
+                <div className={styles.emptyPanel}>まだ検知ログはありません。</div>
+            ) : (
+                <div className={styles.tableWrap}>
+                    <table className={styles.table}>
+                        <thead>
+                            <tr>
+                                <th>検知器</th>
+                                <th>スコア</th>
+                                <th>理由</th>
+                                <th>時刻</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {logs.map((log) => (
+                                <tr key={`${log.messageId}-${log.timestamp}`}>
+                                    <td>{log.detector}</td>
+                                    <td>{log.scoreDelta}</td>
+                                    <td>
+                                        <div className={styles.logReason}>{log.reason}</div>
+                                        {log.metadata?.finalUrl ? <div className={styles.subtleText}>到達先: {String(log.metadata.finalUrl)}</div> : null}
+                                    </td>
+                                    <td>{formatDate(log.timestamp)}</td>
+                                    <td>
+                                        <div className={styles.inlineActions}>
+                                            {log.metadata?.isTimedOut ? (
+                                                <button className={styles.secondaryButton} onClick={() => handleRevokeTimeout(log)} type="button" disabled={executing}>
+                                                    解除
+                                                </button>
+                                            ) : null}
+                                            <button className={styles.dangerButton} onClick={() => handleResetTrust(log.userId)} type="button" disabled={executing}>
+                                                スコア初期化
                                             </button>
                                         </div>
-                                    </div>
-                            )}
-                        </div>
-                        <div className={styles.modalFooter}>
-                            <button className={styles.btnSecondary} onClick={closeConfirmModal}>キャンセル</button>
-                            <button
-                                className={styles.btnDanger}
-                                onClick={handleConfirmModalConfirm}
-                                disabled={executing}
-                            >
-                                実行
-                            </button>
-                        </div>
-                    </div>
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
                 </div>
             )}
-        </AntiCheatLayout>
+        </section>
+    );
+
+    const renderTrust = () => (
+        <section className={styles.section}>
+            {trustLoading ? (
+                <div className={styles.loadingPanel}>信頼スコアを読み込んでいます...</div>
+            ) : trustEntries.length === 0 ? (
+                <div className={styles.emptyPanel}>信頼スコアが付与されたユーザーはいません。</div>
+            ) : (
+                <div className={styles.tableWrap}>
+                    <table className={styles.table}>
+                        <thead>
+                            <tr>
+                                <th>ユーザー</th>
+                                <th>スコア</th>
+                                <th>最終更新</th>
+                                <th>最新理由</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {trustEntries.map((entry) => (
+                                <tr key={entry.userId}>
+                                    <td>
+                                        <div className={styles.userCell}>
+                                            {entry.avatar ? <img src={entry.avatar} alt={entry.username} className={styles.avatar} /> : null}
+                                            <div>
+                                                <strong>{entry.displayName || entry.username}</strong>
+                                                <div className={styles.subtleText}>{entry.userId}</div>
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td>{entry.score}</td>
+                                    <td>{formatDate(entry.lastUpdated)}</td>
+                                    <td>{entry.history[entry.history.length - 1]?.reason || '履歴なし'}</td>
+                                    <td>
+                                        <button className={styles.dangerButton} onClick={() => handleResetTrust(entry.userId)} type="button" disabled={executing}>
+                                            リセット
+                                        </button>
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            )}
+        </section>
+    );
+
+    const renderContent = () => {
+        switch (activeTab) {
+            case 'rules':
+                return renderRules();
+            case 'punishments':
+                return renderPunishments();
+            case 'logs':
+                return renderLogs();
+            case 'trust':
+                return renderTrust();
+            case 'overview':
+            default:
+                return renderOverview();
+        }
+    };
+
+    return (
+        <div className={styles.page}>
+            <PageShell
+                eyebrow="AntiCheat Workspace"
+                title="AntiCheat 管理"
+                description={`ギルド単位で検知スコア、削除方針、レイド監視、アバターログまで一元管理します。対象: ${guildId}`}
+                actions={
+                    <>
+                        <button className={styles.secondaryButton} onClick={() => navigate('/staff/anticheat')} type="button">
+                            <span className="material-icons">arrow_back</span>
+                            サーバー選択へ
+                        </button>
+                        <button className={styles.primaryButton} onClick={() => commitDraft('現在の変更を保存しました。')} type="button" disabled={saving || !draft}>
+                            <span className="material-icons">save</span>
+                            {saving ? '保存中...' : '変更を保存'}
+                        </button>
+                    </>
+                }
+                meta={
+                    <>
+                        <span className={styles.metaChip}>スコア制裁</span>
+                        <span className={styles.metaChip}>リダイレクト解析</span>
+                        <span className={styles.metaChip}>アバターログ</span>
+                    </>
+                }
+                aside={
+                    <div className={styles.summary}>
+                        <div className={styles.summaryCard}>
+                            <span className={styles.summaryLabel}>Service</span>
+                            <strong>{draft?.enabled ? 'Online' : 'Paused'}</strong>
+                            <p>{draft?.enabled ? '検知器が稼働しています。' : '現在は停止しています。'}</p>
+                        </div>
+                        <div className={styles.summaryCard}>
+                            <span className={styles.summaryLabel}>Detectors</span>
+                            <strong>{enabledDetectorCount}</strong>
+                            <p>有効化されている検知器の数です。</p>
+                        </div>
+                        <div className={styles.summaryCard}>
+                            <span className={styles.summaryLabel}>Raid Mode</span>
+                            <strong>{draft?.raidMode.active ? 'Active' : 'Standby'}</strong>
+                            <p>{draft?.raidMode.reason || 'レイドモードは待機中です。'}</p>
+                        </div>
+                    </div>
+                }
+            >
+                {loading || !draft ? (
+                    <div className={styles.loadingPanel}>AntiCheat 設定を読み込んでいます...</div>
+                ) : error ? (
+                    <div className={styles.errorPanel}>{error}</div>
+                ) : (
+                    <>
+                        {(saveNotice || actionError || logsError || trustError) ? (
+                            <div className={styles.statusRow}>
+                                {saveNotice ? <div className={styles.noticeSuccess}>{saveNotice}</div> : null}
+                                {actionError ? <div className={styles.noticeError}>{actionError}</div> : null}
+                                {logsError ? <div className={styles.noticeError}>{logsError}</div> : null}
+                                {trustError ? <div className={styles.noticeError}>{trustError}</div> : null}
+                            </div>
+                        ) : null}
+
+                        <div className={styles.tabBar}>
+                            {(Object.keys(TAB_LABELS) as TabKey[]).map((tab) => (
+                                <button key={tab} className={`${styles.tabButton} ${activeTab === tab ? styles.tabButtonActive : ''}`} onClick={() => setActiveTab(tab)} type="button">
+                                    {TAB_LABELS[tab]}
+                                </button>
+                            ))}
+                        </div>
+
+                        {renderContent()}
+                    </>
+                )}
+            </PageShell>
+        </div>
     );
 };
 

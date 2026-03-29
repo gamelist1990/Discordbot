@@ -15,6 +15,7 @@ interface GuildInfo {
     id: string;
     name: string;
     icon?: string | null;
+    iconURL?: string | null;
 }
 
 const RankBoardGuild: React.FC = () => {
@@ -43,13 +44,7 @@ const RankBoardGuild: React.FC = () => {
 
             const data = await res.json();
             setGuild(data.guild);
-
-            // パネル一覧を取得
-            const panelsRes = await fetch(`/api/rank/panels/${guildId}`, { credentials: 'include' });
-            if (panelsRes.ok) {
-                const panelsData = await panelsRes.json();
-                setPanels(panelsData.panels || []);
-            }
+            setPanels(data.panels || []);
 
         } catch (err) {
             console.error('Failed to fetch guild data:', err);
@@ -59,10 +54,11 @@ const RankBoardGuild: React.FC = () => {
         }
     };
 
-    const getGuildIconUrl = (guildId: string, icon?: string | null) => {
-        if (!icon) return '';
-        if (/^https?:\/\//.test(icon)) return icon;
-        return `https://cdn.discordapp.com/icons/${guildId}/${icon}.png`;
+    const getGuildIconUrl = (guildId: string, icon?: string | null, iconURL?: string | null) => {
+        const resolvedIcon = icon || iconURL;
+        if (!resolvedIcon) return '';
+        if (/^https?:\/\//.test(resolvedIcon)) return resolvedIcon;
+        return `https://cdn.discordapp.com/icons/${guildId}/${resolvedIcon}.png`;
     };
 
     const handlePanelClick = (panelId: string) => {
@@ -119,9 +115,9 @@ const RankBoardGuild: React.FC = () => {
         <div className={styles.container}>
             <div className={styles.hero}>
                 <div className={styles.heroContent}>
-                    {guild.icon && (
+                    {(guild.icon || guild.iconURL) && (
                         <img
-                            src={getGuildIconUrl(guild.id, guild.icon)}
+                            src={getGuildIconUrl(guild.id, guild.icon, guild.iconURL)}
                             alt={guild.name}
                             className={styles.guildIcon}
                             style={{ width: 80, height: 80, margin: '0 auto 16px', display: 'block' }}

@@ -137,8 +137,8 @@ export class SettingsServer {
         this.app.use('/api/staff', createStaffRoutes(sessions, this.botClient));
         this.app.use('/api/staff', createRolePresetRoutes(sessions, this.botClient));
         this.app.use('/api/staff/rankmanager', createRankRoutes(sessions, this.botClient));
+        this.app.use('/api/rank', createPublicRankRoutes(sessions, this.botClient));
         this.app.use('/api/rank', createWebRankRoutes(sessions, this.botClient));
-        this.app.use('/api/rank', createPublicRankRoutes(this.botClient));
         this.app.use('/api/auth', createAuthRoutes(sessions, this.botClient));
         this.app.use('/api/user', createUserRoutes(sessions, this.botClient, this.profileService));
         this.app.use('/api/user/profile', createProfileController(sessions, this.profileService));

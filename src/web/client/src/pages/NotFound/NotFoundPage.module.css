@@ -5,10 +5,10 @@
 .codePanel,
 .hintPanel {
   padding: 20px;
-  border-radius: 22px;
+  border-radius: var(--radius-md);
   border: 1px solid var(--app-border);
-  background: rgba(255, 255, 255, 0.8);
-  box-shadow: var(--app-shadow-md);
+  background: var(--app-surface);
+  box-shadow: var(--app-shadow-sm);
 }
 
 .codeLabel {
@@ -22,7 +22,6 @@
 .codePanel strong {
   display: block;
   margin-top: 4px;
-  font-family: var(--font-display);
   font-size: 3rem;
   letter-spacing: -0.08em;
   color: var(--app-ink);
@@ -47,18 +46,19 @@
   justify-content: center;
   gap: 8px;
   padding: 12px 18px;
-  border-radius: 999px;
+  border-radius: var(--radius-xs);
   font-weight: 700;
+  border: 1px solid transparent;
 }
 
 .primaryButton {
-  background: linear-gradient(135deg, var(--app-accent), var(--app-accent-strong));
+  background: linear-gradient(180deg, var(--app-accent), var(--app-accent-strong));
   color: #fff;
-  box-shadow: 0 18px 32px rgba(15, 91, 216, 0.2);
+  box-shadow: 0 10px 24px color-mix(in srgb, var(--app-accent) 24%, transparent);
 }
 
 .secondaryButton {
-  background: rgba(255, 255, 255, 0.78);
+  background: var(--app-surface-soft);
   color: var(--app-ink);
   border: 1px solid var(--app-border-strong);
 }

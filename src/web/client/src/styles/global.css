@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;800&family=Space+Grotesk:wght@400;500;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Sans+JP:wght@400;500;600;700&display=swap');
 @import url('https://fonts.googleapis.com/icon?family=Material+Icons');
 @import url('https://fonts.googleapis.com/css2?family=Material+Icons+Outlined');
 @import './layout.css';
@@ -10,41 +10,42 @@
   box-sizing: border-box;
 }
 
-:root {
-  --font-display: 'Space Grotesk', 'Noto Sans JP', sans-serif;
-  --font-body: 'Noto Sans JP', 'Hiragino Sans', 'Yu Gothic UI', sans-serif;
+:root,
+:root[data-theme='light'] {
+  --font-display: 'IBM Plex Sans', 'IBM Plex Sans JP', sans-serif;
+  --font-body: 'IBM Plex Sans JP', 'IBM Plex Sans', sans-serif;
 
-  --app-bg: #f4efe7;
-  --app-bg-soft: #fbf8f2;
-  --app-surface: rgba(255, 255, 255, 0.82);
-  --app-surface-strong: rgba(255, 255, 255, 0.94);
-  --app-surface-muted: rgba(248, 242, 233, 0.88);
-  --app-border: rgba(21, 42, 72, 0.1);
-  --app-border-strong: rgba(21, 42, 72, 0.16);
-  --app-ink: #10233b;
-  --app-ink-soft: #5a687d;
-  --app-ink-muted: #7f8b9b;
-  --app-accent: #0f5bd8;
-  --app-accent-strong: #0c3f97;
-  --app-accent-soft: rgba(15, 91, 216, 0.1);
-  --app-success: #1b8a62;
-  --app-warn: #d18b2f;
-  --app-danger: #c34c45;
-  --app-shadow-sm: 0 10px 24px rgba(16, 35, 59, 0.06);
-  --app-shadow-md: 0 18px 44px rgba(16, 35, 59, 0.08);
-  --app-shadow-xl: 0 28px 80px rgba(16, 35, 59, 0.14);
+  --app-bg: #f5f7fb;
+  --app-bg-soft: #eef2f7;
+  --app-surface: rgba(255, 255, 255, 0.9);
+  --app-surface-strong: rgba(255, 255, 255, 0.98);
+  --app-surface-soft: #f7f9fc;
+  --app-surface-muted: #edf2f8;
+  --app-border: rgba(15, 23, 42, 0.1);
+  --app-border-strong: rgba(15, 23, 42, 0.18);
+  --app-ink: #162033;
+  --app-ink-soft: #526074;
+  --app-ink-muted: #7f8a99;
+  --app-accent: #1d4ed8;
+  --app-accent-strong: #173ea8;
+  --app-accent-soft: rgba(29, 78, 216, 0.1);
+  --app-success: #127a5a;
+  --app-warn: #c07b15;
+  --app-danger: #c43d42;
+  --app-shadow-sm: 0 6px 18px rgba(15, 23, 42, 0.06);
+  --app-shadow-md: 0 14px 32px rgba(15, 23, 42, 0.08);
+  --app-shadow-lg: 0 22px 48px rgba(15, 23, 42, 0.12);
 
-  /* Compatibility tokens */
   --google-blue: var(--app-accent);
   --google-green: var(--app-success);
   --google-red: var(--app-danger);
   --google-yellow: var(--app-warn);
-  --grey-50: #f7f4ee;
-  --grey-100: #eee7dc;
-  --grey-200: #d9d1c4;
-  --grey-300: #c1b7ab;
-  --grey-600: #69768a;
-  --grey-700: #48566d;
+  --grey-50: #f7f9fc;
+  --grey-100: #edf2f8;
+  --grey-200: #d9e1ec;
+  --grey-300: #c0cad8;
+  --grey-600: #66758a;
+  --grey-700: #4c5b6d;
   --grey-900: var(--app-ink);
   --primary-color: var(--app-accent);
   --primary-hover: var(--app-accent-strong);
@@ -54,12 +55,15 @@
   --text-primary: var(--app-ink);
   --text-secondary: var(--app-ink-soft);
   --text-muted: var(--app-ink-muted);
-  --header-height: 76px;
+  --header-height: 74px;
   --sidebar-width: 240px;
   --border-radius: 8px;
+  --radius-xs: 4px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
   --shadow: var(--app-shadow-sm);
 
-  /* iOS-like Theme Tokens */
   --ios-bg: var(--app-bg);
   --ios-surface: var(--app-surface-strong);
   --ios-surface-secondary: var(--app-surface);
@@ -71,29 +75,50 @@
   --ios-green: var(--app-success);
   --ios-red: var(--app-danger);
   --ios-orange: var(--app-warn);
-  --ios-yellow: #FFCC00;
-  --ios-purple: #AF52DE;
-  --ios-indigo: #5856D6;
-  --ios-pink: #FF2D55;
-  --ios-teal: #5AC8FA;
-  --ios-cyan: #32ADE6;
-  
+  --ios-yellow: #d4a511;
+  --ios-purple: #4a67b3;
+  --ios-indigo: #3155aa;
+  --ios-pink: #cb4f70;
+  --ios-teal: #247b8d;
+  --ios-cyan: #2c93a7;
   --ios-shadow: var(--app-shadow-sm);
   --ios-shadow-lg: var(--app-shadow-md);
-  
-  --ios-radius-sm: 8px;
-  --ios-radius-md: 12px;
-  --ios-radius-lg: 16px;
-  --ios-radius-xl: 24px;
-  
+  --ios-radius-sm: var(--radius-xs);
+  --ios-radius-md: var(--radius-sm);
+  --ios-radius-lg: var(--radius-md);
+  --ios-radius-xl: var(--radius-lg);
   --ios-font-family: var(--font-body);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --ios-shadow: var(--app-shadow-sm);
-    --ios-shadow-lg: var(--app-shadow-md);
-  }
+:root[data-theme='dark'] {
+  --app-bg: #0f1724;
+  --app-bg-soft: #162030;
+  --app-surface: rgba(16, 24, 38, 0.92);
+  --app-surface-strong: rgba(19, 29, 46, 0.98);
+  --app-surface-soft: #182233;
+  --app-surface-muted: #202c40;
+  --app-border: rgba(148, 163, 184, 0.16);
+  --app-border-strong: rgba(148, 163, 184, 0.28);
+  --app-ink: #f2f5fb;
+  --app-ink-soft: #b5c0d1;
+  --app-ink-muted: #8794a8;
+  --app-accent: #76a8ff;
+  --app-accent-strong: #9cc2ff;
+  --app-accent-soft: rgba(118, 168, 255, 0.12);
+  --app-success: #4bc694;
+  --app-warn: #e3a64a;
+  --app-danger: #ef6b73;
+  --app-shadow-sm: 0 6px 18px rgba(0, 0, 0, 0.24);
+  --app-shadow-md: 0 14px 32px rgba(0, 0, 0, 0.32);
+  --app-shadow-lg: 0 24px 50px rgba(0, 0, 0, 0.42);
+
+  --grey-50: #182233;
+  --grey-100: #202c40;
+  --grey-200: #2a3950;
+  --grey-300: #40506a;
+  --grey-600: #8d99ac;
+  --grey-700: #b3bfd0;
+  --grey-900: var(--app-ink);
 }
 
 html {
@@ -104,9 +129,10 @@ body {
   min-height: 100vh;
   font-family: var(--font-body);
   background:
-    radial-gradient(circle at 14% 12%, rgba(15, 91, 216, 0.12), transparent 22%),
-    radial-gradient(circle at 88% 14%, rgba(209, 139, 47, 0.11), transparent 18%),
-    linear-gradient(180deg, #f7f3eb 0%, #efe6da 100%);
+    linear-gradient(90deg, rgba(15, 23, 42, 0.035) 1px, transparent 1px),
+    linear-gradient(0deg, rgba(15, 23, 42, 0.035) 1px, transparent 1px),
+    linear-gradient(180deg, var(--app-bg) 0%, var(--app-bg-soft) 100%);
+  background-size: 32px 32px, 32px 32px, 100% 100%;
   color: var(--app-ink);
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
@@ -133,7 +159,12 @@ button {
   cursor: pointer;
   border: none;
   outline: none;
-  transition: all 0.2s;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    color 0.2s ease,
+    transform 0.2s ease;
 }
 
 button:disabled {
@@ -145,10 +176,10 @@ input, select, textarea {
   font-family: inherit;
   outline: none;
   border: 1px solid var(--app-border);
-  border-radius: 12px;
+  border-radius: var(--radius-xs);
   padding: 10px 14px;
   font-size: 14px;
-  background: rgba(255, 255, 255, 0.82);
+  background: var(--app-surface-strong);
   color: var(--app-ink);
   transition:
     border-color 0.2s ease,
@@ -157,16 +188,16 @@ input, select, textarea {
 }
 
 input:focus, select:focus, textarea:focus {
-  border-color: rgba(15, 91, 216, 0.45);
-  box-shadow: 0 0 0 4px rgba(15, 91, 216, 0.12);
-  background: rgba(255, 255, 255, 0.96);
+  border-color: color-mix(in srgb, var(--app-accent) 42%, var(--app-border));
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--app-accent) 14%, transparent);
+  background: var(--app-surface-strong);
 }
 
 code {
   font-family: 'Courier New', 'Consolas', monospace;
-  background: rgba(16, 35, 59, 0.06);
+  background: color-mix(in srgb, var(--app-ink) 8%, transparent);
   padding: 2px 6px;
-  border-radius: 3px;
+  border-radius: var(--radius-xs);
   font-size: 0.9em;
 }
 
@@ -176,7 +207,20 @@ code {
 }
 
 ::selection {
-  background: rgba(15, 91, 216, 0.18);
+  background: color-mix(in srgb, var(--app-accent) 20%, transparent);
+}
+
+.appFrame {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.appMain {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 /* Utility classes */

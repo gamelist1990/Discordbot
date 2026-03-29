@@ -5,6 +5,7 @@ import App from './App';
 import './styles/global.css';
 import { AppToastProvider } from './AppToastProvider';
 import { startPrivateChatSSE } from './services/sse';
+import { ThemeProvider } from './theme/ThemeProvider';
 
 // Handle redirection logic after successful authentication.
 // Only perform the stored-returnPath redirect when the app is on the root page
@@ -33,9 +34,11 @@ const handlePostAuthRedirect = () => {
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <BrowserRouter>
-      <AppToastProvider>
-        <App />
-      </AppToastProvider>
+      <ThemeProvider>
+        <AppToastProvider>
+          <App />
+        </AppToastProvider>
+      </ThemeProvider>
     </BrowserRouter>
   </React.StrictMode>
 );

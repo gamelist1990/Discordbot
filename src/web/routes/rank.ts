@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { RankController } from '../controllers/RankController.js';
 import { BotClient } from '../../core/BotClient.js';
 import { SettingsSession } from '../types/index.js';
-import { verifyAuth } from '../middleware/auth.js';
+import { attachSessionIfPresent, verifyAuth } from '../middleware/auth.js';
 
 /**
  * ランク管理ルートを作成
@@ -61,16 +61,22 @@ export function createRankRoutes(
  * 公開ランキングボード用ルート（認証不要）
  */
 export function createPublicRankRoutes(
+    sessions: Map<string, SettingsSession>,
     botClient: BotClient
 ): Router {
     const router = Router();
     const controller = new RankController(botClient);
 
+    // セッションがある場合だけ付与し、未ログインでも閲覧できるようにする
+    router.use(attachSessionIfPresent(sessions));
+
     // 公開エンドポイント（認証不要）
     router.get('/panel/:guildId/:panelId', (req, res) => controller.getPanelLeaderboard(req, res));
     router.get('/leaderboard/:guildId/presets/:presetName', (req, res) => controller.getPresetLeaderboard(req, res));
+    router.get('/leaderboard/:guildId', (req, res) => controller.getLeaderboard(req, res));
     // ギルドのランキング情報を公開（認証不要）
     router.get('/guild/:id', (req, res) => controller.getGuildRankings(req, res));
+    router.get('/panels/:guildId', (req, res) => controller.getGuildPanels(req, res));
 
     return router;
 }

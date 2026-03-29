@@ -35,6 +35,7 @@ interface GuildInfo {
     id: string;
     name: string;
     icon?: string | null;
+    iconURL?: string | null;
 }
 
 type TabType = 'top' | 'all' | 'byrank';
@@ -139,10 +140,11 @@ const RankBoard: React.FC = () => {
         return `https://cdn.discordapp.com/avatars/${userId}/${avatar}.${ext}?size=64`;
     };
 
-    const getGuildIconUrl = (guildId: string, icon?: string | null) => {
-        if (!icon) return '';
-        if (/^https?:\/\//.test(icon)) return icon;
-        return `https://cdn.discordapp.com/icons/${guildId}/${icon}.png`;
+    const getGuildIconUrl = (guildId: string, icon?: string | null, iconURL?: string | null) => {
+        const resolvedIcon = icon || iconURL;
+        if (!resolvedIcon) return '';
+        if (/^https?:\/\//.test(resolvedIcon)) return resolvedIcon;
+        return `https://cdn.discordapp.com/icons/${guildId}/${resolvedIcon}.png`;
     };
 
     const renderRankingsList = (rankings: RankEntry[], startIndex: number = 0) => {
@@ -233,9 +235,9 @@ const RankBoard: React.FC = () => {
         <div className={styles.container}>
             <div className={styles.hero}>
                 <div className={styles.heroContent}>
-                    {guild.icon && (
+                    {(guild.icon || guild.iconURL) && (
                         <img
-                            src={getGuildIconUrl(guild.id, guild.icon)}
+                            src={getGuildIconUrl(guild.id, guild.icon, guild.iconURL)}
                             alt={guild.name}
                             className={styles.guildIcon}
                             style={{ width: 80, height: 80, margin: '0 auto 16px', display: 'block' }}

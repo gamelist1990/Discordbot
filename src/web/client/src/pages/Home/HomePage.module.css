@@ -32,36 +32,38 @@
   align-items: center;
   gap: 10px;
   padding: 12px 18px;
-  border-radius: 999px;
+  border-radius: var(--radius-xs);
   font-weight: 700;
+  border: 1px solid transparent;
 }
 
 .primaryAction {
-  background: linear-gradient(135deg, var(--app-accent), var(--app-accent-strong));
+  background: linear-gradient(180deg, var(--app-accent), var(--app-accent-strong));
   color: #fff;
-  box-shadow: 0 18px 32px rgba(15, 91, 216, 0.2);
+  box-shadow: 0 10px 24px color-mix(in srgb, var(--app-accent) 24%, transparent);
 }
 
 .primaryAction:hover {
-  transform: translateY(-1px);
+  box-shadow: 0 14px 30px color-mix(in srgb, var(--app-accent) 30%, transparent);
 }
 
 .secondaryAction {
-  background: rgba(255, 255, 255, 0.78);
+  background: var(--app-surface);
   color: var(--app-ink);
   border: 1px solid var(--app-border-strong);
 }
 
 .secondaryAction:hover {
-  background: rgba(255, 255, 255, 0.96);
+  background: var(--app-surface-strong);
 }
 
 .metaChip {
   display: inline-flex;
   align-items: center;
   padding: 8px 12px;
-  border-radius: 999px;
-  background: rgba(16, 35, 59, 0.06);
+  border-radius: var(--radius-xs);
+  background: var(--app-surface-soft);
+  border: 1px solid var(--app-border);
   color: var(--app-ink-soft);
   font-size: 0.84rem;
   font-weight: 600;
@@ -74,18 +76,17 @@
 
 .statusLead {
   padding: 18px;
-  border-radius: 22px;
-  background:
-    linear-gradient(140deg, rgba(11, 34, 70, 0.96), rgba(18, 57, 126, 0.94));
-  color: rgba(255, 255, 255, 0.9);
-  box-shadow: 0 22px 34px rgba(11, 34, 70, 0.24);
+  border-radius: var(--radius-md);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--app-accent) 9%, var(--app-surface)), var(--app-surface));
+  color: var(--app-ink);
+  border: 1px solid color-mix(in srgb, var(--app-accent) 18%, var(--app-border));
 }
 
 .statusLead strong {
   display: block;
   margin-top: 4px;
-  font-size: 1.2rem;
-  letter-spacing: -0.04em;
+  font-size: 1.15rem;
+  letter-spacing: -0.03em;
 }
 
 .statusLead p,
@@ -119,9 +120,9 @@
   grid-template-columns: auto 1fr;
   gap: 14px;
   padding: 16px;
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.7);
-  border: 1px solid rgba(16, 35, 59, 0.08);
+  border-radius: var(--radius-sm);
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
 }
 
 .statusIcon {
@@ -130,8 +131,8 @@
   justify-content: center;
   width: 42px;
   height: 42px;
-  border-radius: 14px;
-  background: rgba(16, 35, 59, 0.06);
+  border-radius: var(--radius-xs);
+  background: var(--app-surface-soft);
 }
 
 .cardLabel {
@@ -153,23 +154,23 @@
 }
 
 .ok {
-  background: linear-gradient(135deg, rgba(27, 138, 98, 0.12), rgba(255, 255, 255, 0.74));
+  border-color: color-mix(in srgb, var(--app-success) 30%, var(--app-border));
 }
 
 .warn {
-  background: linear-gradient(135deg, rgba(209, 139, 47, 0.14), rgba(255, 255, 255, 0.74));
+  border-color: color-mix(in srgb, var(--app-warn) 30%, var(--app-border));
 }
 
 .neutral {
-  background: rgba(255, 255, 255, 0.74);
+  border-color: var(--app-border);
 }
 
 .section {
   padding: 28px;
-  border-radius: 28px;
+  border-radius: var(--radius-lg);
   border: 1px solid var(--app-border);
-  background: rgba(255, 255, 255, 0.76);
-  box-shadow: var(--app-shadow-md);
+  background: var(--app-surface);
+  box-shadow: var(--app-shadow-sm);
 }
 
 .sectionIntro {
@@ -184,10 +185,9 @@
 
 .sectionIntro h2 {
   margin: 0;
-  font-family: var(--font-display);
   font-size: clamp(1.5rem, 2vw, 2.4rem);
-  line-height: 1.04;
-  letter-spacing: -0.05em;
+  line-height: 1.12;
+  letter-spacing: -0.04em;
   color: var(--app-ink);
 }
 
@@ -207,17 +207,17 @@
   display: grid;
   gap: 12px;
   padding: 20px;
-  border-radius: 22px;
-  background: rgba(249, 244, 236, 0.78);
-  border: 1px solid rgba(16, 35, 59, 0.07);
+  border-radius: var(--radius-md);
+  background: var(--app-surface-soft);
+  border: 1px solid var(--app-border);
   animation: floatIn 0.5s ease both;
 }
 
 .capabilityCard:hover,
 .linkCard:hover,
 .workflowStep:hover {
-  transform: translateY(-2px);
-  box-shadow: var(--app-shadow-md);
+  transform: translateY(-1px);
+  box-shadow: var(--app-shadow-sm);
 }
 
 .capabilityIcon,
@@ -227,9 +227,10 @@
   justify-content: center;
   width: 50px;
   height: 50px;
-  border-radius: 16px;
-  background: rgba(15, 91, 216, 0.1);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--app-accent) 10%, var(--app-surface));
   color: var(--app-accent-strong);
+  border: 1px solid color-mix(in srgb, var(--app-accent) 12%, var(--app-border));
 }
 
 .capabilityCard h3,
@@ -261,9 +262,9 @@
   grid-template-columns: auto 1fr;
   gap: 16px;
   padding: 18px;
-  border-radius: 20px;
-  background: rgba(249, 244, 236, 0.78);
-  border: 1px solid rgba(16, 35, 59, 0.07);
+  border-radius: var(--radius-md);
+  background: var(--app-surface-soft);
+  border: 1px solid var(--app-border);
   transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
@@ -273,10 +274,9 @@
   justify-content: center;
   width: 54px;
   height: 54px;
-  border-radius: 18px;
-  background: rgba(11, 34, 70, 0.94);
+  border-radius: var(--radius-sm);
+  background: var(--app-ink);
   color: #fff;
-  font-family: var(--font-display);
   font-size: 1rem;
   letter-spacing: -0.04em;
 }
@@ -294,10 +294,10 @@
   align-items: center;
   gap: 14px;
   padding: 18px;
-  border-radius: 22px;
-  background: rgba(249, 244, 236, 0.78);
+  border-radius: var(--radius-md);
+  background: var(--app-surface-soft);
   color: var(--app-ink);
-  border: 1px solid rgba(16, 35, 59, 0.07);
+  border: 1px solid var(--app-border);
   text-align: left;
 }
 
@@ -332,7 +332,7 @@
 @media (max-width: 640px) {
   .section {
     padding: 20px 18px;
-    border-radius: 22px;
+    border-radius: var(--radius-md);
   }
 
   .capabilityGrid,

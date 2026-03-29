@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import PageShell from '../../components/PageShell';
 import styles from './AntiCheatSelector.module.css';
 
 interface GuildEntry {
@@ -30,48 +31,64 @@ const AntiCheatSelector: React.FC = () => {
         load();
     }, []);
 
-    if (loading) return (
-        <div className={styles.loading} aria-busy="true" aria-live="polite">
-            <div className={styles.spinner} aria-hidden="true"></div>
-            <div>読み込み中...</div>
-        </div>
-    );
-
-    if (guilds.length === 0) return (
-        <div className={styles.empty}>
-            <h2>アクセス可能なサーバーがありません</h2>
-            <p>このアカウントはまだ管理権限のあるサーバーに接続されていない可能性があります。</p>
-        </div>
-    );
-
     return (
         <div className={styles.root}>
-            <h2 className={styles.title}>AntiCheat を管理するサーバーを選択</h2>
-            <div className={styles.grid}>
-                {guilds.map(g => (
-                    <div
-                        key={g.id}
-                        className={styles.card}
-                        role="button"
-                        tabIndex={0}
-                        onClick={() => navigate(`/staff/anticheat/${g.id}`)}
-                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate(`/staff/anticheat/${g.id}`); }}
-                        aria-label={`Open AntiCheat for ${g.name}`}
-                    >
-                        <div className={styles.cardInner}>
-                            {g.icon ? (
-                                <img src={`https://cdn.discordapp.com/icons/${g.id}/${g.icon}.png`} alt={g.name} className={styles.icon} />
-                            ) : (
-                                <div className={styles.fallbackIcon}>🏷️</div>
-                            )}
-                            <div>
-                                <div className={styles.guildName}>{g.name}</div>
-                                <div className={styles.guildId}>{g.id}</div>
-                            </div>
+            <PageShell
+                eyebrow="AntiCheat"
+                title="保護対象サーバーを選択"
+                description="検知ルール、スコア、処罰、ログをサーバー単位で管理します。"
+                aside={
+                    <div className={styles.summary}>
+                        <div className={styles.summaryCard}>
+                            <span className={styles.summaryLabel}>Available</span>
+                            <strong>{guilds.length}</strong>
+                            <p>現在このアカウントで開けるサーバー数です。</p>
                         </div>
                     </div>
-                ))}
-            </div>
+                }
+                compact
+            >
+                {loading ? (
+                    <div className={styles.loading} aria-busy="true" aria-live="polite">
+                        <div className={styles.spinner} aria-hidden="true"></div>
+                        <div>AntiCheat 設定面を準備しています...</div>
+                    </div>
+                ) : guilds.length === 0 ? (
+                    <div className={styles.empty}>
+                        <h2>アクセス可能なサーバーがありません</h2>
+                        <p>このアカウントに対して管理権限が付与されたサーバーがまだ見つかっていません。</p>
+                    </div>
+                ) : (
+                    <div className={styles.grid}>
+                        {guilds.map(g => (
+                            <div
+                                key={g.id}
+                                className={styles.card}
+                                role="button"
+                                tabIndex={0}
+                                onClick={() => navigate(`/staff/anticheat/${g.id}`)}
+                                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate(`/staff/anticheat/${g.id}`); }}
+                                aria-label={`Open AntiCheat for ${g.name}`}
+                            >
+                                <div className={styles.cardInner}>
+                                    {g.icon ? (
+                                        <img src={`https://cdn.discordapp.com/icons/${g.id}/${g.icon}.png`} alt={g.name} className={styles.icon} />
+                                    ) : (
+                                        <div className={styles.fallbackIcon}>
+                                            <span className="material-icons">shield</span>
+                                        </div>
+                                    )}
+                                    <div className={styles.cardBody}>
+                                        <div className={styles.guildName}>{g.name}</div>
+                                        <div className={styles.guildId}>{g.id}</div>
+                                    </div>
+                                    <span className={`material-icons ${styles.chevron}`}>arrow_forward</span>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </PageShell>
         </div>
     );
 };

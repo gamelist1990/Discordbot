@@ -59,19 +59,11 @@ export class AntiCheatController {
 
             // Get current settings
             const currentSettings = await antiCheatManager.getSettings(guildId);
-
-            // Merge updates with current settings
-            const newSettings: GuildAntiCheatSettings = {
-                ...currentSettings,
+            const newSettings: GuildAntiCheatSettings = antiCheatManager.mergeSettings(currentSettings, {
                 ...updates,
-                // Preserve nested objects with proper merging
-                detectors: updates.detectors || currentSettings.detectors,
-                punishments: updates.punishments !== undefined ? updates.punishments : currentSettings.punishments,
-                excludedRoles: updates.excludedRoles || currentSettings.excludedRoles,
-                excludedChannels: updates.excludedChannels || currentSettings.excludedChannels,
                 userTrust: currentSettings.userTrust,
                 recentLogs: currentSettings.recentLogs
-            };
+            });
 
             await antiCheatManager.setSettings(guildId, newSettings);
 

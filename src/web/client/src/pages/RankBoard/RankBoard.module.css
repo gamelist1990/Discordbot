@@ -1,424 +1,389 @@
-/* RankBoard.module.css
-   Premium Modern UI Design
-   - Glassmorphism elements
-   - Sophisticated gradients
-   - Smooth animations
-   - Responsive grid layout
-*/
-
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
-
-:root {
-    --bg-page: #f0f2f5;
-    --bg-gradient: linear-gradient(135deg, #f6f9fc 0%, #eef2f6 100%);
-    --surface: #ffffff;
-    --surface-glass: rgba(255, 255, 255, 0.8);
-    --text-primary: #1a202c;
-    --text-secondary: #64748b;
-    --primary: #4f46e5; /* Indigo 600 */
-    --primary-hover: #4338ca;
-    --accent: #0ea5e9; /* Sky 500 */
-    --success: #10b981;
-    --danger: #ef4444;
-    
-    --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-    --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-    --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
-    --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
-    
-    --radius-lg: 16px;
-    --radius-md: 12px;
-    --radius-sm: 8px;
-    
-    /* Rank Gradients */
-    --rank-1-bg: linear-gradient(135deg, #FFD700 0%, #FDB931 100%);
-    --rank-2-bg: linear-gradient(135deg, #E0E0E0 0%, #BDBDBD 100%);
-    --rank-3-bg: linear-gradient(135deg, #CD7F32 0%, #A0522D 100%);
-    --rank-text-shadow: 0 2px 4px rgba(0,0,0,0.2);
-}
-
 .container {
-    min-height: 100vh;
-    background: var(--bg-page);
-    background-image: 
-        radial-gradient(at 0% 0%, rgba(79, 70, 229, 0.1) 0px, transparent 50%),
-        radial-gradient(at 100% 0%, rgba(14, 165, 233, 0.1) 0px, transparent 50%);
-    font-family: 'Inter', sans-serif;
-    color: var(--text-primary);
+    min-height: calc(100vh - var(--header-height));
     padding-bottom: 40px;
 }
 
-/* Hero Section */
 .hero {
-    padding: 60px 20px;
-    text-align: center;
-    background: linear-gradient(to bottom, rgba(255,255,255,0.8), rgba(255,255,255,0));
-    margin-bottom: 40px;
-    border-bottom: 1px solid rgba(0,0,0,0.05);
+    width: min(1320px, calc(100% - 32px));
+    margin: 0 auto;
+    padding: 36px 0 20px;
 }
 
 .heroContent {
-    max-width: 800px;
-    margin: 0 auto;
-    animation: fadeInDown 0.6s ease-out;
-}
-
-.heroTitle {
-    font-size: 3rem;
-    font-weight: 800;
-    margin: 0 0 16px;
-    background: linear-gradient(135deg, var(--primary) 0%, var(--accent) 100%);
-    background-clip: text;
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    letter-spacing: -0.02em;
-}
-
-.heroSubtitle {
-    font-size: 1.1rem;
-    color: var(--text-secondary);
-    line-height: 1.6;
-}
-
-/* Layout Containers */
-.mainContent {
-    max-width: 1200px;
-    margin: 0 auto;
-    padding: 0 20px;
-    animation: fadeInUp 0.6s ease-out 0.2s backwards;
-}
-
-/* Guilds Grid */
-.guildsGrid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-    gap: 24px;
-}
-
-.guildCard {
-    background: var(--surface);
+    padding: 28px 32px;
     border-radius: var(--radius-lg);
-    padding: 24px;
-    display: flex;
-    align-items: center;
-    gap: 20px;
-    box-shadow: var(--shadow-md);
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    cursor: pointer;
-    border: 1px solid rgba(255,255,255,0.5);
+    border: 1px solid var(--app-border-strong);
+    background: linear-gradient(180deg, var(--app-surface-strong), var(--app-surface));
+    box-shadow: var(--app-shadow-md);
+    text-align: center;
     position: relative;
     overflow: hidden;
 }
 
-.guildCard::before {
+.heroContent::before {
     content: '';
     position: absolute;
-    top: 0; left: 0; right: 0; height: 4px;
-    background: linear-gradient(90deg, var(--primary), var(--accent));
-    opacity: 0;
-    transition: opacity 0.3s ease;
+    inset: 0 0 auto;
+    height: 3px;
+    background: linear-gradient(90deg, var(--app-accent), color-mix(in srgb, var(--app-accent) 10%, transparent));
 }
 
-.guildCard:hover {
-    transform: translateY(-4px);
-    box-shadow: var(--shadow-xl);
+.heroTitle {
+    margin: 0;
+    font-size: clamp(1.9rem, 3vw, 3rem);
+    line-height: 1.08;
+    letter-spacing: -0.04em;
+    color: var(--app-ink);
 }
 
-.guildCard:hover::before {
-    opacity: 1;
+.heroSubtitle {
+    margin: 10px auto 0;
+    max-width: 720px;
+    color: var(--app-ink-soft);
+    line-height: 1.7;
+}
+
+.mainContent {
+    width: min(1320px, calc(100% - 32px));
+    margin: 0 auto;
+}
+
+.guildsGrid,
+.panelsList {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 16px;
+}
+
+.guildCard,
+.panelCard {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 16px;
+    align-items: center;
+    padding: 20px;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--app-border);
+    background: var(--app-surface);
+    box-shadow: var(--app-shadow-sm);
+    cursor: pointer;
+    transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.guildCard:hover,
+.panelCard:hover,
+.rankEntry:hover {
+    transform: translateY(-1px);
+    border-color: color-mix(in srgb, var(--app-accent) 18%, var(--app-border));
+    box-shadow: var(--app-shadow-md);
+}
+
+.guildIcon,
+.guildIconPlaceholder,
+.panelIcon,
+.rankPosition {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius-sm);
 }
 
 .guildIcon {
     width: 64px;
     height: 64px;
-    border-radius: 16px;
     object-fit: cover;
-    box-shadow: var(--shadow-sm);
+    border: 1px solid var(--app-border);
 }
 
-.guildIconPlaceholder {
-    width: 64px;
-    height: 64px;
-    border-radius: 16px;
-    background: linear-gradient(135deg, #f1f5f9, #e2e8f0);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--text-secondary);
+.guildIconPlaceholder,
+.panelIcon {
+    width: 56px;
+    height: 56px;
+    background: color-mix(in srgb, var(--app-accent) 10%, var(--app-surface));
+    color: var(--app-accent-strong);
+    border: 1px solid color-mix(in srgb, var(--app-accent) 14%, var(--app-border));
 }
 
-.guildDetails {
-    flex: 1;
-    min-width: 0; /* for text truncation */
+.guildDetails,
+.panelDetails,
+.userDetails {
+    min-width: 0;
 }
 
-.guildName {
-    font-size: 1.1rem;
+.guildName,
+.panelName,
+.username {
+    margin: 0;
+    color: var(--app-ink);
     font-weight: 700;
-    margin: 0 0 4px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
 }
 
-.guildId {
-    font-size: 0.85rem;
-    color: var(--text-secondary);
-    font-family: monospace;
+.guildId,
+.panelInfo,
+.userId,
+.xpInfo,
+.rankSectionCount {
+    color: var(--app-ink-soft);
 }
 
 .guildAction {
-    color: var(--primary);
-    opacity: 0;
-    transform: translateX(-10px);
-    transition: all 0.3s ease;
+    color: var(--app-accent-strong);
 }
 
-.guildCard:hover .guildAction {
-    opacity: 1;
-    transform: translateX(0);
-}
-
-/* Panels List */
-.panelsList {
+.rankingsList,
+.rankSectionList,
+.rankByRankContainer {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
-    gap: 24px;
-}
-
-.panelCard {
-    background: var(--surface);
-    border-radius: var(--radius-lg);
-    padding: 24px;
-    display: flex;
-    align-items: center;
-    gap: 20px;
-    box-shadow: var(--shadow-md);
-    transition: all 0.3s ease;
-    cursor: pointer;
-    border: 1px solid transparent;
-}
-
-.panelCard:hover {
-    transform: translateY(-4px);
-    box-shadow: var(--shadow-xl);
-    border-color: var(--primary);
-}
-
-.panelIcon {
-    width: 56px;
-    height: 56px;
-    border-radius: 14px;
-    background: rgba(79, 70, 229, 0.1);
-    color: var(--primary);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-
-.panelDetails {
-    flex: 1;
-    min-width: 0;
-}
-
-.panelName {
-    font-size: 1.1rem;
-    font-weight: 700;
-    margin: 0 0 4px;
-}
-
-.panelInfo {
-    font-size: 0.9rem;
-    color: var(--text-secondary);
-}
-
-/* Rankings List */
-.rankingsList {
-    display: flex;
-    flex-direction: column;
     gap: 12px;
 }
 
 .rankEntry {
     display: grid;
-    grid-template-columns: 60px 1fr auto;
-    gap: 20px;
+    grid-template-columns: 60px minmax(0, 1fr) auto;
+    gap: 16px;
     align-items: center;
-    padding: 16px 24px;
-    background: var(--surface);
+    padding: 18px 20px;
     border-radius: var(--radius-md);
-    box-shadow: var(--shadow-sm);
-    transition: transform 0.2s ease, box-shadow 0.2s ease;
-}
-
-.rankEntry:hover {
-    transform: scale(1.01);
-    box-shadow: var(--shadow-md);
-    z-index: 1;
+    border: 1px solid var(--app-border);
+    background: var(--app-surface);
+    box-shadow: var(--app-shadow-sm);
+    transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
 }
 
 .rankPosition {
     width: 48px;
     height: 48px;
-    border-radius: 12px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-weight: 800;
-    font-size: 1.2rem;
-    color: var(--text-secondary);
-    background: #f8fafc;
+    font-weight: 700;
 }
 
-.rank1 { background: var(--rank-1-bg); color: white; text-shadow: var(--rank-text-shadow); box-shadow: 0 4px 12px rgba(255, 215, 0, 0.3); }
-.rank2 { background: var(--rank-2-bg); color: white; text-shadow: var(--rank-text-shadow); box-shadow: 0 4px 12px rgba(192, 192, 192, 0.3); }
-.rank3 { background: var(--rank-3-bg); color: white; text-shadow: var(--rank-text-shadow); box-shadow: 0 4px 12px rgba(205, 127, 50, 0.3); }
-.rankOther { background: #f0f4f8; color: #475569; }
+.rank1 {
+    background: linear-gradient(180deg, #d4af37, #b18c16);
+    color: #fff;
+}
+
+.rank2 {
+    background: linear-gradient(180deg, #a0a8b5, #727d8d);
+    color: #fff;
+}
+
+.rank3 {
+    background: linear-gradient(180deg, #b77749, #8c5430);
+    color: #fff;
+}
+
+.rankOther {
+    background: var(--app-surface-soft);
+    color: var(--app-ink);
+    border: 1px solid var(--app-border);
+}
 
 .userInfo {
     display: flex;
     align-items: center;
-    gap: 16px;
+    gap: 14px;
+    min-width: 0;
 }
 
 .avatar {
     width: 48px;
     height: 48px;
-    border-radius: 50%;
-    border: 2px solid white;
-    box-shadow: var(--shadow-sm);
-}
-
-.rank1 ~ .userInfo .avatar { border-color: #FFD700; }
-.rank2 ~ .userInfo .avatar { border-color: #C0C0C0; }
-.rank3 ~ .userInfo .avatar { border-color: #CD7F32; }
-
-.username {
-    font-weight: 600;
-    font-size: 1.05rem;
-    color: var(--text-primary);
+    border-radius: var(--radius-sm);
+    object-fit: cover;
+    border: 1px solid var(--app-border);
+    background: var(--app-surface-muted);
 }
 
 .userId {
-    font-size: 0.8rem;
-    color: var(--text-secondary);
     display: block;
+    margin-top: 2px;
+    font-size: 0.82rem;
 }
 
 .rankInfo {
+    display: grid;
+    gap: 8px;
+    justify-items: end;
     text-align: right;
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    gap: 4px;
 }
 
 .rankBadge {
-    padding: 4px 12px;
-    border-radius: 20px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 30px;
+    padding: 4px 10px;
+    border-radius: var(--radius-xs);
+    color: #fff;
     font-size: 0.8rem;
     font-weight: 700;
-    color: white;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
+    letter-spacing: 0.04em;
 }
 
 .xpInfo {
     font-size: 0.9rem;
-    font-weight: 600;
-    color: var(--text-secondary);
 }
 
 .xpValue {
-    color: var(--text-primary);
+    color: var(--app-ink);
     font-weight: 700;
-    margin-right: 4px;
+    margin-right: 6px;
 }
 
-/* Tabs */
 .tabContainer {
-    display: flex;
-    gap: 12px;
-    margin-bottom: 24px;
-    padding: 4px;
-    background: rgba(0,0,0,0.03);
-    border-radius: var(--radius-lg);
-    width: fit-content;
+    display: inline-flex;
+    gap: 8px;
+    margin-bottom: 16px;
+    padding: 8px;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--app-border);
+    background: var(--app-surface);
+    box-shadow: var(--app-shadow-sm);
 }
 
 .tabButton {
-    padding: 10px 20px;
-    border-radius: var(--radius-md);
-    border: none;
-    background: transparent;
-    color: var(--text-secondary);
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    display: flex;
+    display: inline-flex;
     align-items: center;
     gap: 8px;
+    padding: 10px 14px;
+    border-radius: var(--radius-xs);
+    color: var(--app-ink-soft);
+    font-weight: 600;
+    border: 1px solid transparent;
+    background: transparent;
+}
+
+.tabButton:hover {
+    background: var(--app-surface-soft);
+    border-color: var(--app-border);
 }
 
 .tabActive {
-    background: var(--surface);
-    color: var(--primary);
-    box-shadow: var(--shadow-sm);
+    background: color-mix(in srgb, var(--app-accent) 10%, var(--app-surface));
+    border-color: color-mix(in srgb, var(--app-accent) 18%, var(--app-border));
+    color: var(--app-accent-strong);
 }
 
-/* Rank By Rank Container */
-.rankByRankContainer { display: flex; flex-direction: column; gap: 20px; }
-.rankSection { background: var(--surface); border-radius: var(--radius-lg); padding: 20px; box-shadow: var(--shadow-md); }
-.rankSectionHeader { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid rgba(0,0,0,0.05); }
-.rankSectionBadge { padding: 6px 14px; border-radius: 999px; color: white; font-weight: 700; font-size: 0.9rem; min-width: 100px; text-align: center; }
-.rankSectionCount { font-weight: 600; color: var(--text-secondary); margin-left: auto; }
-.rankSectionList { display: flex; flex-direction: column; gap: 10px; }
+.rankSection {
+    padding: 20px;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--app-border);
+    background: var(--app-surface);
+    box-shadow: var(--app-shadow-sm);
+}
 
-/* Utility */
+.rankSectionHeader {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 16px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--app-border);
+}
+
+.rankSectionBadge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 100px;
+    padding: 6px 12px;
+    border-radius: var(--radius-xs);
+    color: white;
+    font-weight: 700;
+}
+
+.rankSectionCount {
+    margin-left: auto;
+    font-weight: 600;
+}
+
 .backBtn {
     display: inline-flex;
     align-items: center;
     gap: 8px;
-    padding: 8px 16px;
-    background: white;
-    border: 1px solid #e2e8f0;
-    border-radius: var(--radius-md);
-    color: var(--text-secondary);
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.2s;
+    padding: 10px 14px;
+    border-radius: var(--radius-xs);
+    background: var(--app-surface);
+    border: 1px solid var(--app-border-strong);
+    color: var(--app-ink);
+    font-weight: 600;
 }
 
 .backBtn:hover {
-    background: #f8fafc;
-    color: var(--text-primary);
-    border-color: #cbd5e1;
+    background: var(--app-surface-soft);
 }
 
-.loading, .error, .empty {
+.loading,
+.error,
+.empty {
+    display: grid;
+    justify-items: center;
+    gap: 10px;
+    padding: 40px 24px;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--app-border);
+    background: var(--app-surface);
+    color: var(--app-ink-soft);
+    box-shadow: var(--app-shadow-sm);
     text-align: center;
-    padding: 60px;
-    color: var(--text-secondary);
 }
 
 .spinner {
     width: 40px;
     height: 40px;
-    border: 3px solid rgba(79, 70, 229, 0.1);
+    border: 3px solid var(--app-border);
     border-radius: 50%;
-    border-top-color: var(--primary);
+    border-top-color: var(--app-accent);
     animation: spin 1s linear infinite;
-    margin: 0 auto 20px;
 }
 
-@keyframes spin { to { transform: rotate(360deg); } }
-@keyframes fadeInDown { from { opacity: 0; transform: translateY(-20px); } to { opacity: 1; transform: translateY(0); } }
-@keyframes fadeInUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
 
-/* Responsive */
 @media (max-width: 768px) {
-    .heroTitle { font-size: 2rem; }
-    .rankEntry { grid-template-columns: 48px 1fr; grid-template-rows: auto auto; gap: 12px; }
-    .rankInfo { grid-column: 2; flex-direction: row; align-items: center; justify-content: space-between; width: 100%; margin-top: 8px; }
-    .guildsGrid, .panelsList { grid-template-columns: 1fr; }
+    .hero,
+    .mainContent {
+        width: min(1320px, calc(100% - 20px));
+    }
+
+    .heroContent {
+        padding: 22px 18px;
+    }
+
+    .guildCard,
+    .panelCard,
+    .rankEntry {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .userInfo,
+    .rankInfo {
+        justify-content: start;
+        justify-items: start;
+        text-align: left;
+    }
+
+    .tabContainer {
+        width: 100%;
+        justify-content: stretch;
+        flex-wrap: wrap;
+    }
+
+    .tabButton {
+        flex: 1 1 150px;
+        justify-content: center;
+    }
+
+    .rankSectionHeader {
+        flex-wrap: wrap;
+    }
+
+    .rankSectionCount {
+        margin-left: 0;
+    }
 }

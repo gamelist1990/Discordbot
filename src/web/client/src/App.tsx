@@ -48,9 +48,9 @@ const StaffGuard: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
 const App: React.FC = () => {
   return (
-    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+    <div className="appFrame">
       <AppHeader />
-      <main style={{ flex: 1, overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
+      <main className="appMain">
         <Routes>
           <Route path="/" element={<HomePage />} />
           <Route path="/profile" element={<UserProfile />} />

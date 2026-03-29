@@ -82,7 +82,7 @@ const RankBoardHome: React.FC = () => {
         <div className={styles.container}>
             <div className={styles.hero}>
                 <div className={styles.heroContent}>
-                    <h1 className={styles.heroTitle}>🏆 ランキングボード</h1>
+                    <h1 className={styles.heroTitle}>ランキングボード</h1>
                     <p className={styles.heroSubtitle}>参加しているサーバーのランキングを表示</p>
                 </div>
             </div>

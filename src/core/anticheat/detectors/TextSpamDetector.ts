@@ -1,6 +1,7 @@
 import { Message } from 'discord.js';
 import { Detector, DetectionContext, DetectionResult } from '../types.js';
 import { CacheManager } from '../../../utils/CacheManager.js';
+import { getDetectorConfig, normalizeContent } from '../utils.js';
 
 interface MessageRecord {
     content: string;
@@ -16,32 +17,34 @@ interface MessageRecord {
  */
 export class TextSpamDetector implements Detector {
     name = 'textSpam';
-    
-    // Configuration
-    private readonly MAX_MESSAGES = 10;
-    private readonly DUPLICATE_THRESHOLD = 3; // Same message 3+ times
-    private readonly RAPID_THRESHOLD = 5; // 5+ messages in rapid time window
-    private readonly RAPID_WINDOW_MS = 5000; // 5 seconds
 
     /**
      * Detect spam patterns in a message
      */
     async detect(message: Message, context: DetectionContext): Promise<DetectionResult> {
+        const detectorConfig = getDetectorConfig(context, this.name);
+        const config = detectorConfig.config || {};
+        const maxMessages = Number(config.maxMessages) || 12;
+        const duplicateThreshold = Number(config.duplicateThreshold) || 3;
+        const rapidThreshold = Number(config.rapidMessageCount) || 6;
+        const rapidWindowMs = (Number(config.windowSeconds) || 5) * 1000;
+        const capsRatioThreshold = Number(config.capsRatio) || 0.88;
         const cacheKey = `anticheat:messages:${context.guildId}:${context.userId}`;
+        const normalizedContent = normalizeContent(message.content);
         
         // Get user's recent messages from cache
         let recentMessages = CacheManager.get<MessageRecord[]>(cacheKey) || [];
         
         // Add current message
         recentMessages.push({
-            content: message.content,
+            content: normalizedContent,
             timestamp: Date.now(),
             messageId: message.id
         });
         
-        // Keep only last MAX_MESSAGES
-        if (recentMessages.length > this.MAX_MESSAGES) {
-            recentMessages = recentMessages.slice(-this.MAX_MESSAGES);
+        // Keep only last maxMessages
+        if (recentMessages.length > maxMessages) {
+            recentMessages = recentMessages.slice(-maxMessages);
         }
         
         // Update cache (TTL: 1 minute)
@@ -53,35 +56,31 @@ export class TextSpamDetector implements Detector {
         
         // Check for duplicate messages
         const duplicateCount = recentMessages.filter(
-            m => m.content === message.content
+            m => m.content === normalizedContent
         ).length;
         
-        if (duplicateCount >= this.DUPLICATE_THRESHOLD) {
-            scoreDelta += duplicateCount * 2;
-            reasons.push(`Duplicate message sent ${duplicateCount} times`);
+        if (duplicateCount >= duplicateThreshold) {
+            scoreDelta += detectorConfig.score;
+            reasons.push(`短時間の重複投稿を検知しました (${duplicateCount}回)`);
         }
         
         // Check for rapid sending
         const now = Date.now();
         const recentCount = recentMessages.filter(
-            m => now - m.timestamp < this.RAPID_WINDOW_MS
+            m => now - m.timestamp < rapidWindowMs
         ).length;
         
-        if (recentCount >= this.RAPID_THRESHOLD) {
-            scoreDelta += recentCount;
-            reasons.push(`Rapid message sending: ${recentCount} messages in ${this.RAPID_WINDOW_MS / 1000}s`);
+        if (recentCount >= rapidThreshold) {
+            scoreDelta += detectorConfig.score;
+            reasons.push(`短時間に大量投稿しました (${recentCount}件/${rapidWindowMs / 1000}秒)`);
         }
         
-        // Check for all caps (if message is long enough)
-        if (message.content.length > 10 && message.content === message.content.toUpperCase()) {
-            const capsCount = recentMessages.filter(
-                m => m.content.length > 10 && m.content === m.content.toUpperCase()
-            ).length;
-            
-            if (capsCount >= 3) {
-                scoreDelta += 1;
-                reasons.push('Excessive use of all caps');
-            }
+        const letters = message.content.replace(/[^A-Za-z]/g, '');
+        const upperCaseLetters = letters.replace(/[^A-Z]/g, '');
+        const capsRatio = letters.length > 0 ? upperCaseLetters.length / letters.length : 0;
+        if (letters.length >= 12 && capsRatio >= capsRatioThreshold) {
+            scoreDelta += detectorConfig.score;
+            reasons.push('大文字比率の高いスパム文面を検知しました');
         }
         
         return {
@@ -90,8 +89,10 @@ export class TextSpamDetector implements Detector {
             metadata: {
                 duplicateCount,
                 recentCount,
-                totalMessages: recentMessages.length
-            }
+                totalMessages: recentMessages.length,
+                capsRatio
+            },
+            deleteMessage: detectorConfig.deleteMessage === true
         };
     }
 }

@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import styles from './AppHeader.module.css';
+import { useTheme } from '../../theme/ThemeProvider';
+import logoMark from '../../../../../../assets/logo/server.png';
 
 interface UserInfo {
   userId: string;
@@ -23,6 +25,7 @@ interface NavItem {
 const AppHeader: React.FC<AppHeaderProps> = ({ user: userProp, onLogout }) => {
   const navigate = useNavigate();
   const location = useLocation();
+  const { theme, toggleTheme } = useTheme();
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showWorkspaceMenu, setShowWorkspaceMenu] = useState(false);
   const [user, setUser] = useState<UserInfo | null | undefined>(userProp);
@@ -80,9 +83,9 @@ const AppHeader: React.FC<AppHeaderProps> = ({ user: userProp, onLogout }) => {
   const primaryItems = useMemo<NavItem[]>(
     () => [
       { label: 'ホーム', path: '/', icon: 'home' },
+      { label: 'ランキング', path: '/rank', icon: 'leaderboard' },
       { label: 'サーバー管理', path: '/settings', icon: 'tune' },
       { label: 'フィードバック', path: '/feedback', icon: 'forum' },
-      { label: 'ランキング', path: '/rank', icon: 'leaderboard' },
       { label: 'Tools', path: '/tools', icon: 'construction' },
     ],
     []
@@ -149,31 +152,52 @@ const AppHeader: React.FC<AppHeaderProps> = ({ user: userProp, onLogout }) => {
     <header className={styles.header}>
       <div className={styles.container}>
         <button className={styles.brand} onClick={() => goTo('/')} type="button">
-          <span className={styles.brandMark}>PX</span>
+          <span className={styles.brandMark}>
+            <img src={logoMark} alt="PEXServer" className={styles.brandLogo} />
+          </span>
           <span className={styles.brandCopy}>
             <span className={styles.brandTitle}>PEXServer</span>
-            <span className={styles.brandSubtitle}>Discord operations surface</span>
+            <span className={styles.brandSubtitle}>Operations workspace for Discord teams</span>
           </span>
         </button>
 
         <nav className={styles.nav} aria-label="Primary">
-          {user
-            ? primaryItems.map((item) => (
-                <button
-                  key={item.path}
-                  className={`${styles.navLink} ${isActive(item.path) ? styles.navLinkActive : ''}`}
-                  onClick={() => goTo(item.path)}
-                  type="button"
-                >
-                  <span className="material-icons">{item.icon}</span>
-                  <span>{item.label}</span>
-                </button>
-              ))
-            : null}
+          {primaryItems.map((item) => (
+            <button
+              key={item.path}
+              className={`${styles.navLink} ${isActive(item.path) ? styles.navLinkActive : ''}`}
+              onClick={() => goTo(item.path)}
+              type="button"
+            >
+              <span className="material-icons">{item.icon}</span>
+              <span>{item.label}</span>
+            </button>
+          ))}
+          {canSeeStaff ? (
+            <button
+              className={`${styles.navLink} ${isActive('/staff') ? styles.navLinkActive : ''}`}
+              onClick={() => goTo('/staff')}
+              type="button"
+            >
+              <span className="material-icons">shield</span>
+              <span>スタッフ</span>
+            </button>
+          ) : null}
         </nav>
 
         <div className={styles.actions}>
           {loading ? <span className={styles.loadingText}>セッション確認中...</span> : null}
+          <button
+            className={styles.iconButton}
+            onClick={toggleTheme}
+            type="button"
+            aria-label={theme === 'light' ? 'ダークテーマへ切り替え' : 'ライトテーマへ切り替え'}
+            title={theme === 'light' ? 'ダークテーマへ切り替え' : 'ライトテーマへ切り替え'}
+          >
+            <span className="material-icons">
+              {theme === 'light' ? 'dark_mode' : 'light_mode'}
+            </span>
+          </button>
 
           {!loading && user ? (
             <>
