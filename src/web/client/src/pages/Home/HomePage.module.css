@@ -1,19 +1,468 @@
 .page {
   min-height: calc(100vh - var(--header-height));
+  background: linear-gradient(180deg, var(--app-surface), color-mix(in srgb, var(--app-surface) 98%, white));
+  padding: 0;
 }
 
+/* ===== HERO SECTION ===== */
+.heroSection {
+  position: relative;
+  overflow: hidden;
+  min-height: 420px;
+  padding: 72px 20px;
+  border-bottom: none;
+  background: url('https://gamelist1990.github.io/PEXServerWebSite/server-header.png') center/cover no-repeat;
+}
+
+.heroSection::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(8, 16, 39, 0.55), rgba(8, 16, 39, 0.4));
+  pointer-events: none;
+}
+
+.heroContainer {
+  position: relative;
+  z-index: 1;
+  max-width: 1240px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 48px;
+  align-items: center;
+}
+
+.heroContent {
+  display: grid;
+  gap: 20px;
+}
+
+.eyebrow {
+  display: inline-block;
+  width: fit-content;
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  color: #fff;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.heroTitle {
+  margin: 0;
+  font-size: clamp(2rem, 4vw, 3.2rem);
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  color: #fff;
+  font-weight: 800;
+}
+
+.heroDescription {
+  margin: 0;
+  max-width: 600px;
+  font-size: 1.05rem;
+  line-height: 1.68;
+  color: #f1f5f9;
+}
+
+.heroCTA {
+  display: flex;
+  gap: 12px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+
+.ctaPrimary,
+.ctaSecondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 24px;
+  border-radius: 10px;
+  font-weight: 700;
+  border: none;
+  cursor: pointer;
+  transition: transform 0.12s ease, box-shadow 0.12s ease, background 0.12s ease;
+  font-size: 1rem;
+}
+
+.ctaPrimary {
+  background: linear-gradient(90deg, var(--app-accent), var(--app-accent-strong));
+  color: #fff;
+  box-shadow: 0 8px 20px rgba(13, 71, 161, 0.12);
+}
+
+.ctaPrimary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 14px 40px rgba(13, 71, 161, 0.16);
+}
+
+.ctaSecondary {
+  background: var(--app-surface-strong);
+  color: var(--app-ink);
+  border: 1px solid var(--app-border-strong);
+}
+
+.ctaSecondary:hover {
+  background: var(--app-surface);
+  border-color: var(--app-accent);
+  transform: translateY(-1px);
+}
+
+.heroVisual {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.heroImage {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  pointer-events: none;
+}
+
+/* ===== METRICS SECTION ===== */
+.metricsSection {
+  padding: 40px 20px;
+  border-bottom: 1px solid var(--app-border);
+}
+
+.metricsLabel {
+  max-width: 1240px;
+  margin: 0 auto 16px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--app-ink-muted);
+}
+
+.metricsGrid {
+  max-width: 1240px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+}
+
+.metricCard {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  padding: 16px;
+  border-radius: 12px;
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
+  box-shadow: 0 2px 8px rgba(11, 20, 38, 0.02);
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+
+.metricCard:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px rgba(11, 20, 38, 0.06);
+}
+
+.metricIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--app-accent) 8%, var(--app-surface));
+  color: var(--app-accent-strong);
+  font-size: 22px;
+  flex-shrink: 0;
+}
+
+.metricLabel {
+  display: block;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--app-ink-muted);
+}
+
+.metricValue {
+  display: block;
+  margin-top: 2px;
+  font-size: 1.35rem;
+  font-weight: 800;
+  color: var(--app-ink);
+  line-height: 1.2;
+}
+
+.metricCaption {
+  margin: 4px 0 0 0;
+  font-size: 0.84rem;
+  color: var(--app-ink-soft);
+  line-height: 1.4;
+}
+
+.metricok .metricIcon {
+  background: color-mix(in srgb, var(--app-success) 12%, var(--app-surface));
+  color: var(--app-success);
+}
+
+.metricwarn .metricIcon {
+  background: color-mix(in srgb, var(--app-warn) 12%, var(--app-surface));
+  color: var(--app-warn);
+}
+
+.metricneutral .metricIcon {
+  background: color-mix(in srgb, var(--app-accent) 8%, var(--app-surface));
+  color: var(--app-accent-strong);
+}
+
+/* ===== MAIN CONTENT ===== */
+.mainContent {
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 0 20px 48px;
+}
+
+.section {
+  margin-bottom: 48px;
+}
+
+.section:last-child {
+  margin-bottom: 0;
+}
+
+.sectionHeader {
+  margin-bottom: 32px;
+}
+
+.sectionLabel {
+  display: inline-block;
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--app-accent) 8%, var(--app-surface));
+  border: 1px solid color-mix(in srgb, var(--app-accent) 18%, var(--app-border));
+  color: var(--app-accent-strong);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  margin-bottom: 12px;
+}
+
+.sectionTitle {
+  margin: 0;
+  font-size: clamp(1.4rem, 2vw, 2.1rem);
+  font-weight: 800;
+  line-height: 1.12;
+  color: var(--app-ink);
+}
+
+.sectionDescription {
+  margin: 8px 0 0 0;
+  max-width: 700px;
+  font-size: 1.05rem;
+  line-height: 1.68;
+  color: var(--app-ink-soft);
+}
+
+/* ===== CAPABILITY GRID ===== */
+.capabilityGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 18px;
+}
+
+.capabilityCard {
+  display: grid;
+  gap: 12px;
+  padding: 20px;
+  border-radius: 14px;
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
+  box-shadow: 0 4px 12px rgba(11, 20, 38, 0.04);
+  transition: transform 0.14s ease, box-shadow 0.14s ease;
+}
+
+.capabilityCard:hover {
+  transform: translateY(-6px);
+  box-shadow: 0 16px 40px rgba(11, 20, 38, 0.08);
+}
+
+.capabilityIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, var(--app-accent), var(--app-accent-strong));
+  color: #fff;
+  font-size: 24px;
+  box-shadow: inset 0 -4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.capabilityBody h3 {
+  margin: 0;
+  font-size: 1.12rem;
+  font-weight: 700;
+  color: var(--app-ink);
+  line-height: 1.3;
+}
+
+.capabilityBody p {
+  margin: 6px 0 0 0;
+  font-size: 0.98rem;
+  line-height: 1.6;
+  color: var(--app-ink-soft);
+}
+
+/* ===== WORKFLOW GRID ===== */
+.workflowGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 20px;
+}
+
+.workflowCard {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 16px;
+  align-items: start;
+  padding: 20px;
+  border-radius: 14px;
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
+  box-shadow: 0 4px 12px rgba(11, 20, 38, 0.04);
+  transition: transform 0.14s ease, box-shadow 0.14s ease;
+}
+
+.workflowCard:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 32px rgba(11, 20, 38, 0.08);
+}
+
+.stepNumber {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 10px;
+  background: linear-gradient(90deg, var(--app-accent), var(--app-accent-strong));
+  color: #fff;
+  font-size: 1.1rem;
+  font-weight: 900;
+  flex-shrink: 0;
+  box-shadow: 0 4px 12px rgba(13, 71, 161, 0.12);
+}
+
+.stepContent h3 {
+  margin: 0;
+  font-size: 1.12rem;
+  font-weight: 700;
+  color: var(--app-ink);
+  line-height: 1.3;
+}
+
+.stepContent p {
+  margin: 6px 0 0 0;
+  font-size: 0.98rem;
+  line-height: 1.6;
+  color: var(--app-ink-soft);
+}
+
+/* ===== ACTION GRID ===== */
+.actionGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 18px;
+}
+
+.actionCard {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 16px;
+  padding: 16px;
+  border-radius: 12px;
+  background: var(--app-surface);
+  color: var(--app-ink);
+  border: 1px solid var(--app-border);
+  cursor: pointer;
+  transition: transform 0.12s ease, box-shadow 0.12s ease, background 0.12s ease;
+}
+
+.actionCard:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 32px rgba(11, 20, 38, 0.08);
+  background: var(--app-surface-strong);
+}
+
+.actionIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, var(--app-accent), var(--app-accent-strong));
+  color: #fff;
+  font-size: 20px;
+  flex-shrink: 0;
+}
+
+.actionBody {
+  display: grid;
+  gap: 2px;
+  text-align: left;
+}
+
+.actionTitle {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--app-ink);
+  line-height: 1.3;
+}
+
+.actionDescription {
+  margin: 0;
+  font-size: 0.92rem;
+  line-height: 1.4;
+  color: var(--app-ink-soft);
+}
+
+.actionArrow {
+  font-size: 18px;
+  color: var(--app-ink-soft);
+  transition: transform 0.12s ease, color 0.12s ease;
+}
+
+.actionCard:hover .actionArrow {
+  transform: translateX(4px);
+  color: var(--app-accent-strong);
+}
+
+/* ===== LOADING STATE ===== */
 .loadingState {
   display: grid;
   justify-items: center;
-  gap: 14px;
+  gap: 16px;
   min-height: calc(100vh - var(--header-height));
   align-content: center;
   color: var(--app-ink-soft);
 }
 
 .spinner {
-  width: 42px;
-  height: 42px;
+  width: 44px;
+  height: 44px;
   border-radius: 50%;
   border: 3px solid rgba(15, 91, 216, 0.12);
   border-top-color: var(--app-accent);
@@ -26,333 +475,167 @@
   }
 }
 
-.primaryAction,
-.secondaryAction {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  padding: 12px 18px;
-  border-radius: var(--radius-xs);
-  font-weight: 700;
-  border: 1px solid transparent;
-}
-
-.primaryAction {
-  background: linear-gradient(180deg, var(--app-accent), var(--app-accent-strong));
-  color: #fff;
-  box-shadow: 0 10px 24px color-mix(in srgb, var(--app-accent) 24%, transparent);
-}
-
-.primaryAction:hover {
-  box-shadow: 0 14px 30px color-mix(in srgb, var(--app-accent) 30%, transparent);
-}
-
-.secondaryAction {
-  background: var(--app-surface);
-  color: var(--app-ink);
-  border: 1px solid var(--app-border-strong);
-}
-
-.secondaryAction:hover {
-  background: var(--app-surface-strong);
-}
-
-.metaChip {
-  display: inline-flex;
-  align-items: center;
-  padding: 8px 12px;
-  border-radius: var(--radius-xs);
-  background: var(--app-surface-soft);
-  border: 1px solid var(--app-border);
-  color: var(--app-ink-soft);
-  font-size: 0.84rem;
-  font-weight: 600;
-}
-
-.statusBoard {
-  display: grid;
-  gap: 16px;
-}
-
-.statusLead {
-  padding: 18px;
-  border-radius: var(--radius-md);
-  background: linear-gradient(180deg, color-mix(in srgb, var(--app-accent) 9%, var(--app-surface)), var(--app-surface));
-  color: var(--app-ink);
-  border: 1px solid color-mix(in srgb, var(--app-accent) 18%, var(--app-border));
-}
-
-.statusLead strong {
-  display: block;
-  margin-top: 4px;
-  font-size: 1.15rem;
-  letter-spacing: -0.03em;
-}
-
-.statusLead p,
-.cardCaption,
-.sectionIntro p,
-.capabilityCard p,
-.workflowStep p,
-.linkBody p {
-  margin: 0;
-  color: inherit;
-}
-
-.statusLabel,
-.cardLabel,
-.sectionEyebrow {
-  display: inline-flex;
-  align-items: center;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  font-size: 0.75rem;
-  font-weight: 700;
-}
-
-.statusGrid {
-  display: grid;
-  gap: 10px;
-}
-
-.statusCard {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 14px;
-  padding: 16px;
-  border-radius: var(--radius-sm);
-  background: var(--app-surface);
-  border: 1px solid var(--app-border);
-}
-
-.statusIcon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 42px;
-  height: 42px;
-  border-radius: var(--radius-xs);
-  background: var(--app-surface-soft);
-}
-
-.cardLabel {
-  color: var(--app-ink-muted);
-}
-
-.cardValue {
-  display: block;
-  margin-top: 2px;
-  color: var(--app-ink);
-  font-size: 1.15rem;
-}
-
-.cardCaption {
-  margin-top: 4px;
-  color: var(--app-ink-soft);
-  font-size: 0.84rem;
-  line-height: 1.55;
-}
-
-.ok {
-  border-color: color-mix(in srgb, var(--app-success) 30%, var(--app-border));
-}
-
-.warn {
-  border-color: color-mix(in srgb, var(--app-warn) 30%, var(--app-border));
-}
-
-.neutral {
-  border-color: var(--app-border);
-}
-
-.section {
-  padding: 28px;
-  border-radius: var(--radius-lg);
-  border: 1px solid var(--app-border);
-  background: var(--app-surface);
-  box-shadow: var(--app-shadow-sm);
-}
-
-.sectionIntro {
-  display: grid;
-  gap: 8px;
-  margin-bottom: 20px;
-}
-
-.sectionEyebrow {
-  color: var(--app-accent-strong);
-}
-
-.sectionIntro h2 {
-  margin: 0;
-  font-size: clamp(1.5rem, 2vw, 2.4rem);
-  line-height: 1.12;
-  letter-spacing: -0.04em;
-  color: var(--app-ink);
-}
-
-.sectionIntro p {
-  color: var(--app-ink-soft);
-  line-height: 1.8;
-}
-
-.capabilityGrid,
-.linkGrid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 14px;
-}
-
-.capabilityCard {
-  display: grid;
-  gap: 12px;
-  padding: 20px;
-  border-radius: var(--radius-md);
-  background: var(--app-surface-soft);
-  border: 1px solid var(--app-border);
-  animation: floatIn 0.5s ease both;
-}
-
-.capabilityCard:hover,
-.linkCard:hover,
-.workflowStep:hover {
-  transform: translateY(-1px);
-  box-shadow: var(--app-shadow-sm);
-}
-
-.capabilityIcon,
-.linkIcon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 50px;
-  height: 50px;
-  border-radius: var(--radius-sm);
-  background: color-mix(in srgb, var(--app-accent) 10%, var(--app-surface));
-  color: var(--app-accent-strong);
-  border: 1px solid color-mix(in srgb, var(--app-accent) 12%, var(--app-border));
-}
-
-.capabilityCard h3,
-.workflowStep h3,
-.linkBody strong {
-  margin: 0;
-  color: var(--app-ink);
-}
-
-.capabilityCard p {
-  color: var(--app-ink-soft);
-  line-height: 1.72;
-}
-
-.splitSection {
-  display: grid;
-  grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr);
-  gap: 20px;
-  align-items: start;
-}
-
-.workflow {
-  display: grid;
-  gap: 12px;
-}
-
-.workflowStep {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 16px;
-  padding: 18px;
-  border-radius: var(--radius-md);
-  background: var(--app-surface-soft);
-  border: 1px solid var(--app-border);
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
-}
-
-.stepNumber {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 54px;
-  height: 54px;
-  border-radius: var(--radius-sm);
-  background: var(--app-ink);
-  color: #fff;
-  font-size: 1rem;
-  letter-spacing: -0.04em;
-}
-
-.workflowStep p,
-.linkBody p {
-  margin-top: 6px;
-  color: var(--app-ink-soft);
-  line-height: 1.72;
-}
-
-.linkCard {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  align-items: center;
-  gap: 14px;
-  padding: 18px;
-  border-radius: var(--radius-md);
-  background: var(--app-surface-soft);
-  color: var(--app-ink);
-  border: 1px solid var(--app-border);
-  text-align: left;
-}
-
-.linkBody {
-  display: grid;
-  gap: 2px;
-}
-
-@keyframes floatIn {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
+/* ===== RESPONSIVE ===== */
 @media (max-width: 1024px) {
-  .capabilityGrid,
-  .linkGrid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .heroContainer {
+    grid-template-columns: 1fr;
+    gap: 32px;
   }
 
-  .splitSection {
-    grid-template-columns: minmax(0, 1fr);
+  .heroVisual {
+    min-height: 200px;
+  }
+
+  .glyphBox {
+    width: 80px;
+    height: 80px;
+    font-size: 36px;
+  }
+
+  .metricsGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .capabilityGrid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .workflowGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .actionGrid {
+    grid-template-columns: 1fr;
   }
 }
 
-@media (max-width: 640px) {
+@media (max-width: 768px) {
+  .page {
+    padding: 0;
+  }
+
+  .heroSection {
+    padding: 40px 16px;
+  }
+
+  .metricsSection {
+    padding: 32px 16px;
+  }
+
+  .mainContent {
+    padding: 0 16px 32px;
+  }
+
   .section {
-    padding: 20px 18px;
-    border-radius: var(--radius-md);
+    margin-bottom: 36px;
   }
 
-  .capabilityGrid,
-  .linkGrid {
-    grid-template-columns: minmax(0, 1fr);
+  .sectionHeader {
+    margin-bottom: 24px;
   }
 
-  .linkCard,
-  .workflowStep {
-    grid-template-columns: minmax(0, 1fr);
+  .heroTitle {
+    font-size: 1.8rem;
+  }
+
+  .heroDescription {
+    font-size: 1rem;
+  }
+
+  .sectionTitle {
+    font-size: 1.4rem;
+  }
+
+  .ctaPrimary,
+  .ctaSecondary {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .heroCTA {
+    flex-direction: column;
+  }
+
+  .capabilityGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .workflowCard {
+    grid-template-columns: 1fr;
   }
 
   .stepNumber {
-    width: 48px;
-    height: 48px;
+    width: 44px;
+    height: 44px;
+    font-size: 1rem;
   }
 
-  .primaryAction,
-  .secondaryAction {
-    width: 100%;
-    justify-content: center;
+  .actionCard {
+    grid-template-columns: 1fr;
+  }
+
+  .actionIcon {
+    width: 44px;
+    height: 44px;
+  }
+
+  .actionArrow {
+    display: none;
+  }
+}
+
+@media (max-width: 480px) {
+  .heroSection {
+    padding: 32px 12px;
+  }
+
+  .metricsSection {
+    padding: 24px 12px;
+  }
+
+  .mainContent {
+    padding: 0 12px 24px;
+  }
+
+  .section {
+    margin-bottom: 28px;
+  }
+
+  .sectionHeader {
+    margin-bottom: 20px;
+  }
+
+  .heroTitle {
+    font-size: 1.5rem;
+  }
+
+  .heroDescription {
+    font-size: 0.95rem;
+  }
+
+  .sectionTitle {
+    font-size: 1.2rem;
+  }
+
+  .sectionDescription {
+    font-size: 0.95rem;
+  }
+
+  .capabilityCard,
+  .workflowCard,
+  .actionCard {
+    padding: 16px;
+  }
+
+  .capabilityBody h3,
+  .stepContent h3,
+  .actionTitle {
+    font-size: 1rem;
+  }
+
+  .capabilityBody p,
+  .stepContent p,
+  .actionDescription {
+    font-size: 0.9rem;
   }
 }

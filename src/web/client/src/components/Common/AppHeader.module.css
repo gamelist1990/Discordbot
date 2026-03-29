@@ -331,13 +331,28 @@
     display: none;
   }
 
+  .brandTitle {
+    font-size: 0.92rem;
+  }
+
   .accountButton {
     min-width: auto;
     padding-right: 6px;
   }
 
   .themeButton,
-  .mobileToggle {
+  .mobileToggle,
+  .loginButton {
+    width: 42px;
     padding: 0 10px;
+    justify-content: center;
+  }
+
+  .loginButton {
+    padding: 0;
+  }
+
+  .loginButton span:last-child {
+    display: none;
   }
 }

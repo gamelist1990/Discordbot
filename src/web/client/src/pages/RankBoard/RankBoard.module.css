@@ -281,6 +281,7 @@
     margin-bottom: 16px;
     padding-bottom: 12px;
     border-bottom: 1px solid var(--app-border);
+    cursor: pointer;
 }
 
 .rankSectionBadge {
@@ -297,6 +298,18 @@
 .rankSectionCount {
     margin-left: auto;
     font-weight: 600;
+}
+
+.collapsed .rankSectionList {
+    display: none;
+}
+
+.collapseIcon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-left: 8px;
+    color: var(--app-ink-soft);
 }
 
 .backBtn {
@@ -328,6 +341,55 @@
     color: var(--app-ink-soft);
     box-shadow: var(--app-shadow-sm);
     text-align: center;
+}
+
+.authPanel {
+    display: grid;
+    justify-items: center;
+    gap: 12px;
+    padding: 44px 24px;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--app-border);
+    background: var(--app-surface);
+    color: var(--app-ink-soft);
+    box-shadow: var(--app-shadow-sm);
+    text-align: center;
+}
+
+.authPanel .material-icons {
+    font-size: 48px;
+    color: var(--app-accent-strong);
+}
+
+.authPanel h2 {
+    margin: 0;
+    color: var(--app-ink);
+}
+
+.authPanel p {
+    margin: 0;
+    max-width: 560px;
+    line-height: 1.7;
+}
+
+.authActions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 12px;
+}
+
+.authButton {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 42px;
+    padding: 0 16px;
+    border-radius: var(--radius-xs);
+    border: 1px solid var(--app-accent-strong);
+    background: linear-gradient(180deg, var(--app-accent), var(--app-accent-strong));
+    color: #fff;
+    font-weight: 700;
 }
 
 .spinner {
@@ -385,5 +447,14 @@
 
     .rankSectionCount {
         margin-left: 0;
+    }
+
+    .authPanel {
+        padding: 32px 18px;
+    }
+
+    .authButton,
+    .backBtn {
+        width: 100%;
     }
 }

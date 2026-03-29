@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import PageShell from '../../../components/PageShell';
 import { fetchGuildInfo } from '../../../services/api';
 import { useAntiCheatActions, useAntiCheatSettings, useDetectionLogs, useUserTrust } from './hooks';
 import styles from './AntiCheat.module.css';
@@ -203,7 +202,32 @@ const AntiCheatUnified: React.FC = () => {
 
   return (
     <div className={styles.page}>
-      <PageShell eyebrow="AntiCheat" title={`${guildName} の保護設定`} description="全体設定、検知、処罰、ログを一枚で管理する画面です。" actions={<><button className={styles.secondaryButton} onClick={() => navigate(`/settings/${guildId}`)} type="button"><span className="material-icons">arrow_back</span><span>サーバー管理へ</span></button><button className={styles.primaryButton} onClick={commitDraft} type="button" disabled={saving}><span className="material-icons">{saving ? 'sync' : 'save'}</span><span>{saving ? '保存中...' : '設定を保存'}</span></button></>} meta={<><span className={styles.metaChip}>{draft.enabled ? '保護有効' : '保護停止'}</span><span className={styles.metaChip}>{Object.values(draft.detectors).filter((detector) => detector.enabled).length} detectors active</span><span className={styles.metaChip}>{draft.punishments.length} thresholds</span></>} aside={<div className={styles.summary}><div className={styles.summaryCard}><span className={styles.summaryLabel}>Status</span><strong>{draft.enabled ? 'Active' : 'Paused'}</strong><p>AntiCheat 全体の状態です。</p></div><div className={styles.summaryCard}><span className={styles.summaryLabel}>Raid mode</span><strong>{draft.raidMode.active ? 'Triggered' : 'Standby'}</strong><p>{draft.raidMode.reason || '待機中です。'}</p></div><div className={styles.summaryCard}><span className={styles.summaryLabel}>Recent logs</span><strong>{logs.length}</strong><p>取得済みの最新ログ件数です。</p></div></div>} compact>
+      <section className={styles.pageHeader}>
+        <div className={styles.pageHeaderCopy}>
+          <span className={styles.pageEyebrow}>AntiCheat</span>
+          <h1>{guildName} の保護設定</h1>
+          <p>全体設定、検知、処罰、ログを一枚で管理する画面です。</p>
+        </div>
+
+        <div className={styles.pageHeaderActions}>
+          <button className={styles.secondaryButton} onClick={() => navigate(`/settings/${guildId}`)} type="button"><span className="material-icons">arrow_back</span><span>サーバー管理へ</span></button>
+          <button className={styles.primaryButton} onClick={commitDraft} type="button" disabled={saving}><span className="material-icons">{saving ? 'sync' : 'save'}</span><span>{saving ? '保存中...' : '設定を保存'}</span></button>
+        </div>
+
+        <div className={styles.pageMeta}>
+          <span className={styles.metaChip}>{draft.enabled ? '保護有効' : '保護停止'}</span>
+          <span className={styles.metaChip}>{Object.values(draft.detectors).filter((detector) => detector.enabled).length} detectors active</span>
+          <span className={styles.metaChip}>{draft.punishments.length} thresholds</span>
+        </div>
+
+        <div className={styles.summary}>
+          <div className={styles.summaryCard}><span className={styles.summaryLabel}>Status</span><strong>{draft.enabled ? 'Active' : 'Paused'}</strong><p>AntiCheat 全体の状態です。</p></div>
+          <div className={styles.summaryCard}><span className={styles.summaryLabel}>Raid mode</span><strong>{draft.raidMode.active ? 'Triggered' : 'Standby'}</strong><p>{draft.raidMode.reason || '待機中です。'}</p></div>
+          <div className={styles.summaryCard}><span className={styles.summaryLabel}>Recent logs</span><strong>{logs.length}</strong><p>取得済みの最新ログ件数です。</p></div>
+        </div>
+      </section>
+
+      <div>
         {saveNotice ? <div className={styles.noticeSuccess}>{saveNotice}</div> : null}
         {actionError ? <div className={styles.noticeError}>{actionError}</div> : null}
 
@@ -266,7 +290,7 @@ const AntiCheatUnified: React.FC = () => {
             <article className={styles.panel}><div className={styles.inlineHeader}><div><strong>信頼スコア</strong><p>{trustLoading ? '信頼スコアを更新しています...' : `${trustEntries.length} 人を表示中`}</p></div><button className={styles.secondaryButton} onClick={() => refetchTrust()} type="button"><span className="material-icons">refresh</span><span>再取得</span></button></div>{trustError ? <div className={styles.noticeError}>{trustError}</div> : null}<div className={styles.tableWrap}><table className={styles.table}><thead><tr><th>ユーザー</th><th>スコア</th><th>更新</th><th>操作</th></tr></thead><tbody>{trustEntries.length === 0 ? <tr><td colSpan={4} className={styles.emptyCell}>監視中のユーザーはいません。</td></tr> : trustEntries.map((entry) => <tr key={entry.userId}><td><div className={styles.userCell}>{entry.avatar ? <img className={styles.userAvatar} src={entry.avatar} alt={entry.displayName || entry.username} /> : <div className={styles.userFallback}>{(entry.displayName || entry.username).charAt(0).toUpperCase()}</div>}<div><div className={styles.logPrimary}>{entry.displayName || entry.username}</div><div className={styles.logSecondary}>{entry.userId}</div></div></div></td><td>{entry.score}</td><td>{formatDate(entry.lastUpdated)}</td><td><button className={styles.inlineButton} onClick={() => onResetTrust(entry.userId)} type="button" disabled={executing}>スコアをリセット</button></td></tr>)}</tbody></table></div></article>
           </div>
         </section>
-      </PageShell>
+      </div>
     </div>
   );
 };

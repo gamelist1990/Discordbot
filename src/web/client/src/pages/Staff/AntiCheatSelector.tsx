@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import PageShell from '../../components/PageShell';
 import styles from './AntiCheatSelector.module.css';
 
 interface GuildEntry {
@@ -33,21 +32,23 @@ const AntiCheatSelector: React.FC = () => {
 
     return (
         <div className={styles.root}>
-            <PageShell
-                eyebrow="AntiCheat"
-                title="保護対象サーバーを選択"
-                description="検知ルール、スコア、処罰、ログをサーバー単位で管理します。"
-                aside={
-                    <div className={styles.summary}>
-                        <div className={styles.summaryCard}>
-                            <span className={styles.summaryLabel}>Available</span>
-                            <strong>{guilds.length}</strong>
-                            <p>現在このアカウントで開けるサーバー数です。</p>
-                        </div>
+            <section className={styles.pageHeader}>
+                <div className={styles.pageHeaderCopy}>
+                    <span className={styles.pageEyebrow}>AntiCheat</span>
+                    <h1>保護対象サーバーを選択</h1>
+                    <p>検知ルール、スコア、処罰、ログをサーバー単位で管理します。</p>
+                </div>
+
+                <div className={styles.summary}>
+                    <div className={styles.summaryCard}>
+                        <span className={styles.summaryLabel}>Available</span>
+                        <strong>{guilds.length}</strong>
+                        <p>現在このアカウントで開けるサーバー数です。</p>
                     </div>
-                }
-                compact
-            >
+                </div>
+            </section>
+
+            <div>
                 {loading ? (
                     <div className={styles.loading} aria-busy="true" aria-live="polite">
                         <div className={styles.spinner} aria-hidden="true"></div>
@@ -88,7 +89,7 @@ const AntiCheatSelector: React.FC = () => {
                         ))}
                     </div>
                 )}
-            </PageShell>
+            </div>
         </div>
     );
 };

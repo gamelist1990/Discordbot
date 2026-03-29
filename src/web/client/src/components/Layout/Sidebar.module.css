@@ -77,7 +77,7 @@
     min-width: unset;
     min-height: auto; /* no longer occupy full viewport on mobile */
     border-right: none;
-    border-bottom: 1px solid #E0EE0E;
+    border-bottom: 1px solid #E0E0E0;
     box-shadow: none;
     position: relative;
   }

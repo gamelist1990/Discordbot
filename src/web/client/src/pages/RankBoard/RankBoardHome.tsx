@@ -14,6 +14,7 @@ const RankBoardHome: React.FC = () => {
     const [loading, setLoading] = useState(true);
     const [guilds, setGuilds] = useState<GuildInfo[]>([]);
     const [error, setError] = useState<string | null>(null);
+    const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
 
     useEffect(() => {
         fetchGuilds();
@@ -25,12 +26,19 @@ const RankBoardHome: React.FC = () => {
             setError(null);
 
             const res = await fetch('/api/rank/guilds', { credentials: 'include' });
+            if (res.status === 401) {
+                setIsAuthenticated(false);
+                setGuilds([]);
+                return;
+            }
+
             if (!res.ok) {
                 throw new Error('サーバー情報の取得に失敗しました');
             }
 
             const data = await res.json();
             setGuilds(data.guilds || []);
+            setIsAuthenticated(true);
         } catch (err) {
             console.error('Failed to fetch guilds:', err);
             setError('サーバー情報の取得に失敗しました');
@@ -72,6 +80,28 @@ const RankBoardHome: React.FC = () => {
                         onClick={() => window.location.reload()}
                     >
                         再試行
+                    </button>
+                </div>
+            </div>
+        );
+    }
+
+    if (isAuthenticated === false) {
+        return (
+            <div className={styles.container}>
+                <div className={styles.authPanel}>
+                    <span className="material-icons">login</span>
+                    <h2>ログインが必要です</h2>
+                    <p>Discord で認証すると、参加しているサーバーのランキングを表示できます。</p>
+                    <button
+                        className={styles.authButton}
+                        onClick={() => {
+                            window.location.href = '/api/auth/discord';
+                        }}
+                        type="button"
+                    >
+                        <span className="material-icons">login</span>
+                        Discordでログイン
                     </button>
                 </div>
             </div>

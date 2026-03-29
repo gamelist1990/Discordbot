@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import PageShell from '../../components/PageShell';
 import styles from './SettingsListPage.module.css';
 
 interface Guild {
@@ -49,6 +48,7 @@ const SettingsListPage: React.FC = () => {
   }, []);
 
   const ownerCount = useMemo(() => guilds.filter((guild) => guild.owner).length, [guilds]);
+  const isLoggedOut = isAuthenticated === false;
 
   const renderContent = () => {
     if (loading) {
@@ -128,11 +128,14 @@ const SettingsListPage: React.FC = () => {
 
   return (
     <div className={styles.page}>
-      <PageShell
-        eyebrow="Server Management"
-        title="管理対象サーバー"
-        description="設定を触れるサーバーだけを集め、次に開く面を迷わない一覧に整理しています。"
-        actions={
+      <section className={styles.pageHeader}>
+        <div className={styles.pageHeaderCopy}>
+          <span className={styles.pageEyebrow}>Server Management</span>
+          <h1>管理対象サーバー</h1>
+          <p>設定を触れるサーバーだけを集め、次に開く面を迷わない一覧に整理しています。</p>
+        </div>
+
+        <div className={styles.pageHeaderActions}>
           <button
             className={styles.primaryButton}
             onClick={() => navigate('/staff')}
@@ -141,25 +144,33 @@ const SettingsListPage: React.FC = () => {
             <span className="material-icons">shield</span>
             スタッフ運用へ
           </button>
-        }
-        aside={
-          <div className={styles.summary}>
-            <div className={styles.summaryCard}>
-              <span className={styles.summaryLabel}>Visible guilds</span>
-              <strong>{guilds.length}</strong>
-              <p>現在このアカウントから管理できるサーバー数です。</p>
-            </div>
-            <div className={styles.summaryCard}>
-              <span className={styles.summaryLabel}>Owner access</span>
-              <strong>{ownerCount}</strong>
-              <p>オーナー権限で開けるサーバー数を分離して把握できます。</p>
-            </div>
+        </div>
+
+        <div className={styles.summary}>
+          <div className={styles.summaryCard}>
+            <span className={styles.summaryLabel}>Visible guilds</span>
+            <strong>{isLoggedOut ? '—' : guilds.length}</strong>
+            <p>
+              {isLoggedOut
+                ? 'Discord でログインすると、管理対象サーバーが表示されます。'
+                : '現在このアカウントから管理できるサーバー数です。'}
+            </p>
           </div>
-        }
-        compact
-      >
+          <div className={styles.summaryCard}>
+            <span className={styles.summaryLabel}>Owner access</span>
+            <strong>{isLoggedOut ? '—' : ownerCount}</strong>
+            <p>
+              {isLoggedOut
+                ? '認証後にオーナー権限の判定を行います。'
+                : 'オーナー権限で開けるサーバー数を分離して把握できます。'}
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <div>
         {renderContent()}
-      </PageShell>
+      </div>
     </div>
   );
 };

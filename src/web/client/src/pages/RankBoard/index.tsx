@@ -52,6 +52,7 @@ const RankBoard: React.FC = () => {
     const [rankingsByRank, setRankingsByRank] = useState<Map<string, RankEntry[]>>(new Map());
     const [error, setError] = useState<string | null>(null);
     const [activeTab, setActiveTab] = useState<TabType>('top');
+    const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
     useAppToast();
 
     useEffect(() => {
@@ -59,6 +60,29 @@ const RankBoard: React.FC = () => {
             fetchRankBoard();
         }
     }, [guildId, panelId]);
+
+    useEffect(() => {
+        const key = `rankCollapsed:${guildId}:${panelId}`;
+        try {
+            if (guildId && panelId) {
+                const raw = localStorage.getItem(key);
+                if (raw) setCollapsedSections(JSON.parse(raw));
+            }
+        } catch (e) {
+            // ignore
+        }
+    }, [guildId, panelId]);
+
+    useEffect(() => {
+        const key = `rankCollapsed:${guildId}:${panelId}`;
+        try {
+            if (guildId && panelId) localStorage.setItem(key, JSON.stringify(collapsedSections));
+        } catch (e) {}
+    }, [collapsedSections, guildId, panelId]);
+
+    const toggleCollapse = (name: string) => {
+        setCollapsedSections(prev => ({ ...prev, [name]: !prev[name] }));
+    };
 
     const fetchRankBoard = async () => {
         try {
@@ -307,8 +331,15 @@ const RankBoard: React.FC = () => {
                     <div className={styles.rankByRankContainer}>
                         {preset && preset.ranks.length > 0 ? (
                             preset.ranks.map((rankDef) => (
-                                <div key={rankDef.name} className={styles.rankSection}>
-                                    <div className={styles.rankSectionHeader}>
+                                <div key={rankDef.name} className={`${styles.rankSection} ${collapsedSections[rankDef.name] ? styles.collapsed : ''}`}>
+                                    <div
+                                        className={styles.rankSectionHeader}
+                                        role="button"
+                                        tabIndex={0}
+                                        aria-expanded={!collapsedSections[rankDef.name]}
+                                        onClick={() => toggleCollapse(rankDef.name)}
+                                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleCollapse(rankDef.name); } }}
+                                    >
                                         <div
                                             className={styles.rankSectionBadge}
                                             style={{ backgroundColor: rankDef.color || '#999' }}
@@ -317,6 +348,9 @@ const RankBoard: React.FC = () => {
                                         </div>
                                         <span className={styles.rankSectionCount}>
                                             {rankingsByRank.get(rankDef.name)?.length || 0} 人
+                                        </span>
+                                        <span className={styles.collapseIcon} aria-hidden="true">
+                                            <span className="material-icons">{collapsedSections[rankDef.name] ? 'expand_more' : 'expand_less'}</span>
                                         </span>
                                     </div>
                                     <div className={styles.rankSectionList}>

@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import PageShell from '../../components/PageShell';
 import PermissionsTab from '../../components/Tabs/PermissionsTab';
 import { fetchGuildInfo, fetchSettings, saveSettings } from '../../services/api';
 import type { GuildInfo, GuildSettings } from '../../types';
@@ -150,43 +149,44 @@ const SettingsPage: React.FC = () => {
 
   return (
     <div className={styles.page}>
-      <PageShell
-        eyebrow="Server Management"
-        title={guildInfo.name}
-        description="このサーバーに必要な管理面だけを集約した、専用の運用ハブです。"
-        actions={
-          <>
-            <button className={styles.secondaryButton} onClick={() => navigate('/settings')} type="button">
-              <span className="material-icons">arrow_back</span>
-              <span>サーバー一覧</span>
-            </button>
-            <button className={styles.primaryButton} onClick={() => navigate(`/staff/anticheat/${guildId}`)} type="button">
-              <span className="material-icons">shield</span>
-              <span>AntiCheat を開く</span>
-            </button>
-          </>
-        }
-        aside={
-          <div className={styles.summary}>
-            <div className={styles.summaryCard}>
-              <span className={styles.summaryLabel}>Roles</span>
-              <strong>{guildInfo.roles.length}</strong>
-              <p>読み込み済みのロール数です。</p>
-            </div>
-            <div className={styles.summaryCard}>
-              <span className={styles.summaryLabel}>Staff role</span>
-              <strong>{staffRoleName}</strong>
-              <p>スタッフ面へ入れる現在の割り当てです。</p>
-            </div>
-            <div className={styles.summaryCard}>
-              <span className={styles.summaryLabel}>Web auth</span>
-              <strong>{webAuthRoleName}</strong>
-              <p>認証完了時に付与するロールです。</p>
-            </div>
+      <section className={styles.pageHeader}>
+        <div className={styles.pageHeaderCopy}>
+          <span className={styles.pageEyebrow}>Server Management</span>
+          <h1>{guildInfo.name}</h1>
+          <p>このサーバーに必要な管理面だけを集約した、専用の運用ハブです。</p>
+        </div>
+
+        <div className={styles.pageHeaderActions}>
+          <button className={styles.secondaryButton} onClick={() => navigate('/settings')} type="button">
+            <span className="material-icons">arrow_back</span>
+            <span>サーバー一覧</span>
+          </button>
+          <button className={styles.primaryButton} onClick={() => navigate(`/staff/anticheat/${guildId}`)} type="button">
+            <span className="material-icons">shield</span>
+            <span>AntiCheat を開く</span>
+          </button>
+        </div>
+
+        <div className={styles.summary}>
+          <div className={styles.summaryCard}>
+            <span className={styles.summaryLabel}>Roles</span>
+            <strong>{guildInfo.roles.length}</strong>
+            <p>読み込み済みのロール数です。</p>
           </div>
-        }
-        compact
-      >
+          <div className={styles.summaryCard}>
+            <span className={styles.summaryLabel}>Staff role</span>
+            <strong>{staffRoleName}</strong>
+            <p>スタッフ面へ入れる現在の割り当てです。</p>
+          </div>
+          <div className={styles.summaryCard}>
+            <span className={styles.summaryLabel}>Web auth</span>
+            <strong>{webAuthRoleName}</strong>
+            <p>認証完了時に付与するロールです。</p>
+          </div>
+        </div>
+      </section>
+
+      <div>
         <section className={styles.identityBar}>
           <div className={styles.guildIdentity}>
             <div className={styles.guildIcon}>
@@ -244,7 +244,7 @@ const SettingsPage: React.FC = () => {
         <section className={styles.section} id="permissions-section">
           <PermissionsTab settings={settings} roles={guildInfo.roles} onSave={handleSaveSettings} />
         </section>
-      </PageShell>
+      </div>
     </div>
   );
 };

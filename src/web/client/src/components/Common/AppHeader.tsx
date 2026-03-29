@@ -291,6 +291,8 @@ const AppHeader: React.FC<AppHeaderProps> = ({ user: userProp, onLogout }) => {
                 window.location.href = '/api/auth/discord';
               }}
               type="button"
+              aria-label="Discordでログイン"
+              title="Discordでログイン"
             >
               <span className="material-icons">login</span>
               <span>Discordでログイン</span>

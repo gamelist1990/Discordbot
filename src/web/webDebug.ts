@@ -101,7 +101,7 @@ async function main() {
         await stubBotClient.initializeDatabase();
 
         // 設定サーバーを起動
-        const port = process.env.WEB_DEBUG_PORT ? parseInt(process.env.WEB_DEBUG_PORT) : 3001;
+        const port = process.env.WEB_DEBUG_PORT ? parseInt(process.env.WEB_DEBUG_PORT) : 3000;
         const settingsServer = new SettingsServer(stubBotClient, port);
         await settingsServer.start();
 

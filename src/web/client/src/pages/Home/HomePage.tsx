@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import PageShell from '../../components/PageShell';
 import { fetchBotStatus } from '../../services/api';
 import type { BotStatusResponse } from '../../types';
 import styles from './HomePage.module.css';
@@ -11,7 +10,7 @@ interface UserSession {
   avatar?: string | null;
 }
 
-const capabilityCards = [
+const capabilities = [
   {
     title: 'サーバー設定',
     description: '権限、ロール、各種運用設定をサーバー単位で落ち着いて調整できます。',
@@ -36,20 +35,23 @@ const capabilityCards = [
 
 const workflowSteps = [
   {
+    number: '01',
     title: 'サーバーを選ぶ',
     description: '管理権限のあるサーバーを一覧から選択し、必要な運用面へすぐ入れます。',
   },
   {
+    number: '02',
     title: '役割ごとに整える',
     description: '一般設定、権限、スタッフ向け機能を役割に応じた粒度で整理します。',
   },
   {
+    number: '03',
     title: '状態を追い続ける',
     description: 'ステータス、ログ、ランキングを見ながら運用改善を回します。',
   },
 ];
 
-const quickLinks = [
+const quickActions = [
   { title: 'サーバー管理', description: '管理対象サーバーへ進む', path: '/settings', icon: 'tune' },
   { title: 'スタッフ運用', description: 'AntiCheat と運用サービスへ進む', path: '/staff', icon: 'shield' },
   { title: 'ランキング', description: '活動データと公開パネルを確認する', path: '/rank', icon: 'leaderboard' },
@@ -108,170 +110,169 @@ const HomePage: React.FC = () => {
     );
   }
 
-  const statusCards = [
+  const statusMetrics = [
     {
       label: 'Status',
       value: status?.ready ? 'Online' : 'Standby',
-      tone: status?.ready ? styles.ok : styles.warn,
+      tone: status?.ready ? 'ok' : 'warn',
       caption: status?.ready ? 'Bot とダッシュボードが稼働中です' : '起動状態を確認しています',
       icon: 'power_settings_new',
     },
     {
       label: 'Guilds',
       value: status ? `${status.guildCount} / ${status.maxGuilds}` : '-',
-      tone: styles.neutral,
+      tone: 'neutral',
       caption: '接続サーバー数',
       icon: 'hub',
     },
     {
       label: 'Uptime',
       value: status?.uptimeFormatted || '-',
-      tone: styles.neutral,
+      tone: 'neutral',
       caption: '連続稼働時間',
       icon: 'schedule',
     },
   ];
 
+  const handleLoginClick = () => {
+    window.location.href = '/api/auth/discord';
+  };
+
   return (
     <div className={styles.page}>
-      <PageShell
-        eyebrow="Control Surface"
-        title="PEXServer"
-        description="Discord サーバー運用を、散らかった設定画面ではなく落ち着いた一枚のワークスペースとして扱うためのホームです。"
-        actions={
-          <>
-            {user ? (
-              <button className={styles.primaryAction} onClick={() => navigate('/profile')} type="button">
-                <span className="material-icons">dashboard</span>
-                ワークスペースへ
-              </button>
-            ) : (
-              <button
-                className={styles.primaryAction}
-                onClick={() => {
-                  window.location.href = '/api/auth/discord';
-                }}
-                type="button"
-              >
-                <span className="material-icons">login</span>
-                Discordでログイン
-              </button>
-            )}
-            <button className={styles.secondaryAction} onClick={() => navigate('/settings')} type="button">
-              <span className="material-icons">tune</span>
-              サーバー管理
-            </button>
-          </>
-        }
-        meta={
-          <>
-            <span className={styles.metaChip}>権限と運用を一元管理</span>
-            <span className={styles.metaChip}>Todo / Trigger は整理済み</span>
-            <span className={styles.metaChip}>フォルダ構造ベースの永続化へ移行</span>
-          </>
-        }
-        aside={
-          <div className={styles.statusBoard}>
-            <div className={styles.statusLead}>
-              <span className={styles.statusLabel}>Current state</span>
-              <strong>{user ? `${user.username} のワークスペース` : '公開ホーム'}</strong>
-              <p>{user ? 'プロフィールや各管理画面へすぐに移動できます。' : 'ログインすると個人ページと管理機能が解放されます。'}</p>
-            </div>
-
-            <div className={styles.statusGrid}>
-              {statusCards.map((card) => (
-                <div key={card.label} className={`${styles.statusCard} ${card.tone}`}>
-                  <span className={styles.statusIcon}>
-                    <span className="material-icons">{card.icon}</span>
-                  </span>
-                  <div>
-                    <span className={styles.cardLabel}>{card.label}</span>
-                    <strong className={styles.cardValue}>{card.value}</strong>
-                    <p className={styles.cardCaption}>{card.caption}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        }
-      >
-        <section className={styles.section}>
-          <div className={styles.sectionIntro}>
-            <span className={styles.sectionEyebrow}>Capabilities</span>
-            <h2>今必要な管理機能だけを、迷わず辿れる構成に。</h2>
-            <p>
-              ホームでやるべきことを明確にし、設定・スタッフ運用・可視化の導線を短く保っています。
+      {/* Hero Section */}
+      <section className={styles.heroSection}>
+        <div className={styles.heroContainer}>
+          <div className={styles.heroContent}>
+            <span className={styles.eyebrow}>Discord Server Management</span>
+            <h1 className={styles.heroTitle}>
+              サーバー運用を、<br />ひとつのワークスペースで。
+            </h1>
+            <p className={styles.heroDescription}>
+              散らかった設定画面ではなく、落ち着いた一枚のダッシュボードから権限・ロール・運用設定を統一的に扱います。
             </p>
+            <div className={styles.heroCTA}>
+              {user ? (
+                <button className={styles.ctaPrimary} onClick={() => navigate('/profile')} type="button">
+                  <span className="material-icons">dashboard</span>
+                  ワークスペースへ進む
+                </button>
+              ) : (
+                <button className={styles.ctaPrimary} onClick={handleLoginClick} type="button">
+                  <span className="material-icons">login</span>
+                  Discordでログイン
+                </button>
+              )}
+            </div>
           </div>
 
+          <div className={styles.heroVisual} />
+        </div>
+      </section>
+
+      {/* Status Metrics */}
+      <section className={styles.metricsSection}>
+        <div className={styles.metricsLabel}>System Status</div>
+        <div className={styles.metricsGrid}>
+          {statusMetrics.map((metric) => (
+            <div key={metric.label} className={`${styles.metricCard} ${styles[`metric${metric.tone}`]}`}>
+              <span className={styles.metricIcon}>
+                <span className="material-icons">{metric.icon}</span>
+              </span>
+              <div>
+                <span className={styles.metricLabel}>{metric.label}</span>
+                <strong className={styles.metricValue}>{metric.value}</strong>
+                <p className={styles.metricCaption}>{metric.caption}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* Main Content Wrapper */}
+      <div className={styles.mainContent}>
+        {/* Capabilities Section */}
+        <section className={styles.section}>
+          <div className={styles.sectionHeader}>
+            <div>
+              <span className={styles.sectionLabel}>Capabilities</span>
+              <h2 className={styles.sectionTitle}>主要機能を把握する</h2>
+              <p className={styles.sectionDescription}>
+                サーバー運用のための主要な4つの機能です。どれからはじめても大丈夫です。
+              </p>
+            </div>
+          </div>
           <div className={styles.capabilityGrid}>
-            {capabilityCards.map((card, index) => (
-              <article
-                key={card.title}
-                className={styles.capabilityCard}
-                style={{ animationDelay: `${index * 90}ms` }}
-              >
-                <span className={styles.capabilityIcon}>
-                  <span className="material-icons">{card.icon}</span>
-                </span>
-                <h3>{card.title}</h3>
-                <p>{card.description}</p>
+            {capabilities.map((cap) => (
+              <article key={cap.title} className={styles.capabilityCard}>
+                <div className={styles.capabilityIcon}>
+                  <span className="material-icons">{cap.icon}</span>
+                </div>
+                <div className={styles.capabilityBody}>
+                  <h3>{cap.title}</h3>
+                  <p>{cap.description}</p>
+                </div>
               </article>
             ))}
           </div>
         </section>
 
+        {/* Workflow Section */}
         <section className={styles.section}>
-          <div className={styles.splitSection}>
-            <div className={styles.sectionIntro}>
-              <span className={styles.sectionEyebrow}>Flow</span>
-              <h2>設定の順序まで含めて、ホームから誘導します。</h2>
-              <p>
-                何から触るべきか分かるように、初期導線を 3 つのステップに圧縮しています。
+          <div className={styles.sectionHeader}>
+            <div>
+              <span className={styles.sectionLabel}>Getting Started</span>
+              <h2 className={styles.sectionTitle}>最初のステップ</h2>
+              <p className={styles.sectionDescription}>
+                初回セットアップから日々の運用まで、3つのステップで進めます。
               </p>
             </div>
-
-            <div className={styles.workflow}>
-              {workflowSteps.map((step, index) => (
-                <article key={step.title} className={styles.workflowStep}>
-                  <span className={styles.stepNumber}>0{index + 1}</span>
-                  <div>
-                    <h3>{step.title}</h3>
-                    <p>{step.description}</p>
-                  </div>
-                </article>
-              ))}
-            </div>
+          </div>
+          <div className={styles.workflowGrid}>
+            {workflowSteps.map((step) => (
+              <article key={step.number} className={styles.workflowCard}>
+                <div className={styles.stepNumber}>{step.number}</div>
+                <div className={styles.stepContent}>
+                  <h3>{step.title}</h3>
+                  <p>{step.description}</p>
+                </div>
+              </article>
+            ))}
           </div>
         </section>
 
+        {/* Quick Actions Section */}
         <section className={styles.section}>
-          <div className={styles.sectionIntro}>
-            <span className={styles.sectionEyebrow}>Quick Access</span>
-            <h2>主要な面へ、そのまま移動。</h2>
+          <div className={styles.sectionHeader}>
+            <div>
+              <span className={styles.sectionLabel}>Quick Access</span>
+              <h2 className={styles.sectionTitle}>よく使う機能へ</h2>
+              <p className={styles.sectionDescription}>
+                日常的に利用する3つの主要機能へ、ワンクリックで移動できます。
+              </p>
+            </div>
           </div>
-
-          <div className={styles.linkGrid}>
-            {quickLinks.map((link) => (
+          <div className={styles.actionGrid}>
+            {quickActions.map((action) => (
               <button
-                key={link.path}
-                className={styles.linkCard}
-                onClick={() => navigate(link.path)}
+                key={action.path}
+                className={styles.actionCard}
+                onClick={() => navigate(action.path)}
                 type="button"
               >
-                <span className={styles.linkIcon}>
-                  <span className="material-icons">{link.icon}</span>
-                </span>
-                <div className={styles.linkBody}>
-                  <strong>{link.title}</strong>
-                  <p>{link.description}</p>
+                <div className={styles.actionIcon}>
+                  <span className="material-icons">{action.icon}</span>
                 </div>
-                <span className="material-icons">arrow_forward</span>
+                <div className={styles.actionBody}>
+                  <strong className={styles.actionTitle}>{action.title}</strong>
+                  <p className={styles.actionDescription}>{action.description}</p>
+                </div>
+                <span className={`material-icons ${styles.actionArrow}`}>arrow_forward</span>
               </button>
             ))}
           </div>
         </section>
-      </PageShell>
+      </div>
     </div>
   );
 };

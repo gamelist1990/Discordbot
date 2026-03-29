@@ -25,6 +25,7 @@ const RankBoardGuild: React.FC = () => {
     const [guild, setGuild] = useState<GuildInfo | null>(null);
     const [panels, setPanels] = useState<RankPanel[]>([]);
     const [error, setError] = useState<string | null>(null);
+    const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
 
     useEffect(() => {
         if (guildId) {
@@ -38,6 +39,13 @@ const RankBoardGuild: React.FC = () => {
             setError(null);
 
             const res = await fetch(`/api/rank/guild/${guildId}`, { credentials: 'include' });
+            if (res.status === 401) {
+                setIsAuthenticated(false);
+                setGuild(null);
+                setPanels([]);
+                return;
+            }
+
             if (!res.ok) {
                 throw new Error('サーバー情報の取得に失敗しました');
             }
@@ -45,6 +53,7 @@ const RankBoardGuild: React.FC = () => {
             const data = await res.json();
             setGuild(data.guild);
             setPanels(data.panels || []);
+            setIsAuthenticated(true);
 
         } catch (err) {
             console.error('Failed to fetch guild data:', err);
@@ -94,6 +103,37 @@ const RankBoardGuild: React.FC = () => {
     }
 
     if (error || !guild) {
+        if (isAuthenticated === false) {
+            return (
+                <div className={styles.container}>
+                    <div className={styles.authPanel}>
+                        <span className="material-icons">login</span>
+                        <h2>ログインが必要です</h2>
+                        <p>Discord で認証すると、ランキングパネルの一覧を表示できます。</p>
+                        <div className={styles.authActions}>
+                            <button
+                                className={styles.authButton}
+                                onClick={() => {
+                                    window.location.href = '/api/auth/discord';
+                                }}
+                                type="button"
+                            >
+                                <span className="material-icons">login</span>
+                                Discordでログイン
+                            </button>
+                            <button
+                                className={styles.backBtn}
+                                onClick={() => navigate('/rank')}
+                                type="button"
+                            >
+                                戻る
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
         return (
             <div className={styles.container}>
                 <div className={styles.error}>

@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import PageShell from '../../components/PageShell';
 import { fetchStaffCommands, type StaffCommandData } from '../../services/api';
 import styles from './StaffHelpPage.module.css';
 
@@ -221,26 +220,28 @@ const StaffHelpPage: React.FC = () => {
 
   return (
     <div className={styles.page}>
-      <PageShell
-        eyebrow="Staff Surface"
-        title="スタッフ運用"
-        description="スタッフ向けコマンドの参照と、運用サービスへの導線をひとつの画面にまとめています。"
-        aside={
-          <div className={styles.summary}>
-            <div className={styles.summaryCard}>
-              <span className={styles.summaryLabel}>Commands</span>
-              <strong>{commandData?.subcommands.length || 0}</strong>
-              <p>利用できるスタッフ向けサブコマンド数です。</p>
-            </div>
-            <div className={styles.summaryCard}>
-              <span className={styles.summaryLabel}>Services</span>
-              <strong>{services.length}</strong>
-              <p>整理済みの主要スタッフサービスに直接移動できます。</p>
-            </div>
+      <section className={styles.pageHeader}>
+        <div className={styles.pageHeaderCopy}>
+          <span className={styles.pageEyebrow}>Staff Surface</span>
+          <h1>スタッフ運用</h1>
+          <p>スタッフ向けコマンドの参照と、運用サービスへの導線をひとつの画面にまとめています。</p>
+        </div>
+
+        <div className={styles.summary}>
+          <div className={styles.summaryCard}>
+            <span className={styles.summaryLabel}>Commands</span>
+            <strong>{commandData?.subcommands.length || 0}</strong>
+            <p>利用できるスタッフ向けサブコマンド数です。</p>
           </div>
-        }
-        compact
-      >
+          <div className={styles.summaryCard}>
+            <span className={styles.summaryLabel}>Services</span>
+            <strong>{services.length}</strong>
+            <p>整理済みの主要スタッフサービスに直接移動できます。</p>
+          </div>
+        </div>
+      </section>
+
+      <div>
         <div className={styles.tabBar}>
           <button
             className={`${styles.tabButton} ${activeTab === 'help' ? styles.activeTab : ''}`}
@@ -261,7 +262,7 @@ const StaffHelpPage: React.FC = () => {
         </div>
 
         {renderBody()}
-      </PageShell>
+      </div>
     </div>
   );
 };
