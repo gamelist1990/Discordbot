@@ -25,13 +25,3 @@ globalPreviewRegistry.register(/^\/404$|^\/notfound$/i, async (path) => {
     };
 });
 
-// Todo index (if site has /todo)
-globalPreviewRegistry.register(/^\/todo$|^\/todo\/$/i, async (path) => {
-    return {
-        title: 'Todo',
-        description: 'このページではサイトの作業予定（Todo）や優先タスクの一覧を確認できます。貢献や修正の予定を素早く把握するのに便利です。',
-        image: SITE_ICON_PATH,
-        url: path,
-        type: 'website'
-    };
-});

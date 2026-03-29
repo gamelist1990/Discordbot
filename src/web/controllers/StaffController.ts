@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { SettingsSession } from '../types/index.js';
 import { BotClient } from '../../core/BotClient.js';
 import { userHasAdminOrManageFlag } from '../routes/permissionsUtils.js';
+import { database } from '../../core/Database.js';
 
 /**
  * スタッフコントローラー
@@ -30,7 +31,7 @@ export class StaffController {
             // Try to read persisted OAuth sessions to get user's access token
             const fs = await import('fs');
             const path = await import('path');
-            const authPersistPath = path.join(process.cwd(), 'Data', 'Auth', 'sessions.json');
+            const authPersistPath = path.join(database.getDataDir(), 'system', 'auth', 'sessions.json');
             let userOauth: any = null;
             try {
                 if (fs.existsSync(authPersistPath)) {

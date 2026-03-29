@@ -56,7 +56,7 @@ export function createGuildRoutes(sessions: Map<string, SettingsSession>, botCli
             return;
         }
 
-        // サーバー設定取得 (新しいレイアウト: Data/Guild/<guildId>/settings.json)
+        // サーバー設定取得 (新しいレイアウト: Database/guilds/<guildId>/settings.json)
         let settings = null;
         try {
             settings = await database.get(guildId, `Guild/${guildId}/settings`);

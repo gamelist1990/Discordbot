@@ -15,14 +15,13 @@ import { Logger } from '../utils/Logger.js';
 import { BotClient } from '../core/BotClient.js';
 import { SessionService } from './services/SessionService.js';
 import { ProfileService } from './services/ProfileService.js';
-import { createStatusRoutes, createSessionRoutes, createSettingsRoutes, createStaffRoutes, createAuthRoutes, createTodoRoutes, createUserRoutes, createModRoutes, createFeedbackRoutes, createRolePresetRoutes, createRankRoutes, createWebRankRoutes, createPublicRankRoutes, createTriggerRoutes, createToolRoutes, createAntiCheatRoutes } from './routes/index.js';
+import { createStatusRoutes, createSessionRoutes, createSettingsRoutes, createStaffRoutes, createAuthRoutes, createUserRoutes, createModRoutes, createFeedbackRoutes, createRolePresetRoutes, createRankRoutes, createWebRankRoutes, createPublicRankRoutes, createToolRoutes, createAntiCheatRoutes } from './routes/index.js';
 import { createGuildRoutes } from './routes/guild.js';
 import { createProfileController } from './controllers/ProfileController.js';
 import { setupWebSocketServer } from './routes/websocket.js';
 import { previewHandler } from './preview/PreviewController.js';
 // 開発時に Vite dev server へプロキシするためのミドルウェア（optional）
 import { statsManagerSingleton } from '../core/StatsManager.js';
-import { TodoManager } from '../core/TodoManager.js';
 import { database } from '../core/Database.js';
 // config.json を読み込む
 
@@ -66,12 +65,6 @@ export class SettingsServer {
             Logger.warn('Failed to init StatsManager:', e);
         }
 
-        // 定期的に期限切れの共有エディターをクリーンアップ
-        setInterval(() => {
-            TodoManager.cleanupExpiredSharedEditors().catch(err => {
-                console.error('Failed to cleanup expired shared editors:', err);
-            });
-        }, 60 * 1000); // 1分ごとにチェック
     }
 
     /**
@@ -146,14 +139,12 @@ export class SettingsServer {
         this.app.use('/api/staff/rankmanager', createRankRoutes(sessions, this.botClient));
         this.app.use('/api/rank', createWebRankRoutes(sessions, this.botClient));
         this.app.use('/api/rank', createPublicRankRoutes(this.botClient));
-        this.app.use('/api', createTodoRoutes(sessions, this.botClient));
         this.app.use('/api/auth', createAuthRoutes(sessions, this.botClient));
         this.app.use('/api/user', createUserRoutes(sessions, this.botClient, this.profileService));
         this.app.use('/api/user/profile', createProfileController(sessions, this.profileService));
         this.app.use('/api/guilds', createModRoutes(sessions, this.botClient));
         this.app.use('/api', createGuildRoutes(sessions, this.botClient));
         this.app.use('/api', createFeedbackRoutes(sessions));
-        this.app.use('/api', createTriggerRoutes(sessions, this.botClient));
         this.app.use('/api/tools', createToolRoutes(sessions, this.botClient));
         this.app.use('/api/staff/anticheat', createAntiCheatRoutes(sessions, this.botClient));
 

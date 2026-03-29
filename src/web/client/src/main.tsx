@@ -6,10 +6,10 @@ import './styles/global.css';
 import { AppToastProvider } from './AppToastProvider';
 import { startPrivateChatSSE } from './services/sse';
 
-// Handle redirection logic after successful authentication
+// Handle redirection logic after successful authentication.
 // Only perform the stored-returnPath redirect when the app is on the root page
 // or when coming back from an auth callback. This avoids stealing navigation
-// when a user visits a shared URL like /todo/shared/:token.
+// when a user lands on a deep link to a specific workspace page.
 const handlePostAuthRedirect = () => {
   const returnPath = localStorage.getItem('returnPath');
   const currentPath = window.location.pathname;
@@ -17,7 +17,7 @@ const handlePostAuthRedirect = () => {
   // Only redirect if there is a stored returnPath, it's different from root and
   // it's not the same as the current path AND the user is currently on the root
   // (or an auth callback). This prevents unexpected redirects when visiting
-  // deep links such as /todo/shared/:token.
+  // deep links to an already-selected page.
   const isAuthCallback = currentPath.startsWith('/auth') || currentPath.startsWith('/callback');
   if (
     returnPath &&

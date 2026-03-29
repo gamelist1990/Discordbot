@@ -1,55 +1,23 @@
-/* Light Theme - Simple & Clean */
-
-:root {
-  --bg-primary: #ffffff;
-  --bg-secondary: #f9fafb;
-  --bg-tertiary: #f3f4f6;
-  --text-primary: #1f2937;
-  --text-secondary: #6b7280;
-  --text-light: #9ca3af;
-  --border-color: #e5e7eb;
-  --accent-blue: #3b82f6;
-  --accent-green: #10b981;
-  --accent-orange: #f59e0b;
-  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
-}
-
-* {
-  box-sizing: border-box;
-}
-
 .page {
-  min-height: calc(100vh - var(--header-height, 0px));
-  background: linear-gradient(180deg, var(--bg-primary) 0%, var(--bg-secondary) 100%);
-  color: var(--text-primary);
-  display: flex;
-  flex-direction: column;
-  position: relative;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
+  min-height: calc(100vh - var(--header-height));
 }
 
-.main {
-  flex: 1;
-  padding: 48px 20px;
-}
-
-/* ============ LOADING ============ */
-.loadingContainer {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 60vh;
+.loadingState {
+  display: grid;
+  justify-items: center;
+  gap: 14px;
+  min-height: calc(100vh - var(--header-height));
+  align-content: center;
+  color: var(--app-ink-soft);
 }
 
 .spinner {
-  width: 32px;
-  height: 32px;
-  border: 3px solid var(--border-color);
-  border-top-color: var(--accent-blue);
+  width: 42px;
+  height: 42px;
   border-radius: 50%;
-  animation: spin 0.8s linear infinite;
+  border: 3px solid rgba(15, 91, 216, 0.12);
+  border-top-color: var(--app-accent);
+  animation: spin 0.9s linear infinite;
 }
 
 @keyframes spin {
@@ -58,472 +26,333 @@
   }
 }
 
-/* ============ HERO SECTION ============ */
-.hero {
-  max-width: 1200px;
-  margin: 0 auto 80px;
-  padding: 0 20px;
-}
-
-.heroContainer {
-  display: flex;
-  flex-direction: column;
-  gap: 40px;
-  align-items: flex-start;
-}
-
-.heroMain {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.heroTitle {
-  font-size: clamp(40px, 8vw, 64px);
-  font-weight: 700;
-  margin: 0;
-  color: var(--text-primary);
-  letter-spacing: -1px;
-  line-height: 1.1;
-}
-
-.heroSubtitle {
-  font-size: 18px;
-  color: var(--text-secondary);
-  margin: 0;
-  max-width: 600px;
-  line-height: 1.6;
-}
-
-.heroButtons {
-  display: flex;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.btnPrimary,
-.btnSecondary {
-  display: flex;
+.primaryAction,
+.secondaryAction {
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 12px 24px;
-  border: none;
-  border-radius: 8px;
-  font-weight: 600;
-  font-size: 14px;
-  cursor: pointer;
-  transition: all 0.2s ease;
+  gap: 10px;
+  padding: 12px 18px;
+  border-radius: 999px;
+  font-weight: 700;
 }
 
-.btnPrimary {
-  background: var(--accent-blue);
-  color: white;
-  box-shadow: var(--shadow-sm);
+.primaryAction {
+  background: linear-gradient(135deg, var(--app-accent), var(--app-accent-strong));
+  color: #fff;
+  box-shadow: 0 18px 32px rgba(15, 91, 216, 0.2);
 }
 
-.btnPrimary:hover {
-  background: #2563eb;
-  box-shadow: var(--shadow-md);
+.primaryAction:hover {
   transform: translateY(-1px);
 }
 
-.btnPrimary:active {
-  transform: translateY(0);
+.secondaryAction {
+  background: rgba(255, 255, 255, 0.78);
+  color: var(--app-ink);
+  border: 1px solid var(--app-border-strong);
 }
 
-.btnSecondary {
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
-  border: 1px solid var(--border-color);
+.secondaryAction:hover {
+  background: rgba(255, 255, 255, 0.96);
 }
 
-.btnSecondary:hover {
-  background: var(--bg-secondary);
-  border-color: var(--accent-blue);
-  color: var(--accent-blue);
+.metaChip {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: rgba(16, 35, 59, 0.06);
+  color: var(--app-ink-soft);
+  font-size: 0.84rem;
+  font-weight: 600;
 }
 
-/* ============ STATUS SECTION ============ */
-.statusSection {
-  max-width: 1200px;
-  margin: 0 auto 80px;
-  padding: 0 20px;
-}
-
-.statusCards {
+.statusBoard {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 20px;
+  gap: 16px;
+}
+
+.statusLead {
+  padding: 18px;
+  border-radius: 22px;
+  background:
+    linear-gradient(140deg, rgba(11, 34, 70, 0.96), rgba(18, 57, 126, 0.94));
+  color: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 22px 34px rgba(11, 34, 70, 0.24);
+}
+
+.statusLead strong {
+  display: block;
+  margin-top: 4px;
+  font-size: 1.2rem;
+  letter-spacing: -0.04em;
+}
+
+.statusLead p,
+.cardCaption,
+.sectionIntro p,
+.capabilityCard p,
+.workflowStep p,
+.linkBody p {
+  margin: 0;
+  color: inherit;
+}
+
+.statusLabel,
+.cardLabel,
+.sectionEyebrow {
+  display: inline-flex;
+  align-items: center;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.statusGrid {
+  display: grid;
+  gap: 10px;
 }
 
 .statusCard {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  padding: 20px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
-  border-radius: 12px;
-  transition: all 0.2s ease;
-}
-
-.statusCard:hover {
-  box-shadow: var(--shadow-md);
-  border-color: var(--accent-blue);
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 14px;
+  padding: 16px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(16, 35, 59, 0.08);
 }
 
 .statusIcon {
-  width: 56px;
-  height: 56px;
-  border-radius: 10px;
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 28px;
-  flex-shrink: 0;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border-color);
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
+  background: rgba(16, 35, 59, 0.06);
 }
 
-.iconStatus {
-  color: var(--accent-blue);
-  background: rgba(59, 130, 246, 0.08);
+.cardLabel {
+  color: var(--app-ink-muted);
 }
 
-.iconUptime {
-  color: var(--accent-green);
-  background: rgba(16, 185, 129, 0.08);
+.cardValue {
+  display: block;
+  margin-top: 2px;
+  color: var(--app-ink);
+  font-size: 1.15rem;
 }
 
-.iconGuilds {
-  color: var(--accent-orange);
-  background: rgba(245, 158, 11, 0.08);
+.cardCaption {
+  margin-top: 4px;
+  color: var(--app-ink-soft);
+  font-size: 0.84rem;
+  line-height: 1.55;
 }
 
-.statusCardContent {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+.ok {
+  background: linear-gradient(135deg, rgba(27, 138, 98, 0.12), rgba(255, 255, 255, 0.74));
 }
 
-.statusCardLabel {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-light);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+.warn {
+  background: linear-gradient(135deg, rgba(209, 139, 47, 0.14), rgba(255, 255, 255, 0.74));
 }
 
-.statusCardValue {
-  font-size: 18px;
-  font-weight: 700;
-  color: var(--text-primary);
-  display: flex;
-  align-items: center;
+.neutral {
+  background: rgba(255, 255, 255, 0.74);
+}
+
+.section {
+  padding: 28px;
+  border-radius: 28px;
+  border: 1px solid var(--app-border);
+  background: rgba(255, 255, 255, 0.76);
+  box-shadow: var(--app-shadow-md);
+}
+
+.sectionIntro {
+  display: grid;
   gap: 8px;
+  margin-bottom: 20px;
 }
 
-.indicator {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  display: inline-block;
+.sectionEyebrow {
+  color: var(--app-accent-strong);
 }
 
-.online {
-  background: var(--accent-green);
+.sectionIntro h2 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: clamp(1.5rem, 2vw, 2.4rem);
+  line-height: 1.04;
+  letter-spacing: -0.05em;
+  color: var(--app-ink);
 }
 
-.offline {
-  background: #ef4444;
+.sectionIntro p {
+  color: var(--app-ink-soft);
+  line-height: 1.8;
 }
 
-/* ============ FEATURES SECTION ============ */
-.featuresSection {
-  max-width: 1200px;
-  margin: 0 auto 80px;
-  padding: 0 20px;
-}
-
-.sectionTitle {
-  font-size: 32px;
-  font-weight: 700;
-  margin: 0 0 40px 0;
-  color: var(--text-primary);
-}
-
-.featureGrid {
+.capabilityGrid,
+.linkGrid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 20px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
 }
 
-.featureItem {
-  padding: 24px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
-  border-radius: 12px;
-  text-align: center;
-  transition: all 0.3s ease;
-  cursor: pointer;
+.capabilityCard {
+  display: grid;
+  gap: 12px;
+  padding: 20px;
+  border-radius: 22px;
+  background: rgba(249, 244, 236, 0.78);
+  border: 1px solid rgba(16, 35, 59, 0.07);
+  animation: floatIn 0.5s ease both;
 }
 
-.featureItem:hover {
-  box-shadow: var(--shadow-lg);
-  transform: translateY(-4px);
-  border-color: var(--accent-blue);
+.capabilityCard:hover,
+.linkCard:hover,
+.workflowStep:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--app-shadow-md);
 }
 
-.featureIcon {
-  width: 48px;
-  height: 48px;
-  border-radius: 8px;
-  display: flex;
+.capabilityIcon,
+.linkIcon {
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 24px;
-  margin: 0 auto 12px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border-color);
-  color: var(--accent-blue);
+  width: 50px;
+  height: 50px;
+  border-radius: 16px;
+  background: rgba(15, 91, 216, 0.1);
+  color: var(--app-accent-strong);
 }
 
-.featureTitle {
-  font-size: 16px;
-  font-weight: 600;
-  margin: 0 0 8px 0;
-  color: var(--text-primary);
-}
-
-.featureDesc {
-  font-size: 14px;
-  color: var(--text-secondary);
+.capabilityCard h3,
+.workflowStep h3,
+.linkBody strong {
   margin: 0;
-  line-height: 1.5;
+  color: var(--app-ink);
 }
 
-/* ============ GET STARTED SECTION ============ */
-.getStartedSection {
-  max-width: 1200px;
-  margin: 0 auto 80px;
-  padding: 0 20px;
+.capabilityCard p {
+  color: var(--app-ink-soft);
+  line-height: 1.72;
 }
 
-.stepsGrid {
+.splitSection {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr);
   gap: 20px;
-  position: relative;
+  align-items: start;
 }
 
-.stepCard {
-  padding: 32px 24px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
-  border-radius: 12px;
-  text-align: center;
-  transition: all 0.3s ease;
-  position: relative;
+.workflow {
+  display: grid;
+  gap: 12px;
 }
 
-.stepCard:hover {
-  box-shadow: var(--shadow-lg);
-  border-color: var(--accent-blue);
+.workflowStep {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 16px;
+  padding: 18px;
+  border-radius: 20px;
+  background: rgba(249, 244, 236, 0.78);
+  border: 1px solid rgba(16, 35, 59, 0.07);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
 .stepNumber {
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: var(--accent-blue);
-  color: white;
-  font-weight: 700;
-  font-size: 18px;
-  margin: 0 auto 16px;
+  width: 54px;
+  height: 54px;
+  border-radius: 18px;
+  background: rgba(11, 34, 70, 0.94);
+  color: #fff;
+  font-family: var(--font-display);
+  font-size: 1rem;
+  letter-spacing: -0.04em;
 }
 
-.stepTitle {
-  font-size: 16px;
-  font-weight: 600;
-  margin: 0 0 8px 0;
-  color: var(--text-primary);
+.workflowStep p,
+.linkBody p {
+  margin-top: 6px;
+  color: var(--app-ink-soft);
+  line-height: 1.72;
 }
 
-.stepDesc {
-  font-size: 14px;
-  color: var(--text-secondary);
-  margin: 0;
+.linkCard {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 14px;
+  padding: 18px;
+  border-radius: 22px;
+  background: rgba(249, 244, 236, 0.78);
+  color: var(--app-ink);
+  border: 1px solid rgba(16, 35, 59, 0.07);
+  text-align: left;
 }
 
-.stepArrow {
-  position: absolute;
-  right: -10px;
-  top: 50%;
-  transform: translateY(-50%);
-  font-size: 20px;
-  color: var(--text-light);
-  display: none;
+.linkBody {
+  display: grid;
+  gap: 2px;
 }
 
-.stepCard:not(:last-child) {
-  position: relative;
+@keyframes floatIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
-.stepCard:not(:last-child)::after {
-  content: '→';
-  position: absolute;
-  right: -20px;
-  top: 50%;
-  transform: translateY(-50%);
-  font-size: 20px;
-  color: var(--text-light);
-}
-
-/* ============ FOOTER ============ */
-.footer {
-  margin-top: auto;
-  padding: 40px 20px;
-  text-align: center;
-  border-top: 1px solid var(--border-color);
-  background: var(--bg-secondary);
-}
-
-.footer p {
-  margin: 0;
-  font-size: 14px;
-  color: var(--text-secondary);
-}
-
-/* ============ RESPONSIVE ============ */
 @media (max-width: 1024px) {
-  .featureGrid {
-    grid-template-columns: repeat(2, 1fr);
+  .capabilityGrid,
+  .linkGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .statusCards {
-    grid-template-columns: repeat(2, 1fr);
-  }
-
-  .stepsGrid {
-    grid-template-columns: repeat(2, 1fr);
-  }
-
-  .stepCard:not(:last-child)::after {
-    display: none;
+  .splitSection {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
-@media (max-width: 768px) {
-  .main {
-    padding: 40px 16px;
+@media (max-width: 640px) {
+  .section {
+    padding: 20px 18px;
+    border-radius: 22px;
   }
 
-  .hero {
-    margin-bottom: 60px;
+  .capabilityGrid,
+  .linkGrid {
+    grid-template-columns: minmax(0, 1fr);
   }
 
-  .heroTitle {
-    font-size: clamp(32px, 7vw, 48px);
-  }
-
-  .heroSubtitle {
-    font-size: 16px;
-  }
-
-  .heroButtons {
-    width: 100%;
-    flex-direction: column;
-  }
-
-  .btnPrimary,
-  .btnSecondary {
-    width: 100%;
-    justify-content: center;
-  }
-
-  .featureGrid {
-    grid-template-columns: 1fr;
-  }
-
-  .statusCards {
-    grid-template-columns: 1fr;
-  }
-
-  .stepsGrid {
-    grid-template-columns: 1fr;
-  }
-
-  .sectionTitle {
-    font-size: 24px;
-    margin-bottom: 32px;
-  }
-
-  .statusSection,
-  .featuresSection,
-  .getStartedSection {
-    margin-bottom: 60px;
-  }
-}
-
-@media (max-width: 480px) {
-  .main {
-    padding: 32px 12px;
-  }
-
-  .hero {
-    margin-bottom: 48px;
-  }
-
-  .heroTitle {
-    font-size: clamp(28px, 6vw, 40px);
-  }
-
-  .heroSubtitle {
-    font-size: 14px;
-  }
-
-  .btnPrimary,
-  .btnSecondary {
-    padding: 10px 20px;
-    font-size: 13px;
-  }
-
-  .sectionTitle {
-    font-size: 20px;
-  }
-
-  .statusCard {
-    padding: 16px;
-  }
-
-  .statusIcon {
-    width: 48px;
-    height: 48px;
-    font-size: 24px;
-  }
-
-  .statusCardValue {
-    font-size: 16px;
-  }
-
-  .featureItem {
-    padding: 20px 16px;
-  }
-
-  .stepCard {
-    padding: 24px 16px;
+  .linkCard,
+  .workflowStep {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .stepNumber {
-    width: 40px;
-    height: 40px;
-    font-size: 16px;
+    width: 48px;
+    height: 48px;
   }
 
-  .footer {
-    padding: 32px 16px;
+  .primaryAction,
+  .secondaryAction {
+    width: 100%;
+    justify-content: center;
   }
 }

@@ -10,11 +10,8 @@ import RankManagerPage from './pages/RankManager';
 import RankBoardHome from './pages/RankBoard/RankBoardHome';
 import RankBoardGuild from './pages/RankBoard/RankBoardGuild';
 import RankBoard from './pages/RankBoard';
-import TodoDashboard from './pages/Todo/TodoDashboard';
-import TodoSession from './pages/Todo/TodoSession';
 import UserProfile from './pages/Profile';
 import FeedbackPage from './pages/Feedback';
-import TriggerManager from './pages/TriggerManager';
 import ToolsHub from './pages/Tools/ToolsHub';
 import AntiCheatPage from './pages/Staff/AntiCheat';
 import AntiCheatSelector from './pages/Staff/AntiCheatSelector';
@@ -69,15 +66,11 @@ const App: React.FC = () => {
           <Route path="/staff/privatechat" element={<StaffGuard><PrivateChatPage /></StaffGuard>} />
           <Route path="/staff/rolemanager" element={<StaffGuard><RoleManagerPage /></StaffGuard>} />
           <Route path="/staff/rankmanager" element={<StaffGuard><RankManagerPage /></StaffGuard>} />
-          <Route path="/staff/triggermanager" element={<StaffGuard><TriggerManager /></StaffGuard>} />
           <Route path="/staff/anticheat" element={<StaffGuard><AntiCheatSelector /></StaffGuard>} />
           <Route path="/staff/anticheat/:guildId" element={<StaffGuard><AntiCheatPage /></StaffGuard>} />
           <Route path="/staff/privateChat" element={<Navigate to="/staff/privatechat" replace />} />
           <Route path="/tools" element={<ToolsHub />} />
           <Route path="/tools/minecraft" element={<Suspense fallback={<div style={{padding:20}}>読み込み中...</div>}><MinecraftViewer /></Suspense>} />
-          <Route path="/todo/:guildId" element={<TodoDashboard />} />
-          <Route path="/todo/:guildId/session/:sessionId" element={<TodoSession />} />
-          <Route path="/todo/shared/:token" element={<TodoSession />} />
           <Route path="/404" element={<NotFoundPage />} />
           <Route path="*" element={<Navigate to="/404" replace />} />
         </Routes>

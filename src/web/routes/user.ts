@@ -6,6 +6,7 @@ import { PermissionFlagsBits } from 'discord.js';
 import { SettingsSession } from '../types';
 import { ProfileService } from '../services/ProfileService.js';
 import { UserCustomProfile } from '../types/profile.js';
+import { database } from '../../core/Database.js';
 import fs from 'fs';
 import path from 'path';
 
@@ -159,7 +160,7 @@ export function createUserRoutes(
             const botGuilds = botClient.getGuildList();
 
             // Try to read persisted OAuth sessions to get user's access token
-            const authPersistPath = path.join(process.cwd(), 'Data', 'Auth', 'sessions.json');
+            const authPersistPath = path.join(database.getDataDir(), 'system', 'auth', 'sessions.json');
             let userOauth: any = null;
             try {
                 if (fs.existsSync(authPersistPath)) {
@@ -495,7 +496,7 @@ export function createUserRoutes(
             const botGuilds = botClient.getGuildList();
 
             // OAuthセッションからユーザーのアクセストークン取得
-            const authPersistPath = path.join(process.cwd(), 'Data', 'Auth', 'sessions.json');
+            const authPersistPath = path.join(database.getDataDir(), 'system', 'auth', 'sessions.json');
             let userOauth: any = null;
             try {
                 if (fs.existsSync(authPersistPath)) {

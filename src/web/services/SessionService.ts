@@ -18,8 +18,8 @@ export class SessionService {
         this.sessions = new Map();
         this.botClient = botClient;
         this.noPersist = process.env.WEB_DEBUG_NO_PERSIST === '1';
-        // Persist sessions to project Data directory so sessions survive restarts
-        this.persistPath = path.join(process.cwd(), 'Data', 'sessions.json');
+        // Persist sessions to Database/system so sessions survive restarts
+        this.persistPath = path.join(database.getDataDir(), 'system', 'sessions.json');
         if (!this.noPersist) {
             this.loadFromDisk();
 

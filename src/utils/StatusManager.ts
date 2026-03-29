@@ -25,7 +25,7 @@ export class StatusManager {
     private updateInterval: NodeJS.Timeout | null = null;
 
     constructor(dataDir?: string) {
-        const baseDir = dataDir || path.join(process.cwd(), 'Data');
+        const baseDir = dataDir || path.join(process.cwd(), 'Database', 'system');
         this.statusFile = path.join(baseDir, 'bot_status.json');
         
         this.status = {

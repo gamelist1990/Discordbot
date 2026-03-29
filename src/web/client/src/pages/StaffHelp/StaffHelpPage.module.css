@@ -1,1037 +1,250 @@
-/* Apple iOS-inspired Staff Help - Redesigned for optimal UX */
-
-:root {
-    --ios-blue: #007AFF;
-    --ios-green: #34C759;
-    --ios-red: #FF3B30;
-    --ios-orange: #FF9500;
-    --ios-yellow: #FFCC00;
-    --ios-purple: #AF52DE;
-    --ios-bg: #F2F2F7;
-    --ios-surface: #FFFFFF;
-    --ios-surface-secondary: #F9F9FB;
-    --ios-divider: #E5E5EA;
-    --ios-text-primary: #000000;
-    --ios-text-secondary: #3C3C43;
-    --ios-text-tertiary: #8E8E93;
-    --spacing-xs: 8px;
-    --spacing-sm: 12px;
-    --spacing-md: 16px;
-    --spacing-lg: 20px;
-    --spacing-xl: 24px;
-    --spacing-2xl: 32px;
-    --radius-sm: 8px;
-    --radius-md: 12px;
-    --radius-lg: 16px;
-}
-
-* {
-    box-sizing: border-box;
-}
-
 .page {
-    min-height: 100vh;
-    background: var(--ios-bg);
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', sans-serif;
-    -webkit-font-smoothing: antialiased;
-    -webkit-tap-highlight-color: transparent;
-    display: flex;
-    flex-direction: column;
+  min-height: calc(100vh - var(--header-height));
 }
 
-.container {
-    flex: 1;
-    width: 100%;
-    max-width: 1200px;
-    margin: 0 auto;
-    padding: var(--spacing-lg);
-    padding-bottom: calc(var(--spacing-xl) + 100px);
+.summary,
+.servicesGrid,
+.commandList,
+.optionList {
+  display: grid;
+  gap: 12px;
 }
 
-/* ==================== HEADER ==================== */
-.header {
-    margin-bottom: var(--spacing-2xl);
-    animation: slideInDown 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+.summaryCard,
+.tabBar,
+.searchBox,
+.commandCard,
+.statePanel,
+.serviceCard,
+.usageBox {
+  border-radius: 22px;
+  border: 1px solid var(--app-border);
+  background: rgba(255, 255, 255, 0.78);
+  box-shadow: var(--app-shadow-md);
 }
 
-.headerTop {
-    display: flex;
-    align-items: center;
-    gap: var(--spacing-md);
-    margin-bottom: var(--spacing-sm);
+.summaryCard {
+  padding: 20px;
 }
 
-.title {
-    font-size: 32px;
-    font-weight: 700;
-    color: var(--ios-text-primary);
-    margin: 0;
-    display: flex;
-    align-items: center;
-    gap: var(--spacing-md);
-    letter-spacing: -0.5px;
-    line-height: 1.2;
+.summaryLabel,
+.usageLabel,
+.optionType {
+  color: var(--app-accent-strong);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
-.titleIcon {
-    font-size: 36px;
-    display: inline-block;
-    animation: bounce 2.5s cubic-bezier(0.68, -0.55, 0.265, 1.55) infinite;
+.summaryCard strong {
+  display: block;
+  margin-top: 4px;
+  font-family: var(--font-display);
+  font-size: 2rem;
+  letter-spacing: -0.06em;
+  color: var(--app-ink);
 }
 
-.subtitle {
-    font-size: 15px;
-    color: var(--ios-text-tertiary);
-    margin: 0;
-    line-height: 1.5;
-}
-
-/* ==================== TAB NAVIGATION ==================== */
-.tabContainer {
-    background: var(--ios-surface);
-    border-radius: var(--radius-md);
-    margin-bottom: var(--spacing-lg);
-    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
-    border: 1px solid var(--ios-divider);
-    position: relative;
-    overflow: hidden;
-    backdrop-filter: blur(10px);
+.summaryCard p,
+.commandHeader p,
+.optionCard p,
+.serviceCard p,
+.commandNote {
+  margin: 8px 0 0;
+  color: var(--app-ink-soft);
+  line-height: 1.7;
 }
 
 .tabBar {
-    display: flex;
-    position: relative;
-    border-bottom: 1px solid var(--ios-divider);
+  display: inline-flex;
+  gap: 8px;
+  width: fit-content;
+  padding: 8px;
 }
 
-.tabBtn {
-    flex: 1;
-    padding: var(--spacing-md);
-    border: none;
-    background: transparent;
-    cursor: pointer;
-    font-size: 15px;
-    font-weight: 600;
-    color: var(--ios-text-tertiary);
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: var(--spacing-sm);
-    min-height: 48px;
-    position: relative;
+.tabButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 15px;
+  border-radius: 999px;
+  color: var(--app-ink-soft);
+  font-weight: 700;
 }
 
-.tabBtn:hover {
-    color: var(--ios-text-primary);
-    background: rgba(0, 122, 255, 0.02);
+.tabButton:hover {
+  background: rgba(16, 35, 59, 0.05);
 }
 
-.tabActive {
-    color: var(--ios-blue);
+.activeTab {
+  background: rgba(15, 91, 216, 0.12);
+  color: var(--app-accent-strong);
 }
 
-.tabIcon {
-    font-size: 20px;
-    transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-
-.tabBtn:hover .tabIcon {
-    transform: scale(1.1);
-}
-
-.tabLabel {
-    font-weight: 600;
-}
-
-.tabUnderline {
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    width: 50%;
-    height: 3px;
-    background: linear-gradient(90deg, var(--ios-blue), #5AC8FA);
-    transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
-    border-radius: 3px 3px 0 0;
-}
-
-/* ==================== CONTENT ==================== */
-.contentWrapper {
-    animation: fadeInUp 0.5s ease-out;
-}
-
-/* ==================== HELP SECTION ==================== */
-.helpSection {
-    display: flex;
-    flex-direction: column;
-    gap: var(--spacing-lg);
-}
-
-/* Search Box */
 .searchBox {
-    display: flex;
-    align-items: center;
-    gap: var(--spacing-md);
-    background: var(--ios-surface);
-    border: 1px solid var(--ios-divider);
-    border-radius: var(--radius-md);
-    padding: var(--spacing-sm) var(--spacing-md);
-    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
-    position: relative;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
 }
 
-.searchIcon {
-    font-size: 18px;
-    color: var(--ios-text-tertiary);
-    flex-shrink: 0;
+.searchBox .material-icons {
+  color: var(--app-ink-soft);
 }
 
 .searchInput {
-    flex: 1;
-    border: none;
-    background: transparent;
-    font-size: 15px;
-    color: var(--ios-text-primary);
-    outline: none;
-    padding: var(--spacing-xs) 0;
-    font-family: inherit;
-    min-width: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  box-shadow: none;
 }
 
-.searchInput::placeholder {
-    color: var(--ios-text-tertiary);
+.searchInput:focus {
+  border: none;
+  box-shadow: none;
 }
 
-.clearBtn {
-    border: none;
-    background: rgba(0, 0, 0, 0.1);
-    color: var(--ios-text-tertiary);
-    width: 28px;
-    height: 28px;
-    border-radius: 50%;
-    cursor: pointer;
-    font-size: 14px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: all 0.2s ease;
-    flex-shrink: 0;
+.commandCard,
+.serviceCard {
+  overflow: hidden;
 }
 
-.clearBtn:hover {
-    background: rgba(0, 0, 0, 0.15);
-    color: var(--ios-text-primary);
-}
-
-/* Info Card */
-.infoCard {
-    display: flex;
-    align-items: flex-start;
-    gap: var(--spacing-md);
-    background: linear-gradient(135deg, rgba(0, 122, 255, 0.08), rgba(52, 199, 89, 0.06));
-    border: 1px solid rgba(0, 122, 255, 0.2);
-    border-radius: var(--radius-md);
-    padding: var(--spacing-md);
-    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
-    transition: all 0.3s ease;
-}
-
-.infoCard:hover {
-    border-color: rgba(0, 122, 255, 0.3);
-    background: linear-gradient(135deg, rgba(0, 122, 255, 0.1), rgba(52, 199, 89, 0.08));
-}
-
-.infoBadge {
-    font-size: 20px;
-    flex-shrink: 0;
-}
-
-.infoText {
-    font-size: 14px;
-    color: var(--ios-text-primary);
-    line-height: 1.5;
-    font-weight: 500;
-}
-
-/* Commands List */
-.commandsList {
-    display: flex;
-    flex-direction: column;
-    gap: var(--spacing-md);
-}
-
-/* Empty State */
-.emptyState {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: var(--spacing-md);
-    padding: var(--spacing-2xl);
-    text-align: center;
-    color: var(--ios-text-tertiary);
-}
-
-.emptyIcon {
-    font-size: 64px;
-    opacity: 0.4;
-}
-
-.emptyText {
-    font-size: 16px;
-    font-weight: 500;
-}
-
-/* ==================== ACCORDION ITEMS ==================== */
-.accordionItem {
-    background: var(--ios-surface);
-    border: 1px solid var(--ios-divider);
-    border-radius: var(--radius-md);
-    overflow: hidden;
-    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.accordionItem:hover {
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
-    border-color: rgba(0, 122, 255, 0.2);
-}
-
-.accordionHeader {
-    width: 100%;
-    padding: var(--spacing-md);
-    border: none;
-    background: linear-gradient(135deg, rgba(0, 122, 255, 0.05), rgba(52, 199, 89, 0.03));
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--spacing-md);
-    font-size: 15px;
-    font-weight: 600;
-    color: var(--ios-text-primary);
-    transition: all 0.3s ease;
-    min-height: 56px;
-}
-
-.accordionHeader:hover {
-    background: linear-gradient(135deg, rgba(0, 122, 255, 0.08), rgba(52, 199, 89, 0.05));
-}
-
-.accordionHeader.expanded {
-    background: linear-gradient(135deg, var(--ios-blue), #5AC8FA);
-    color: white;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.2);
-}
-
-.accordionTitle {
-    display: flex;
-    align-items: center;
-    gap: var(--spacing-sm);
-    min-width: 0;
-    flex: 1;
-}
-
-.commandPrefix {
-    opacity: 0.8;
-    font-weight: 500;
+.commandHeader {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 18px 20px;
+  background: transparent;
+  color: var(--app-ink);
+  text-align: left;
 }
 
 .commandName {
-    font-weight: 700;
-    word-break: break-word;
+  display: inline-flex;
+  align-items: center;
+  margin-bottom: 4px;
+  color: var(--app-ink);
+  font-size: 1.04rem;
+  font-weight: 700;
 }
 
-.accordionIcon {
-    font-size: 14px;
-    transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
-    flex-shrink: 0;
+.commandBody {
+  display: grid;
+  gap: 14px;
+  padding: 0 20px 20px;
 }
 
-.accordionHeader.expanded .accordionIcon {
-    color: white;
+.optionCard {
+  padding: 16px;
+  border-radius: 18px;
+  background: rgba(244, 239, 231, 0.78);
+  border: 1px solid rgba(16, 35, 59, 0.08);
 }
 
-/* Accordion Content */
-.accordionContent {
-    animation: slideDown 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+.optionHeader {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
 }
 
-.accordionBody {
-    padding: var(--spacing-md);
-    background: var(--ios-surface);
-    display: flex;
-    flex-direction: column;
-    gap: var(--spacing-md);
-}
-
-.cmdDescription {
-    margin: 0;
-    font-size: 14px;
-    color: var(--ios-text-secondary);
-    line-height: 1.6;
-    font-weight: 500;
-}
-
-/* Options Container */
-.optionsContainer {
-    display: flex;
-    flex-direction: column;
-    gap: var(--spacing-sm);
-    border-top: 1px solid var(--ios-divider);
-    padding-top: var(--spacing-md);
-}
-
-.optionsTitle {
-    font-size: 13px;
-    font-weight: 700;
-    color: var(--ios-text-tertiary);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    margin: 0;
-}
-
-.optionsList {
-    display: flex;
-    flex-direction: column;
-    gap: var(--spacing-sm);
-}
-
-.optionItem {
-    background: linear-gradient(135deg, rgba(0, 122, 255, 0.03), rgba(52, 199, 89, 0.02));
-    border: 1px solid rgba(0, 122, 255, 0.1);
-    border-radius: var(--radius-sm);
-    padding: var(--spacing-sm);
-    transition: all 0.2s ease;
-}
-
-.optionItem:hover {
-    background: linear-gradient(135deg, rgba(0, 122, 255, 0.05), rgba(52, 199, 89, 0.03));
-    border-color: rgba(0, 122, 255, 0.2);
-}
-
-.optionName {
-    display: flex;
-    align-items: center;
-    gap: var(--spacing-xs);
-    margin-bottom: var(--spacing-xs);
-    flex-wrap: wrap;
+.optionHeader strong {
+  display: block;
+  color: var(--app-ink);
 }
 
 .optionIcon {
-    font-size: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 14px;
+  background: rgba(15, 91, 216, 0.1);
+  color: var(--app-accent-strong);
 }
 
-.optionCode {
-    background: rgba(0, 122, 255, 0.1);
-    color: var(--ios-blue);
-    padding: 4px 8px;
-    border-radius: 6px;
-    font-family: 'Menlo', 'Monaco', monospace;
-    font-size: 12px;
-    font-weight: 600;
-    border: none;
-}
-
-.requiredTag {
-    background: linear-gradient(135deg, var(--ios-red), #FF6B6B);
-    color: white;
-    padding: 2px 8px;
-    border-radius: 6px;
-    font-size: 11px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.3px;
-}
-
-.optionTypeTag {
-    background: rgba(0, 0, 0, 0.06);
-    color: var(--ios-text-secondary);
-    padding: 2px 8px;
-    border-radius: 6px;
-    font-size: 11px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.2px;
-}
-
-.optionDesc {
-    margin: 0;
-    font-size: 13px;
-    color: var(--ios-text-tertiary);
-    line-height: 1.5;
-}
-
-.choicesList {
-    margin-top: var(--spacing-xs);
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--spacing-xs);
-    align-items: center;
-}
-
-.choicesLabel {
-    font-size: 12px;
-    color: var(--ios-text-tertiary);
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.2px;
-    flex: 0 0 auto;
-}
-
+.requiredBadge,
 .choiceBadge {
-    background: var(--ios-surface);
-    border: 1px solid var(--ios-divider);
-    padding: 4px 10px;
-    border-radius: 6px;
-    font-size: 12px;
-    color: var(--ios-text-secondary);
-    font-family: 'Menlo', 'Monaco', monospace;
-    font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(16, 35, 59, 0.07);
+  color: var(--app-ink-soft);
+  font-size: 0.76rem;
+  font-weight: 700;
 }
 
-/* Usage Box */
+.choiceList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
 .usageBox {
-    background: linear-gradient(135deg, #1a1a2e, #16213e);
-    border: 1px solid rgba(0, 122, 255, 0.2);
-    border-radius: var(--radius-sm);
-    padding: var(--spacing-md);
-    display: flex;
-    flex-direction: column;
-    gap: var(--spacing-sm);
+  display: grid;
+  gap: 8px;
+  padding: 16px;
 }
 
-.usageLabel {
-    font-size: 12px;
-    color: rgba(90, 200, 250, 0.8);
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.4px;
+.statePanel {
+  padding: 22px;
+  color: var(--app-ink-soft);
 }
 
-.usageCode {
-    font-family: 'Menlo', 'Monaco', monospace;
-    color: #5AC8FA;
-    font-size: 12px;
-    line-height: 1.6;
-    margin: 0;
-    word-break: break-all;
-    font-weight: 500;
-}
-
-/* ==================== SERVICES SECTION ==================== */
-.servicesSection {
-    display: flex;
-    flex-direction: column;
-    gap: var(--spacing-lg);
-}
-
-.servicesGrid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-    gap: var(--spacing-lg);
-}
-
-/* Service Card */
 .serviceCard {
-    background: var(--ios-surface);
-    border: 1px solid var(--ios-divider);
-    border-radius: var(--radius-md);
-    padding: var(--spacing-lg);
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    text-align: center;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
-    cursor: pointer;
-    position: relative;
-    overflow: hidden;
-    min-height: 240px;
-}
-
-.serviceCard::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: radial-gradient(circle at center top, rgba(0, 122, 255, 0.08), transparent);
-    opacity: 0;
-    transition: opacity 0.3s ease;
-}
-
-.serviceCard:hover {
-    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.12);
-    border-color: rgba(0, 122, 255, 0.3);
-    transform: translateY(-4px);
-}
-
-.serviceCard:hover::before {
-    opacity: 1;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 20px;
+  color: var(--app-ink);
+  text-align: left;
 }
 
 .serviceIcon {
-    font-size: 48px;
-    margin-bottom: var(--spacing-md);
-    transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
-    position: relative;
-    z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 18px;
+  background: rgba(15, 91, 216, 0.1);
+  color: var(--app-accent-strong);
 }
 
-.serviceCard:hover .serviceIcon {
-    transform: scale(1.2) rotateY(5deg);
+.serviceCard h3 {
+  margin: 0;
 }
 
-.serviceTitle {
-    font-size: 16px;
-    font-weight: 700;
-    color: var(--ios-text-primary);
-    margin: 0 0 var(--spacing-sm) 0;
-    position: relative;
-    z-index: 1;
-    letter-spacing: -0.2px;
-}
+@media (max-width: 700px) {
+  .tabBar {
+    width: 100%;
+    justify-content: stretch;
+  }
 
-.serviceDesc {
-    font-size: 13px;
-    color: var(--ios-text-tertiary);
-    line-height: 1.5;
-    margin: 0 0 var(--spacing-lg) 0;
+  .tabButton {
     flex: 1;
-    display: flex;
-    align-items: center;
-    position: relative;
-    z-index: 1;
-}
-
-.serviceBtn {
-    background: linear-gradient(135deg, var(--ios-blue), #5AC8FA);
-    color: white;
-    border: none;
-    padding: 10px 20px;
-    border-radius: var(--radius-sm);
-    font-size: 14px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    position: relative;
-    z-index: 1;
-    box-shadow: 0 2px 8px rgba(0, 122, 255, 0.2);
-    min-height: 40px;
-    min-width: 100px;
-    display: flex;
-    align-items: center;
     justify-content: center;
+  }
+
+  .serviceCard,
+  .optionHeader,
+  .commandHeader {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .commandBody,
+  .commandHeader,
+  .serviceCard {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
 }
-
-.serviceBtn:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 6px 16px rgba(0, 122, 255, 0.3);
-}
-
-.serviceBtn:active {
-    transform: translateY(0);
-    box-shadow: 0 2px 6px rgba(0, 122, 255, 0.2);
-}
-
-/* ==================== LOADING & ERROR ==================== */
-.loading {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    min-height: 300px;
-    gap: var(--spacing-lg);
-}
-
-.spinner {
-    width: 48px;
-    height: 48px;
-    border: 3px solid rgba(0, 122, 255, 0.2);
-    border-top-color: var(--ios-blue);
-    border-radius: 50%;
-    animation: spin 1.2s linear infinite;
-}
-
-.error {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    min-height: 300px;
-    padding: var(--spacing-lg);
-    text-align: center;
-}
-
-.error h2 {
-    color: var(--ios-red);
-    font-size: 24px;
-    font-weight: 700;
-    margin: 0 0 var(--spacing-md) 0;
-}
-
-.error p {
-    color: var(--ios-text-tertiary);
-    font-size: 14px;
-    margin: 0;
-}
-
-/* ==================== ANIMATIONS ==================== */
-@keyframes slideInDown {
-    from {
-        opacity: 0;
-        transform: translateY(-20px);
-    }
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
-}
-
-@keyframes slideDown {
-    from {
-        opacity: 0;
-        max-height: 0;
-        transform: translateY(-10px);
-    }
-    to {
-        opacity: 1;
-        max-height: 2000px;
-        transform: translateY(0);
-    }
-}
-
-@keyframes fadeInUp {
-    from {
-        opacity: 0;
-        transform: translateY(20px);
-    }
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
-}
-
-@keyframes bounce {
-    0%, 100% {
-        transform: translateY(0);
-    }
-    50% {
-        transform: translateY(-8px);
-    }
-}
-
-@keyframes spin {
-    to {
-        transform: rotate(360deg);
-    }
-}
-
-/* ==================== RESPONSIVE DESIGN ==================== */
-@media (max-width: 1024px) {
-    .container {
-        padding: var(--spacing-md);
-        padding-bottom: calc(var(--spacing-lg) + 100px);
-    }
-
-    .title {
-        font-size: 28px;
-    }
-
-    .servicesGrid {
-        grid-template-columns: repeat(2, 1fr);
-    }
-}
-
-@media (max-width: 768px) {
-    .container {
-        padding: var(--spacing-sm);
-        padding-bottom: calc(var(--spacing-md) + 100px);
-    }
-
-    .header {
-        margin-bottom: var(--spacing-lg);
-    }
-
-    .title {
-        font-size: 26px;
-    }
-
-    .titleIcon {
-        font-size: 28px;
-    }
-
-    .subtitle {
-        font-size: 14px;
-    }
-
-    .tabBtn {
-        padding: var(--spacing-sm);
-        font-size: 14px;
-        min-height: 48px;
-    }
-
-    .tabIcon {
-        font-size: 18px;
-    }
-
-    .tabLabel {
-        display: none;
-    }
-
-    .tabContainer {
-        border-radius: var(--radius-sm);
-    }
-
-    .searchBox {
-        padding: var(--spacing-sm);
-        border-radius: var(--radius-sm);
-    }
-
-    .searchInput {
-        font-size: 14px;
-    }
-
-    .accordionHeader {
-        padding: var(--spacing-sm);
-        min-height: 52px;
-        font-size: 14px;
-    }
-
-    .accordionBody {
-        padding: var(--spacing-sm);
-    }
-
-    .servicesGrid {
-        grid-template-columns: 1fr;
-    }
-
-    .serviceCard {
-        min-height: 200px;
-        padding: var(--spacing-md);
-    }
-
-    .serviceIcon {
-        font-size: 40px;
-    }
-
-    .serviceTitle {
-        font-size: 15px;
-    }
-
-    .serviceDesc {
-        font-size: 12px;
-    }
-
-    .infoCard {
-        padding: var(--spacing-sm);
-        gap: var(--spacing-sm);
-    }
-
-    .infoBadge {
-        font-size: 18px;
-    }
-
-    .infoText {
-        font-size: 13px;
-    }
-}
-
-@media (max-width: 480px) {
-    .container {
-        padding: 8px;
-    }
-
-    .header {
-        margin-bottom: var(--spacing-lg);
-        padding-bottom: var(--spacing-sm);
-    }
-
-    .title {
-        font-size: 22px;
-        gap: 6px;
-    }
-
-    .titleIcon {
-        font-size: 24px;
-    }
-
-    .subtitle {
-        font-size: 13px;
-    }
-
-    .tabContainer {
-        margin-bottom: var(--spacing-md);
-        border-radius: var(--radius-sm);
-    }
-
-    .tabBar {
-        gap: 0;
-    }
-
-    .tabBtn {
-        padding: 8px 4px;
-        font-size: 12px;
-        min-height: 44px;
-    }
-
-    .tabIcon {
-        font-size: 16px;
-    }
-
-    .tabUnderline {
-        height: 2px;
-    }
-
-    .searchBox {
-        padding: 6px 8px;
-        gap: 6px;
-        border-radius: var(--radius-sm);
-    }
-
-    .searchIcon {
-        font-size: 16px;
-    }
-
-    .searchInput {
-        font-size: 13px;
-        padding: 4px 0;
-    }
-
-    .infoCard {
-        padding: 8px;
-        gap: 8px;
-        border-radius: var(--radius-sm);
-    }
-
-    .infoBadge {
-        font-size: 16px;
-        line-height: 1;
-    }
-
-    .infoText {
-        font-size: 12px;
-    }
-
-    .accordionHeader {
-        padding: 8px;
-        min-height: 48px;
-        font-size: 13px;
-    }
-
-    .commandPrefix {
-        display: none;
-    }
-
-    .accordionBody {
-        padding: 8px;
-    }
-
-    .cmdDescription {
-        font-size: 13px;
-    }
-
-    .optionItem {
-        padding: 6px 8px;
-    }
-
-    .optionCode {
-        padding: 2px 6px;
-        font-size: 11px;
-    }
-
-    .requiredTag {
-        padding: 2px 6px;
-        font-size: 10px;
-    }
-
-    .optionTypeTag {
-        padding: 2px 6px;
-        font-size: 10px;
-    }
-
-    .optionDesc {
-        font-size: 12px;
-    }
-
-    .choiceBadge {
-        padding: 2px 6px;
-        font-size: 11px;
-    }
-
-    .usageBox {
-        padding: 8px;
-    }
-
-    .usageLabel {
-        font-size: 11px;
-    }
-
-    .usageCode {
-        font-size: 11px;
-    }
-
-    .servicesGrid {
-        gap: var(--spacing-md);
-    }
-
-    .serviceCard {
-        min-height: 180px;
-        padding: var(--spacing-md);
-        border-radius: var(--radius-sm);
-    }
-
-    .serviceIcon {
-        font-size: 36px;
-        margin-bottom: var(--spacing-sm);
-    }
-
-    .serviceTitle {
-        font-size: 14px;
-        margin-bottom: 6px;
-    }
-
-    .serviceDesc {
-        font-size: 12px;
-        margin-bottom: var(--spacing-md);
-    }
-
-    .serviceBtn {
-        font-size: 13px;
-        padding: 8px 16px;
-        min-height: 36px;
-        min-width: 80px;
-        border-radius: 6px;
-    }
-}
-
-/* Ensure touch targets are at least 44x44 on mobile */
-@media (max-width: 768px) {
-    .tabBtn,
-    .serviceBtn,
-    .accordionHeader {
-        min-height: 48px;
-    }
-
-    button {
-        -webkit-appearance: none;
-        appearance: none;
-    }
-}
-
-/* Avoid horizontal overflow on mobile */
-@media (max-width: 480px) {
-    .container {
-        overflow-x: hidden;
-    }
-
-    .searchBox,
-    .accordionHeader,
-    .serviceCard {
-        overflow-x: hidden;
-        word-break: break-word;
-    }
-}
-  

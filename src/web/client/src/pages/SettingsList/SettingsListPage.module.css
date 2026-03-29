@@ -1,75 +1,91 @@
-/* Modern Elegant Design for Settings List */
-
-.container {
-  max-width: 1200px;
-  margin: 40px auto;
-  padding: 40px;
-  animation: fadeIn 0.5s ease-out;
+.page {
+  min-height: calc(100vh - var(--header-height));
 }
 
-@keyframes fadeIn {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
+.summary {
+  display: grid;
+  gap: 12px;
 }
 
-.container h1 {
-  font-size: 32px;
-  font-weight: 800;
-  color: #1d1d1f;
-  margin-bottom: 40px;
-  text-align: center;
-  letter-spacing: -1px;
-  background: linear-gradient(135deg, #1d1d1f 0%, #434344 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
+.summaryCard,
+.statePanel,
+.guildCard {
+  padding: 20px;
+  border-radius: 22px;
+  border: 1px solid var(--app-border);
+  background: rgba(255, 255, 255, 0.78);
+  box-shadow: var(--app-shadow-md);
+}
+
+.summaryCard strong {
+  display: block;
+  margin-top: 4px;
+  color: var(--app-ink);
+  font-family: var(--font-display);
+  font-size: 2rem;
+  letter-spacing: -0.06em;
+}
+
+.summaryLabel {
+  color: var(--app-accent-strong);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.summaryCard p,
+.statePanel p,
+.guildCopy p {
+  margin: 8px 0 0;
+  color: var(--app-ink-soft);
+  line-height: 1.7;
+}
+
+.statePanel {
+  display: grid;
+  gap: 14px;
+  justify-items: start;
+}
+
+.statePanel h2 {
+  margin: 0;
+  color: var(--app-ink);
 }
 
 .guildList {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: 24px;
+  gap: 14px;
 }
 
 .guildCard {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  background: rgba(255, 255, 255, 0.8);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border-radius: 24px;
-  padding: 32px;
-  box-shadow: 
-    0 10px 30px -10px rgba(0, 0, 0, 0.05),
-    0 0 0 1px rgba(255, 255, 255, 0.6) inset;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  border: 1px solid rgba(0, 0, 0, 0.03);
-  position: relative;
-  overflow: hidden;
+  gap: 16px;
 }
 
-.guildCard:hover {
-  transform: translateY(-8px);
-  background: rgba(255, 255, 255, 0.95);
-  box-shadow: 0 20px 40px -10px rgba(0, 0, 0, 0.1);
+.guildIdentity {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
 }
 
 .guildIcon {
-  width: 80px;
-  height: 80px;
-  border-radius: 24px;
-  background: #F2F2F7;
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
+  width: 64px;
+  height: 64px;
+  border-radius: 20px;
+  background: rgba(15, 91, 216, 0.1);
+  color: var(--app-accent-strong);
+  font-family: var(--font-display);
+  font-size: 1.4rem;
+  font-weight: 700;
+  flex-shrink: 0;
   overflow: hidden;
-  margin-bottom: 20px;
-  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);
-  transition: transform 0.3s ease;
-}
-
-.guildCard:hover .guildIcon {
-  transform: scale(1.05);
 }
 
 .guildIcon img {
@@ -78,90 +94,72 @@
   object-fit: cover;
 }
 
-.defaultIcon {
-  font-size: 32px;
-  color: #86868b;
-  font-weight: 600;
+.guildCopy {
+  min-width: 0;
 }
 
-.guildInfo {
-  width: 100%;
-  text-align: center;
-}
-
-.guildInfo h2 {
-  font-size: 18px;
-  font-weight: 600;
-  color: #1d1d1f;
-  margin-bottom: 20px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.openBtn {
-  width: 100%;
-  background: linear-gradient(135deg, #4285F4 0%, #1A73E8 100%);
-  color: #fff;
-  border: none;
-  border-radius: 100px;
-  padding: 12px 24px;
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 0 4px 12px rgba(66, 133, 244, 0.2);
+.guildHeader {
   display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.guildHeader h2 {
+  margin: 0;
+  color: var(--app-ink);
+  font-size: 1.08rem;
+}
+
+.guildBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(16, 35, 59, 0.06);
+  color: var(--app-ink-soft);
+  font-size: 0.76rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.primaryButton,
+.secondaryButton {
+  display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
+  border-radius: 999px;
+  font-weight: 700;
 }
 
-.openBtn:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 20px rgba(66, 133, 244, 0.3);
+.primaryButton {
+  padding: 12px 18px;
+  background: linear-gradient(135deg, var(--app-accent), var(--app-accent-strong));
+  color: #fff;
+  box-shadow: 0 18px 32px rgba(15, 91, 216, 0.2);
 }
 
-.openBtn:active {
-  transform: translateY(0);
+.secondaryButton {
+  padding: 12px 16px;
+  background: rgba(244, 239, 231, 0.82);
+  color: var(--app-ink);
+  border: 1px solid var(--app-border-strong);
 }
 
-.loading {
-  text-align: center;
-  color: #86868b;
-  margin: 80px 0;
-  font-size: 16px;
+.primaryButton:hover,
+.secondaryButton:hover {
+  transform: translateY(-1px);
 }
 
-.error {
-  color: #EA4335;
-  text-align: center;
-  margin: 80px 0;
-  background: rgba(255, 255, 255, 0.8);
-  padding: 40px;
-  border-radius: 24px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
-}
-
-.error p {
-  margin-bottom: 20px;
-  color: #1d1d1f;
-  font-size: 16px;
-}
-
-/* Mobile Responsive */
-@media (max-width: 768px) {
-  .container {
-    padding: 20px;
-    margin: 20px auto;
+@media (max-width: 760px) {
+  .guildCard {
+    grid-template-columns: minmax(0, 1fr);
   }
 
-  .container h1 {
-    font-size: 24px;
-    margin-bottom: 32px;
-  }
-
-  .guildList {
-    grid-template-columns: 1fr;
+  .secondaryButton,
+  .primaryButton {
+    width: 100%;
   }
 }

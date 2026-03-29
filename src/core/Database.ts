@@ -1,27 +1,45 @@
 import fs from 'fs/promises';
 import path from 'path';
 
+interface ResolvedKey {
+    cacheKey: string;
+    primaryRelativePath: string;
+    legacyRelativePaths: string[];
+}
+
+interface LocatedFile {
+    filePath: string;
+    relativePath: string;
+    root: string;
+    isPrimary: boolean;
+}
 
 /**
  * JSON ベースのデータベースシステム
- * Data/ フォルダに各種設定を JSON ファイルとして保存・読み込みします
+ * 書き込み先は Database/ 配下に統一し、旧 Data/ レイアウトも読み込み時に吸収します。
  */
 export class Database {
     private dataDir: string;
+    private legacyDirs: string[];
     private cache: Map<string, any>;
 
     constructor(dataDir?: string) {
-        // プロジェクトルートの Data フォルダをデフォルトとして使用 (src内避け)
-        this.dataDir = dataDir || path.join(process.cwd(), 'Data');
+        this.dataDir = dataDir || path.join(process.cwd(), 'Database');
+        this.legacyDirs = dataDir ? [] : [path.join(process.cwd(), 'Data')];
         this.cache = new Map();
     }
 
     /**
-     * データベースを初期化（data フォルダを作成）
+     * データベースを初期化
      */
     async initialize(): Promise<void> {
         try {
-            await fs.mkdir(this.dataDir, { recursive: true });
+            await Promise.all([
+                fs.mkdir(this.dataDir, { recursive: true }),
+                fs.mkdir(path.join(this.dataDir, 'guilds'), { recursive: true }),
+                fs.mkdir(path.join(this.dataDir, 'users'), { recursive: true }),
+                fs.mkdir(path.join(this.dataDir, 'shared'), { recursive: true })
+            ]);
             console.log(`📁 データベースディレクトリを初期化: ${this.dataDir}`);
         } catch (error) {
             console.error('データベースディレクトリの作成に失敗:', error);
@@ -31,177 +49,131 @@ export class Database {
 
     /**
      * データを保存
-     * @param guildId ギルドID
-     * @param key データのキー（ファイル名として使用、サブディレクトリ対応）
-     * @param data 保存するデータ（JSON シリアライズ可能）
      */
     async set<T = any>(guildId: string, key: string, data: T): Promise<void> {
-        // if key contains a directory separator, treat it as a relative path under dataDir
-        const fullKey = key.includes('/') || key.includes('\\') ? key : `${guildId}_${key}`;
+        const resolved = this.resolveKey(guildId, key);
+
         try {
-            const filePath = this.getFilePath(fullKey);
-            const dirPath = path.dirname(filePath);
-
-            // サブディレクトリが存在しない場合は作成
-            await fs.mkdir(dirPath, { recursive: true });
-
-            const jsonData = JSON.stringify(data, null, 2);
-            await fs.writeFile(filePath, jsonData, 'utf-8');
-            this.cache.set(fullKey, data);
-            console.log(`💾 データを保存: ${fullKey}`);
+            await this.writeJson(this.dataDir, resolved.primaryRelativePath, data);
+            this.cache.set(resolved.cacheKey, data);
+            console.log(`💾 データを保存: ${resolved.primaryRelativePath}`);
         } catch (error) {
-            console.error(`データ保存エラー [${fullKey}]:`, error);
+            console.error(`データ保存エラー [${resolved.primaryRelativePath}]:`, error);
             throw error;
         }
     }
 
     /**
      * データを取得
-     * @param guildId ギルドID
-     * @param key データのキー（ファイル名）
-     * @param defaultValue データが存在しない場合のデフォルト値
-     * @returns 保存されているデータまたはデフォルト値
      */
     async get<T = any>(guildId: string, key: string, defaultValue: T | null = null): Promise<T | null> {
-        const fullKey = key.includes('/') || key.includes('\\') ? key : `${guildId}_${key}`;
+        const resolved = this.resolveKey(guildId, key);
+
         try {
-            // キャッシュから取得を試みる
-            if (this.cache.has(fullKey)) {
-                return this.cache.get(fullKey);
+            if (this.cache.has(resolved.cacheKey)) {
+                return this.cache.get(resolved.cacheKey);
             }
 
-            const filePath = this.getFilePath(fullKey);
-            const data = await fs.readFile(filePath, 'utf-8');
-            const parsed = JSON.parse(data) as T;
-            this.cache.set(fullKey, parsed);
-            return parsed;
-        } catch (error) {
-            const nodeError = error as NodeJS.ErrnoException;
-            if (nodeError.code === 'ENOENT') {
-                // ファイルが存在しない場合はデフォルト値を返す
+            const located = await this.findExistingFile(resolved);
+            if (!located) {
                 return defaultValue;
             }
-            console.error(`データ読み込みエラー [${fullKey}]:`, error);
+
+            const parsed = await this.readJson<T>(located.filePath);
+            this.cache.set(resolved.cacheKey, parsed);
+
+            if (located.root !== this.dataDir || located.relativePath !== resolved.primaryRelativePath) {
+                await this.writeJson(this.dataDir, resolved.primaryRelativePath, parsed).catch((migrationError) => {
+                    console.warn(`Legacy data migration skipped for ${resolved.primaryRelativePath}:`, migrationError);
+                });
+            }
+
+            return parsed;
+        } catch (error) {
+            console.error(`データ読み込みエラー [${resolved.primaryRelativePath}]:`, error);
             throw error;
         }
     }
 
     /**
      * データが存在するかチェック
-     * @param guildId ギルドID
-     * @param key データのキー
-     * @returns 存在する場合 true
      */
     async has(guildId: string, key: string): Promise<boolean> {
-        const fullKey = key.includes('/') || key.includes('\\') ? key : `${guildId}_${key}`;
-        try {
-            const filePath = this.getFilePath(fullKey);
-            await fs.access(filePath);
-            return true;
-        } catch {
-            return false;
-        }
+        const resolved = this.resolveKey(guildId, key);
+        return (await this.findExistingFile(resolved)) !== null;
     }
 
     /**
      * データを削除
-     * @param guildId ギルドID
-     * @param key データのキー
      */
     async delete(guildId: string, key: string): Promise<boolean> {
-        const fullKey = key.includes('/') || key.includes('\\') ? key : `${guildId}_${key}`;
-        try {
-            const filePath = this.getFilePath(fullKey);
-            await fs.unlink(filePath);
-            this.cache.delete(fullKey);
-            console.log(`🗑️ データを削除: ${fullKey}`);
-            return true;
-        } catch (error) {
-            const nodeError = error as NodeJS.ErrnoException;
-            if (nodeError.code !== 'ENOENT') {
-                console.error(`データ削除エラー [${fullKey}]:`, error);
-                throw error;
+        const resolved = this.resolveKey(guildId, key);
+        const candidatePaths = new Map<string, string>();
+
+        for (const root of [this.dataDir, ...this.legacyDirs]) {
+            for (const relativePath of [resolved.primaryRelativePath, ...resolved.legacyRelativePaths]) {
+                try {
+                    candidatePaths.set(this.toFilePath(root, relativePath), relativePath);
+                } catch {
+                    // ignore invalid legacy paths
+                }
             }
-            return false;
         }
+
+        let deleted = false;
+
+        for (const [filePath] of candidatePaths) {
+            try {
+                await fs.unlink(filePath);
+                deleted = true;
+            } catch (error) {
+                const nodeError = error as NodeJS.ErrnoException;
+                if (nodeError.code !== 'ENOENT') {
+                    console.error(`データ削除エラー [${filePath}]:`, error);
+                    throw error;
+                }
+            }
+        }
+
+        this.cache.delete(resolved.cacheKey);
+        return deleted;
     }
 
     /**
      * ギルドの全データを取得
-     * @param guildId ギルドID
-     * @returns ギルドの全データ
      */
     async getAll(guildId: string): Promise<Record<string, any>> {
+        const result: Record<string, any> = {};
+
         try {
-            const result: Record<string, any> = {};
-            
-            // 再帰的にファイルを検索
-            const searchDir = async (dirPath: string, prefix: string = ''): Promise<void> => {
-                const items = await fs.readdir(dirPath, { withFileTypes: true });
-                
-                for (const item of items) {
-                    const itemPath = path.join(dirPath, item.name);
-                    const relativePath = prefix ? `${prefix}/${item.name}` : item.name;
-                    
-                    if (item.isDirectory()) {
-                        await searchDir(itemPath, relativePath);
-                    } else if (item.isFile() && item.name.endsWith('.json')) {
-                        const rel = relativePath.replace(/\\/g, '/');
-                        // support new layout: Guild/<guildId>/... or old flat files like <guildId>_key.json
-                        if (rel.startsWith(`Guild/${guildId}/`)) {
-                            const dataKey = rel.replace(`Guild/${guildId}/`, '').replace('.json', '');
-                            const data = await this.get(guildId, `Guild/${guildId}/${dataKey}`);
-                            if (data !== null) result[dataKey] = data;
-                        } else {
-                            const key = item.name.replace('.json', '');
-                            if (key.startsWith(`${guildId}_`)) {
-                                const dataKey = key.replace(`${guildId}_`, '');
-                                const data = await this.get(guildId, dataKey);
-                                if (data !== null) result[dataKey] = data;
-                            }
-                        }
-                    }
-                }
-            };
-            
-            await searchDir(this.dataDir);
+            await this.collectCurrentGuildData(guildId, result);
+
+            for (const root of [this.dataDir, ...this.legacyDirs]) {
+                await this.collectLegacyGuildData(root, guildId, result);
+            }
+
             return result;
         } catch (error) {
             console.error(`ギルド全データ取得エラー [${guildId}]:`, error);
-            return {};
+            return result;
         }
     }
 
     /**
      * すべてのキーを取得
-     * @returns 保存されているすべてのキー（相対パス含む）
      */
     async keys(): Promise<string[]> {
+        const keys = new Set<string>();
+
         try {
-            const result: string[] = [];
-
-            // 再帰的にファイルを検索
-            const searchDir = async (dirPath: string, prefix: string = ''): Promise<void> => {
-                const items = await fs.readdir(dirPath, { withFileTypes: true });
-
-                for (const item of items) {
-                    const itemPath = path.join(dirPath, item.name);
-
-                    if (item.isDirectory()) {
-                        // サブディレクトリ内を再帰的に検索
-                        const newPrefix = prefix ? `${prefix}/${item.name}` : item.name;
-                        await searchDir(itemPath, newPrefix);
-                    } else if (item.isFile() && item.name.endsWith('.json')) {
-                        const fileName = item.name.replace('.json', '');
-                        // プレフィックス（サブディレクトリパス）がある場合は含める
-                        const fullKey = prefix ? `${prefix}/${fileName}` : fileName;
-                        result.push(fullKey);
-                    }
+            for (const root of [this.dataDir, ...this.legacyDirs]) {
+                const files = await this.listJsonFiles(root);
+                for (const file of files) {
+                    keys.add(this.stripJsonExtension(file));
                 }
-            };
+            }
 
-            await searchDir(this.dataDir);
-            return result;
+            return Array.from(keys).sort();
         } catch (error) {
             console.error('キー一覧の取得エラー:', error);
             return [];
@@ -217,33 +189,291 @@ export class Database {
     }
 
     /**
-     * ファイルパスを取得
-     * @param key データのキー
-     * @returns 完全なファイルパス
+     * データベースディレクトリのパスを取得
      */
-    private getFilePath(key: string): string {
-        // normalize key and prevent directory traversal
-        // If key is absolute path, strip leading separators
-        const safeKey = key.replace(/^([A-Za-z]:)?[\\/]+/, '');
+    getDataDir(): string {
+        return this.dataDir;
+    }
 
-        // construct the intended file path and resolve it
-        const filePath = path.resolve(this.dataDir, `${safeKey}.json`);
+    private resolveKey(guildId: string, key: string): ResolvedKey {
+        const normalizedGuildId = this.normalizeValue(guildId);
+        const normalizedKey = this.normalizeKey(key);
 
-        // ensure the resolved file path is within our data directory
-        const resolvedDataDir = path.resolve(this.dataDir);
-        if (!filePath.startsWith(resolvedDataDir + path.sep) && filePath !== resolvedDataDir) {
+        return {
+            cacheKey: `${normalizedGuildId || 'global'}::${normalizedKey || 'index'}`,
+            primaryRelativePath: this.toPrimaryRelativePath(normalizedGuildId, normalizedKey),
+            legacyRelativePaths: this.toLegacyRelativePaths(normalizedGuildId, normalizedKey)
+        };
+    }
+
+    private normalizeKey(key: string): string {
+        return key.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+    }
+
+    private normalizeValue(value: string): string {
+        return value.replace(/[\\/]/g, '').trim();
+    }
+
+    private toPrimaryRelativePath(guildId: string, normalizedKey: string): string {
+        if (!normalizedKey) {
+            return guildId ? `guilds/${this.normalizeSegment(guildId)}/index` : 'shared/index';
+        }
+
+        if (normalizedKey === 'staff_private_chats') {
+            return 'shared/staff/private-chats';
+        }
+
+        const segments = normalizedKey.split('/').filter(Boolean);
+
+        if (segments[0] === 'Guild' && segments[1]) {
+            return this.mapGuildPath(segments[1], segments.slice(2));
+        }
+
+        if (segments[0] === 'UserProfiles' && segments[1]) {
+            return `users/${this.normalizeSegment(segments[1])}/profile`;
+        }
+
+        if (segments[0] === 'User' && segments[1]) {
+            const userId = this.normalizeSegment(segments[1]);
+            const rest = this.normalizeSegments(segments.slice(2)).join('/');
+            return `users/${userId}/${rest || 'index'}`;
+        }
+
+        if (guildId) {
+            return `guilds/${this.normalizeSegment(guildId)}/${this.normalizeSegments(segments).join('/')}`;
+        }
+
+        return `shared/${this.normalizeSegments(segments).join('/')}`;
+    }
+
+    private mapGuildPath(guildId: string, rest: string[]): string {
+        const safeGuildId = this.normalizeSegment(guildId);
+
+        if (rest[0] === 'User' && rest[1]) {
+            const rawSubject = this.normalizeSegment(rest[1]);
+            const userId = rawSubject.replace(/_timestamps$/, '');
+            const scope = rawSubject.endsWith('_timestamps') ? 'message-timestamps' : 'stats';
+            const trailing = this.normalizeSegments(rest.slice(2)).join('/');
+            return `users/${userId}/guilds/${safeGuildId}/${scope}${trailing ? `/${trailing}` : ''}`;
+        }
+
+        const normalizedRest = this.normalizeSegments(rest).join('/');
+        return `guilds/${safeGuildId}/${normalizedRest || 'index'}`;
+    }
+
+    private normalizeSegments(segments: string[]): string[] {
+        return segments.map((segment) => this.normalizeSegment(segment));
+    }
+
+    private normalizeSegment(segment: string): string {
+        const trimmed = segment.trim();
+        if (!trimmed || trimmed === '.' || trimmed === '..') {
+            throw new Error('Invalid database key segment');
+        }
+
+        const aliasMap: Record<string, string> = {
+            role_presets: 'role-presets',
+            role_changes: 'role-changes'
+        };
+
+        const aliased = aliasMap[trimmed] || trimmed;
+        return aliased.replace(/[<>:"|?*]/g, '-');
+    }
+
+    private toLegacyRelativePaths(guildId: string, normalizedKey: string): string[] {
+        if (!normalizedKey) {
+            return [];
+        }
+
+        const legacy = new Set<string>([normalizedKey]);
+        if (!normalizedKey.includes('/') && guildId) {
+            legacy.add(`${guildId}_${normalizedKey}`);
+        }
+
+        return Array.from(legacy);
+    }
+
+    private async findExistingFile(resolved: ResolvedKey): Promise<LocatedFile | null> {
+        const currentCandidates = [resolved.primaryRelativePath, ...resolved.legacyRelativePaths];
+
+        for (const relativePath of currentCandidates) {
+            const filePath = this.toFilePath(this.dataDir, relativePath);
+            if (await this.fileExists(filePath)) {
+                return {
+                    filePath,
+                    relativePath,
+                    root: this.dataDir,
+                    isPrimary: relativePath === resolved.primaryRelativePath
+                };
+            }
+        }
+
+        for (const root of this.legacyDirs) {
+            for (const relativePath of new Set([resolved.primaryRelativePath, ...resolved.legacyRelativePaths])) {
+                const filePath = this.toFilePath(root, relativePath);
+                if (await this.fileExists(filePath)) {
+                    return {
+                        filePath,
+                        relativePath,
+                        root,
+                        isPrimary: false
+                    };
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private async collectCurrentGuildData(guildId: string, result: Record<string, any>): Promise<void> {
+        const safeGuildId = this.normalizeSegment(guildId);
+        const guildRoot = path.join(this.dataDir, 'guilds', safeGuildId);
+        const guildFiles = await this.listJsonFiles(guildRoot);
+
+        for (const relativeFile of guildFiles) {
+            const logicalKey = this.stripJsonExtension(relativeFile);
+            if (!(logicalKey in result)) {
+                const filePath = this.toFilePath(guildRoot, logicalKey);
+                result[logicalKey.replace(/\\/g, '/')] = await this.readJson(filePath);
+            }
+        }
+
+        const usersRoot = path.join(this.dataDir, 'users');
+        if (!(await this.directoryExists(usersRoot))) {
+            return;
+        }
+
+        const userEntries = await fs.readdir(usersRoot, { withFileTypes: true });
+        for (const userEntry of userEntries) {
+            if (!userEntry.isDirectory()) {
+                continue;
+            }
+
+            const userGuildRoot = path.join(usersRoot, userEntry.name, 'guilds', safeGuildId);
+            const userGuildFiles = await this.listJsonFiles(userGuildRoot);
+
+            for (const relativeFile of userGuildFiles) {
+                const stripped = this.stripJsonExtension(relativeFile);
+                const logicalKey = this.toLegacyGuildUserKey(userEntry.name, stripped);
+                if (!(logicalKey in result)) {
+                    const filePath = this.toFilePath(userGuildRoot, stripped);
+                    result[logicalKey] = await this.readJson(filePath);
+                }
+            }
+        }
+    }
+
+    private async collectLegacyGuildData(
+        root: string,
+        guildId: string,
+        result: Record<string, any>
+    ): Promise<void> {
+        const files = await this.listJsonFiles(root);
+        for (const relativeFile of files) {
+            const normalizedRelative = relativeFile.replace(/\\/g, '/');
+            const withoutExtension = this.stripJsonExtension(normalizedRelative);
+
+            if (withoutExtension.startsWith(`Guild/${guildId}/`)) {
+                const logicalKey = withoutExtension.replace(`Guild/${guildId}/`, '');
+                if (!(logicalKey in result)) {
+                    result[logicalKey] = await this.readJson(this.toFilePath(root, withoutExtension));
+                }
+                continue;
+            }
+
+            const fileName = path.basename(withoutExtension);
+            if (fileName.startsWith(`${guildId}_`)) {
+                const logicalKey = fileName.replace(`${guildId}_`, '');
+                if (!(logicalKey in result)) {
+                    result[logicalKey] = await this.readJson(this.toFilePath(root, withoutExtension));
+                }
+            }
+        }
+    }
+
+    private toLegacyGuildUserKey(userId: string, strippedPath: string): string {
+        const normalized = strippedPath.replace(/\\/g, '/');
+        if (normalized === 'stats') {
+            return `User/${userId}`;
+        }
+        if (normalized === 'message-timestamps') {
+            return `User/${userId}_timestamps`;
+        }
+        return `User/${userId}/${normalized}`;
+    }
+
+    private async readJson<T = any>(filePath: string): Promise<T> {
+        const data = await fs.readFile(filePath, 'utf-8');
+        return JSON.parse(data) as T;
+    }
+
+    private async writeJson(root: string, relativePath: string, data: unknown): Promise<void> {
+        const filePath = this.toFilePath(root, relativePath);
+        await fs.mkdir(path.dirname(filePath), { recursive: true });
+        await fs.writeFile(filePath, JSON.stringify(data, null, 2), 'utf-8');
+    }
+
+    private toFilePath(root: string, relativePath: string): string {
+        const safeRelative = relativePath.replace(/^([A-Za-z]:)?[\\/]+/, '');
+        const filePath = path.resolve(root, `${safeRelative}.json`);
+        const resolvedRoot = path.resolve(root);
+
+        if (!filePath.startsWith(`${resolvedRoot}${path.sep}`) && filePath !== resolvedRoot) {
             throw new Error('Invalid database key (path traversal attempt detected)');
         }
 
         return filePath;
     }
 
-    /**
-     * データベースディレクトリのパスを取得
-     * @returns データベースディレクトリの絶対パス
-     */
-    getDataDir(): string {
-        return this.dataDir;
+    private async fileExists(filePath: string): Promise<boolean> {
+        try {
+            await fs.access(filePath);
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
+    private async directoryExists(dirPath: string): Promise<boolean> {
+        try {
+            const stat = await fs.stat(dirPath);
+            return stat.isDirectory();
+        } catch {
+            return false;
+        }
+    }
+
+    private async listJsonFiles(root: string): Promise<string[]> {
+        if (!(await this.directoryExists(root))) {
+            return [];
+        }
+
+        const results: string[] = [];
+
+        const walk = async (currentDir: string, prefix = ''): Promise<void> => {
+            const entries = await fs.readdir(currentDir, { withFileTypes: true });
+
+            for (const entry of entries) {
+                const entryPath = path.join(currentDir, entry.name);
+                const relativePath = prefix ? `${prefix}/${entry.name}` : entry.name;
+
+                if (entry.isDirectory()) {
+                    await walk(entryPath, relativePath);
+                    continue;
+                }
+
+                if (entry.isFile() && entry.name.endsWith('.json')) {
+                    results.push(relativePath.replace(/\\/g, '/'));
+                }
+            }
+        };
+
+        await walk(root);
+        return results;
+    }
+
+    private stripJsonExtension(filePath: string): string {
+        return filePath.replace(/\.json$/i, '');
     }
 }
 

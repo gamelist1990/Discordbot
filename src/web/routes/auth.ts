@@ -41,8 +41,8 @@ export function createAuthRoutes(
     // OAuth2 state管理
     const states = new Map<string, OAuth2State>();
 
-    // Persisted OAuth sessions (Data/Auth/sessions.json)
-    const authPersistPath = path.join(process.cwd(), 'Data', 'Auth', 'sessions.json');
+    // Persisted OAuth sessions (Database/system/auth/sessions.json)
+    const authPersistPath = path.join(database.getDataDir(), 'system', 'auth', 'sessions.json');
     const oauthSessions: Map<string, any> = new Map();
 
     const loadOauthFromDisk = () => {
@@ -406,7 +406,7 @@ export function createAuthRoutes(
 
             sessions.set(sessionId, session);
 
-            // Save OAuth tokens into Data/Auth so we can refresh later and avoid asking user to re-login
+            // Save OAuth tokens into Database/system/auth so we can refresh later and avoid asking user to re-login
             try {
                 oauthSessions.set(userData.id, {
                     userId: userData.id,

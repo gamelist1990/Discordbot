@@ -43,47 +43,10 @@ export function setupWebSocketServer(
         }
     });
 
-    // Trigger チャンネルハンドラーを登録
-    unifiedWsManager.registerChannelHandler('trigger', async (ws: WebSocket, message: any) => {
-        try {
-            switch (message.type) {
-                case 'ping':
-                    const session = (ws as any).session;
-                    unifiedWsManager.broadcast('trigger', {
-                        type: 'pong',
-                        timestamp: Date.now(),
-                        user: session?.username
-                    });
-                    break;
-
-                case 'subscribe':
-                    console.log(
-                        `[WebSocket/Trigger] ${(ws as any).connectionId} subscribed to:`,
-                        message.payload
-                    );
-                    break;
-
-                case 'triggerUpdate':
-                    // Trigger 更新メッセージ
-                    unifiedWsManager.broadcast('trigger', {
-                        type: 'triggerUpdate',
-                        timestamp: Date.now(),
-                        payload: message.payload
-                    });
-                    break;
-
-                default:
-                    console.warn(`[WebSocket/Trigger] Unknown message type: ${message.type}`);
-            }
-        } catch (error) {
-            console.error('[WebSocket/Trigger] Message handler error:', error);
-        }
-    });
-
     // ハートビートを開始（30秒ごとに生存確認）
     unifiedWsManager.startHeartbeat(30000);
 
     console.log(
-        '[WebSocket] Unified WebSocket server initialized on paths: /ws/feedback, /ws/trigger'
+        '[WebSocket] Unified WebSocket server initialized on path: /ws/feedback'
     );
 }

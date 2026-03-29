@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
+import { database } from '../../../core/Database.js';
 
 /**
  * Discord OAuth2 認証情報
@@ -37,7 +38,7 @@ export class OAuth2Handler {
         this.config = config;
         this.sessions = new Map();
         this.states = new Map();
-        this.persistPath = path.join(process.cwd(), 'Data', 'Auth', 'sessions.json');
+        this.persistPath = path.join(database.getDataDir(), 'system', 'auth', 'sessions.json');
 
         // Load persisted sessions from disk
         this.loadFromDisk();

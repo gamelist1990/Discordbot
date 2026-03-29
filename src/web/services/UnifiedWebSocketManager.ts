@@ -5,7 +5,7 @@ import { SettingsSession } from '../types/index.js';
 
 /**
  * 統合 WebSocket マネージャー
- * 複数のチャンネル（feedback, trigger）を単一の WebSocketServer で管理
+ * 複数のチャンネルを単一の WebSocketServer で管理
  */
 export class UnifiedWebSocketManager {
     private wss: WebSocketServer | null = null;
@@ -189,7 +189,7 @@ export class UnifiedWebSocketManager {
      * URL からチャンネル名を抽出
      */
     private extractChannel(url: string): string | null {
-        // URL パターン: /ws/feedback, /ws/trigger, etc.
+        // URL パターン: /ws/feedback, etc.
         const match = url.match(/^\/ws\/([a-zA-Z0-9_-]+)/);
         return match ? match[1] : null;
     }

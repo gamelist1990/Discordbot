@@ -1,5 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import PageShell from '../../components/PageShell';
 import styles from './SettingsListPage.module.css';
 
 interface Guild {
@@ -18,73 +19,147 @@ const SettingsListPage: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
 
   useEffect(() => {
+    const fetchGuilds = async () => {
+      try {
+        const response = await fetch('/api/user/guilds', { credentials: 'include' });
+
+        if (response.status === 401) {
+          setIsAuthenticated(false);
+          setGuilds([]);
+          return;
+        }
+
+        if (!response.ok) {
+          throw new Error('サーバー一覧の取得に失敗しました');
+        }
+
+        const data = await response.json();
+        setGuilds(data.guilds || []);
+        setIsAuthenticated(true);
+      } catch (fetchError) {
+        setError(
+          fetchError instanceof Error ? fetchError.message : 'サーバー一覧の取得に失敗しました'
+        );
+      } finally {
+        setLoading(false);
+      }
+    };
+
     fetchGuilds();
   }, []);
 
-  const fetchGuilds = async () => {
-    try {
-      const res = await fetch('/api/user/guilds', { credentials: 'include' });
-      if (res.status === 401) {
-        setIsAuthenticated(false);
-        setGuilds([]);
-        setLoading(false);
-        return;
-      }
-      if (!res.ok) throw new Error('サーバー一覧の取得に失敗しました');
-      const data = await res.json();
-      setGuilds(data.guilds || []);
-      setIsAuthenticated(true);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'サーバー一覧の取得に失敗しました');
-      setIsAuthenticated(null);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const ownerCount = useMemo(() => guilds.filter((guild) => guild.owner).length, [guilds]);
 
-  const handleOpenSettings = (guildId: string) => {
-    navigate(`/settings/${guildId}`);
+  const renderContent = () => {
+    if (loading) {
+      return <div className={styles.statePanel}>管理対象サーバーを読み込んでいます...</div>;
+    }
+
+    if (error) {
+      return <div className={styles.statePanel}>{error}</div>;
+    }
+
+    if (isAuthenticated === false) {
+      return (
+        <div className={styles.statePanel}>
+          <h2>ログインが必要です</h2>
+          <p>Discord で認証すると、管理権限のあるサーバーだけを安全に一覧化します。</p>
+          <button
+            className={styles.primaryButton}
+            onClick={() => {
+              window.location.href = '/api/auth/discord';
+            }}
+            type="button"
+          >
+            <span className="material-icons">login</span>
+            Discordでログイン
+          </button>
+        </div>
+      );
+    }
+
+    if (guilds.length === 0) {
+      return (
+        <div className={styles.statePanel}>
+          <h2>管理できるサーバーがありません</h2>
+          <p>Bot が参加していて、あなたに管理権限のあるサーバーだけがここに表示されます。</p>
+        </div>
+      );
+    }
+
+    return (
+      <div className={styles.guildList}>
+        {guilds.map((guild) => (
+          <article key={guild.id} className={styles.guildCard}>
+            <div className={styles.guildIdentity}>
+              <div className={styles.guildIcon}>
+                {guild.icon ? (
+                  <img
+                    src={`https://cdn.discordapp.com/icons/${guild.id}/${guild.icon}.png?size=128`}
+                    alt={guild.name}
+                  />
+                ) : (
+                  <span>{guild.name.charAt(0).toUpperCase()}</span>
+                )}
+              </div>
+
+              <div className={styles.guildCopy}>
+                <div className={styles.guildHeader}>
+                  <h2>{guild.name}</h2>
+                  <span className={styles.guildBadge}>{guild.owner ? 'Owner' : 'Manage'}</span>
+                </div>
+                <p>ID {guild.id}</p>
+              </div>
+            </div>
+
+            <button
+              className={styles.secondaryButton}
+              onClick={() => navigate(`/settings/${guild.id}`)}
+              type="button"
+            >
+              <span>設定を開く</span>
+              <span className="material-icons">arrow_forward</span>
+            </button>
+          </article>
+        ))}
+      </div>
+    );
   };
 
   return (
-    <div>
-      <div className={styles.container}>
-        <h1>管理サーバー一覧</h1>
-        {loading ? (
-          <div className={styles.loading}>読み込み中...</div>
-        ) : error ? (
-          <div className={styles.error}>{error}</div>
-        ) : isAuthenticated === false ? (
-          <div className={styles.error}>
-            <p>この機能を利用するにはDiscordでログインしてください。</p>
-            <button className={styles.openBtn} onClick={() => window.location.href = '/api/auth/discord'}>
-              <span className="material-icons">login</span> Discordでログイン
-            </button>
+    <div className={styles.page}>
+      <PageShell
+        eyebrow="Server Management"
+        title="管理対象サーバー"
+        description="設定を触れるサーバーだけを集め、次に開く面を迷わない一覧に整理しています。"
+        actions={
+          <button
+            className={styles.primaryButton}
+            onClick={() => navigate('/feedback')}
+            type="button"
+          >
+            <span className="material-icons">forum</span>
+            改善フィードバックを見る
+          </button>
+        }
+        aside={
+          <div className={styles.summary}>
+            <div className={styles.summaryCard}>
+              <span className={styles.summaryLabel}>Visible guilds</span>
+              <strong>{guilds.length}</strong>
+              <p>現在このアカウントから管理できるサーバー数です。</p>
+            </div>
+            <div className={styles.summaryCard}>
+              <span className={styles.summaryLabel}>Owner access</span>
+              <strong>{ownerCount}</strong>
+              <p>オーナー権限で開けるサーバー数を分離して把握できます。</p>
+            </div>
           </div>
-        ) : guilds.length === 0 ? (
-          <div>管理権限のあるサーバーがありません。</div>
-        ) : (
-          <div className={styles.guildList}>
-            {guilds.map(guild => (
-              <div key={guild.id} className={styles.guildCard}>
-                <div className={styles.guildIcon}>
-                  {guild.icon ? (
-                    <img src={`https://cdn.discordapp.com/icons/${guild.id}/${guild.icon}.png`} alt={guild.name} />
-                  ) : (
-                    <div className={styles.defaultIcon}>{guild.name.charAt(0).toUpperCase()}</div>
-                  )}
-                </div>
-                <div className={styles.guildInfo}>
-                  <h2>{guild.name}</h2>
-                  <button onClick={() => handleOpenSettings(guild.id)} className={styles.openBtn}>
-                    開く
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+        }
+        compact
+      >
+        {renderContent()}
+      </PageShell>
     </div>
   );
 };

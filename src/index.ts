@@ -117,12 +117,6 @@ async function main() {
         statsManagerSingleton.init(botClient.client);
         Logger.info('📊 StatsManager を初期化しました');
 
-        // TriggerManager を初期化
-        const { initTriggerManager } = await import('./core/TriggerManager.js');
-        const { database } = await import('./core/Database.js');
-        const triggerManager = initTriggerManager(botClient.client, database);
-        Logger.info('🎯 TriggerManager を初期化しました');
-
         // AntiCheatManager を初期化
         const { antiCheatManager } = await import('./core/anticheat/AntiCheatManager.js');
         antiCheatManager.setClient(botClient.client);
@@ -152,23 +146,6 @@ async function main() {
         // SettingsServer を client に注入（コマンドから参照できるようにする）
         (botClient.client as any).settingsServer = settingsServer;
 
-        // TriggerManager に WebSocket のエミッタを接続
-        // 注意: WebSocket サーバーは UnifiedWebSocketManager を使っているため、そちらへブロードキャストする
-        const { unifiedWsManager } = await import('./web/services/UnifiedWebSocketManager.js');
-        triggerManager.setWebSocketEmitter((event: string, data: any) => {
-            try {
-                Logger.debug(`[TriggerEmitter] event=${event} guild=${data?.guildId || data?.guild || 'unknown'}`);
-                unifiedWsManager.broadcast('trigger', {
-                    type: event,
-                    timestamp: Date.now(),
-                    payload: data
-                });
-            } catch (err) {
-                Logger.error('Failed to emit WS event via unifiedWsManager:', err);
-            }
-        });
-        Logger.info('🔗 TriggerManager と WebSocketManager を接続しました');
-        
         Logger.success('✅ Bot が正常に起動しました！');
         Logger.info('💡 新しいサーバーに追加すると、自動的にコマンドがデプロイされます。');
         Logger.info(`⚠️ サーバー上限: ${botClient.getMaxGuilds()} (現在: ${botClient.getGuildCount()})`);
