@@ -9,5 +9,5 @@ export * from './mod.js';
 export * from './feedback.js';
 export * from './rolepreset.js';
 export * from './rank.js';
-export * from './tools.js';
+
 export * from './staff/anticheat.js';

@@ -12,7 +12,7 @@ import RankBoardGuild from './pages/RankBoard/RankBoardGuild';
 import RankBoard from './pages/RankBoard';
 import UserProfile from './pages/Profile';
 import FeedbackPage from './pages/Feedback';
-import ToolsHub from './pages/Tools/ToolsHub';
+
 import AntiCheatPage from './pages/Staff/AntiCheat';
 import AntiCheatSelector from './pages/Staff/AntiCheatSelector';
 const MinecraftViewer = React.lazy(() => import('./pages/Tools/MinecraftViewer/MinecraftViewer'));
@@ -69,7 +69,7 @@ const App: React.FC = () => {
           <Route path="/staff/anticheat" element={<StaffGuard><AntiCheatSelector /></StaffGuard>} />
           <Route path="/staff/anticheat/:guildId" element={<StaffGuard><AntiCheatPage /></StaffGuard>} />
           <Route path="/staff/privateChat" element={<Navigate to="/staff/privatechat" replace />} />
-          <Route path="/tools" element={<ToolsHub />} />
+
           <Route path="/tools/minecraft" element={<Suspense fallback={<div style={{padding:20}}>読み込み中...</div>}><MinecraftViewer /></Suspense>} />
           <Route path="/404" element={<NotFoundPage />} />
           <Route path="*" element={<Navigate to="/404" replace />} />

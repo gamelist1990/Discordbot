@@ -53,7 +53,6 @@ const quickLinks = [
   { title: 'サーバー管理', description: '管理対象サーバーへ進む', path: '/settings', icon: 'tune' },
   { title: 'フィードバック', description: '要望と改善状況を確認する', path: '/feedback', icon: 'forum' },
   { title: 'ランキング', description: '活動データと公開パネルを確認する', path: '/rank', icon: 'leaderboard' },
-  { title: 'Tools', description: '補助ツールを開く', path: '/tools', icon: 'construction' },
 ];
 
 const HomePage: React.FC = () => {

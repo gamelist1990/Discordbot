@@ -86,7 +86,6 @@ const AppHeader: React.FC<AppHeaderProps> = ({ user: userProp, onLogout }) => {
       { label: 'ランキング', path: '/rank', icon: 'leaderboard' },
       { label: 'サーバー管理', path: '/settings', icon: 'tune' },
       { label: 'フィードバック', path: '/feedback', icon: 'forum' },
-      { label: 'Tools', path: '/tools', icon: 'construction' },
     ],
     []
   );
@@ -97,7 +96,6 @@ const AppHeader: React.FC<AppHeaderProps> = ({ user: userProp, onLogout }) => {
       { label: 'サーバー管理', path: '/settings', icon: 'tune' },
       { label: 'フィードバック', path: '/feedback', icon: 'forum' },
       { label: 'ランキング', path: '/rank', icon: 'leaderboard' },
-      { label: 'Tools', path: '/tools', icon: 'construction' },
     ];
 
     if (canSeeStaff) {
