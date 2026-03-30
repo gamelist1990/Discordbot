@@ -256,6 +256,10 @@ export class PersonalityService {
 
     private async evaluate(session: PersonalitySession): Promise<PersonalityEvaluationResponse> {
         const userTurns = session.transcript.filter((entry) => entry.authorType === 'user').length;
+        const latestUserAnswer = [...session.transcript]
+            .reverse()
+            .find((entry) => entry.authorType === 'user')
+            ?.content || '';
         if (userTurns >= PERSONALITY_MAX_USER_TURNS) {
             return this.forceFinalize(session);
         }
@@ -275,6 +279,8 @@ export class PersonalityService {
             `ユーザー回答が ${PERSONALITY_MAX_USER_TURNS} 回に達したら、必ず最終判定してください。`,
             'complete が false のとき personality_key は null にしてください。',
             '質問は必ず具体例を引き出す形にし、曖昧な一般論で終わらせないでください。',
+            'complete が false の返答では、最初の1文で直前のユーザー回答を自然に受け止め、その流れに接続した質問を1つだけ返してください。',
+            '直前の回答と無関係な話題へ急に飛ばさないでください。',
             '出力は JSON のみで、キーは reply, complete, personality_key, reason, confidence, traits です。',
             'traits には観測した短い傾向タグを2-4個入れてください。',
             'complete が true のときは personality_key に必ず候補のどれかを入れてください。'
@@ -285,6 +291,7 @@ export class PersonalityService {
             `回答回数: ${userTurns}/${PERSONALITY_MAX_USER_TURNS}`,
             `今回優先して掘る観点: ${focus.label}`,
             `観点の指示: ${focus.instruction}`,
+            `直前のユーザー回答: ${latestUserAnswer || 'なし'}`,
             `面談ログ:\n${summarizeTranscript(session.transcript, 20)}`
         ].join('\n\n');
 
@@ -296,7 +303,7 @@ export class PersonalityService {
         const parsed = validatePersonalityEvaluation(extractJsonObject(raw));
 
         if (userTurns < PERSONALITY_MIN_USER_TURNS) {
-            return this.buildContinuationResponse(parsed, focus, true);
+            return this.buildContinuationResponse(parsed, focus, latestUserAnswer);
         }
 
         if (parsed?.complete && parsed.personality_key) {
@@ -304,7 +311,7 @@ export class PersonalityService {
         }
 
         if (userTurns < PERSONALITY_MAX_USER_TURNS) {
-            return this.buildContinuationResponse(parsed, focus, false);
+            return this.buildContinuationResponse(parsed, focus, latestUserAnswer);
         }
 
         return this.forceFinalize(session);
@@ -313,14 +320,19 @@ export class PersonalityService {
     private getInterviewFocus(userTurns: number): PersonalityInterviewFocus {
         const stages: PersonalityInterviewFocus[] = [
             {
-                label: '対立時の反応',
-                instruction: '意見がぶつかった場面で、押し切るか、調整するか、煽るか、引くかを具体的に掘ってください。',
-                fallbackQuestion: '意見が真っ向からぶつかった場面では、あなたは相手をどう動かしますか。最近の具体例を1つ、相手への言い方まで含めて教えてください。'
+                label: '計画と不安への向き合い方',
+                instruction: '予定や楽しみな出来事に対して、準備を詰めるか、勢いで進むか、不安をどう扱うかを具体的に掘ってください。',
+                fallbackQuestion: 'そういう予定や楽しみがあるとき、あなたは事前にかなり準備する方ですか。それとも気分で動く方ですか。最近の具体例で教えてください。'
             },
             {
                 label: '失敗と責任の取り方',
                 instruction: '自分に不利な失敗やミスをしたとき、言い訳をするか、責任を負うか、話を盛るかを見てください。',
-                fallbackQuestion: '自分のミスで空気が悪くなったとき、あなたは何をどう説明しますか。実際の出来事か、かなり近い想定で具体的に話してください。'
+                fallbackQuestion: 'もしその予定や行動で自分のミスが出たとき、あなたは周りにどう説明してどう動きますか。かなり近い実例があればそれで教えてください。'
+            },
+            {
+                label: '対立時の反応',
+                instruction: '意見がぶつかった場面で、押し切るか、調整するか、煽るか、引くかを具体的に掘ってください。',
+                fallbackQuestion: '誰かと意見が真っ向からぶつかった場面では、あなたは相手をどう動かしますか。最近の具体例を1つ、相手への言い方まで含めて教えてください。'
             },
             {
                 label: '集団での立ち位置',
@@ -345,11 +357,11 @@ export class PersonalityService {
     private buildContinuationResponse(
         parsed: PersonalityEvaluationResponse | null,
         focus: PersonalityInterviewFocus,
-        forceFallbackQuestion: boolean
+        latestUserAnswer: string
     ): PersonalityEvaluationResponse {
-        const reply = !forceFallbackQuestion && parsed && !parsed.complete && this.looksLikeFollowUpQuestion(parsed.reply)
+        const reply = parsed && !parsed.complete && this.looksLikeFollowUpQuestion(parsed.reply)
             ? parsed.reply
-            : focus.fallbackQuestion;
+            : this.buildAnchoredFallbackQuestion(latestUserAnswer, focus);
 
         return {
             reply,
@@ -368,6 +380,16 @@ export class PersonalityService {
         }
 
         return /[？?]$/.test(normalized) || /(教えてください|聞かせてください|説明してください|ありますか)/.test(normalized);
+    }
+
+    private buildAnchoredFallbackQuestion(latestUserAnswer: string, focus: PersonalityInterviewFocus): string {
+        const cue = latestUserAnswer.trim().replace(/\s+/g, ' ');
+        const shortCue = cue.length > 42 ? `${cue.slice(0, 42)}...` : cue;
+        if (!shortCue) {
+            return focus.fallbackQuestion;
+        }
+
+        return `今の話だと「${shortCue}」という点が印象に残りました。${focus.fallbackQuestion}`;
     }
 
     private async forceFinalize(session: PersonalitySession): Promise<PersonalityEvaluationResponse> {
