@@ -8,11 +8,12 @@ export const CORE_FEATURE_MODEL_FALLBACKS = [
 ] as const;
 
 export const PERSONALITY_CATEGORY_NAME = '性格診断室';
-export const DEBATE_CATEGORY_NAME = 'れすばアリーナ';
+export const DEBATE_CATEGORY_NAME = 'レスバアリーナ';
 export const DEBATE_KING_ROLE_NAME = '論破王';
 export const PERSONALITY_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000;
 export const CLEANUP_DELAY_MS = 60 * 60 * 1000;
 export const INACTIVITY_TIMEOUT_MS = 60 * 60 * 1000;
+export const PERSONALITY_MIN_USER_TURNS = 4;
 export const PERSONALITY_MAX_USER_TURNS = 6;
 export const DEBATE_TURN_LIMIT = 3;
 export const MAX_SESSION_HISTORY = 200;

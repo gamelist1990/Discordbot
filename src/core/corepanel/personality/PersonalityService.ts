@@ -18,17 +18,19 @@ import {
     PERSONALITY_ARCHETYPES,
     PERSONALITY_CATEGORY_NAME,
     PERSONALITY_COOLDOWN_MS,
-    PERSONALITY_MAX_USER_TURNS
+    PERSONALITY_MAX_USER_TURNS,
+    PERSONALITY_MIN_USER_TURNS
 } from '../constants.js';
 import { deleteRoom, ensureCategory, ensureRole } from '../guildUtils.js';
 import {
     createId,
     extractJsonObject,
+    pickAiPersonaName,
     summarizeTranscript,
     truncateText,
     validatePersonalityEvaluation
 } from '../helpers.js';
-import { requestCoreFeatureModelText } from '../model.js';
+import { requestCoreFeatureModelText, requestCoreFeaturePersonaNames } from '../model.js';
 import {
     PersonalityEvaluationResponse,
     PersonalityKey,
@@ -37,6 +39,12 @@ import {
     TranscriptEntry
 } from '../types.js';
 import { Logger } from '../../../utils/Logger.js';
+
+interface PersonalityInterviewFocus {
+    label: string;
+    instruction: string;
+    fallbackQuestion: string;
+}
 
 function getPersonalitySessionsKey(guildId: string): string {
     return `Guild/${guildId}/corefeature/personality/sessions`;
@@ -47,6 +55,7 @@ export class PersonalityService {
     private readonly processing = new Set<string>();
     private readonly cleanupTimers = new Map<string, ReturnType<typeof setTimeout>>();
     private readonly timeoutTimers = new Map<string, ReturnType<typeof setTimeout>>();
+    private readonly terminatedSessions = new Set<string>();
 
     setClient(client: Client): void {
         this.client = client;
@@ -106,13 +115,24 @@ export class PersonalityService {
         });
 
         const createdAt = new Date().toISOString();
-        const intro = 'これから AI と1対1で性格診断を行います。これは病名診断ではなく、コミュニティ内での行動傾向を測る面談です。最近の発言や行動で「自分らしい」と思ったものを1つ、具体例つきで説明してください。';
+        const sessionId = createId('personality');
+        const [interviewerName] = await requestCoreFeaturePersonaNames(
+            `性格診断の面談担当AI。セッションID: ${sessionId}`,
+            1
+        );
+        const intro = [
+            `今回の面談は私、${interviewerName}が担当します。`,
+            'これから1対1で性格診断を行います。これは病名診断ではなく、コミュニティ内での行動傾向を測る面談です。',
+            'できるだけ具体例を交えて答えてください。',
+            'まず最初に、最近の発言や行動で「自分らしい」と思ったものを1つ、状況つきで説明してください。'
+        ].join(' ');
         const session: PersonalitySession = {
-            sessionId: createId('personality'),
+            sessionId,
             guildId: guild.id,
             channelId: channel.id,
             categoryId: category.id,
             userId,
+            interviewerName,
             status: 'active',
             createdAt,
             updatedAt: createdAt,
@@ -140,6 +160,7 @@ export class PersonalityService {
             .setColor(0x4f8cff)
             .setDescription([
                 `${member.toString()} 専用の診断部屋です。`,
+                `担当AI: **${interviewerName}**`,
                 `AI が数回質問して、${Object.keys(PERSONALITY_ARCHETYPES).length}種類の性格ロールから1つを判定します。`,
                 '結果にはロール名だけでなく、観測した傾向タグも付きます。',
                 `クールダウン: ${new Date(session.cooldownUntil).toLocaleString('ja-JP')} まで再挑戦不可`
@@ -147,7 +168,7 @@ export class PersonalityService {
             .setTimestamp();
 
         await (channel as TextChannel).send({ content: member.toString(), embeds: [embed] }).catch(() => null);
-        await (channel as TextChannel).send(intro).catch(() => null);
+        await (channel as TextChannel).send(this.formatAssistantMessage(interviewerName, intro)).catch(() => null);
         return session;
     }
 
@@ -191,8 +212,12 @@ export class PersonalityService {
             }
 
             const evaluation = await this.evaluate(refreshed);
+            const latest = await this.getSessionById(message.guild.id, refreshed.sessionId);
+            if (!latest || latest.status !== 'active' || this.terminatedSessions.has(refreshed.sessionId)) {
+                return true;
+            }
 
-            await this.appendTranscript(message.guild.id, refreshed.sessionId, {
+            await this.appendTranscript(message.guild.id, latest.sessionId, {
                 id: createId('transcript'),
                 authorId: null,
                 authorType: 'assistant',
@@ -200,12 +225,14 @@ export class PersonalityService {
                 createdAt: new Date().toISOString()
             });
 
-            await (message.channel as TextChannel).send(evaluation.reply).catch(() => null);
+            await (message.channel as TextChannel).send(
+                this.formatAssistantMessage(latest.interviewerName, evaluation.reply)
+            ).catch(() => null);
 
             if (evaluation.complete && evaluation.personality_key) {
-                await this.finalize(message.guild, refreshed, evaluation);
+                await this.finalize(message.guild, latest, evaluation);
             } else {
-                this.scheduleInactivityTimeout(message.guild.id, refreshed.sessionId);
+                this.scheduleInactivityTimeout(message.guild.id, latest.sessionId);
             }
         } catch (error) {
             Logger.error('Failed to handle personality message:', error);
@@ -229,17 +256,25 @@ export class PersonalityService {
 
     private async evaluate(session: PersonalitySession): Promise<PersonalityEvaluationResponse> {
         const userTurns = session.transcript.filter((entry) => entry.authorType === 'user').length;
+        if (userTurns >= PERSONALITY_MAX_USER_TURNS) {
+            return this.forceFinalize(session);
+        }
+
         const archetypeSummary = Object.entries(PERSONALITY_ARCHETYPES)
             .map(([key, value]) => `- ${key}: ${value.label} / ${value.summary}`)
             .join('\n');
+        const focus = this.getInterviewFocus(userTurns);
 
         const systemPrompt = [
             'あなたは Discord コミュニティ用の性格診断 AI です。',
             'これは病名や精神疾患を断定する診断ではありません。コミュニティ内の行動傾向ロールを選ぶ作業です。',
             `候補は ${Object.keys(PERSONALITY_ARCHETYPES).join(', ')} の ${Object.keys(PERSONALITY_ARCHETYPES).length}種類です。`,
             '1回の返答では質問は1つだけ、簡潔に行ってください。',
-            '会話の具体性、誇張、責任転嫁、煽り癖、暴走傾向、混沌性、奇行性、衝動性、虚言傾向、虚飾性、支援性、創造性なども見てください。',
+            '会話の具体性、誇張、責任転嫁、煽り癖、暴走傾向、混沌性、奇行性、衝動性、虚言傾向、虚飾性、支援性、創造性などを丁寧に見てください。',
+            `ユーザー回答が ${PERSONALITY_MIN_USER_TURNS} 回に達するまでは、complete を false に固定し、必ず追加の質問を返してください。`,
             `ユーザー回答が ${PERSONALITY_MAX_USER_TURNS} 回に達したら、必ず最終判定してください。`,
+            'complete が false のとき personality_key は null にしてください。',
+            '質問は必ず具体例を引き出す形にし、曖昧な一般論で終わらせないでください。',
             '出力は JSON のみで、キーは reply, complete, personality_key, reason, confidence, traits です。',
             'traits には観測した短い傾向タグを2-4個入れてください。',
             'complete が true のときは personality_key に必ず候補のどれかを入れてください。'
@@ -248,6 +283,8 @@ export class PersonalityService {
         const userPrompt = [
             `候補一覧:\n${archetypeSummary}`,
             `回答回数: ${userTurns}/${PERSONALITY_MAX_USER_TURNS}`,
+            `今回優先して掘る観点: ${focus.label}`,
+            `観点の指示: ${focus.instruction}`,
             `面談ログ:\n${summarizeTranscript(session.transcript, 20)}`
         ].join('\n\n');
 
@@ -257,11 +294,80 @@ export class PersonalityService {
         ], 900, 0.3);
 
         const parsed = validatePersonalityEvaluation(extractJsonObject(raw));
-        if (parsed && (parsed.complete || userTurns < PERSONALITY_MAX_USER_TURNS)) {
+
+        if (userTurns < PERSONALITY_MIN_USER_TURNS) {
+            return this.buildContinuationResponse(parsed, focus, true);
+        }
+
+        if (parsed?.complete && parsed.personality_key) {
             return parsed;
         }
 
+        if (userTurns < PERSONALITY_MAX_USER_TURNS) {
+            return this.buildContinuationResponse(parsed, focus, false);
+        }
+
         return this.forceFinalize(session);
+    }
+
+    private getInterviewFocus(userTurns: number): PersonalityInterviewFocus {
+        const stages: PersonalityInterviewFocus[] = [
+            {
+                label: '対立時の反応',
+                instruction: '意見がぶつかった場面で、押し切るか、調整するか、煽るか、引くかを具体的に掘ってください。',
+                fallbackQuestion: '意見が真っ向からぶつかった場面では、あなたは相手をどう動かしますか。最近の具体例を1つ、相手への言い方まで含めて教えてください。'
+            },
+            {
+                label: '失敗と責任の取り方',
+                instruction: '自分に不利な失敗やミスをしたとき、言い訳をするか、責任を負うか、話を盛るかを見てください。',
+                fallbackQuestion: '自分のミスで空気が悪くなったとき、あなたは何をどう説明しますか。実際の出来事か、かなり近い想定で具体的に話してください。'
+            },
+            {
+                label: '集団での立ち位置',
+                instruction: '複数人の場で主導権を取るか、支えるか、混ぜ返すか、暴走するかを確認してください。',
+                fallbackQuestion: '複数人で何かを決める場では、あなたはまとめ役、推進役、支援役、かき回し役のどれに近いですか。そう判断できる具体例を教えてください。'
+            },
+            {
+                label: '感情と衝動の制御',
+                instruction: 'イラついたときや熱が入ったときに、抑えるか、加速するか、煽るかを掘ってください。',
+                fallbackQuestion: '腹が立ったときや熱くなったとき、あなたはどこでブレーキをかけますか。それとも勢いで押し切りますか。最近の具体例で教えてください。'
+            },
+            {
+                label: '見せ方と誇張',
+                instruction: '自分を強く見せるための盛り方、見栄、話の誇張の有無を確認してください。',
+                fallbackQuestion: '自分をよく見せたい場面で、話を盛ったり演出したりすることはありますか。あるならどんな場面か、ないならどう見せるかを具体的に教えてください。'
+            }
+        ];
+
+        return stages[Math.min(userTurns - 1, stages.length - 1)] || stages[0];
+    }
+
+    private buildContinuationResponse(
+        parsed: PersonalityEvaluationResponse | null,
+        focus: PersonalityInterviewFocus,
+        forceFallbackQuestion: boolean
+    ): PersonalityEvaluationResponse {
+        const reply = !forceFallbackQuestion && parsed && !parsed.complete && this.looksLikeFollowUpQuestion(parsed.reply)
+            ? parsed.reply
+            : focus.fallbackQuestion;
+
+        return {
+            reply,
+            complete: false,
+            personality_key: null,
+            reason: parsed?.reason?.trim() || `${focus.label}を追加確認中`,
+            confidence: parsed?.confidence ?? 55,
+            traits: parsed?.traits ?? []
+        };
+    }
+
+    private looksLikeFollowUpQuestion(value: string): boolean {
+        const normalized = value.trim();
+        if (!normalized) {
+            return false;
+        }
+
+        return /[？?]$/.test(normalized) || /(教えてください|聞かせてください|説明してください|ありますか)/.test(normalized);
     }
 
     private async forceFinalize(session: PersonalitySession): Promise<PersonalityEvaluationResponse> {
@@ -326,12 +432,12 @@ export class PersonalityService {
         active.reason = evaluation.reason;
         active.traits = evaluation.traits;
 
+        const profile = await this.getProfile(active.userId, guild.id);
         const member = await guild.members.fetch(active.userId).catch(() => null);
-        const roleAssignment = await this.assignPersonalityRole(guild, member, personalityKey);
+        const roleAssignment = await this.assignPersonalityRole(guild, member, personalityKey, profile.assignedRoleId);
         active.assignedRoleId = roleAssignment.roleId;
         await this.persistSessions(guild.id, sessions);
 
-        const profile = await this.getProfile(active.userId, guild.id);
         profile.assignedKey = personalityKey;
         profile.assignedRoleId = roleAssignment.roleId;
         profile.assignedAt = active.updatedAt;
@@ -365,10 +471,27 @@ export class PersonalityService {
         this.scheduleCleanup(guild.id, active.sessionId);
     }
 
+    async closeSessions(guild: Guild, options: { channelId?: string; reason: string }): Promise<Array<{ sessionId: string; channelId: string; summary: string }>> {
+        const targets = await this.getOpenSessions(guild, options.channelId);
+        const results: Array<{ sessionId: string; channelId: string; summary: string }> = [];
+
+        for (const target of targets) {
+            await this.closeSession(guild.id, target.sessionId, options.reason);
+            results.push({
+                sessionId: target.sessionId,
+                channelId: target.channelId,
+                summary: `性格診断 / <@${target.userId}>`
+            });
+        }
+
+        return results;
+    }
+
     private async assignPersonalityRole(
         guild: Guild,
         member: GuildMember | null,
-        personalityKey: PersonalityKey
+        personalityKey: PersonalityKey,
+        previousRoleId: string | null
     ): Promise<{ roleId: string | null; warnings: string[] }> {
         const warnings: string[] = [];
         const me = guild.members.me;
@@ -386,6 +509,13 @@ export class PersonalityService {
         if (!member) {
             warnings.push('メンバー取得に失敗したため、ロール付与をスキップしました。');
             return { roleId: role.id, warnings };
+        }
+
+        if (previousRoleId && previousRoleId !== role.id && member.roles.cache.has(previousRoleId)) {
+            const previousRole = guild.roles.cache.get(previousRoleId) || await guild.roles.fetch(previousRoleId).catch(() => null);
+            if (previousRole) {
+                await member.roles.remove(previousRole, 'Core personality role refresh').catch(() => null);
+            }
         }
 
         const personalityRoles = await this.getPersonalityRoles(guild);
@@ -428,6 +558,15 @@ export class PersonalityService {
 
         timer.unref?.();
         this.cleanupTimers.set(key, timer);
+    }
+
+    private clearCleanupTimer(guildId: string, sessionId: string): void {
+        const key = `${guildId}:${sessionId}`;
+        const existing = this.cleanupTimers.get(key);
+        if (existing) {
+            clearTimeout(existing);
+            this.cleanupTimers.delete(key);
+        }
     }
 
     private scheduleInactivityTimeout(guildId: string, sessionId: string): void {
@@ -475,6 +614,8 @@ export class PersonalityService {
     }
 
     private async closeSession(guildId: string, sessionId: string, reason = '性格診断終了'): Promise<void> {
+        this.terminatedSessions.add(sessionId);
+        this.clearCleanupTimer(guildId, sessionId);
         this.clearInactivityTimeout(guildId, sessionId);
 
         const sessions = await this.getSessions(guildId);
@@ -493,6 +634,9 @@ export class PersonalityService {
         const stored = await database.get<PersonalitySession[]>(guildId, getPersonalitySessionsKey(guildId), []);
         return (Array.isArray(stored) ? stored : []).map((entry) => ({
             ...entry,
+            interviewerName: typeof entry.interviewerName === 'string' && entry.interviewerName.trim()
+                ? entry.interviewerName.trim()
+                : pickAiPersonaName(`${guildId}:${entry.sessionId}:personality`),
             traits: Array.isArray(entry.traits) ? entry.traits : [],
             transcript: Array.isArray(entry.transcript) ? entry.transcript : []
         }));
@@ -537,9 +681,32 @@ export class PersonalityService {
         await database.setUserGuildData(profile.userId, profile.guildId, 'corefeature/personality-profile', profile);
     }
 
+    private async getSessionById(guildId: string, sessionId: string): Promise<PersonalitySession | null> {
+        const sessions = await this.getSessions(guildId);
+        return sessions.find((entry) => entry.sessionId === sessionId) || null;
+    }
+
     private async getSessionByChannel(guildId: string, channelId: string): Promise<PersonalitySession | null> {
         const sessions = await this.getSessions(guildId);
         return sessions.find((entry) => entry.channelId === channelId && entry.status === 'active') || null;
+    }
+
+    private async getOpenSessions(guild: Guild, channelId?: string): Promise<PersonalitySession[]> {
+        const sessions = await this.getSessions(guild.id);
+        const candidates = sessions.filter((entry) => (
+            entry.status !== 'closed'
+            && (!channelId || entry.channelId === channelId)
+        ));
+        const openSessions: PersonalitySession[] = [];
+
+        for (const entry of candidates) {
+            const channel = await guild.channels.fetch(entry.channelId).catch(() => null);
+            if (channel) {
+                openSessions.push(entry);
+            }
+        }
+
+        return openSessions;
     }
 
     private async appendTranscript(guildId: string, sessionId: string, entry: TranscriptEntry): Promise<void> {
@@ -556,5 +723,9 @@ export class PersonalityService {
         });
 
         await this.persistSessions(guildId, next);
+    }
+
+    private formatAssistantMessage(interviewerName: string, content: string): string {
+        return `**${interviewerName}**\n${content.trim()}`;
     }
 }

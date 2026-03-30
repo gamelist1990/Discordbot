@@ -4,6 +4,7 @@ import {
     ButtonInteraction,
     ButtonStyle,
     Client,
+    Guild,
     Message,
     ModalBuilder,
     ModalSubmitInteraction,
@@ -13,7 +14,7 @@ import {
 import { DebateService } from './DebateService.js';
 import { parseStance, truncateText } from '../helpers.js';
 import { CoreFeatureApi, CoreFeatureModule } from '../registry.js';
-import { DebateOpponentType } from '../types.js';
+import { CoreFeaturePanelKind, DebateOpponentType } from '../types.js';
 import { isStaffMember } from '../guildUtils.js';
 
 export class DebateFeature implements CoreFeatureModule {
@@ -24,30 +25,28 @@ export class DebateFeature implements CoreFeatureModule {
 
     register(api: CoreFeatureApi): void {
         this.api = api;
-        api.registerModalRoute('corefeature:debate:create:ai', async (interaction) => {
-            await this.handleCreateModal(interaction, 'ai');
-        });
-        api.registerModalRoute('corefeature:debate:create:king', async (interaction) => {
-            await this.handleCreateModal(interaction, 'king');
-        });
-        api.registerModalRoute('corefeature:debate:create:ai_vs_ai', async (interaction) => {
-            await this.handleCreateModal(interaction, 'ai_vs_ai');
-        });
+        for (const panelKind of ['combined', 'debate'] as CoreFeaturePanelKind[]) {
+            for (const opponentType of ['ai', 'king', 'ai_vs_ai'] as DebateOpponentType[]) {
+                api.registerModalRoute(`corefeature:debate:create:${panelKind}:${opponentType}`, async (interaction) => {
+                    await this.handleCreateModal(interaction, panelKind, opponentType);
+                });
+            }
+        }
     }
 
     setClient(client: Client): void {
         this.service.setClient(client);
     }
 
-    buildPanelButton(guildId: string): ButtonBuilder {
+    buildPanelButton(guildId: string, panelKind: CoreFeaturePanelKind): ButtonBuilder {
         return new ButtonBuilder()
-            .setCustomId(`corefeature:${guildId}:${this.key}:entry`)
-            .setLabel('れすば')
+            .setCustomId(`corefeature:${guildId}:${panelKind}:${this.key}:entry`)
+            .setLabel('レスバ')
             .setEmoji('⚔️')
             .setStyle(ButtonStyle.Danger);
     }
 
-    async handleButtonInteraction(interaction: ButtonInteraction, action: string, parts: string[]): Promise<boolean> {
+    async handleButtonInteraction(interaction: ButtonInteraction, panelKind: CoreFeaturePanelKind, action: string, parts: string[]): Promise<boolean> {
         if (!interaction.guild) {
             return false;
         }
@@ -58,7 +57,7 @@ export class DebateFeature implements CoreFeatureModule {
                 content: staff
                     ? '対戦形式を選んでください。スタッフは AI vs AI の観戦用マッチも作成できます。'
                     : '対戦形式を選んでください。AI 対戦は誰でも、論破王対戦は論破王のみ作成できます。',
-                components: this.buildModeRows(interaction.guild.id, staff),
+                components: this.buildModeRows(interaction.guild.id, panelKind, staff),
                 ephemeral: true
             });
             return true;
@@ -71,10 +70,10 @@ export class DebateFeature implements CoreFeatureModule {
             }
 
             if (opponentType === 'ai_vs_ai' && !(await isStaffMember(interaction.guild, interaction.user.id))) {
-                throw new Error('AI vs AI のれすばはスタッフのみ作成できます。');
+                throw new Error('AI vs AI のレスバはスタッフのみ作成できます。');
             }
 
-            await interaction.showModal(this.buildSetupModal(opponentType));
+            await interaction.showModal(this.buildSetupModal(panelKind, opponentType));
             return true;
         }
 
@@ -95,14 +94,24 @@ export class DebateFeature implements CoreFeatureModule {
         return this.service.onMessage(message);
     }
 
-    private buildModeRows(guildId: string, includeStaffModes: boolean): ActionRowBuilder<ButtonBuilder>[] {
+    async closeSessions(guild: Guild, options: { channelId?: string; reason: string }) {
+        const closed = await this.service.closeSessions(guild, options);
+        return closed.map((entry) => ({
+            featureKey: this.key,
+            sessionId: entry.sessionId,
+            channelId: entry.channelId,
+            summary: entry.summary
+        }));
+    }
+
+    private buildModeRows(guildId: string, panelKind: CoreFeaturePanelKind, includeStaffModes: boolean): ActionRowBuilder<ButtonBuilder>[] {
         const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
             new ButtonBuilder()
-                .setCustomId(`corefeature:${guildId}:debate:choose:ai`)
+                .setCustomId(`corefeature:${guildId}:${panelKind}:debate:choose:ai`)
                 .setLabel('AIと対戦')
                 .setStyle(ButtonStyle.Primary),
             new ButtonBuilder()
-                .setCustomId(`corefeature:${guildId}:debate:choose:king`)
+                .setCustomId(`corefeature:${guildId}:${panelKind}:debate:choose:king`)
                 .setLabel('論破王と対戦')
                 .setStyle(ButtonStyle.Secondary)
         );
@@ -110,7 +119,7 @@ export class DebateFeature implements CoreFeatureModule {
         if (includeStaffModes) {
             row.addComponents(
                 new ButtonBuilder()
-                    .setCustomId(`corefeature:${guildId}:debate:choose:ai_vs_ai`)
+                    .setCustomId(`corefeature:${guildId}:${panelKind}:debate:choose:ai_vs_ai`)
                     .setLabel('AI vs AI')
                     .setStyle(ButtonStyle.Success)
             );
@@ -119,15 +128,15 @@ export class DebateFeature implements CoreFeatureModule {
         return [row];
     }
 
-    private buildSetupModal(opponentType: DebateOpponentType): ModalBuilder {
+    private buildSetupModal(panelKind: CoreFeaturePanelKind, opponentType: DebateOpponentType): ModalBuilder {
         const modal = new ModalBuilder()
-            .setCustomId(`corefeature:debate:create:${opponentType}`)
+            .setCustomId(`corefeature:debate:create:${panelKind}:${opponentType}`)
             .setTitle(
                 opponentType === 'ai'
-                    ? 'AIれすば作成'
+                    ? 'AIレスバ作成'
                     : opponentType === 'king'
-                        ? '論破王れすば作成'
-                        : 'AI vs AI れすば作成'
+                        ? '論破王レスバ作成'
+                        : 'AI vs AI レスバ作成'
             );
 
         const topicInput = new TextInputBuilder()
@@ -154,7 +163,7 @@ export class DebateFeature implements CoreFeatureModule {
         return modal;
     }
 
-    private async handleCreateModal(interaction: ModalSubmitInteraction, opponentType: DebateOpponentType): Promise<void> {
+    private async handleCreateModal(interaction: ModalSubmitInteraction, panelKind: CoreFeaturePanelKind, opponentType: DebateOpponentType): Promise<void> {
         if (!interaction.guild) {
             await interaction.reply({ content: '❌ サーバー内でのみ使えます。', ephemeral: true });
             return;
@@ -162,7 +171,7 @@ export class DebateFeature implements CoreFeatureModule {
 
         if (opponentType === 'ai_vs_ai' && !(await isStaffMember(interaction.guild, interaction.user.id))) {
             await interaction.reply({
-                content: '❌ AI vs AI のれすばはスタッフのみ作成できます。',
+                content: '❌ AI vs AI のレスバはスタッフのみ作成できます。',
                 ephemeral: true
             });
             return;
@@ -180,7 +189,7 @@ export class DebateFeature implements CoreFeatureModule {
         }
 
         try {
-            const panelConfig = this.api ? await this.api.getPanelConfig(interaction.guild.id) : null;
+            const panelConfig = this.api ? await this.api.getPanelConfig(interaction.guild.id, panelKind) : null;
             const session = await this.service.createSession(
                 interaction.guild,
                 interaction.user.id,
@@ -191,12 +200,12 @@ export class DebateFeature implements CoreFeatureModule {
             );
 
             await interaction.reply({
-                content: `✅ れすば部屋を作成しました: <#${session.channelId}>`,
+                content: `✅ レスバ部屋を作成しました: <#${session.channelId}>`,
                 ephemeral: true
             });
         } catch (error) {
             await interaction.reply({
-                content: `❌ ${error instanceof Error ? error.message : 'れすば部屋の作成に失敗しました。'}`,
+                content: `❌ ${error instanceof Error ? error.message : 'レスバ部屋の作成に失敗しました。'}`,
                 ephemeral: true
             });
         }

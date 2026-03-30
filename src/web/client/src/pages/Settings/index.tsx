@@ -109,6 +109,13 @@ const SettingsPage: React.FC = () => {
         onClick: () => navigate(`/staff/rolemanager?guildId=${guildId}&returnTo=${encodeURIComponent(`/settings/${guildId}`)}`),
       },
       {
+        title: 'Core パネル',
+        description: '性格診断・レスバ・観戦設定をこのサーバー向けにまとめて管理します。',
+        icon: 'dashboard',
+        actionLabel: 'Core パネルを開く',
+        onClick: () => navigate(`/staff/corepanel?guildId=${guildId}&returnTo=${encodeURIComponent(`/settings/${guildId}`)}`),
+      },
+      {
         title: 'AntiCheat',
         description: '検知ルール、スコア、処罰、ログ出力をサーバー単位で調整します。',
         icon: 'shield',

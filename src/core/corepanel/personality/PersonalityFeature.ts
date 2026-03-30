@@ -1,6 +1,7 @@
-import { ButtonBuilder, ButtonInteraction, ButtonStyle, Client, Message } from 'discord.js';
+import { ButtonBuilder, ButtonInteraction, ButtonStyle, Client, Guild, Message } from 'discord.js';
 import { PersonalityService } from './PersonalityService.js';
 import { CoreFeatureModule } from '../registry.js';
+import { CoreFeaturePanelKind } from '../types.js';
 
 export class PersonalityFeature implements CoreFeatureModule {
     readonly key = 'personality';
@@ -11,15 +12,15 @@ export class PersonalityFeature implements CoreFeatureModule {
         this.service.setClient(client);
     }
 
-    buildPanelButton(guildId: string): ButtonBuilder {
+    buildPanelButton(guildId: string, panelKind: CoreFeaturePanelKind): ButtonBuilder {
         return new ButtonBuilder()
-            .setCustomId(`corefeature:${guildId}:${this.key}:entry`)
+            .setCustomId(`corefeature:${guildId}:${panelKind}:${this.key}:entry`)
             .setLabel('性格診断')
             .setEmoji('🧠')
             .setStyle(ButtonStyle.Primary);
     }
 
-    async handleButtonInteraction(interaction: ButtonInteraction, action: string): Promise<boolean> {
+    async handleButtonInteraction(interaction: ButtonInteraction, _panelKind: CoreFeaturePanelKind, action: string): Promise<boolean> {
         if (action !== 'entry' || !interaction.guild) {
             return false;
         }
@@ -32,5 +33,15 @@ export class PersonalityFeature implements CoreFeatureModule {
 
     async handleMessage(message: Message): Promise<boolean> {
         return this.service.onMessage(message);
+    }
+
+    async closeSessions(guild: Guild, options: { channelId?: string; reason: string }) {
+        const closed = await this.service.closeSessions(guild, options);
+        return closed.map((entry) => ({
+            featureKey: this.key,
+            sessionId: entry.sessionId,
+            channelId: entry.channelId,
+            summary: entry.summary
+        }));
     }
 }

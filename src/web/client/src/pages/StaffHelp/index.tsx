@@ -25,6 +25,12 @@ const services = [
     icon: 'style',
   },
   {
+    title: 'Core パネル',
+    description: '性格診断と レスバ のパネル設定・投稿を管理します。',
+    path: '/staff/corepanel',
+    icon: 'dashboard',
+  },
+  {
     title: 'ランキング管理',
     description: 'XP とパネル運用の設定に進みます。',
     path: '/staff/rankmanager',

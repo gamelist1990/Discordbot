@@ -96,6 +96,9 @@ const AppHeader: React.FC<AppHeaderProps> = ({ user: userProp, onLogout }) => {
     if (location.pathname.startsWith('/staff/anticheat')) {
       return 'AntiCheat';
     }
+    if (location.pathname.startsWith('/staff/corepanel')) {
+      return 'Core Panel';
+    }
     if (location.pathname.startsWith('/staff/rolemanager')) {
       return 'Role Manager';
     }

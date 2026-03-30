@@ -27,7 +27,10 @@ export interface PersonalityArchetypeDefinition {
     summary: string;
 }
 
+export type CoreFeaturePanelKind = 'combined' | 'personality' | 'debate';
+
 export interface CoreFeaturePanelConfig {
+    panelKind: CoreFeaturePanelKind;
     guildId: string;
     channelId: string;
     messageId: string | null;
@@ -50,6 +53,7 @@ export interface PersonalitySession {
     channelId: string;
     categoryId: string;
     userId: string;
+    interviewerName: string;
     status: PersonalitySessionStatus;
     createdAt: string;
     updatedAt: string;
@@ -81,6 +85,8 @@ export interface DebateSession {
     hostUserId: string;
     creatorId: string | null;
     opponentId: string | null;
+    creatorAiName: string | null;
+    opponentAiName: string | null;
     opponentType: DebateOpponentType;
     creatorParticipantType: DebateParticipantType;
     opponentParticipantType: DebateParticipantType;

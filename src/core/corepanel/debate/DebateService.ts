@@ -31,13 +31,15 @@ import {
     createId,
     extractJsonObject,
     getOppositeStance,
+    pickAiPersonaName,
+    pickAiPersonaPair,
     sanitizeChannelName,
     summarizeTranscript,
     truncateText,
     validateDebateJudge,
     validateDebateReply
 } from '../helpers.js';
-import { requestCoreFeatureModelText } from '../model.js';
+import { requestCoreFeatureModelText, requestCoreFeaturePersonaNames } from '../model.js';
 import {
     DebateJudgeResponse,
     DebateOpponentType,
@@ -61,6 +63,7 @@ export class DebateService {
     private readonly finalizing = new Set<string>();
     private readonly cleanupTimers = new Map<string, ReturnType<typeof setTimeout>>();
     private readonly timeoutTimers = new Map<string, ReturnType<typeof setTimeout>>();
+    private readonly terminatedSessions = new Set<string>();
 
     setClient(client: Client): void {
         this.client = client;
@@ -80,7 +83,7 @@ export class DebateService {
         if (activeSession) {
             const existingChannel = await guild.channels.fetch(activeSession.channelId).catch(() => null);
             if (existingChannel) {
-                throw new Error(`すでに進行中のれすばがあります: <#${activeSession.channelId}>`);
+                throw new Error(`すでに進行中のレスバがあります: <#${activeSession.channelId}>`);
             }
 
             activeSession.status = 'closed';
@@ -94,7 +97,7 @@ export class DebateService {
         }
 
         if (opponentType === 'king' && !(await this.isDebateKing(hostMember))) {
-            throw new Error('論破王とのれすばは、論破王のみ作成できます。');
+            throw new Error('論破王とのレスバは、論破王のみ作成できます。');
         }
 
         const category = await ensureCategory(guild, DEBATE_CATEGORY_NAME);
@@ -102,6 +105,22 @@ export class DebateService {
         const opponentParticipantType: DebateParticipantType = opponentType === 'king' ? 'user' : 'ai';
         const creatorId = creatorParticipantType === 'user' ? hostMember.id : null;
         const opponentId = null;
+        const sessionId = createId('debate');
+        const aiNameCount = [creatorParticipantType, opponentParticipantType].filter((entry) => entry === 'ai').length;
+        const generatedAiNames = aiNameCount > 0
+            ? await requestCoreFeaturePersonaNames(
+                `レスバの担当AI名。モード: ${opponentType} / セッションID: ${sessionId} / お題: ${topic}`,
+                aiNameCount
+            )
+            : [];
+        const creatorAiName = creatorParticipantType === 'ai' ? (generatedAiNames.shift() || pickAiPersonaName(`${guild.id}:${sessionId}:debate`, 0)) : null;
+        const opponentAiName = opponentParticipantType === 'ai'
+            ? (generatedAiNames.shift() || pickAiPersonaName(
+                `${guild.id}:${sessionId}:debate:opponent`,
+                0,
+                creatorAiName ? [creatorAiName] : []
+            ))
+            : null;
 
         const permissionOverwrites: any[] = [
             { id: guild.id, deny: [PermissionFlagsBits.ViewChannel] },
@@ -140,7 +159,7 @@ export class DebateService {
                 || existingKingRole
                 || await ensureRole(guild, DEBATE_KING_ROLE_NAME, 'Core debate king role');
             if (!kingRole) {
-                throw new Error('論破王ロールを用意できないため、論破王れすばを作成できません。');
+                throw new Error('論破王ロールを用意できないため、論破王レスバを作成できません。');
             }
 
             permissionOverwrites.push({
@@ -168,13 +187,15 @@ export class DebateService {
 
         const createdAt = new Date().toISOString();
         const session: DebateSession = {
-            sessionId: createId('debate'),
+            sessionId,
             guildId: guild.id,
             channelId: channel.id,
             categoryId: category.id,
             hostUserId,
             creatorId,
             opponentId,
+            creatorAiName,
+            opponentAiName,
             opponentType,
             creatorParticipantType,
             opponentParticipantType,
@@ -206,10 +227,10 @@ export class DebateService {
         const embed = new EmbedBuilder()
             .setTitle(
                 opponentType === 'ai'
-                    ? 'AIれすばを開始します'
+                    ? 'AIレスバを開始します'
                     : opponentType === 'king'
-                        ? '論破王れすばの募集を開始します'
-                        : 'AI vs AI れすばを開始します'
+                        ? '論破王レスバの募集を開始します'
+                        : 'AI vs AI レスバを開始します'
             )
             .setColor(
                 opponentType === 'ai'
@@ -236,6 +257,13 @@ export class DebateService {
         await (channel as TextChannel).send({ embeds: [embed] }).catch(() => null);
 
         if (opponentType === 'ai') {
+            await (channel as TextChannel).send(
+                this.formatAiTurnMessage(
+                    session,
+                    'opponent',
+                    `今回の対戦は私、${session.opponentAiName}が担当します。${this.getSpeakerMention(session, 'creator')} は ${buildStanceLabel(session.creatorStance)} の立場で主張を始めてください。`
+                )
+            ).catch(() => null);
             await (channel as TextChannel).send(`まずは ${this.getSpeakerMention(session, 'creator')} の1ターン目です。立場を明確にして主張を送ってください。`).catch(() => null);
             this.scheduleInactivityTimeout(guild.id, session.sessionId);
         } else if (opponentType === 'king') {
@@ -249,7 +277,10 @@ export class DebateService {
             await (channel as TextChannel).send({ content: '別の論破王は上のボタンから参加してください。参加後、先行者の1ターン目から始まります。', components: [joinRow] }).catch(() => null);
             this.scheduleInactivityTimeout(guild.id, session.sessionId);
         } else {
-            await (channel as TextChannel).send('スタッフが作成した AI vs AI の展示マッチです。AI 同士で自動進行します。').catch(() => null);
+            await (channel as TextChannel).send([
+                'スタッフが作成した AI vs AI の展示マッチです。AI 同士で自動進行します。',
+                `先行AI は ${session.creatorAiName}、後攻AI は ${session.opponentAiName} が担当します。`
+            ].join('\n')).catch(() => null);
             void this.runAiVsAiDebate(guild, session.sessionId);
         }
 
@@ -265,7 +296,7 @@ export class DebateService {
         const sessions = await this.getSessions(interaction.guild.id);
         const session = sessions.find((entry) => entry.sessionId === sessionId);
         if (!session || session.status !== 'waiting_opponent') {
-            await interaction.reply({ content: '❌ このれすば募集はすでに終了しています。', ephemeral: true });
+            await interaction.reply({ content: '❌ このレスバ募集はすでに終了しています。', ephemeral: true });
             return;
         }
 
@@ -399,29 +430,35 @@ export class DebateService {
             }
 
             const reply = await this.generateAiReply(active, 'opponent');
-            active.opponentTurns += 1;
-            active.updatedAt = new Date().toISOString();
-            active.transcript.push({
+            const refreshedSessions = await this.getSessions(message.guild!.id);
+            const refreshed = refreshedSessions.find((entry) => entry.sessionId === session.sessionId);
+            if (!refreshed || refreshed.status !== 'active' || this.terminatedSessions.has(session.sessionId)) {
+                return;
+            }
+
+            refreshed.opponentTurns += 1;
+            refreshed.updatedAt = new Date().toISOString();
+            refreshed.transcript.push({
                 id: createId('transcript'),
                 authorId: null,
                 authorType: 'opponent',
                 content: reply.reply,
-                createdAt: active.updatedAt
+                createdAt: refreshed.updatedAt
             });
-            active.currentTurn = 'creator';
-            await this.persistSessions(message.guild!.id, sessions);
+            refreshed.currentTurn = 'creator';
+            await this.persistSessions(message.guild!.id, refreshedSessions);
 
-            await (message.channel as TextChannel).send(reply.reply).catch(() => null);
+            await (message.channel as TextChannel).send(this.formatAiTurnMessage(refreshed, 'opponent', reply.reply)).catch(() => null);
 
-            if (active.creatorTurns >= active.turnLimit && active.opponentTurns >= active.turnLimit) {
-                await this.finalize(message.guild!, active);
+            if (refreshed.creatorTurns >= refreshed.turnLimit && refreshed.opponentTurns >= refreshed.turnLimit) {
+                await this.finalize(message.guild!, refreshed);
             } else {
-                this.scheduleInactivityTimeout(message.guild!.id, active.sessionId);
-                await (message.channel as TextChannel).send(this.buildTurnPrompt(active, 'creator')).catch(() => null);
+                this.scheduleInactivityTimeout(message.guild!.id, refreshed.sessionId);
+                await (message.channel as TextChannel).send(this.buildTurnPrompt(refreshed, 'creator')).catch(() => null);
             }
         } catch (error) {
             Logger.error('Failed to handle AI debate message:', error);
-            await (message.channel as TextChannel).send('れすば処理中にエラーが発生しました。').catch(() => null);
+            await (message.channel as TextChannel).send('レスバ処理中にエラーが発生しました。').catch(() => null);
         } finally {
             this.processing.delete(session.sessionId);
         }
@@ -490,36 +527,42 @@ export class DebateService {
 
                 const speaker = active.currentTurn;
                 const reply = await this.generateAiReply(active, speaker);
-                active.updatedAt = new Date().toISOString();
-                active.transcript.push({
+                const refreshedSessions = await this.getSessions(guild.id);
+                const refreshed = refreshedSessions.find((entry) => entry.sessionId === sessionId);
+                if (!refreshed || refreshed.opponentType !== 'ai_vs_ai' || refreshed.status !== 'active' || this.terminatedSessions.has(sessionId)) {
+                    return;
+                }
+
+                refreshed.updatedAt = new Date().toISOString();
+                refreshed.transcript.push({
                     id: createId('transcript'),
                     authorId: null,
                     authorType: speaker,
                     content: reply.reply,
-                    createdAt: active.updatedAt
+                    createdAt: refreshed.updatedAt
                 });
 
                 if (speaker === 'creator') {
-                    active.creatorTurns += 1;
-                    active.currentTurn = 'opponent';
+                    refreshed.creatorTurns += 1;
+                    refreshed.currentTurn = 'opponent';
                 } else {
-                    active.opponentTurns += 1;
-                    active.currentTurn = 'creator';
+                    refreshed.opponentTurns += 1;
+                    refreshed.currentTurn = 'creator';
                 }
 
-                await this.persistSessions(guild.id, sessions);
+                await this.persistSessions(guild.id, refreshedSessions);
 
                 if (channel) {
-                    await channel.send(`**${this.getSpeakerLabel(active, speaker)}**\n${reply.reply}`).catch(() => null);
+                    await channel.send(this.formatAiTurnMessage(refreshed, speaker, reply.reply)).catch(() => null);
                 }
 
-                if (active.creatorTurns >= active.turnLimit && active.opponentTurns >= active.turnLimit) {
-                    await this.finalize(guild, active);
+                if (refreshed.creatorTurns >= refreshed.turnLimit && refreshed.opponentTurns >= refreshed.turnLimit) {
+                    await this.finalize(guild, refreshed);
                     return;
                 }
 
                 if (channel) {
-                    await channel.send(this.buildTurnPrompt(active, active.currentTurn)).catch(() => null);
+                    await channel.send(this.buildTurnPrompt(refreshed, refreshed.currentTurn)).catch(() => null);
                 }
             }
         } catch (error) {
@@ -552,42 +595,47 @@ export class DebateService {
             await this.persistSessions(guild.id, sessions);
 
             const judgement = await this.judge(active);
-            const scoreAwards = this.computeAwards(active, judgement);
+            const latestSessions = await this.getSessions(guild.id);
+            const latest = latestSessions.find((entry) => entry.sessionId === session.sessionId);
+            if (!latest || latest.status !== 'judging' || this.terminatedSessions.has(session.sessionId)) {
+                return;
+            }
+            const scoreAwards = this.computeAwards(latest, judgement);
 
-            active.status = 'completed';
-            active.updatedAt = new Date().toISOString();
-            active.winner = judgement.winner;
-            active.judgementReason = judgement.reason;
-            await this.persistSessions(guild.id, sessions);
+            latest.status = 'completed';
+            latest.updatedAt = new Date().toISOString();
+            latest.winner = judgement.winner;
+            latest.judgementReason = judgement.reason;
+            await this.persistSessions(guild.id, latestSessions);
 
             const awardMessages: string[] = [];
             let creatorProfile: DebateProfile | null = null;
-            if (active.creatorParticipantType === 'user' && active.creatorId) {
+            if (latest.creatorParticipantType === 'user' && latest.creatorId) {
                 const creatorOutcome = judgement.winner === 'creator' ? 'win' : judgement.winner === 'draw' ? 'draw' : 'loss';
-                creatorProfile = await this.applyResult(guild, active.creatorId, active, creatorOutcome, scoreAwards.creator, active.opponentType === 'ai');
-                awardMessages.push(`<@${active.creatorId}>: ${scoreAwards.creator > 0 ? `+${scoreAwards.creator}` : '+0'} 点`);
+                creatorProfile = await this.applyResult(guild, latest.creatorId, latest, creatorOutcome, scoreAwards.creator, latest.opponentType === 'ai');
+                awardMessages.push(`<@${latest.creatorId}>: ${scoreAwards.creator > 0 ? `+${scoreAwards.creator}` : '+0'} 点`);
             }
 
             let opponentProfile: DebateProfile | null = null;
-            if (active.opponentParticipantType === 'user' && active.opponentId) {
+            if (latest.opponentParticipantType === 'user' && latest.opponentId) {
                 const opponentOutcome = judgement.winner === 'opponent' ? 'win' : judgement.winner === 'draw' ? 'draw' : 'loss';
-                opponentProfile = await this.applyResult(guild, active.opponentId, active, opponentOutcome, scoreAwards.opponent, false);
-                awardMessages.push(`<@${active.opponentId}>: ${scoreAwards.opponent > 0 ? `+${scoreAwards.opponent}` : '+0'} 点`);
+                opponentProfile = await this.applyResult(guild, latest.opponentId, latest, opponentOutcome, scoreAwards.opponent, false);
+                awardMessages.push(`<@${latest.opponentId}>: ${scoreAwards.opponent > 0 ? `+${scoreAwards.opponent}` : '+0'} 点`);
             }
 
-            const channel = await guild.channels.fetch(active.channelId).catch(() => null);
+            const channel = await guild.channels.fetch(latest.channelId).catch(() => null);
             if (channel && 'send' in channel) {
                 const winnerLabel = judgement.winner === 'draw'
                     ? '引き分け'
                     : judgement.winner === 'creator'
-                        ? `${this.getSpeakerMention(active, 'creator')} の勝利`
-                        : `${this.getSpeakerMention(active, 'opponent')} の勝利`;
+                        ? `${this.getSpeakerMention(latest, 'creator')} の勝利`
+                        : `${this.getSpeakerMention(latest, 'opponent')} の勝利`;
 
                 const embed = new EmbedBuilder()
-                    .setTitle('れすば結果')
+                    .setTitle('レスバ結果')
                     .setColor(judgement.winner === 'draw' ? 0x888888 : 0xff7043)
                     .setDescription([
-                        `お題: **${active.topic}**`,
+                        `お題: **${latest.topic}**`,
                         `結果: **${winnerLabel}**`,
                         `採点: 先行側 ${judgement.creator_score} / 後攻側 ${judgement.opponent_score}`,
                         `論破スコア: ${awardMessages.length > 0 ? awardMessages.join(' / ') : '展示マッチのため加算なし'}`,
@@ -600,29 +648,45 @@ export class DebateService {
                 if (
                     creatorProfile
                     && creatorProfile.kingAwardedAt
-                    && creatorProfile.recentResults[0]?.sessionId === active.sessionId
+                    && creatorProfile.recentResults[0]?.sessionId === latest.sessionId
                     && creatorProfile.score >= DEBATE_KING_SCORE_THRESHOLD
                     && creatorProfile.wins >= DEBATE_KING_WIN_THRESHOLD
                 ) {
-                    await (channel as TextChannel).send(`<@${active.creatorId}> は論破王に到達しました。`).catch(() => null);
+                    await (channel as TextChannel).send(`<@${latest.creatorId}> は論破王に到達しました。`).catch(() => null);
                 }
 
                 if (
                     opponentProfile
-                    && active.opponentId
+                    && latest.opponentId
                     && opponentProfile.kingAwardedAt
-                    && opponentProfile.recentResults[0]?.sessionId === active.sessionId
+                    && opponentProfile.recentResults[0]?.sessionId === latest.sessionId
                     && opponentProfile.score >= DEBATE_KING_SCORE_THRESHOLD
                     && opponentProfile.wins >= DEBATE_KING_WIN_THRESHOLD
                 ) {
-                    await (channel as TextChannel).send(`<@${active.opponentId}> は論破王に到達しました。`).catch(() => null);
+                    await (channel as TextChannel).send(`<@${latest.opponentId}> は論破王に到達しました。`).catch(() => null);
                 }
             }
 
-            this.scheduleCleanup(guild.id, active.sessionId);
+            this.scheduleCleanup(guild.id, latest.sessionId);
         } finally {
             this.finalizing.delete(session.sessionId);
         }
+    }
+
+    async closeSessions(guild: Guild, options: { channelId?: string; reason: string }): Promise<Array<{ sessionId: string; channelId: string; summary: string }>> {
+        const targets = await this.getOpenSessions(guild, options.channelId);
+        const results: Array<{ sessionId: string; channelId: string; summary: string }> = [];
+
+        for (const target of targets) {
+            await this.closeSession(guild.id, target.sessionId, options.reason);
+            results.push({
+                sessionId: target.sessionId,
+                channelId: target.channelId,
+                summary: `レスバ / ${truncateText(target.topic, 50)}`
+            });
+        }
+
+        return results;
     }
 
     private async generateAiReply(session: DebateSession, speaker: DebateSide): Promise<DebateReplyResponse> {
@@ -633,7 +697,7 @@ export class DebateService {
         const opponentLabel = this.getSpeakerLabel(session, speaker === 'creator' ? 'opponent' : 'creator');
 
         const systemPrompt = [
-            'あなたは Discord のれすば対戦 AI です。',
+            'あなたは Discord のレスバ対戦 AI です。',
             `今回は ${speakerLabel} として話します。`,
             '感情的な罵倒ではなく、論点・反論・一貫性で戦ってください。',
             '相手の主張の穴を正確に突き、結論はぶらさないでください。',
@@ -668,7 +732,7 @@ export class DebateService {
 
     private async judge(session: DebateSession): Promise<DebateJudgeResponse> {
         const systemPrompt = [
-            'あなたは Discord のれすば審判 AI です。',
+            'あなたは Discord のレスバ審判 AI です。',
             '勝敗は感情ではなく、論理、相手への応答性、一貫性、論点の深さ、反論の有効性で決めてください。',
             'ふざけ、同じ主張の繰り返し、論点逸らし、短すぎる返答は減点してください。',
             'creator と opponent のどちらが勝ったか、または draw かを JSON で返してください。',
@@ -807,7 +871,7 @@ export class DebateService {
         }
 
         const timer = setTimeout(() => {
-            this.closeSession(guildId, sessionId, 'れすば終了').catch((error) => {
+            this.closeSession(guildId, sessionId, 'レスバ終了').catch((error) => {
                 Logger.error('Failed to cleanup debate room:', error);
             }).finally(() => {
                 this.cleanupTimers.delete(key);
@@ -816,6 +880,15 @@ export class DebateService {
 
         timer.unref?.();
         this.cleanupTimers.set(key, timer);
+    }
+
+    private clearCleanupTimer(guildId: string, sessionId: string): void {
+        const key = `${guildId}:${sessionId}`;
+        const existing = this.cleanupTimers.get(key);
+        if (existing) {
+            clearTimeout(existing);
+            this.cleanupTimers.delete(key);
+        }
     }
 
     private scheduleInactivityTimeout(guildId: string, sessionId: string): void {
@@ -856,13 +929,15 @@ export class DebateService {
         const guild = this.client ? await this.client.guilds.fetch(guildId).catch(() => null) : null;
         const channel = guild ? await guild.channels.fetch(session.channelId).catch(() => null) : null;
         if (channel && 'send' in channel) {
-            await (channel as TextChannel).send('⏱️ 1時間無操作のため、このれすばは自動終了します。').catch(() => null);
+            await (channel as TextChannel).send('⏱️ 1時間無操作のため、このレスバは自動終了します。').catch(() => null);
         }
 
         await this.closeSession(guildId, sessionId, '1時間無操作のため自動終了');
     }
 
     private async closeSession(guildId: string, sessionId: string, reason: string): Promise<void> {
+        this.terminatedSessions.add(sessionId);
+        this.clearCleanupTimer(guildId, sessionId);
         this.clearInactivityTimeout(guildId, sessionId);
 
         const sessions = await this.getSessions(guildId);
@@ -879,23 +954,46 @@ export class DebateService {
 
     private async getSessions(guildId: string): Promise<DebateSession[]> {
         const stored = await database.get<DebateSession[]>(guildId, getDebateSessionsKey(guildId), []);
-        return (Array.isArray(stored) ? stored : []).map((entry) => ({
-            ...entry,
-            hostUserId: typeof entry.hostUserId === 'string'
-                ? entry.hostUserId
-                : typeof entry.creatorId === 'string'
-                    ? entry.creatorId
-                    : '',
-            creatorId: typeof entry.creatorId === 'string' ? entry.creatorId : null,
-            opponentId: typeof entry.opponentId === 'string' && entry.opponentId !== 'AI' ? entry.opponentId : null,
-            creatorParticipantType: entry.creatorParticipantType === 'ai' ? 'ai' : 'user',
-            opponentParticipantType: entry.opponentParticipantType === 'user'
+        return (Array.isArray(stored) ? stored : []).map((entry) => {
+            const creatorParticipantType: DebateParticipantType = entry.creatorParticipantType === 'ai' ? 'ai' : 'user';
+            const opponentParticipantType: DebateParticipantType = entry.opponentParticipantType === 'user'
                 ? 'user'
                 : entry.opponentType === 'king'
                     ? 'user'
-                    : 'ai',
-            transcript: Array.isArray(entry.transcript) ? entry.transcript : []
-        }));
+                    : 'ai';
+            const [fallbackCreatorAiName, fallbackOpponentAiName] = pickAiPersonaPair(`${guildId}:${entry.sessionId}:debate`);
+            const creatorAiName = typeof entry.creatorAiName === 'string' ? entry.creatorAiName.trim() : '';
+            const opponentAiName = typeof entry.opponentAiName === 'string' ? entry.opponentAiName.trim() : '';
+            return {
+                ...entry,
+                hostUserId: typeof entry.hostUserId === 'string'
+                    ? entry.hostUserId
+                    : typeof entry.creatorId === 'string'
+                        ? entry.creatorId
+                        : '',
+                creatorId: typeof entry.creatorId === 'string' ? entry.creatorId : null,
+                opponentId: typeof entry.opponentId === 'string' && entry.opponentId !== 'AI' ? entry.opponentId : null,
+                creatorParticipantType,
+                opponentParticipantType,
+                creatorAiName: creatorParticipantType === 'ai'
+                    ? (creatorAiName
+                        ? creatorAiName
+                        : fallbackCreatorAiName)
+                    : null,
+                opponentAiName: opponentParticipantType === 'ai'
+                    ? (opponentAiName
+                        ? opponentAiName
+                        : creatorParticipantType === 'ai'
+                            ? fallbackOpponentAiName
+                            : pickAiPersonaName(
+                                `${guildId}:${entry.sessionId}:debate:opponent`,
+                                0,
+                                creatorAiName ? [creatorAiName] : []
+                            ))
+                    : null,
+                transcript: Array.isArray(entry.transcript) ? entry.transcript : []
+            };
+        });
     }
 
     private async persistSessions(guildId: string, sessions: DebateSession[]): Promise<void> {
@@ -952,6 +1050,24 @@ export class DebateService {
         return channel?.isTextBased() ? channel as TextChannel : null;
     }
 
+    private async getOpenSessions(guild: Guild, channelId?: string): Promise<DebateSession[]> {
+        const sessions = await this.getSessions(guild.id);
+        const candidates = sessions.filter((entry) => (
+            entry.status !== 'closed'
+            && (!channelId || entry.channelId === channelId)
+        ));
+        const openSessions: DebateSession[] = [];
+
+        for (const entry of candidates) {
+            const channel = await guild.channels.fetch(entry.channelId).catch(() => null);
+            if (channel) {
+                openSessions.push(entry);
+            }
+        }
+
+        return openSessions;
+    }
+
     private isSessionInProgress(session: DebateSession): boolean {
         return ['waiting_opponent', 'active', 'judging'].includes(session.status);
     }
@@ -965,12 +1081,13 @@ export class DebateService {
     }
 
     private getSpeakerLabel(session: DebateSession, side: DebateSide): string {
-        if (session.opponentType === 'ai_vs_ai') {
-            return side === 'creator' ? '先行AI' : '後攻AI';
-        }
-
-        if (side === 'opponent' && session.opponentParticipantType === 'ai') {
-            return 'AI';
+        const participantType = side === 'creator' ? session.creatorParticipantType : session.opponentParticipantType;
+        if (participantType === 'ai') {
+            const aiName = side === 'creator' ? session.creatorAiName : session.opponentAiName;
+            if (session.opponentType === 'ai_vs_ai') {
+                return `${side === 'creator' ? '先行AI' : '後攻AI'}${aiName ? ` (${aiName})` : ''}`;
+            }
+            return `AI${aiName ? ` (${aiName})` : ''}`;
         }
 
         return side === 'creator' ? '先行者' : '後攻者';
@@ -996,5 +1113,9 @@ export class DebateService {
     private buildTurnPrompt(session: DebateSession, nextSide: DebateSide): string {
         const currentTurnNumber = nextSide === 'creator' ? session.creatorTurns + 1 : session.opponentTurns + 1;
         return `次は ${this.getSpeakerMention(session, nextSide)} の ${currentTurnNumber}/${session.turnLimit} ターン目です。`;
+    }
+
+    private formatAiTurnMessage(session: DebateSession, side: DebateSide, content: string): string {
+        return `**${this.getSpeakerLabel(session, side)}**\n${content.trim()}`;
     }
 }

@@ -3,16 +3,25 @@ import {
     ButtonBuilder,
     ButtonInteraction,
     Client,
+    Guild,
     ModalSubmitInteraction,
     Message
 } from 'discord.js';
-import { CoreFeaturePanelConfig } from './types.js';
+import { CoreFeaturePanelConfig, CoreFeaturePanelKind } from './types.js';
 
 export interface CoreFeatureApi {
     getClient(): Client | null;
-    getPanelConfig(guildId: string): Promise<CoreFeaturePanelConfig | null>;
-    savePanelConfig(guildId: string, config: CoreFeaturePanelConfig): Promise<void>;
+    getPanelConfig(guildId: string, panelKind?: CoreFeaturePanelKind): Promise<CoreFeaturePanelConfig | null>;
+    listPanelConfigs(guildId: string): Promise<Partial<Record<CoreFeaturePanelKind, CoreFeaturePanelConfig>>>;
+    savePanelConfig(guildId: string, config: CoreFeaturePanelConfig, panelKind?: CoreFeaturePanelKind): Promise<void>;
     registerModalRoute(customId: string, handler: (interaction: ModalSubmitInteraction) => Promise<void>): void;
+}
+
+export interface CoreFeatureCloseResult {
+    featureKey: string;
+    sessionId: string;
+    channelId: string;
+    summary: string;
 }
 
 export interface CoreFeatureModule {
@@ -20,13 +29,15 @@ export interface CoreFeatureModule {
     order?: number;
     register?(api: CoreFeatureApi): void | Promise<void>;
     setClient?(client: Client): void;
-    buildPanelButton(guildId: string): ButtonBuilder;
-    handleButtonInteraction?(interaction: ButtonInteraction, action: string, parts: string[]): Promise<boolean>;
+    buildPanelButton(guildId: string, panelKind: CoreFeaturePanelKind): ButtonBuilder;
+    closeSessions?(guild: Guild, options: { channelId?: string; reason: string }): Promise<CoreFeatureCloseResult[]>;
+    handleButtonInteraction?(interaction: ButtonInteraction, panelKind: CoreFeaturePanelKind, action: string, parts: string[]): Promise<boolean>;
     handleMessage?(message: Message): Promise<boolean>;
 }
 
 export function buildPanelRowsFromFeatures(
     guildId: string,
+    panelKind: CoreFeaturePanelKind,
     features: CoreFeatureModule[]
 ): ActionRowBuilder<ButtonBuilder>[] {
     const rows: ActionRowBuilder<ButtonBuilder>[] = [];
@@ -42,7 +53,7 @@ export function buildPanelRowsFromFeatures(
             currentRow = new ActionRowBuilder<ButtonBuilder>();
         }
 
-        currentRow.addComponents(feature.buildPanelButton(guildId));
+        currentRow.addComponents(feature.buildPanelButton(guildId, panelKind));
     }
 
     if (currentRow.components.length > 0) {

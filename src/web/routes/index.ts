@@ -10,3 +10,4 @@ export * from './rolepreset.js';
 export * from './rank.js';
 
 export * from './staff/anticheat.js';
+export * from './staff/corepanel.js';
