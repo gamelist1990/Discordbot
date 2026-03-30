@@ -24,6 +24,11 @@ export interface CoreFeatureCloseResult {
     summary: string;
 }
 
+export interface CoreFeatureResetResult {
+    featureKey: string;
+    summary: string;
+}
+
 export interface CoreFeatureModule {
     key: string;
     order?: number;
@@ -31,6 +36,7 @@ export interface CoreFeatureModule {
     setClient?(client: Client): void;
     buildPanelButton(guildId: string, panelKind: CoreFeaturePanelKind): ButtonBuilder;
     closeSessions?(guild: Guild, options: { channelId?: string; reason: string }): Promise<CoreFeatureCloseResult[]>;
+    resetUserData?(guild: Guild, userId: string, reason: string): Promise<CoreFeatureResetResult | null>;
     handleButtonInteraction?(interaction: ButtonInteraction, panelKind: CoreFeaturePanelKind, action: string, parts: string[]): Promise<boolean>;
     handleMessage?(message: Message): Promise<boolean>;
 }

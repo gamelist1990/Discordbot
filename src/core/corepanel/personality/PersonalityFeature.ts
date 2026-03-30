@@ -44,4 +44,15 @@ export class PersonalityFeature implements CoreFeatureModule {
             summary: entry.summary
         }));
     }
+
+    async resetUserData(guild: Guild, userId: string, reason: string) {
+        const result = await this.service.resetUserData(guild, userId, reason);
+        if (!result) {
+            return null;
+        }
+        return {
+            featureKey: this.key,
+            summary: result.summary
+        };
+    }
 }

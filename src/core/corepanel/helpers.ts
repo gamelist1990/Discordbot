@@ -129,7 +129,7 @@ export function validatePersonalityEvaluation(value: unknown): PersonalityEvalua
         complete: data.complete,
         personality_key: personalityKey,
         reason: data.reason.trim(),
-        confidence: typeof data.confidence === 'number' ? clamp(Math.round(data.confidence), 0, 100) : 55,
+        confidence: typeof data.confidence === 'number' ? clamp(Math.round(data.confidence), 0, 100) : null,
         traits: Array.isArray(data.traits)
             ? data.traits.filter((entry): entry is string => typeof entry === 'string').map((entry) => entry.trim()).filter(Boolean).slice(0, 6)
             : []

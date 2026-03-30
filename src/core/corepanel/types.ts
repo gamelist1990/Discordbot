@@ -132,7 +132,7 @@ export interface PersonalityEvaluationResponse {
     complete: boolean;
     personality_key: PersonalityKey | null;
     reason: string;
-    confidence: number;
+    confidence: number | null;
     traits: string[];
 }
 

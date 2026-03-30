@@ -1,6 +1,6 @@
 import { ChatGPTClient } from '../ChatGPTClient.js';
 import { CORE_FEATURE_MODEL_FALLBACKS } from './constants.js';
-import { extractJsonObject, pickAiPersonaName } from './helpers.js';
+import { clamp, extractJsonObject, pickAiPersonaName } from './helpers.js';
 
 export async function requestCoreFeatureModelText(
     messages: Array<{ role: 'system' | 'user'; content: string }>,
@@ -94,4 +94,107 @@ export async function requestCoreFeaturePersonaNames(
     }
 
     return fallbackNames;
+}
+
+function looksLikeQuestion(value: string): boolean {
+    return /[？?]$/.test(value) || /(教えてください|聞かせてください|説明してください|ありますか|どんな|どう)/.test(value);
+}
+
+export async function requestCoreFeatureNaturalFollowUp(
+    latestUserAnswer: string,
+    transcriptSummary: string,
+    provisionalReason: string,
+    provisionalTraits: string[]
+): Promise<string> {
+    const userPrompt = [
+        `直前のユーザー回答: ${latestUserAnswer || 'なし'}`,
+        `現時点の仮説メモ: ${provisionalReason || 'まだ仮説は弱い'}`,
+        `現時点の傾向タグ: ${provisionalTraits.length > 0 ? provisionalTraits.join(', ') : '未確定'}`,
+        `ここまでの面談ログ:\n${transcriptSummary}`
+    ].join('\n');
+    const systemPrompts = [
+        [
+            'あなたは Discord 上で1対1面談を行う AI です。',
+            '実際の面接官のように、相手の会話内容から次に聞くべきことを自分で判断してください。',
+            '相手の直前の発言とこれまでのログを受けて、自然な日本語で次の質問を1つだけ返してください。',
+            '1〜2文まで。長い前置きは禁止です。',
+            '相手の発言を長く引用しないでください。',
+            '「今の話だと〜という点が印象に残りました」のような定型句は禁止です。',
+            '自然な相づちや短い受け止めはOKですが、その後は会話がつながる質問を1つだけしてください。',
+            '決め打ちの質問表を順番に消化するのではなく、この会話でまだ見えていない判断材料を取りにいってください。'
+        ].join('\n'),
+        [
+            'あなたは Discord 上で1対1面談を行う AI です。',
+            '次の質問を自然な日本語で1つだけ返してください。',
+            '最後は必ず質問文で終えてください。',
+            '抽象的な聞き返しや長い引用は禁止です。',
+            '定型句は禁止です。短くてもいいので、この会話に食い込んだ具体的な質問にしてください。'
+        ].join('\n')
+    ];
+
+    for (const systemPrompt of systemPrompts) {
+        try {
+            const raw = await requestCoreFeatureModelText([
+                { role: 'system', content: systemPrompt },
+                { role: 'user', content: userPrompt }
+            ], 220, 0.6);
+
+            const cleaned = raw
+                .trim()
+                .replace(/^```(?:text)?/i, '')
+                .replace(/```$/i, '')
+                .trim()
+                .replace(/^["'「]+/, '')
+                .replace(/["'」]+$/, '')
+                .trim();
+
+            if (cleaned && looksLikeQuestion(cleaned) && !/印象に残りました/.test(cleaned)) {
+                return cleaned;
+            }
+        } catch {
+            continue;
+        }
+    }
+
+    return 'その場面の流れが分かるように、具体例を一つ教えてください。';
+}
+
+export async function requestCoreFeatureConfidenceCalibration(
+    personalityLabel: string,
+    reason: string,
+    traits: string[],
+    userTurns: number,
+    transcriptSummary: string,
+    heuristicConfidence: number
+): Promise<number | null> {
+    const systemPrompt = [
+        'あなたは面談ログから分類の確信度だけを校正する AI です。',
+        '0 から 100 の整数で confidence を返してください。',
+        '回答数が少ない、抽象的、具体例が乏しい、矛盾がある場合は低くしてください。',
+        '4〜6ターンの具体的な面談で、分類理由と傾向タグが噛み合っている場合のみ高めにしてください。',
+        '出力は JSON のみで、キーは confidence です。'
+    ].join('\n');
+
+    const userPrompt = [
+        `分類ラベル: ${personalityLabel}`,
+        `判定理由: ${reason || 'なし'}`,
+        `傾向タグ: ${traits.length > 0 ? traits.join(', ') : 'なし'}`,
+        `ユーザー回答数: ${userTurns}`,
+        `ヒューリスティック信頼度: ${heuristicConfidence}`,
+        `面談ログ要約:\n${transcriptSummary}`
+    ].join('\n\n');
+
+    try {
+        const raw = await requestCoreFeatureModelText([
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt }
+        ], 150, 0.1);
+
+        const parsed = extractJsonObject<{ confidence?: unknown }>(raw);
+        return typeof parsed?.confidence === 'number'
+            ? clamp(Math.round(parsed.confidence), 0, 100)
+            : null;
+    } catch {
+        return null;
+    }
 }

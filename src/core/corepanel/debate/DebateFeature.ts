@@ -104,6 +104,17 @@ export class DebateFeature implements CoreFeatureModule {
         }));
     }
 
+    async resetUserData(guild: Guild, userId: string, reason: string) {
+        const result = await this.service.resetUserData(guild, userId, reason);
+        if (!result) {
+            return null;
+        }
+        return {
+            featureKey: this.key,
+            summary: result.summary
+        };
+    }
+
     private buildModeRows(guildId: string, panelKind: CoreFeaturePanelKind, includeStaffModes: boolean): ActionRowBuilder<ButtonBuilder>[] {
         const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
             new ButtonBuilder()

@@ -9,7 +9,13 @@ import { database } from '../Database.js';
 import { registerModalHandler } from '../../utils/Modal.js';
 import { createDebateFeature } from './debate/index.js';
 import { createPersonalityFeature } from './personality/index.js';
-import { buildPanelRowsFromFeatures, CoreFeatureApi, CoreFeatureCloseResult, CoreFeatureModule } from './registry.js';
+import {
+    buildPanelRowsFromFeatures,
+    CoreFeatureApi,
+    CoreFeatureCloseResult,
+    CoreFeatureModule,
+    CoreFeatureResetResult
+} from './registry.js';
 import { CoreFeaturePanelConfig, CoreFeaturePanelKind } from './types.js';
 
 export type { DebateOpponentType } from './types.js';
@@ -195,6 +201,27 @@ export class CoreFeatureManager implements CoreFeatureApi {
                 reason: options.reason
             });
             results.push(...closed);
+        }
+
+        return results;
+    }
+
+    async resetUserData(
+        guild: Guild,
+        options: { userId: string; panelKind?: CoreFeaturePanelKind; reason: string }
+    ): Promise<CoreFeatureResetResult[]> {
+        const panelKind = options.panelKind || 'combined';
+        const results: CoreFeatureResetResult[] = [];
+
+        for (const feature of this.getFeaturesForPanel(panelKind)) {
+            if (!feature.resetUserData) {
+                continue;
+            }
+
+            const resetResult = await feature.resetUserData(guild, options.userId, options.reason);
+            if (resetResult) {
+                results.push(resetResult);
+            }
         }
 
         return results;

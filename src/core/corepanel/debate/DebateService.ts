@@ -689,6 +689,41 @@ export class DebateService {
         return results;
     }
 
+    async resetUserData(guild: Guild, userId: string, reason: string): Promise<{ summary: string } | null> {
+        const openSessions = await this.getOpenSessions(guild);
+        const matchedSessions = openSessions.filter((entry) => this.isUserEngaged(entry, userId));
+        for (const session of matchedSessions) {
+            await this.closeSession(guild.id, session.sessionId, reason);
+        }
+
+        const member = await guild.members.fetch(userId).catch(() => null);
+        let removedKingRole = false;
+        const kingRole = guild.roles.cache.find((role) => role.name === DEBATE_KING_ROLE_NAME) || null;
+        if (member && kingRole && member.roles.cache.has(kingRole.id)) {
+            await member.roles.remove(kingRole, 'Core debate reset').catch(() => null);
+            removedKingRole = true;
+        }
+
+        const deletedProfile = await database.deleteUserGuildData(userId, guild.id, 'corefeature/debate-profile');
+        if (!deletedProfile && !removedKingRole && matchedSessions.length === 0) {
+            return null;
+        }
+        const summaryParts = ['れすばデータをリセット'];
+        if (deletedProfile) {
+            summaryParts.push('論破スコア初期化');
+        }
+        if (removedKingRole) {
+            summaryParts.push('論破王ロール解除');
+        }
+        if (matchedSessions.length > 0) {
+            summaryParts.push('進行中マッチを終了');
+        }
+
+        return {
+            summary: summaryParts.join(' / ')
+        };
+    }
+
     private async generateAiReply(session: DebateSession, speaker: DebateSide): Promise<DebateReplyResponse> {
         const myStance = speaker === 'creator' ? session.creatorStance : session.opponentStance;
         const opposingStance = speaker === 'creator' ? session.opponentStance : session.creatorStance;

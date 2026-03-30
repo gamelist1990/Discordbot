@@ -14,19 +14,20 @@ function isTextChannel(targetChannel: any): boolean {
 
 export default {
     name: 'corepanel',
-    description: 'Core機能パネルの投稿や進行中セッションの停止を行います',
+    description: 'Core機能パネルの投稿、停止、ユーザーデータ初期化を行います',
 
     builder: (subcommand: SlashCommandSubcommandBuilder) => {
         return subcommand
             .setName('corepanel')
-            .setDescription('Core機能パネルの投稿や進行中セッションの停止を行います')
+            .setDescription('Core機能パネルの投稿、停止、ユーザーデータ初期化を行います')
             .addStringOption((opt: any) =>
                 opt.setName('action')
                     .setDescription('実行する操作')
                     .setRequired(false)
                     .addChoices(
                         { name: 'パネルを投稿', value: 'post' },
-                        { name: '進行中セッションを停止', value: 'close' }
+                        { name: '進行中セッションを停止', value: 'close' },
+                        { name: 'ユーザーデータをリセット', value: 'reset' }
                     )
             )
             .addStringOption((opt: any) =>
@@ -52,6 +53,11 @@ export default {
             .addRoleOption((opt: any) =>
                 opt.setName('spectator_role')
                     .setDescription('レスバ観戦用のロール')
+                    .setRequired(false)
+            )
+            .addUserOption((opt: any) =>
+                opt.setName('user')
+                    .setDescription('リセット対象のユーザー')
                     .setRequired(false)
             );
     },
@@ -123,6 +129,31 @@ export default {
                 await interaction.editReply(
                     `✅ ${getCorePanelKindLabel(panelKind)}のルームを ${closed.length} 件停止してクローズしました。\n${lines.join('\n')}${suffix}`
                 );
+                return;
+            }
+
+            if (action === 'reset') {
+                const targetUser = interaction.options.getUser('user');
+                if (!targetUser) {
+                    await interaction.editReply('❌ リセット対象のユーザーを指定してください。');
+                    return;
+                }
+
+                const resetResults = await coreFeatureManager.resetUserData(interaction.guild, {
+                    userId: targetUser.id,
+                    panelKind,
+                    reason: `Core panel user reset by ${interaction.user.tag}`
+                });
+
+                if (resetResults.length === 0) {
+                    await interaction.editReply(`ℹ️ ${getCorePanelKindLabel(panelKind)}ではリセット対象のデータが見つかりませんでした。`);
+                    return;
+                }
+
+                await interaction.editReply([
+                    `✅ ${targetUser} の ${getCorePanelKindLabel(panelKind)}データをリセットしました。`,
+                    ...resetResults.map((entry) => `- ${entry.summary}`)
+                ].join('\n'));
                 return;
             }
 

@@ -23,6 +23,7 @@ import {
 } from '../constants.js';
 import { deleteRoom, ensureCategory, ensureRole } from '../guildUtils.js';
 import {
+    clamp,
     createId,
     extractJsonObject,
     pickAiPersonaName,
@@ -30,7 +31,12 @@ import {
     truncateText,
     validatePersonalityEvaluation
 } from '../helpers.js';
-import { requestCoreFeatureModelText, requestCoreFeaturePersonaNames } from '../model.js';
+import {
+    requestCoreFeatureModelText,
+    requestCoreFeatureConfidenceCalibration,
+    requestCoreFeatureNaturalFollowUp,
+    requestCoreFeaturePersonaNames
+} from '../model.js';
 import {
     PersonalityEvaluationResponse,
     PersonalityKey,
@@ -39,12 +45,6 @@ import {
     TranscriptEntry
 } from '../types.js';
 import { Logger } from '../../../utils/Logger.js';
-
-interface PersonalityInterviewFocus {
-    label: string;
-    instruction: string;
-    fallbackQuestion: string;
-}
 
 function getPersonalitySessionsKey(guildId: string): string {
     return `Guild/${guildId}/corefeature/personality/sessions`;
@@ -260,6 +260,7 @@ export class PersonalityService {
             .reverse()
             .find((entry) => entry.authorType === 'user')
             ?.content || '';
+        const transcriptSummary = summarizeTranscript(session.transcript, 24);
         if (userTurns >= PERSONALITY_MAX_USER_TURNS) {
             return this.forceFinalize(session);
         }
@@ -267,20 +268,23 @@ export class PersonalityService {
         const archetypeSummary = Object.entries(PERSONALITY_ARCHETYPES)
             .map(([key, value]) => `- ${key}: ${value.label} / ${value.summary}`)
             .join('\n');
-        const focus = this.getInterviewFocus(userTurns);
 
         const systemPrompt = [
             'あなたは Discord コミュニティ用の性格診断 AI です。',
             'これは病名や精神疾患を断定する診断ではありません。コミュニティ内の行動傾向ロールを選ぶ作業です。',
             `候補は ${Object.keys(PERSONALITY_ARCHETYPES).join(', ')} の ${Object.keys(PERSONALITY_ARCHETYPES).length}種類です。`,
+            '実際の面接官のように、これまでの会話内容から次に聞くべき質問を自分で判断してください。',
             '1回の返答では質問は1つだけ、簡潔に行ってください。',
             '会話の具体性、誇張、責任転嫁、煽り癖、暴走傾向、混沌性、奇行性、衝動性、虚言傾向、虚飾性、支援性、創造性などを丁寧に見てください。',
             `ユーザー回答が ${PERSONALITY_MIN_USER_TURNS} 回に達するまでは、complete を false に固定し、必ず追加の質問を返してください。`,
             `ユーザー回答が ${PERSONALITY_MAX_USER_TURNS} 回に達したら、必ず最終判定してください。`,
             'complete が false のとき personality_key は null にしてください。',
             '質問は必ず具体例を引き出す形にし、曖昧な一般論で終わらせないでください。',
-            'complete が false の返答では、最初の1文で直前のユーザー回答を自然に受け止め、その流れに接続した質問を1つだけ返してください。',
+            'complete が false の返答では、必要なら短く受け止めてから、その流れに接続した質問を1つだけ返してください。',
             '直前の回答と無関係な話題へ急に飛ばさないでください。',
+            'ユーザーの発言を長く引用しないでください。',
+            '「今の話だと〜という点が印象に残りました」のような定型句は禁止です。',
+            'コード側にある固定観点を順番に消化するのではなく、会話ログから不足している判断材料を自分で見つけてください。',
             '出力は JSON のみで、キーは reply, complete, personality_key, reason, confidence, traits です。',
             'traits には観測した短い傾向タグを2-4個入れてください。',
             'complete が true のときは personality_key に必ず候補のどれかを入れてください。'
@@ -289,10 +293,8 @@ export class PersonalityService {
         const userPrompt = [
             `候補一覧:\n${archetypeSummary}`,
             `回答回数: ${userTurns}/${PERSONALITY_MAX_USER_TURNS}`,
-            `今回優先して掘る観点: ${focus.label}`,
-            `観点の指示: ${focus.instruction}`,
             `直前のユーザー回答: ${latestUserAnswer || 'なし'}`,
-            `面談ログ:\n${summarizeTranscript(session.transcript, 20)}`
+            `面談ログ:\n${transcriptSummary}`
         ].join('\n\n');
 
         const raw = await requestCoreFeatureModelText([
@@ -303,7 +305,7 @@ export class PersonalityService {
         const parsed = validatePersonalityEvaluation(extractJsonObject(raw));
 
         if (userTurns < PERSONALITY_MIN_USER_TURNS) {
-            return this.buildContinuationResponse(parsed, focus, latestUserAnswer);
+            return await this.buildContinuationResponse(parsed, latestUserAnswer, transcriptSummary);
         }
 
         if (parsed?.complete && parsed.personality_key) {
@@ -311,64 +313,32 @@ export class PersonalityService {
         }
 
         if (userTurns < PERSONALITY_MAX_USER_TURNS) {
-            return this.buildContinuationResponse(parsed, focus, latestUserAnswer);
+            return await this.buildContinuationResponse(parsed, latestUserAnswer, transcriptSummary);
         }
 
         return this.forceFinalize(session);
     }
 
-    private getInterviewFocus(userTurns: number): PersonalityInterviewFocus {
-        const stages: PersonalityInterviewFocus[] = [
-            {
-                label: '計画と不安への向き合い方',
-                instruction: '予定や楽しみな出来事に対して、準備を詰めるか、勢いで進むか、不安をどう扱うかを具体的に掘ってください。',
-                fallbackQuestion: 'そういう予定や楽しみがあるとき、あなたは事前にかなり準備する方ですか。それとも気分で動く方ですか。最近の具体例で教えてください。'
-            },
-            {
-                label: '失敗と責任の取り方',
-                instruction: '自分に不利な失敗やミスをしたとき、言い訳をするか、責任を負うか、話を盛るかを見てください。',
-                fallbackQuestion: 'もしその予定や行動で自分のミスが出たとき、あなたは周りにどう説明してどう動きますか。かなり近い実例があればそれで教えてください。'
-            },
-            {
-                label: '対立時の反応',
-                instruction: '意見がぶつかった場面で、押し切るか、調整するか、煽るか、引くかを具体的に掘ってください。',
-                fallbackQuestion: '誰かと意見が真っ向からぶつかった場面では、あなたは相手をどう動かしますか。最近の具体例を1つ、相手への言い方まで含めて教えてください。'
-            },
-            {
-                label: '集団での立ち位置',
-                instruction: '複数人の場で主導権を取るか、支えるか、混ぜ返すか、暴走するかを確認してください。',
-                fallbackQuestion: '複数人で何かを決める場では、あなたはまとめ役、推進役、支援役、かき回し役のどれに近いですか。そう判断できる具体例を教えてください。'
-            },
-            {
-                label: '感情と衝動の制御',
-                instruction: 'イラついたときや熱が入ったときに、抑えるか、加速するか、煽るかを掘ってください。',
-                fallbackQuestion: '腹が立ったときや熱くなったとき、あなたはどこでブレーキをかけますか。それとも勢いで押し切りますか。最近の具体例で教えてください。'
-            },
-            {
-                label: '見せ方と誇張',
-                instruction: '自分を強く見せるための盛り方、見栄、話の誇張の有無を確認してください。',
-                fallbackQuestion: '自分をよく見せたい場面で、話を盛ったり演出したりすることはありますか。あるならどんな場面か、ないならどう見せるかを具体的に教えてください。'
-            }
-        ];
-
-        return stages[Math.min(userTurns - 1, stages.length - 1)] || stages[0];
-    }
-
-    private buildContinuationResponse(
+    private async buildContinuationResponse(
         parsed: PersonalityEvaluationResponse | null,
-        focus: PersonalityInterviewFocus,
-        latestUserAnswer: string
-    ): PersonalityEvaluationResponse {
+        latestUserAnswer: string,
+        transcriptSummary: string
+    ): Promise<PersonalityEvaluationResponse> {
         const reply = parsed && !parsed.complete && this.looksLikeFollowUpQuestion(parsed.reply)
             ? parsed.reply
-            : this.buildAnchoredFallbackQuestion(latestUserAnswer, focus);
+            : await requestCoreFeatureNaturalFollowUp(
+                latestUserAnswer,
+                transcriptSummary,
+                parsed?.reason?.trim() || '',
+                parsed?.traits ?? []
+            );
 
         return {
             reply,
             complete: false,
             personality_key: null,
-            reason: parsed?.reason?.trim() || `${focus.label}を追加確認中`,
-            confidence: parsed?.confidence ?? 55,
+            reason: parsed?.reason?.trim() || '面談を継続して判断材料を集めています',
+            confidence: parsed?.confidence ?? null,
             traits: parsed?.traits ?? []
         };
     }
@@ -379,17 +349,11 @@ export class PersonalityService {
             return false;
         }
 
-        return /[？?]$/.test(normalized) || /(教えてください|聞かせてください|説明してください|ありますか)/.test(normalized);
-    }
-
-    private buildAnchoredFallbackQuestion(latestUserAnswer: string, focus: PersonalityInterviewFocus): string {
-        const cue = latestUserAnswer.trim().replace(/\s+/g, ' ');
-        const shortCue = cue.length > 42 ? `${cue.slice(0, 42)}...` : cue;
-        if (!shortCue) {
-            return focus.fallbackQuestion;
-        }
-
-        return `今の話だと「${shortCue}」という点が印象に残りました。${focus.fallbackQuestion}`;
+        return (
+            (/[\u3040-\u30ff\u4e00-\u9fff]/.test(normalized))
+            && (/([？?]$|教えてください|聞かせてください|説明してください|ありますか|どうですか|どんな)/.test(normalized))
+            && !/印象に残りました/.test(normalized)
+        );
     }
 
     private async forceFinalize(session: PersonalitySession): Promise<PersonalityEvaluationResponse> {
@@ -428,9 +392,104 @@ export class PersonalityService {
             complete: true,
             personality_key: 'analyst',
             reason: 'モデル出力が不安定だったため、安全側の最終分類を適用',
-            confidence: 55,
+            confidence: null,
             traits: ['整理志向', '慎重', '状況観察']
         };
+    }
+
+    private async resolveConfidence(session: PersonalitySession, evaluation: PersonalityEvaluationResponse): Promise<number> {
+        const heuristic = this.estimateConfidenceFromEvidence(session, evaluation);
+        const userTurns = session.transcript.filter((entry) => entry.authorType === 'user').length;
+        const calibration = evaluation.personality_key
+            ? await requestCoreFeatureConfidenceCalibration(
+                PERSONALITY_ARCHETYPES[evaluation.personality_key].label,
+                evaluation.reason,
+                evaluation.traits,
+                userTurns,
+                summarizeTranscript(session.transcript, 24),
+                heuristic
+            )
+            : null;
+
+        const weightedParts: Array<{ value: number; weight: number }> = [
+            { value: heuristic, weight: 0.55 }
+        ];
+
+        if (typeof evaluation.confidence === 'number') {
+            weightedParts.push({ value: evaluation.confidence, weight: 0.2 });
+        }
+
+        if (typeof calibration === 'number') {
+            weightedParts.push({ value: calibration, weight: 0.25 });
+        }
+
+        const totalWeight = weightedParts.reduce((sum, entry) => sum + entry.weight, 0);
+        const blended = totalWeight > 0
+            ? weightedParts.reduce((sum, entry) => sum + (entry.value * entry.weight), 0) / totalWeight
+            : heuristic;
+
+        const evidenceCap = this.computeEvidenceCap(session);
+        const disagreementPenalty = (
+            typeof evaluation.confidence === 'number'
+            && typeof calibration === 'number'
+            && Math.abs(evaluation.confidence - calibration) >= 20
+        ) ? 4 : 0;
+
+        return clamp(Math.round(Math.min(blended, evidenceCap) - disagreementPenalty), 18, 96);
+    }
+
+    private estimateConfidenceFromEvidence(session: PersonalitySession, evaluation: PersonalityEvaluationResponse): number {
+        const userAnswers = session.transcript
+            .filter((entry) => entry.authorType === 'user')
+            .map((entry) => entry.content.trim())
+            .filter(Boolean);
+
+        const userTurns = userAnswers.length;
+        const specificityValues = userAnswers.map((answer) => this.measureAnswerSpecificity(answer));
+        const specificityAverage = specificityValues.length > 0
+            ? specificityValues.reduce((sum, value) => sum + value, 0) / specificityValues.length
+            : 0;
+
+        const turnScore = clamp(22 + (userTurns * 9), 22, 72);
+        const detailScore = Math.round(specificityAverage * 18);
+        const traitScore = Math.min(evaluation.traits.length, 4) * 2;
+        const reasonScore = clamp(Math.round(Math.min((evaluation.reason || '').trim().length, 220) / 22), 0, 10);
+        const shortAnswerPenalty = userAnswers.filter((answer) => answer.length < 18).length * 4;
+
+        return clamp(turnScore + detailScore + traitScore + reasonScore - shortAnswerPenalty, 20, 94);
+    }
+
+    private computeEvidenceCap(session: PersonalitySession): number {
+        const userAnswers = session.transcript
+            .filter((entry) => entry.authorType === 'user')
+            .map((entry) => entry.content.trim())
+            .filter(Boolean);
+
+        const userTurns = userAnswers.length;
+        const specificityValues = userAnswers.map((answer) => this.measureAnswerSpecificity(answer));
+        const specificityAverage = specificityValues.length > 0
+            ? specificityValues.reduce((sum, value) => sum + value, 0) / specificityValues.length
+            : 0;
+
+        return clamp(
+            42 + (userTurns * 7) + Math.round(specificityAverage * 14),
+            48,
+            94
+        );
+    }
+
+    private measureAnswerSpecificity(answer: string): number {
+        const normalized = answer.trim();
+        if (!normalized) {
+            return 0;
+        }
+
+        const lengthScore = Math.min(normalized.length / 120, 1);
+        const contextSignals = (normalized.match(/(最近|今日|昨日|先週|学校|高校|課題|部活|仕事|友達|親|旅行|準備|失敗|意見|相手|周り|自分|実際|具体|ため|ので|から|とき|時)/g) || []).length;
+        const structureSignals = (normalized.match(/(、|。|！|!|？|\?|たとえば|例えば|だから|しかし|でも|なので|結果)/g) || []).length;
+        const signalScore = Math.min((contextSignals * 0.08) + (structureSignals * 0.05), 0.55);
+
+        return clamp((lengthScore * 0.6) + signalScore, 0, 1);
     }
 
     private async finalize(guild: Guild, session: PersonalitySession, evaluation: PersonalityEvaluationResponse): Promise<void> {
@@ -450,7 +509,8 @@ export class PersonalityService {
         active.status = 'completed';
         active.updatedAt = new Date().toISOString();
         active.assignedKey = personalityKey;
-        active.confidence = evaluation.confidence;
+        const resolvedConfidence = await this.resolveConfidence(active, evaluation);
+        active.confidence = resolvedConfidence;
         active.reason = evaluation.reason;
         active.traits = evaluation.traits;
 
@@ -481,7 +541,7 @@ export class PersonalityService {
                     `説明: ${PERSONALITY_ARCHETYPES[personalityKey].summary}`,
                     `付与ロール: ${roleDisplay}`,
                     `傾向タグ: ${traitText}`,
-                    `信頼度: ${evaluation.confidence}%`,
+                    `信頼度: ${resolvedConfidence}%`,
                     `再挑戦可能: ${new Date(active.cooldownUntil).toLocaleString('ja-JP')}`
                 ].join('\n') + warnings)
                 .addFields({ name: '判定メモ', value: evaluation.reason || '十分な会話情報をもとに判定しました。' })
@@ -507,6 +567,37 @@ export class PersonalityService {
         }
 
         return results;
+    }
+
+    async resetUserData(guild: Guild, userId: string, reason: string): Promise<{ summary: string } | null> {
+        const openSessions = await this.getOpenSessions(guild);
+        const matchedSessions = openSessions.filter((entry) => entry.userId === userId);
+        for (const session of matchedSessions) {
+            await this.closeSession(guild.id, session.sessionId, reason);
+        }
+
+        const member = await guild.members.fetch(userId).catch(() => null);
+        const removedRoles = await this.removePersonalityRoles(guild, member);
+        const deletedProfile = await database.deleteUserGuildData(userId, guild.id, 'corefeature/personality-profile');
+
+        if (!deletedProfile && removedRoles === 0 && matchedSessions.length === 0) {
+            return null;
+        }
+
+        const summaryParts = ['性格診断データをリセット'];
+        if (deletedProfile) {
+            summaryParts.push('クールダウン解除');
+        }
+        if (removedRoles > 0) {
+            summaryParts.push(`性格ロール ${removedRoles} 件解除`);
+        }
+        if (matchedSessions.length > 0) {
+            summaryParts.push('進行中面談を終了');
+        }
+
+        return {
+            summary: summaryParts.join(' / ')
+        };
     }
 
     private async assignPersonalityRole(
@@ -561,6 +652,25 @@ export class PersonalityService {
         return Object.values(PERSONALITY_ARCHETYPES)
             .map((entry) => guild.roles.cache.find((role) => role.name === entry.roleName))
             .filter((role): role is Role => Boolean(role));
+    }
+
+    private async removePersonalityRoles(guild: Guild, member: GuildMember | null): Promise<number> {
+        if (!member) {
+            return 0;
+        }
+
+        const personalityRoles = await this.getPersonalityRoles(guild);
+        let removed = 0;
+        for (const role of personalityRoles) {
+            if (!member.roles.cache.has(role.id)) {
+                continue;
+            }
+
+            await member.roles.remove(role, 'Core personality reset').catch(() => null);
+            removed += 1;
+        }
+
+        return removed;
     }
 
     private scheduleCleanup(guildId: string, sessionId: string): void {
