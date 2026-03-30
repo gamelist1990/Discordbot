@@ -7,6 +7,8 @@ export const CORE_FEATURE_MODEL_FALLBACKS = [
     'claude-haiku-4.5'
 ] as const;
 
+export const CORE_FEATURE_API_ENDPOINT = 'https://capi.voids.top/v2/';
+
 export const PERSONALITY_CATEGORY_NAME = '性格診断室';
 export const DEBATE_CATEGORY_NAME = 'レスバアリーナ';
 export const DEBATE_KING_ROLE_NAME = '論破王';

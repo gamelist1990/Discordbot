@@ -1,17 +1,26 @@
-import { ChatGPTClient } from '../ChatGPTClient.js';
-import { CORE_FEATURE_MODEL_FALLBACKS } from './constants.js';
+import { ChatGPTClient, RateLimitWaitInfo } from '../ChatGPTClient.js';
+import { CORE_FEATURE_API_ENDPOINT, CORE_FEATURE_MODEL_FALLBACKS } from './constants.js';
 import { clamp, extractJsonObject, pickAiPersonaName } from './helpers.js';
+
+export interface CoreFeatureModelHooks {
+    requestLabel?: string;
+    onRateLimitWait?: (info: RateLimitWaitInfo) => void | Promise<void>;
+}
 
 export async function requestCoreFeatureModelText(
     messages: Array<{ role: 'system' | 'user'; content: string }>,
     maxTokens: number,
-    temperature: number
+    temperature: number,
+    hooks?: CoreFeatureModelHooks
 ): Promise<string> {
     const client = new ChatGPTClient();
     const response = await client.sendMessage(messages, {
+        apiEndpoint: CORE_FEATURE_API_ENDPOINT,
         model: [...CORE_FEATURE_MODEL_FALLBACKS],
         maxTokens,
-        temperature
+        temperature,
+        requestLabel: hooks?.requestLabel,
+        onRateLimitWait: hooks?.onRateLimitWait
     });
 
     const content = response.choices[0]?.message?.content;
@@ -38,7 +47,8 @@ function sanitizePersonaName(value: unknown): string | null {
 export async function requestCoreFeaturePersonaNames(
     context: string,
     count: number,
-    usedNames: string[] = []
+    usedNames: string[] = [],
+    hooks?: CoreFeatureModelHooks
 ): Promise<string[]> {
     const requestedCount = Math.max(1, Math.min(count, 3));
     const normalizedUsed = usedNames.map((entry) => entry.trim()).filter(Boolean);
@@ -62,7 +72,7 @@ export async function requestCoreFeaturePersonaNames(
         const raw = await requestCoreFeatureModelText([
             { role: 'system', content: systemPrompt },
             { role: 'user', content: userPrompt }
-        ], 220, 0.9);
+        ], 220, 0.9, hooks);
 
         const parsed = extractJsonObject<{ names?: unknown; name?: unknown }>(raw);
         const candidates = Array.isArray(parsed?.names)
@@ -104,7 +114,8 @@ export async function requestCoreFeatureNaturalFollowUp(
     latestUserAnswer: string,
     transcriptSummary: string,
     provisionalReason: string,
-    provisionalTraits: string[]
+    provisionalTraits: string[],
+    hooks?: CoreFeatureModelHooks
 ): Promise<string> {
     const userPrompt = [
         `直前のユーザー回答: ${latestUserAnswer || 'なし'}`,
@@ -137,7 +148,7 @@ export async function requestCoreFeatureNaturalFollowUp(
             const raw = await requestCoreFeatureModelText([
                 { role: 'system', content: systemPrompt },
                 { role: 'user', content: userPrompt }
-            ], 220, 0.6);
+            ], 220, 0.6, hooks);
 
             const cleaned = raw
                 .trim()
@@ -165,7 +176,8 @@ export async function requestCoreFeatureConfidenceCalibration(
     traits: string[],
     userTurns: number,
     transcriptSummary: string,
-    heuristicConfidence: number
+    heuristicConfidence: number,
+    hooks?: CoreFeatureModelHooks
 ): Promise<number | null> {
     const systemPrompt = [
         'あなたは面談ログから分類の確信度だけを校正する AI です。',
@@ -188,7 +200,7 @@ export async function requestCoreFeatureConfidenceCalibration(
         const raw = await requestCoreFeatureModelText([
             { role: 'system', content: systemPrompt },
             { role: 'user', content: userPrompt }
-        ], 150, 0.1);
+        ], 150, 0.1, hooks);
 
         const parsed = extractJsonObject<{ confidence?: unknown }>(raw);
         return typeof parsed?.confidence === 'number'

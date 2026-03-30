@@ -2,6 +2,7 @@
 import OpenAI from 'openai';
 import { config } from '../config.js';
 import { ChatGPTModel } from './ChatGPTModels.js';
+import { Logger } from '../utils/Logger.js';
 import {
     OpenAIChatCompletionChunk,
     OpenAIChatCompletionMessage,
@@ -19,13 +20,18 @@ interface ChatOptions {
     topP?: number;
     stream?: boolean;
     apiEndpoint?: string;
+    apiEndpoints?: string[];
     apiKey?: string;
+    requestLabel?: string;
+    onRateLimitWait?: (info: RateLimitWaitInfo) => void | Promise<void>;
 }
 
 interface ChatGPTClientOptions {
     apiKey?: string;
     apiEndpoint?: string;
     defaultModel?: string;
+    proxyEndpoints?: string[];
+    rateLimitMaxWaitMs?: number;
 }
 
 export interface AvailableModel {
@@ -54,22 +60,40 @@ type ClientAuth = {
 export type ModelSelection = ChatGPTModel | string;
 export type ModelSelectionInput = ModelSelection | ModelSelection[];
 
+export interface RateLimitWaitInfo {
+    requestLabel: string;
+    apiEndpoint: string;
+    model: string | null;
+    waitMs: number;
+    retryAt: string;
+    status: number | null;
+    requestId: string | null;
+}
+
 export class ChatGPTClient {
     public static readonly Model = ChatGPTModel;
+    private static readonly DEFAULT_RATE_LIMIT_WAIT_MS = 60_000;
 
     private readonly apiKey: string;
     private readonly apiEndpoint: string;
     private readonly defaultModel: string;
+    private readonly proxyEndpoints: string[];
+    private readonly rateLimitMaxWaitMs: number;
     private readonly tools: Map<string, { definition: OpenAITool; handler: ToolHandler }> = new Map();
     private toolContext: any = null;
     private readonly modelCache: Map<string, ModelCacheEntry> = new Map();
     private readonly modelCacheTtlMs = 5 * 60 * 1000;
     private readonly maxToolRounds = 8;
+    private readonly maxRateLimitWaitRounds = 2;
 
     constructor(options: ChatGPTClientOptions = {}) {
         const apiKey = options.apiKey || config.openai.apiKey;
         const apiEndpoint = this.normalizeEndpoint(options.apiEndpoint || config.openai.apiEndpoint);
         const defaultModel = options.defaultModel || config.openai.defaultModel || '';
+        const proxyEndpoints = this.normalizeEndpointList(options.proxyEndpoints || config.openai.proxyEndpoints || []);
+        const rateLimitMaxWaitMs = typeof options.rateLimitMaxWaitMs === 'number'
+            ? options.rateLimitMaxWaitMs
+            : config.openai.rateLimitMaxWaitMs || (3 * 60 * 1000);
 
         if (!apiKey || !apiEndpoint) {
             throw new Error('OpenAI configuration is missing in config.ts');
@@ -78,6 +102,8 @@ export class ChatGPTClient {
         this.apiKey = apiKey;
         this.apiEndpoint = apiEndpoint;
         this.defaultModel = defaultModel;
+        this.proxyEndpoints = proxyEndpoints.filter((entry) => entry !== this.apiEndpoint);
+        this.rateLimitMaxWaitMs = Math.max(15_000, Math.round(rateLimitMaxWaitMs));
     }
 
     public registerTool(definition: OpenAITool, handler: ToolHandler): void {
@@ -125,12 +151,13 @@ export class ChatGPTClient {
     }
 
     public async resolveModel(options?: ChatOptions): Promise<string> {
-        const candidates = await this.resolveModelCandidates(options);
+        const [auth] = this.resolveAuthCandidates(options);
+        const candidates = await this.resolveModelCandidates(options, auth);
         return candidates[0] || this.defaultModel;
     }
 
-    public async resolveModelCandidates(options?: ChatOptions): Promise<string[]> {
-        const auth = this.resolveAuth(options);
+    public async resolveModelCandidates(options?: ChatOptions, authOverride?: ClientAuth): Promise<string[]> {
+        const auth = authOverride || this.resolveAuth(options);
         const preferredModels = this.normalizeModelSelections(options?.model);
         const availableModels = await this.getAvailableModels(auth);
         const candidates: string[] = [];
@@ -173,40 +200,7 @@ export class ChatGPTClient {
         options?: ChatOptions,
         toolRound = 0
     ): Promise<OpenAIChatCompletionResponse> {
-        if (toolRound > this.maxToolRounds) {
-            throw new Error('Tool call recursion limit reached.');
-        }
-
-        const auth = this.resolveAuth(options);
-        const modelCandidates = await this.resolveModelCandidates(options);
-        if (modelCandidates.length === 0) {
-            throw new Error('No compatible model could be resolved from the configured endpoint.');
-        }
-
-        const client = this.createClient(auth);
-        let lastError: unknown = null;
-
-        for (const model of modelCandidates) {
-            try {
-                const payload = this.buildRequestPayload(messages, options, model, false);
-                const response = await client.chat.completions.create(payload as OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming);
-                const typedResponse = response as unknown as OpenAIChatCompletionResponse;
-
-                const toolCalls = typedResponse.choices[0]?.message?.tool_calls ?? [];
-                if (toolCalls.length > 0) {
-                    const nextMessages = await this.executeToolCalls(toolCalls, messages);
-                    return this.sendMessage(nextMessages, options, toolRound + 1);
-                }
-
-                return typedResponse;
-            } catch (error) {
-                lastError = error;
-            }
-        }
-
-        throw lastError instanceof Error
-            ? lastError
-            : new Error('No model candidate succeeded.');
+        return this.sendMessageInternal(messages, options, toolRound, 0);
     }
 
     public async streamMessage(
@@ -215,58 +209,148 @@ export class ChatGPTClient {
         options?: ChatOptions,
         toolRound = 0
     ): Promise<void> {
+        return this.streamMessageInternal(messages, onChunkReceive, options, toolRound, 0);
+    }
+
+    private async sendMessageInternal(
+        messages: OpenAIChatCompletionMessage[],
+        options: ChatOptions | undefined,
+        toolRound: number,
+        rateLimitRound: number
+    ): Promise<OpenAIChatCompletionResponse> {
         if (toolRound > this.maxToolRounds) {
             throw new Error('Tool call recursion limit reached.');
         }
 
-        const auth = this.resolveAuth(options);
-        const modelCandidates = await this.resolveModelCandidates(options);
-        if (modelCandidates.length === 0) {
+        const authCandidates = this.resolveAuthCandidates(options);
+        if (authCandidates.length === 0) {
             throw new Error('No compatible model could be resolved from the configured endpoint.');
         }
-        const client = this.createClient(auth);
-        const toolDefinitions = Array.from(this.tools.values()).map(tool => tool.definition);
+
         let lastError: unknown = null;
+        const rateLimitWaits: RateLimitWaitInfo[] = [];
 
-        for (const model of modelCandidates) {
-            const toolCallsBuffer: Map<number, ToolCallBufferItem> = new Map();
-            let emittedChunk = false;
+        for (const auth of authCandidates) {
+            const modelCandidates = await this.resolveModelCandidates(options, auth);
+            if (modelCandidates.length === 0) {
+                continue;
+            }
 
-            try {
-                const payload = this.buildRequestPayload(messages, options, model, true, toolDefinitions);
-                const stream = await client.chat.completions.create(payload as OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming);
+            const client = this.createClient(auth);
+            for (const model of modelCandidates) {
+                try {
+                    const payload = this.buildRequestPayload(messages, options, model, false);
+                    const response = await client.chat.completions.create(payload as OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming);
+                    const typedResponse = response as unknown as OpenAIChatCompletionResponse;
 
-                for await (const chunk of stream as AsyncIterable<unknown>) {
-                    emittedChunk = true;
-
-                    const typedChunk = chunk as OpenAIChatCompletionChunk;
-                    const deltaToolCalls = typedChunk.choices[0]?.delta?.tool_calls;
-
-                    if (deltaToolCalls) {
-                        for (const toolCall of deltaToolCalls) {
-                            const existing = toolCallsBuffer.get(toolCall.index) || { arguments: '' };
-                            if (toolCall.id) existing.id = toolCall.id;
-                            if (toolCall.function?.name) existing.name = toolCall.function.name;
-                            if (toolCall.function?.arguments) existing.arguments += toolCall.function.arguments;
-                            toolCallsBuffer.set(toolCall.index, existing);
-                        }
+                    const toolCalls = typedResponse.choices[0]?.message?.tool_calls ?? [];
+                    if (toolCalls.length > 0) {
+                        const nextMessages = await this.executeToolCalls(toolCalls, messages);
+                        return this.sendMessageInternal(nextMessages, options, toolRound + 1, 0);
                     }
 
-                    onChunkReceive(typedChunk);
-                }
-
-                if (toolCallsBuffer.size > 0) {
-                    const nextMessages = await this.executeToolCallsFromBuffer(toolCallsBuffer, messages);
-                    await this.streamMessage(nextMessages, onChunkReceive, options, toolRound + 1);
-                }
-
-                return;
-            } catch (error) {
-                lastError = error;
-                if (emittedChunk) {
-                    break;
+                    return typedResponse;
+                } catch (error) {
+                    lastError = error;
+                    const rateLimitInfo = this.buildRateLimitWaitInfo(error, options, auth.apiEndpoint, model);
+                    if (rateLimitInfo) {
+                        rateLimitWaits.push(rateLimitInfo);
+                    }
                 }
             }
+        }
+
+        if (rateLimitWaits.length > 0 && rateLimitRound < this.maxRateLimitWaitRounds) {
+            const nextWait = rateLimitWaits.reduce((best, current) => current.waitMs < best.waitMs ? current : best);
+            await this.notifyRateLimitWait(options, nextWait, rateLimitRound + 1);
+            await this.sleep(nextWait.waitMs);
+            return this.sendMessageInternal(messages, options, toolRound, rateLimitRound + 1);
+        }
+
+        throw lastError instanceof Error
+            ? lastError
+            : new Error('No model candidate succeeded.');
+    }
+
+    private async streamMessageInternal(
+        messages: OpenAIChatCompletionMessage[],
+        onChunkReceive: (chunk: OpenAIChatCompletionChunk) => void,
+        options: ChatOptions | undefined,
+        toolRound: number,
+        rateLimitRound: number
+    ): Promise<void> {
+        if (toolRound > this.maxToolRounds) {
+            throw new Error('Tool call recursion limit reached.');
+        }
+
+        const authCandidates = this.resolveAuthCandidates(options);
+        if (authCandidates.length === 0) {
+            throw new Error('No compatible model could be resolved from the configured endpoint.');
+        }
+
+        const toolDefinitions = Array.from(this.tools.values()).map(tool => tool.definition);
+        let lastError: unknown = null;
+        const rateLimitWaits: RateLimitWaitInfo[] = [];
+
+        for (const auth of authCandidates) {
+            const modelCandidates = await this.resolveModelCandidates(options, auth);
+            if (modelCandidates.length === 0) {
+                continue;
+            }
+
+            const client = this.createClient(auth);
+            for (const model of modelCandidates) {
+                const toolCallsBuffer: Map<number, ToolCallBufferItem> = new Map();
+                let emittedChunk = false;
+
+                try {
+                    const payload = this.buildRequestPayload(messages, options, model, true, toolDefinitions);
+                    const stream = await client.chat.completions.create(payload as OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming);
+
+                    for await (const chunk of stream as AsyncIterable<unknown>) {
+                        emittedChunk = true;
+
+                        const typedChunk = chunk as OpenAIChatCompletionChunk;
+                        const deltaToolCalls = typedChunk.choices[0]?.delta?.tool_calls;
+
+                        if (deltaToolCalls) {
+                            for (const toolCall of deltaToolCalls) {
+                                const existing = toolCallsBuffer.get(toolCall.index) || { arguments: '' };
+                                if (toolCall.id) existing.id = toolCall.id;
+                                if (toolCall.function?.name) existing.name = toolCall.function.name;
+                                if (toolCall.function?.arguments) existing.arguments += toolCall.function.arguments;
+                                toolCallsBuffer.set(toolCall.index, existing);
+                            }
+                        }
+
+                        onChunkReceive(typedChunk);
+                    }
+
+                    if (toolCallsBuffer.size > 0) {
+                        const nextMessages = await this.executeToolCallsFromBuffer(toolCallsBuffer, messages);
+                        await this.streamMessageInternal(nextMessages, onChunkReceive, options, toolRound + 1, 0);
+                    }
+
+                    return;
+                } catch (error) {
+                    lastError = error;
+                    if (emittedChunk) {
+                        break;
+                    }
+
+                    const rateLimitInfo = this.buildRateLimitWaitInfo(error, options, auth.apiEndpoint, model);
+                    if (rateLimitInfo) {
+                        rateLimitWaits.push(rateLimitInfo);
+                    }
+                }
+            }
+        }
+
+        if (rateLimitWaits.length > 0 && rateLimitRound < this.maxRateLimitWaitRounds) {
+            const nextWait = rateLimitWaits.reduce((best, current) => current.waitMs < best.waitMs ? current : best);
+            await this.notifyRateLimitWait(options, nextWait, rateLimitRound + 1);
+            await this.sleep(nextWait.waitMs);
+            return this.streamMessageInternal(messages, onChunkReceive, options, toolRound, rateLimitRound + 1);
         }
 
         throw lastError instanceof Error
@@ -279,6 +363,22 @@ export class ChatGPTClient {
             apiEndpoint: this.normalizeEndpoint(options?.apiEndpoint || this.apiEndpoint),
             apiKey: options?.apiKey || this.apiKey,
         };
+    }
+
+    private resolveAuthCandidates(options?: ChatOptions): ClientAuth[] {
+        const apiKey = options?.apiKey || this.apiKey;
+        const explicitEndpoint = typeof options?.apiEndpoint === 'string' && options.apiEndpoint.trim().length > 0
+            ? [options.apiEndpoint]
+            : [];
+        const extraEndpoints = Array.isArray(options?.apiEndpoints) ? options.apiEndpoints : [];
+        const endpoints = explicitEndpoint.length > 0
+            ? explicitEndpoint
+            : [this.apiEndpoint, ...this.proxyEndpoints, ...extraEndpoints];
+
+        return this.normalizeEndpointList(endpoints).map((apiEndpoint) => ({
+            apiEndpoint,
+            apiKey,
+        }));
     }
 
     private normalizeModelSelection(model?: ModelSelection): string {
@@ -309,8 +409,143 @@ export class ChatGPTClient {
         return endpoint.replace(/\/+$/, '');
     }
 
+    private normalizeEndpointList(endpoints: string[]): string[] {
+        const normalized: string[] = [];
+        const seen = new Set<string>();
+
+        for (const endpoint of endpoints) {
+            const cleaned = typeof endpoint === 'string' ? this.normalizeEndpoint(endpoint.trim()) : '';
+            if (!cleaned || seen.has(cleaned)) {
+                continue;
+            }
+            seen.add(cleaned);
+            normalized.push(cleaned);
+        }
+
+        return normalized;
+    }
+
     private createClient(auth: ClientAuth): OpenAI {
         return new OpenAI({ apiKey: auth.apiKey, baseURL: auth.apiEndpoint });
+    }
+
+    private buildRateLimitWaitInfo(
+        error: unknown,
+        options: ChatOptions | undefined,
+        apiEndpoint: string,
+        model: string
+    ): RateLimitWaitInfo | null {
+        const status = this.extractErrorStatus(error);
+        if (status !== 429 && !this.looksLikeRateLimitMessage(error)) {
+            return null;
+        }
+
+        const waitMs = this.extractRetryWaitMs(error);
+        return {
+            requestLabel: options?.requestLabel || 'chatgpt-request',
+            apiEndpoint,
+            model,
+            waitMs,
+            retryAt: new Date(Date.now() + waitMs).toISOString(),
+            status,
+            requestId: this.extractHeader(error, 'x-request-id'),
+        };
+    }
+
+    private async notifyRateLimitWait(
+        options: ChatOptions | undefined,
+        info: RateLimitWaitInfo,
+        round: number
+    ): Promise<void> {
+        Logger.warn(
+            `[ChatGPTClient] Rate limit detected for ${info.requestLabel} `
+            + `(model=${info.model || 'unknown'} endpoint=${info.apiEndpoint} wait=${Math.ceil(info.waitMs / 1000)}s`
+            + ` round=${round}${info.requestId ? ` requestId=${info.requestId}` : ''}).`
+        );
+
+        if (options?.onRateLimitWait) {
+            await options.onRateLimitWait(info);
+        }
+    }
+
+    private extractRetryWaitMs(error: unknown): number {
+        const retryAfterMs = this.extractHeader(error, 'retry-after-ms');
+        if (retryAfterMs) {
+            const parsedMs = Number.parseInt(retryAfterMs, 10);
+            if (Number.isFinite(parsedMs) && parsedMs > 0) {
+                return Math.min(parsedMs, this.rateLimitMaxWaitMs);
+            }
+        }
+
+        const retryAfter = this.extractHeader(error, 'retry-after');
+        if (retryAfter) {
+            const seconds = Number.parseFloat(retryAfter);
+            if (Number.isFinite(seconds) && seconds > 0) {
+                return Math.min(Math.round(seconds * 1000), this.rateLimitMaxWaitMs);
+            }
+
+            const retryAt = Date.parse(retryAfter);
+            if (Number.isFinite(retryAt) && retryAt > Date.now()) {
+                return Math.min(retryAt - Date.now(), this.rateLimitMaxWaitMs);
+            }
+        }
+
+        const message = error instanceof Error ? error.message : String(error ?? '');
+        const match = message.match(/(?:retry after|try again in)\s+(\d+)(ms|s|sec|seconds|m|min|minutes)?/i);
+        if (match) {
+            const amount = Number.parseInt(match[1], 10);
+            const unit = (match[2] || 's').toLowerCase();
+            if (Number.isFinite(amount) && amount > 0) {
+                const multiplier = unit.startsWith('m')
+                    ? 60_000
+                    : unit === 'ms'
+                        ? 1
+                        : 1_000;
+                return Math.min(amount * multiplier, this.rateLimitMaxWaitMs);
+            }
+        }
+
+        return Math.min(ChatGPTClient.DEFAULT_RATE_LIMIT_WAIT_MS, this.rateLimitMaxWaitMs);
+    }
+
+    private extractHeader(error: unknown, headerName: string): string | null {
+        const record = error as { headers?: Headers | Record<string, unknown> | null | undefined };
+        const headers = record?.headers;
+        const normalizedName = headerName.toLowerCase();
+
+        if (!headers) {
+            return null;
+        }
+
+        if (headers instanceof Headers) {
+            return headers.get(normalizedName);
+        }
+
+        for (const [key, value] of Object.entries(headers)) {
+            if (key.toLowerCase() !== normalizedName) {
+                continue;
+            }
+            return typeof value === 'string' ? value : String(value);
+        }
+
+        return null;
+    }
+
+    private extractErrorStatus(error: unknown): number | null {
+        const status = (error as { status?: unknown })?.status;
+        return typeof status === 'number' && Number.isFinite(status) ? status : null;
+    }
+
+    private looksLikeRateLimitMessage(error: unknown): boolean {
+        const message = error instanceof Error ? error.message : String(error ?? '');
+        return /rate limit|too many requests|429/i.test(message);
+    }
+
+    private async sleep(ms: number): Promise<void> {
+        await new Promise<void>((resolve) => {
+            const timer = setTimeout(resolve, Math.max(0, ms));
+            timer.unref?.();
+        });
     }
 
     private groupModelEntries(models: Array<{ id?: string; created?: number; owned_by?: string; count?: number }>): AvailableModel[] {

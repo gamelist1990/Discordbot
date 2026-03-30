@@ -39,7 +39,11 @@ import {
     validateDebateJudge,
     validateDebateReply
 } from '../helpers.js';
-import { requestCoreFeatureModelText, requestCoreFeaturePersonaNames } from '../model.js';
+import {
+    CoreFeatureModelHooks,
+    requestCoreFeatureModelText,
+    requestCoreFeaturePersonaNames
+} from '../model.js';
 import {
     DebateJudgeResponse,
     DebateOpponentType,
@@ -58,12 +62,16 @@ function getDebateSessionsKey(guildId: string): string {
 }
 
 export class DebateService {
+    private static readonly LONG_WAIT_NOTICE_THRESHOLD_MS = 2 * 60 * 1000;
+
     private client: Client | null = null;
     private readonly processing = new Set<string>();
     private readonly finalizing = new Set<string>();
     private readonly cleanupTimers = new Map<string, ReturnType<typeof setTimeout>>();
     private readonly timeoutTimers = new Map<string, ReturnType<typeof setTimeout>>();
     private readonly terminatedSessions = new Set<string>();
+    private readonly delayedReplyMentions = new Set<string>();
+    private readonly rateLimitNoticeSent = new Set<string>();
 
     setClient(client: Client): void {
         this.client = client;
@@ -408,6 +416,7 @@ export class DebateService {
         this.processing.add(session.sessionId);
 
         try {
+            const modelHooks = this.createModelHooks(message.channel as TextChannel, session);
             const sessions = await this.getSessions(message.guild!.id);
             const active = sessions.find((entry) => entry.sessionId === session.sessionId);
             if (!active) {
@@ -429,7 +438,7 @@ export class DebateService {
                 await message.channel.sendTyping().catch(() => null);
             }
 
-            const reply = await this.generateAiReply(active, 'opponent');
+            const reply = await this.generateAiReply(active, 'opponent', modelHooks);
             const refreshedSessions = await this.getSessions(message.guild!.id);
             const refreshed = refreshedSessions.find((entry) => entry.sessionId === session.sessionId);
             if (!refreshed || refreshed.status !== 'active' || this.terminatedSessions.has(session.sessionId)) {
@@ -448,10 +457,12 @@ export class DebateService {
             refreshed.currentTurn = 'creator';
             await this.persistSessions(message.guild!.id, refreshedSessions);
 
-            await (message.channel as TextChannel).send(this.formatAiTurnMessage(refreshed, 'opponent', reply.reply)).catch(() => null);
+            await (message.channel as TextChannel).send(
+                this.buildAiTurnReply(refreshed, 'opponent', reply.reply)
+            ).catch(() => null);
 
             if (refreshed.creatorTurns >= refreshed.turnLimit && refreshed.opponentTurns >= refreshed.turnLimit) {
-                await this.finalize(message.guild!, refreshed);
+                await this.finalize(message.guild!, refreshed, modelHooks);
             } else {
                 this.scheduleInactivityTimeout(message.guild!.id, refreshed.sessionId);
                 await (message.channel as TextChannel).send(this.buildTurnPrompt(refreshed, 'creator')).catch(() => null);
@@ -520,13 +531,14 @@ export class DebateService {
                 if (!active || active.opponentType !== 'ai_vs_ai' || active.status !== 'active') {
                     return;
                 }
+                const modelHooks = channel ? this.createModelHooks(channel, active) : undefined;
 
                 if (channel) {
                     await channel.sendTyping().catch(() => null);
                 }
 
                 const speaker = active.currentTurn;
-                const reply = await this.generateAiReply(active, speaker);
+                const reply = await this.generateAiReply(active, speaker, modelHooks);
                 const refreshedSessions = await this.getSessions(guild.id);
                 const refreshed = refreshedSessions.find((entry) => entry.sessionId === sessionId);
                 if (!refreshed || refreshed.opponentType !== 'ai_vs_ai' || refreshed.status !== 'active' || this.terminatedSessions.has(sessionId)) {
@@ -553,11 +565,11 @@ export class DebateService {
                 await this.persistSessions(guild.id, refreshedSessions);
 
                 if (channel) {
-                    await channel.send(this.formatAiTurnMessage(refreshed, speaker, reply.reply)).catch(() => null);
+                    await channel.send(this.buildAiTurnReply(refreshed, speaker, reply.reply)).catch(() => null);
                 }
 
                 if (refreshed.creatorTurns >= refreshed.turnLimit && refreshed.opponentTurns >= refreshed.turnLimit) {
-                    await this.finalize(guild, refreshed);
+                    await this.finalize(guild, refreshed, modelHooks);
                     return;
                 }
 
@@ -575,7 +587,11 @@ export class DebateService {
         }
     }
 
-    private async finalize(guild: Guild, session: DebateSession): Promise<void> {
+    private async finalize(
+        guild: Guild,
+        session: DebateSession,
+        hooks?: CoreFeatureModelHooks
+    ): Promise<void> {
         if (this.finalizing.has(session.sessionId)) {
             return;
         }
@@ -594,7 +610,7 @@ export class DebateService {
             active.updatedAt = new Date().toISOString();
             await this.persistSessions(guild.id, sessions);
 
-            const judgement = await this.judge(active);
+            const judgement = await this.judge(active, hooks);
             const latestSessions = await this.getSessions(guild.id);
             const latest = latestSessions.find((entry) => entry.sessionId === session.sessionId);
             if (!latest || latest.status !== 'judging' || this.terminatedSessions.has(session.sessionId)) {
@@ -643,7 +659,10 @@ export class DebateService {
                     ].join('\n'))
                     .setTimestamp();
 
-                await (channel as TextChannel).send({ embeds: [embed] }).catch(() => null);
+                await (channel as TextChannel).send({
+                    content: this.consumeDelayedMentionPrefix(latest) || undefined,
+                    embeds: [embed]
+                }).catch(() => null);
 
                 if (
                     creatorProfile
@@ -724,7 +743,11 @@ export class DebateService {
         };
     }
 
-    private async generateAiReply(session: DebateSession, speaker: DebateSide): Promise<DebateReplyResponse> {
+    private async generateAiReply(
+        session: DebateSession,
+        speaker: DebateSide,
+        hooks?: CoreFeatureModelHooks
+    ): Promise<DebateReplyResponse> {
         const myStance = speaker === 'creator' ? session.creatorStance : session.opponentStance;
         const opposingStance = speaker === 'creator' ? session.opponentStance : session.creatorStance;
         const turnNumber = (speaker === 'creator' ? session.creatorTurns : session.opponentTurns) + 1;
@@ -753,7 +776,7 @@ export class DebateService {
         const raw = await requestCoreFeatureModelText([
             { role: 'system', content: systemPrompt },
             { role: 'user', content: userPrompt }
-        ], 700, 0.5);
+        ], 700, 0.5, hooks);
 
         const parsed = validateDebateReply(extractJsonObject(raw));
         if (parsed && parsed.reply) {
@@ -765,7 +788,10 @@ export class DebateService {
         };
     }
 
-    private async judge(session: DebateSession): Promise<DebateJudgeResponse> {
+    private async judge(
+        session: DebateSession,
+        hooks?: CoreFeatureModelHooks
+    ): Promise<DebateJudgeResponse> {
         const systemPrompt = [
             'あなたは Discord のレスバ審判 AI です。',
             '勝敗は感情ではなく、論理、相手への応答性、一貫性、論点の深さ、反論の有効性で決めてください。',
@@ -784,7 +810,7 @@ export class DebateService {
         const raw = await requestCoreFeatureModelText([
             { role: 'system', content: systemPrompt },
             { role: 'user', content: userPrompt }
-        ], 800, 0.2);
+        ], 800, 0.2, hooks);
 
         const parsed = validateDebateJudge(extractJsonObject(raw));
         if (parsed) {
@@ -974,6 +1000,7 @@ export class DebateService {
         this.terminatedSessions.add(sessionId);
         this.clearCleanupTimer(guildId, sessionId);
         this.clearInactivityTimeout(guildId, sessionId);
+        this.clearDelayedReplyState(sessionId);
 
         const sessions = await this.getSessions(guildId);
         const session = sessions.find((entry) => entry.sessionId === sessionId);
@@ -1103,6 +1130,51 @@ export class DebateService {
         return openSessions;
     }
 
+    private createModelHooks(channel: TextChannel, session: DebateSession): CoreFeatureModelHooks {
+        return {
+            requestLabel: `core-debate:${session.sessionId}`,
+            onRateLimitWait: async (info) => {
+                this.delayedReplyMentions.add(session.sessionId);
+                if (info.waitMs < DebateService.LONG_WAIT_NOTICE_THRESHOLD_MS || this.rateLimitNoticeSent.has(session.sessionId)) {
+                    return;
+                }
+
+                this.rateLimitNoticeSent.add(session.sessionId);
+                const minutes = Math.max(1, Math.ceil(info.waitMs / 60_000));
+                const mentionLine = this.buildDelayedMentionPrefix(session) || `<@${session.hostUserId}>`;
+                await channel.send(
+                    `${mentionLine}\nレート制限のため、あと ${minutes} 分ほど待ってから続けます。返答でき次第メンションします。`
+                ).catch(() => null);
+            }
+        };
+    }
+
+    private clearDelayedReplyState(sessionId: string): void {
+        this.delayedReplyMentions.delete(sessionId);
+        this.rateLimitNoticeSent.delete(sessionId);
+    }
+
+    private buildDelayedMentionPrefix(session: DebateSession): string {
+        const targets = new Set<string>();
+        if (session.hostUserId) {
+            targets.add(session.hostUserId);
+        }
+        for (const userId of this.getUserParticipants(session)) {
+            targets.add(userId);
+        }
+
+        return Array.from(targets).map((userId) => `<@${userId}>`).join(' ');
+    }
+
+    private consumeDelayedMentionPrefix(session: DebateSession): string {
+        if (!this.delayedReplyMentions.has(session.sessionId)) {
+            return '';
+        }
+
+        this.delayedReplyMentions.delete(session.sessionId);
+        return this.buildDelayedMentionPrefix(session);
+    }
+
     private isSessionInProgress(session: DebateSession): boolean {
         return ['waiting_opponent', 'active', 'judging'].includes(session.status);
     }
@@ -1148,6 +1220,13 @@ export class DebateService {
     private buildTurnPrompt(session: DebateSession, nextSide: DebateSide): string {
         const currentTurnNumber = nextSide === 'creator' ? session.creatorTurns + 1 : session.opponentTurns + 1;
         return `次は ${this.getSpeakerMention(session, nextSide)} の ${currentTurnNumber}/${session.turnLimit} ターン目です。`;
+    }
+
+    private buildAiTurnReply(session: DebateSession, side: DebateSide, content: string): string {
+        const prefix = this.consumeDelayedMentionPrefix(session);
+        return prefix
+            ? `${prefix}\n${this.formatAiTurnMessage(session, side, content)}`
+            : this.formatAiTurnMessage(session, side, content);
     }
 
     private formatAiTurnMessage(session: DebateSession, side: DebateSide, content: string): string {

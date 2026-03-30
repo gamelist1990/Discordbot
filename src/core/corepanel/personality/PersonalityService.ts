@@ -32,6 +32,7 @@ import {
     validatePersonalityEvaluation
 } from '../helpers.js';
 import {
+    CoreFeatureModelHooks,
     requestCoreFeatureModelText,
     requestCoreFeatureConfidenceCalibration,
     requestCoreFeatureNaturalFollowUp,
@@ -51,11 +52,20 @@ function getPersonalitySessionsKey(guildId: string): string {
 }
 
 export class PersonalityService {
+    private static readonly MAX_REEVALUATION_PASSES = 4;
+    private static readonly MERGED_USER_TURN_MAX_LENGTH = 4500;
+    private static readonly TYPING_HEARTBEAT_MS = 8_000;
+    private static readonly LONG_WAIT_NOTICE_THRESHOLD_MS = 2 * 60 * 1000;
+
     private client: Client | null = null;
     private readonly processing = new Set<string>();
     private readonly cleanupTimers = new Map<string, ReturnType<typeof setTimeout>>();
     private readonly timeoutTimers = new Map<string, ReturnType<typeof setTimeout>>();
     private readonly terminatedSessions = new Set<string>();
+    private readonly pendingUserAdditions = new Map<string, string[]>();
+    private readonly typingTimers = new Map<string, ReturnType<typeof setInterval>>();
+    private readonly delayedReplyMentions = new Set<string>();
+    private readonly rateLimitNoticeSent = new Set<string>();
 
     setClient(client: Client): void {
         this.client = client;
@@ -187,11 +197,16 @@ export class PersonalityService {
         }
 
         if (this.processing.has(session.sessionId)) {
-            await message.reply('前の質問を処理中です。少し待ってから続けてください。').catch(() => null);
+            this.enqueuePendingUserAddition(session.sessionId, message.content || '');
+            this.kickTypingHeartbeat(message.channel as TextChannel, session.sessionId);
             return true;
         }
 
+        this.clearPendingUserAdditions(session.sessionId);
         this.processing.add(session.sessionId);
+        this.kickTypingHeartbeat(message.channel as TextChannel, session.sessionId);
+        const modelHooks = this.createModelHooks(message.channel as TextChannel, session);
+        let releasedProcessing = false;
 
         try {
             await this.appendTranscript(message.guild.id, session.sessionId, {
@@ -211,11 +226,12 @@ export class PersonalityService {
                 await message.channel.sendTyping().catch(() => null);
             }
 
-            const evaluation = await this.evaluate(refreshed);
-            const latest = await this.getSessionById(message.guild.id, refreshed.sessionId);
+            const latest = await this.evaluateWithPendingAdditions(message.guild, refreshed, message.channel as TextChannel, modelHooks);
             if (!latest || latest.status !== 'active' || this.terminatedSessions.has(refreshed.sessionId)) {
                 return true;
             }
+
+            const evaluation = latest.evaluation;
 
             await this.appendTranscript(message.guild.id, latest.sessionId, {
                 id: createId('transcript'),
@@ -226,11 +242,17 @@ export class PersonalityService {
             });
 
             await (message.channel as TextChannel).send(
-                this.formatAssistantMessage(latest.interviewerName, evaluation.reply)
+                this.buildAssistantReply(latest, latest.interviewerName, evaluation.reply)
             ).catch(() => null);
 
+            if (!evaluation.complete) {
+                this.clearTypingHeartbeat(session.sessionId);
+                this.processing.delete(session.sessionId);
+                releasedProcessing = true;
+            }
+
             if (evaluation.complete && evaluation.personality_key) {
-                await this.finalize(message.guild, latest, evaluation);
+                await this.finalize(message.guild, latest, evaluation, modelHooks);
             } else {
                 this.scheduleInactivityTimeout(message.guild.id, latest.sessionId);
             }
@@ -238,7 +260,12 @@ export class PersonalityService {
             Logger.error('Failed to handle personality message:', error);
             await (message.channel as TextChannel).send('診断処理でエラーが発生しました。少し時間を置いてやり直してください。').catch(() => null);
         } finally {
-            this.processing.delete(session.sessionId);
+            if (!releasedProcessing) {
+                this.clearPendingUserAdditions(session.sessionId);
+                this.clearTypingHeartbeat(session.sessionId);
+                this.clearDelayedReplyState(session.sessionId);
+                this.processing.delete(session.sessionId);
+            }
         }
 
         return true;
@@ -254,7 +281,10 @@ export class PersonalityService {
         return normalized.slice(0, 90);
     }
 
-    private async evaluate(session: PersonalitySession): Promise<PersonalityEvaluationResponse> {
+    private async evaluate(
+        session: PersonalitySession,
+        hooks?: CoreFeatureModelHooks
+    ): Promise<PersonalityEvaluationResponse> {
         const userTurns = session.transcript.filter((entry) => entry.authorType === 'user').length;
         const latestUserAnswer = [...session.transcript]
             .reverse()
@@ -300,12 +330,12 @@ export class PersonalityService {
         const raw = await requestCoreFeatureModelText([
             { role: 'system', content: systemPrompt },
             { role: 'user', content: userPrompt }
-        ], 900, 0.3);
+        ], 900, 0.3, hooks);
 
         const parsed = validatePersonalityEvaluation(extractJsonObject(raw));
 
         if (userTurns < PERSONALITY_MIN_USER_TURNS) {
-            return await this.buildContinuationResponse(parsed, latestUserAnswer, transcriptSummary);
+            return await this.buildContinuationResponse(parsed, latestUserAnswer, transcriptSummary, hooks);
         }
 
         if (parsed?.complete && parsed.personality_key) {
@@ -313,16 +343,55 @@ export class PersonalityService {
         }
 
         if (userTurns < PERSONALITY_MAX_USER_TURNS) {
-            return await this.buildContinuationResponse(parsed, latestUserAnswer, transcriptSummary);
+            return await this.buildContinuationResponse(parsed, latestUserAnswer, transcriptSummary, hooks);
         }
 
-        return this.forceFinalize(session);
+        return this.forceFinalize(session, hooks);
+    }
+
+    private async evaluateWithPendingAdditions(
+        guild: Guild,
+        session: PersonalitySession,
+        channel: TextChannel,
+        hooks?: CoreFeatureModelHooks
+    ): Promise<(PersonalitySession & { evaluation: PersonalityEvaluationResponse }) | null> {
+        let currentSession: PersonalitySession | null = session;
+
+        for (let pass = 0; pass < PersonalityService.MAX_REEVALUATION_PASSES; pass += 1) {
+            if (!currentSession) {
+                return null;
+            }
+
+            const evaluation = await this.evaluate(currentSession, hooks);
+            const pendingAddition = this.consumePendingUserAdditions(currentSession.sessionId);
+            if (!pendingAddition) {
+                return {
+                    ...currentSession,
+                    evaluation
+                };
+            }
+
+            await this.mergePendingUserAddition(guild.id, currentSession.sessionId, pendingAddition);
+            this.kickTypingHeartbeat(channel, currentSession.sessionId);
+            currentSession = await this.getSessionById(guild.id, currentSession.sessionId);
+            if (!currentSession || currentSession.status !== 'active' || this.terminatedSessions.has(currentSession.sessionId)) {
+                return null;
+            }
+        }
+
+        return currentSession
+            ? {
+                ...currentSession,
+                evaluation: await this.evaluate(currentSession, hooks)
+            }
+            : null;
     }
 
     private async buildContinuationResponse(
         parsed: PersonalityEvaluationResponse | null,
         latestUserAnswer: string,
-        transcriptSummary: string
+        transcriptSummary: string,
+        hooks?: CoreFeatureModelHooks
     ): Promise<PersonalityEvaluationResponse> {
         const reply = parsed && !parsed.complete && this.looksLikeFollowUpQuestion(parsed.reply)
             ? parsed.reply
@@ -330,7 +399,8 @@ export class PersonalityService {
                 latestUserAnswer,
                 transcriptSummary,
                 parsed?.reason?.trim() || '',
-                parsed?.traits ?? []
+                parsed?.traits ?? [],
+                hooks
             );
 
         return {
@@ -356,7 +426,10 @@ export class PersonalityService {
         );
     }
 
-    private async forceFinalize(session: PersonalitySession): Promise<PersonalityEvaluationResponse> {
+    private async forceFinalize(
+        session: PersonalitySession,
+        hooks?: CoreFeatureModelHooks
+    ): Promise<PersonalityEvaluationResponse> {
         const archetypeSummary = Object.entries(PERSONALITY_ARCHETYPES)
             .map(([key, value]) => `- ${key}: ${value.label} / ${value.summary}`)
             .join('\n');
@@ -377,7 +450,7 @@ export class PersonalityService {
         const raw = await requestCoreFeatureModelText([
             { role: 'system', content: systemPrompt },
             { role: 'user', content: userPrompt }
-        ], 800, 0.2);
+        ], 800, 0.2, hooks);
 
         const parsed = validatePersonalityEvaluation(extractJsonObject(raw));
         if (parsed && parsed.personality_key) {
@@ -397,7 +470,11 @@ export class PersonalityService {
         };
     }
 
-    private async resolveConfidence(session: PersonalitySession, evaluation: PersonalityEvaluationResponse): Promise<number> {
+    private async resolveConfidence(
+        session: PersonalitySession,
+        evaluation: PersonalityEvaluationResponse,
+        hooks?: CoreFeatureModelHooks
+    ): Promise<number> {
         const heuristic = this.estimateConfidenceFromEvidence(session, evaluation);
         const userTurns = session.transcript.filter((entry) => entry.authorType === 'user').length;
         const calibration = evaluation.personality_key
@@ -407,7 +484,8 @@ export class PersonalityService {
                 evaluation.traits,
                 userTurns,
                 summarizeTranscript(session.transcript, 24),
-                heuristic
+                heuristic,
+                hooks
             )
             : null;
 
@@ -492,7 +570,12 @@ export class PersonalityService {
         return clamp((lengthScore * 0.6) + signalScore, 0, 1);
     }
 
-    private async finalize(guild: Guild, session: PersonalitySession, evaluation: PersonalityEvaluationResponse): Promise<void> {
+    private async finalize(
+        guild: Guild,
+        session: PersonalitySession,
+        evaluation: PersonalityEvaluationResponse,
+        hooks?: CoreFeatureModelHooks
+    ): Promise<void> {
         const personalityKey = evaluation.personality_key;
         if (!personalityKey) {
             return;
@@ -509,7 +592,7 @@ export class PersonalityService {
         active.status = 'completed';
         active.updatedAt = new Date().toISOString();
         active.assignedKey = personalityKey;
-        const resolvedConfidence = await this.resolveConfidence(active, evaluation);
+        const resolvedConfidence = await this.resolveConfidence(active, evaluation, hooks);
         active.confidence = resolvedConfidence;
         active.reason = evaluation.reason;
         active.traits = evaluation.traits;
@@ -547,7 +630,11 @@ export class PersonalityService {
                 .addFields({ name: '判定メモ', value: evaluation.reason || '十分な会話情報をもとに判定しました。' })
                 .setTimestamp();
 
-            await (channel as TextChannel).send({ embeds: [embed] }).catch(() => null);
+            await (channel as TextChannel).send({
+                content: this.delayedReplyMentions.has(active.sessionId) ? `<@${active.userId}>` : undefined,
+                embeds: [embed]
+            }).catch(() => null);
+            this.delayedReplyMentions.delete(active.sessionId);
         }
 
         this.scheduleCleanup(guild.id, active.sessionId);
@@ -749,6 +836,9 @@ export class PersonalityService {
         this.terminatedSessions.add(sessionId);
         this.clearCleanupTimer(guildId, sessionId);
         this.clearInactivityTimeout(guildId, sessionId);
+        this.clearPendingUserAdditions(sessionId);
+        this.clearTypingHeartbeat(sessionId);
+        this.clearDelayedReplyState(sessionId);
 
         const sessions = await this.getSessions(guildId);
         const session = sessions.find((entry) => entry.sessionId === sessionId);
@@ -855,6 +945,130 @@ export class PersonalityService {
         });
 
         await this.persistSessions(guildId, next);
+    }
+
+    private createModelHooks(channel: TextChannel, session: PersonalitySession): CoreFeatureModelHooks {
+        return {
+            requestLabel: `core-personality:${session.sessionId}`,
+            onRateLimitWait: async (info) => {
+                this.delayedReplyMentions.add(session.sessionId);
+                if (info.waitMs < PersonalityService.LONG_WAIT_NOTICE_THRESHOLD_MS || this.rateLimitNoticeSent.has(session.sessionId)) {
+                    return;
+                }
+
+                this.rateLimitNoticeSent.add(session.sessionId);
+                const minutes = Math.max(1, Math.ceil(info.waitMs / 60_000));
+                await channel.send(
+                    `<@${session.userId}> レート制限のため、あと ${minutes} 分ほど待ってから続けます。返答でき次第メンションします。`
+                ).catch(() => null);
+            }
+        };
+    }
+
+    private enqueuePendingUserAddition(sessionId: string, content: string): void {
+        const normalized = truncateText(content || '', 1600);
+        if (!normalized) {
+            return;
+        }
+
+        const existing = this.pendingUserAdditions.get(sessionId) ?? [];
+        existing.push(normalized);
+        this.pendingUserAdditions.set(sessionId, existing.slice(-6));
+    }
+
+    private consumePendingUserAdditions(sessionId: string): string {
+        const existing = this.pendingUserAdditions.get(sessionId) ?? [];
+        this.pendingUserAdditions.delete(sessionId);
+        return truncateText(existing.join('\n'), 3000);
+    }
+
+    private clearPendingUserAdditions(sessionId: string): void {
+        this.pendingUserAdditions.delete(sessionId);
+    }
+
+    private clearDelayedReplyState(sessionId: string): void {
+        this.delayedReplyMentions.delete(sessionId);
+        this.rateLimitNoticeSent.delete(sessionId);
+    }
+
+    private async mergePendingUserAddition(guildId: string, sessionId: string, extraContent: string): Promise<void> {
+        const normalized = truncateText(extraContent, 3000);
+        if (!normalized) {
+            return;
+        }
+
+        const sessions = await this.getSessions(guildId);
+        const mergedAt = new Date().toISOString();
+        const next = sessions.map((session) => {
+            if (session.sessionId !== sessionId) {
+                return session;
+            }
+
+            const transcript = [...session.transcript];
+            const lastEntry = transcript.at(-1);
+            if (lastEntry?.authorType === 'user') {
+                transcript[transcript.length - 1] = {
+                    ...lastEntry,
+                    content: truncateText(
+                        `${lastEntry.content.trim()}\n${normalized}`.trim(),
+                        PersonalityService.MERGED_USER_TURN_MAX_LENGTH
+                    ),
+                    createdAt: mergedAt
+                };
+            } else {
+                transcript.push({
+                    id: createId('transcript'),
+                    authorId: session.userId,
+                    authorType: 'user',
+                    content: truncateText(normalized, PersonalityService.MERGED_USER_TURN_MAX_LENGTH),
+                    createdAt: mergedAt
+                });
+            }
+
+            return {
+                ...session,
+                updatedAt: mergedAt,
+                transcript
+            };
+        });
+
+        await this.persistSessions(guildId, next);
+    }
+
+    private kickTypingHeartbeat(channel: TextChannel, sessionId: string): void {
+        if (!('sendTyping' in channel) || typeof channel.sendTyping !== 'function') {
+            return;
+        }
+
+        channel.sendTyping().catch(() => null);
+        if (this.typingTimers.has(sessionId)) {
+            return;
+        }
+
+        const timer = setInterval(() => {
+            channel.sendTyping().catch(() => null);
+        }, PersonalityService.TYPING_HEARTBEAT_MS);
+
+        timer.unref?.();
+        this.typingTimers.set(sessionId, timer);
+    }
+
+    private clearTypingHeartbeat(sessionId: string): void {
+        const timer = this.typingTimers.get(sessionId);
+        if (!timer) {
+            return;
+        }
+
+        clearInterval(timer);
+        this.typingTimers.delete(sessionId);
+    }
+
+    private buildAssistantReply(session: PersonalitySession, interviewerName: string, content: string): string {
+        const prefix = this.delayedReplyMentions.has(session.sessionId)
+            ? `<@${session.userId}>\n`
+            : '';
+        this.delayedReplyMentions.delete(session.sessionId);
+        return `${prefix}${this.formatAssistantMessage(interviewerName, content)}`;
     }
 
     private formatAssistantMessage(interviewerName: string, content: string): string {

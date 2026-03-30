@@ -19,6 +19,8 @@ export interface AppConfig {
         apiKey: string;
         apiEndpoint: string;
         defaultModel: string;
+        proxyEndpoints?: string[];
+        rateLimitMaxWaitMs?: number;
     };
 }
 
@@ -57,6 +59,12 @@ export const config: Required<AppConfig> = {
         apiKey: raw.openai?.apiKey || '',
         apiEndpoint: raw.openai?.apiEndpoint || '',
         defaultModel: raw.openai?.defaultModel || '',
+        proxyEndpoints: Array.isArray(raw.openai?.proxyEndpoints)
+            ? raw.openai?.proxyEndpoints.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+            : [],
+        rateLimitMaxWaitMs: typeof raw.openai?.rateLimitMaxWaitMs === 'number' && Number.isFinite(raw.openai.rateLimitMaxWaitMs)
+            ? Math.max(15_000, Math.round(raw.openai.rateLimitMaxWaitMs))
+            : 3 * 60 * 1000,
     },
 };
 
