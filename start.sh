@@ -23,4 +23,4 @@ fi
 
 # Bun起動
 echo "🚀 起動: bun run start"
-bun run start
+/home/ubuntu/.bun/bin/bun run start
