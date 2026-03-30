@@ -1,6 +1,6 @@
 #!/bin/bash
 
-APP_DIR="/root/Discordbot"
+APP_DIR="/home/ubuntu/Discordbot"
 BRANCH="main"
 PROCESS_NAME="bun run start"
 
