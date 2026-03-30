@@ -1,5 +1,5 @@
 import { CacheManager } from '../../utils/CacheManager.js';
-import { DetectionContext, DetectorConfig } from './types.js';
+import { DetectionContext, DetectionResult, DetectorConfig } from './types.js';
 
 export interface RedirectResolution {
     chain: string[];
@@ -40,6 +40,12 @@ export function getDetectorConfig(context: DetectionContext, detectorName: strin
         notifyChannel: false,
         config: {}
     };
+}
+
+export function hasMeaningfulDetection(result: DetectionResult): boolean {
+    return result.scoreDelta > 0
+        || result.reasons.length > 0
+        || !!result.publicNotice;
 }
 
 export function normalizeContent(content: string): string {

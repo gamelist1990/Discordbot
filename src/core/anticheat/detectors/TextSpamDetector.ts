@@ -83,6 +83,19 @@ export class TextSpamDetector implements Detector {
             reasons.push('大文字比率の高いスパム文面を検知しました');
         }
         
+        if (reasons.length === 0) {
+            return {
+                scoreDelta: 0,
+                reasons: [],
+                metadata: {
+                    duplicateCount,
+                    recentCount,
+                    totalMessages: recentMessages.length,
+                    capsRatio
+                }
+            };
+        }
+
         return {
             scoreDelta,
             reasons,

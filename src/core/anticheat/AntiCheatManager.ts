@@ -34,6 +34,7 @@ import { MentionLimitDetector } from './detectors/MentionLimitDetector.js';
 import { MaxLinesDetector } from './detectors/MaxLinesDetector.js';
 import { WordFilterDetector } from './detectors/WordFilterDetector.js';
 import { PunishmentExecutor } from './PunishmentExecutor.js';
+import { hasMeaningfulDetection } from './utils.js';
 
 export class AntiCheatManager {
     private detectors: Map<string, Detector> = new Map();
@@ -272,7 +273,7 @@ export class AntiCheatManager {
 
             try {
                 const result = await detector.detect(message, context);
-                const triggered = result.scoreDelta > 0 || !!result.deleteMessage || !!result.publicNotice;
+                const triggered = hasMeaningfulDetection(result);
                 if (!triggered) {
                     continue;
                 }
@@ -282,7 +283,7 @@ export class AntiCheatManager {
                 allReasons.push(...result.reasons);
                 detectionResults.push({ detector: name, result });
 
-                if ((result.deleteMessage || detectorConfig.deleteMessage) && !messageDeleted) {
+                if (result.deleteMessage && !messageDeleted) {
                     await message.delete().then(() => {
                         messageDeleted = true;
                     }).catch(() => null);
