@@ -126,6 +126,10 @@ async function main() {
         interviewRoomManager.setClient(botClient.client);
         Logger.info('🗂️ InterviewRoomManager を初期化しました');
 
+        const { coreFeatureManager } = await import('./core/corepanel/CoreFeatureManager.js');
+        coreFeatureManager.setClient(botClient.client);
+        Logger.info('🧩 CoreFeatureManager を初期化しました');
+
         // すべてのサーバーにコマンドをデプロイ
         Logger.info('🚀 全サーバーにコマンドをデプロイします...');
         await botClient.deployCommandsToAllGuilds();

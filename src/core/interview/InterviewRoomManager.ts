@@ -66,7 +66,8 @@ const INTERVIEW_ROLE_NAME = '面接室';
 const INTERVIEW_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 const MAX_SESSIONS = 200;
 const MAX_TRANSCRIPT_ENTRIES = 60;
-const CLEANUP_DELAY_MS = 15 * 1000;
+const CLEANUP_DELAY_MS = 60 * 60 * 1000;
+const INACTIVITY_TIMEOUT_MS = 60 * 60 * 1000;
 
 function getSessionsKey(guildId: string): string {
     return `Guild/${guildId}/interviews/sessions`;
@@ -172,6 +173,7 @@ export class InterviewRoomManager {
     private client: Client | null = null;
     private readonly processingSessions = new Set<string>();
     private readonly cleanupTimers = new Map<string, ReturnType<typeof setTimeout>>();
+    private readonly timeoutTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
     setClient(client: Client): void {
         this.client = client;
@@ -307,6 +309,7 @@ export class InterviewRoomManager {
 
         sessions.push(session);
         await this.persistSessions(guild.id, sessions);
+        this.scheduleInactivityTimeout(guild.id, session.sessionId);
 
         const embed = new EmbedBuilder()
             .setTitle('面接室を作成しました')
@@ -344,6 +347,8 @@ export class InterviewRoomManager {
         }
 
         if (message.author.id === session.staffId && message.author.id !== session.userId) {
+            await this.touchSession(message.guild.id, session.sessionId);
+            this.scheduleInactivityTimeout(message.guild.id, session.sessionId);
             return true;
         }
 
@@ -397,6 +402,8 @@ export class InterviewRoomManager {
                 await this.finalizeInterview(message.guild, refreshed, 'rejected', modelResponse.reason, false);
             } else if (modelResponse.verdict === 'terminate') {
                 await this.finalizeInterview(message.guild, refreshed, 'terminated', modelResponse.reason, false);
+            } else {
+                this.scheduleInactivityTimeout(message.guild.id, refreshed.sessionId);
             }
         } catch (error) {
             Logger.error('InterviewRoomManager.onMessage failed:', error);
@@ -411,6 +418,8 @@ export class InterviewRoomManager {
     }
 
     async closeInterviewRoom(guildId: string, sessionId: string, reason = 'スタッフにより終了'): Promise<boolean> {
+        this.clearInactivityTimeout(guildId, sessionId);
+
         const sessions = await this.getSessions(guildId);
         const index = sessions.findIndex((session) => session.sessionId === sessionId);
         if (index === -1) {
@@ -444,6 +453,8 @@ export class InterviewRoomManager {
         reason: string,
         resetTrust: boolean
     ): Promise<void> {
+        this.clearInactivityTimeout(guild.id, session.sessionId);
+
         const beforeTrust = await antiCheatManager.getUserTrust(guild.id, session.userId);
         if (resetTrust) {
             await antiCheatManager.resetTrust(guild.id, session.userId);
@@ -481,7 +492,7 @@ export class InterviewRoomManager {
                 .addFields(
                     { name: '判定前スコア', value: `${beforeTrust.score}`, inline: true },
                     { name: '判定後スコア', value: `${afterTrust.score}`, inline: true },
-                    { name: '終了処理', value: `この部屋は ${Math.floor(CLEANUP_DELAY_MS / 1000)} 秒後に自動で閉じます`, inline: false }
+                    { name: '終了処理', value: 'この部屋は1時間後に自動で閉じます', inline: false }
                 )
                 .setTimestamp();
 
@@ -508,6 +519,52 @@ export class InterviewRoomManager {
 
         timer.unref?.();
         this.cleanupTimers.set(cacheKey, timer);
+    }
+
+    private scheduleInactivityTimeout(guildId: string, sessionId: string): void {
+        const cacheKey = `${guildId}:${sessionId}`;
+        const existingTimer = this.timeoutTimers.get(cacheKey);
+        if (existingTimer) {
+            clearTimeout(existingTimer);
+        }
+
+        const timer = setTimeout(() => {
+            this.timeoutInterview(guildId, sessionId).catch((error) => {
+                Logger.error('Interview room timeout failed:', error);
+            }).finally(() => {
+                this.timeoutTimers.delete(cacheKey);
+            });
+        }, INACTIVITY_TIMEOUT_MS);
+
+        timer.unref?.();
+        this.timeoutTimers.set(cacheKey, timer);
+    }
+
+    private clearInactivityTimeout(guildId: string, sessionId: string): void {
+        const cacheKey = `${guildId}:${sessionId}`;
+        const existingTimer = this.timeoutTimers.get(cacheKey);
+        if (existingTimer) {
+            clearTimeout(existingTimer);
+            this.timeoutTimers.delete(cacheKey);
+        }
+    }
+
+    private async timeoutInterview(guildId: string, sessionId: string): Promise<void> {
+        const sessions = await this.getSessions(guildId);
+        const session = sessions.find((entry) => entry.sessionId === sessionId && entry.status === 'active');
+        if (!session) {
+            return;
+        }
+
+        if (this.client) {
+            const guild = await this.client.guilds.fetch(guildId).catch(() => null);
+            const channel = guild ? await guild.channels.fetch(session.channelId).catch(() => null) : null;
+            if (channel && 'send' in channel) {
+                await (channel as TextChannel).send('⏱️ 1時間無操作のため、この面接は自動終了します。').catch(() => null);
+            }
+        }
+
+        await this.closeInterviewRoom(guildId, sessionId, '1時間無操作のため自動終了');
     }
 
     private async evaluateInterview(guild: Guild, session: InterviewRoomSession): Promise<InterviewModelResponse> {
@@ -580,6 +637,21 @@ export class InterviewRoomManager {
                 transcript: [...session.transcript, entry].slice(-MAX_TRANSCRIPT_ENTRIES)
             };
         });
+
+        await this.persistSessions(guildId, nextSessions);
+    }
+
+    private async touchSession(guildId: string, sessionId: string): Promise<void> {
+        const sessions = await this.getSessions(guildId);
+        const touchedAt = new Date().toISOString();
+        const nextSessions = sessions.map((session) => (
+            session.sessionId === sessionId
+                ? {
+                    ...session,
+                    updatedAt: touchedAt
+                }
+                : session
+        ));
 
         await this.persistSessions(guildId, nextSessions);
     }

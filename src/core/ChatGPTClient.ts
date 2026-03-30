@@ -13,7 +13,7 @@ import {
 } from '../types/openai.js';
 
 interface ChatOptions {
-    model?: ModelSelection;
+    model?: ModelSelectionInput;
     temperature?: number;
     maxTokens?: number;
     topP?: number;
@@ -52,6 +52,7 @@ type ClientAuth = {
 };
 
 export type ModelSelection = ChatGPTModel | string;
+export type ModelSelectionInput = ModelSelection | ModelSelection[];
 
 export class ChatGPTClient {
     public static readonly Model = ChatGPTModel;
@@ -124,35 +125,47 @@ export class ChatGPTClient {
     }
 
     public async resolveModel(options?: ChatOptions): Promise<string> {
+        const candidates = await this.resolveModelCandidates(options);
+        return candidates[0] || this.defaultModel;
+    }
+
+    public async resolveModelCandidates(options?: ChatOptions): Promise<string[]> {
         const auth = this.resolveAuth(options);
-        const preferredModel = this.normalizeModelSelection(options?.model);
+        const preferredModels = this.normalizeModelSelections(options?.model);
         const availableModels = await this.getAvailableModels(auth);
+        const candidates: string[] = [];
 
-        if (preferredModel === ChatGPTModel.Auto || preferredModel === '') {
-            if (this.defaultModel && availableModels.includes(this.defaultModel)) {
-                return this.defaultModel;
+        const pushCandidate = (model: string): void => {
+            const normalized = this.normalizeModelSelection(model);
+            if (!normalized || normalized === ChatGPTModel.Auto || candidates.includes(normalized)) {
+                return;
             }
+            candidates.push(normalized);
+        };
 
-            if (availableModels.length > 0) {
-                return availableModels[0];
+        for (const preferredModel of preferredModels) {
+            if (availableModels.length === 0 || availableModels.includes(preferredModel)) {
+                pushCandidate(preferredModel);
             }
-
-            return this.defaultModel;
         }
 
-        if (preferredModel && availableModels.includes(preferredModel)) {
-            return preferredModel;
+        for (const preferredModel of preferredModels) {
+            pushCandidate(preferredModel);
         }
 
-        if (this.defaultModel && availableModels.includes(this.defaultModel)) {
-            return this.defaultModel;
+        if (this.defaultModel && (availableModels.length === 0 || availableModels.includes(this.defaultModel) || candidates.length === 0)) {
+            pushCandidate(this.defaultModel);
         }
 
-        if (availableModels.length > 0) {
-            return availableModels[0];
+        for (const availableModel of availableModels) {
+            pushCandidate(availableModel);
         }
 
-        return preferredModel || this.defaultModel;
+        if (candidates.length === 0 && this.defaultModel) {
+            pushCandidate(this.defaultModel);
+        }
+
+        return candidates;
     }
 
     public async sendMessage(
@@ -165,22 +178,35 @@ export class ChatGPTClient {
         }
 
         const auth = this.resolveAuth(options);
-        const model = await this.resolveModel(options);
-        if (!model) {
+        const modelCandidates = await this.resolveModelCandidates(options);
+        if (modelCandidates.length === 0) {
             throw new Error('No compatible model could be resolved from the configured endpoint.');
         }
-        const payload = this.buildRequestPayload(messages, options, model, false);
-        const client = this.createClient(auth);
-        const response = await client.chat.completions.create(payload as OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming);
-        const typedResponse = response as unknown as OpenAIChatCompletionResponse;
 
-        const toolCalls = typedResponse.choices[0]?.message?.tool_calls ?? [];
-        if (toolCalls.length > 0) {
-            const nextMessages = await this.executeToolCalls(toolCalls, messages);
-            return this.sendMessage(nextMessages, options, toolRound + 1);
+        const client = this.createClient(auth);
+        let lastError: unknown = null;
+
+        for (const model of modelCandidates) {
+            try {
+                const payload = this.buildRequestPayload(messages, options, model, false);
+                const response = await client.chat.completions.create(payload as OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming);
+                const typedResponse = response as unknown as OpenAIChatCompletionResponse;
+
+                const toolCalls = typedResponse.choices[0]?.message?.tool_calls ?? [];
+                if (toolCalls.length > 0) {
+                    const nextMessages = await this.executeToolCalls(toolCalls, messages);
+                    return this.sendMessage(nextMessages, options, toolRound + 1);
+                }
+
+                return typedResponse;
+            } catch (error) {
+                lastError = error;
+            }
         }
 
-        return typedResponse;
+        throw lastError instanceof Error
+            ? lastError
+            : new Error('No model candidate succeeded.');
     }
 
     public async streamMessage(
@@ -194,38 +220,58 @@ export class ChatGPTClient {
         }
 
         const auth = this.resolveAuth(options);
-        const model = await this.resolveModel(options);
-        if (!model) {
+        const modelCandidates = await this.resolveModelCandidates(options);
+        if (modelCandidates.length === 0) {
             throw new Error('No compatible model could be resolved from the configured endpoint.');
         }
-        const toolDefinitions = Array.from(this.tools.values()).map(tool => tool.definition);
-        const payload = this.buildRequestPayload(messages, options, model, true, toolDefinitions);
         const client = this.createClient(auth);
-        const stream = await client.chat.completions.create(payload as OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming);
+        const toolDefinitions = Array.from(this.tools.values()).map(tool => tool.definition);
+        let lastError: unknown = null;
 
-        const toolCallsBuffer: Map<number, ToolCallBufferItem> = new Map();
+        for (const model of modelCandidates) {
+            const toolCallsBuffer: Map<number, ToolCallBufferItem> = new Map();
+            let emittedChunk = false;
 
-        for await (const chunk of stream as AsyncIterable<unknown>) {
-            const typedChunk = chunk as OpenAIChatCompletionChunk;
-            const deltaToolCalls = typedChunk.choices[0]?.delta?.tool_calls;
+            try {
+                const payload = this.buildRequestPayload(messages, options, model, true, toolDefinitions);
+                const stream = await client.chat.completions.create(payload as OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming);
 
-            if (deltaToolCalls) {
-                for (const toolCall of deltaToolCalls) {
-                    const existing = toolCallsBuffer.get(toolCall.index) || { arguments: '' };
-                    if (toolCall.id) existing.id = toolCall.id;
-                    if (toolCall.function?.name) existing.name = toolCall.function.name;
-                    if (toolCall.function?.arguments) existing.arguments += toolCall.function.arguments;
-                    toolCallsBuffer.set(toolCall.index, existing);
+                for await (const chunk of stream as AsyncIterable<unknown>) {
+                    emittedChunk = true;
+
+                    const typedChunk = chunk as OpenAIChatCompletionChunk;
+                    const deltaToolCalls = typedChunk.choices[0]?.delta?.tool_calls;
+
+                    if (deltaToolCalls) {
+                        for (const toolCall of deltaToolCalls) {
+                            const existing = toolCallsBuffer.get(toolCall.index) || { arguments: '' };
+                            if (toolCall.id) existing.id = toolCall.id;
+                            if (toolCall.function?.name) existing.name = toolCall.function.name;
+                            if (toolCall.function?.arguments) existing.arguments += toolCall.function.arguments;
+                            toolCallsBuffer.set(toolCall.index, existing);
+                        }
+                    }
+
+                    onChunkReceive(typedChunk);
+                }
+
+                if (toolCallsBuffer.size > 0) {
+                    const nextMessages = await this.executeToolCallsFromBuffer(toolCallsBuffer, messages);
+                    await this.streamMessage(nextMessages, onChunkReceive, options, toolRound + 1);
+                }
+
+                return;
+            } catch (error) {
+                lastError = error;
+                if (emittedChunk) {
+                    break;
                 }
             }
-
-            onChunkReceive(typedChunk);
         }
 
-        if (toolCallsBuffer.size > 0) {
-            const nextMessages = await this.executeToolCallsFromBuffer(toolCallsBuffer, messages);
-            await this.streamMessage(nextMessages, onChunkReceive, options, toolRound + 1);
-        }
+        throw lastError instanceof Error
+            ? lastError
+            : new Error('No model candidate succeeded.');
     }
 
     private resolveAuth(options?: ChatOptions): ClientAuth {
@@ -242,6 +288,17 @@ export class ChatGPTClient {
 
         const normalized = String(model).trim();
         return normalized.length > 0 ? normalized : ChatGPTModel.Auto;
+    }
+
+    private normalizeModelSelections(model?: ModelSelectionInput): string[] {
+        if (Array.isArray(model)) {
+            return model
+                .map(entry => this.normalizeModelSelection(entry))
+                .filter(entry => entry !== ChatGPTModel.Auto);
+        }
+
+        const normalized = this.normalizeModelSelection(model);
+        return normalized === ChatGPTModel.Auto ? [] : [normalized];
     }
 
     private getCacheKey(auth: ClientAuth): string {

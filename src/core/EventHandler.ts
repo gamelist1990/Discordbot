@@ -245,13 +245,17 @@ export class EventHandler {
      * SelectMenu および Button インタラクションのハンドリング（ロールパネル）
      */
     private async handleInteraction(interaction: Interaction): Promise<void> {
-        // ロールパネルのインタラクションのみ処理
         if (!interaction.isStringSelectMenu() && !interaction.isButton()) return;
-        if (!interaction.customId.startsWith('rolepanel:')) return;
+        if (interaction.customId.startsWith('rolepanel:')) {
+            const { default: rolePanelCommand } = await import('../commands/staff/subcommands/rolepanel.js');
+            await rolePanelCommand.handleInteraction(interaction as StringSelectMenuInteraction | ButtonInteraction);
+            return;
+        }
 
-        // rolepanel.tsのhandleInteraction関数を呼び出し
-        const { default: rolePanelCommand } = await import('../commands/staff/subcommands/rolepanel.js');
-        await rolePanelCommand.handleInteraction(interaction as StringSelectMenuInteraction | ButtonInteraction);
+        if (interaction.customId.startsWith('corefeature:')) {
+            const { default: corePanelCommand } = await import('../commands/staff/subcommands/corepanel.js');
+            await corePanelCommand.handleInteraction(interaction as ButtonInteraction);
+        }
     }
 
     /**
@@ -277,6 +281,16 @@ export class EventHandler {
             
             // ギルド内のみ
             if (!message.guild) return;
+
+            try {
+                const { coreFeatureManager } = await import('./corepanel/CoreFeatureManager.js');
+                const handled = await coreFeatureManager.onMessage(message);
+                if (handled) {
+                    return;
+                }
+            } catch (error) {
+                Logger.debug('Failed to handle core feature room on messageCreate:', error);
+            }
 
             try {
                 const { interviewRoomManager } = await import('./interview/InterviewRoomManager.js');
