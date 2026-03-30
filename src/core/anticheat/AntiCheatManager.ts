@@ -683,6 +683,14 @@ export class AntiCheatManager {
         return logs.slice(-limit).reverse();
     }
 
+    async getUserLogs(guildId: string, userId: string, limit: number = 20): Promise<DetectionLog[]> {
+        const settings = await this.getSettings(guildId);
+        return settings.recentLogs
+            .filter((entry) => entry.status !== 'revoked' && entry.userId === userId)
+            .slice(-Math.max(1, limit))
+            .reverse();
+    }
+
     async getAllUserTrust(guildId: string): Promise<Record<string, UserTrustData>> {
         const settings = await this.getSettings(guildId);
         return settings.userTrust;

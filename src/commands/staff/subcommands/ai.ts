@@ -2,7 +2,7 @@
 import { ChatInputCommandInteraction, MessageFlags, DiscordAPIError } from 'discord.js';
 import { OpenAIChatManager } from '../../../core/OpenAIChatManager';
 import { OpenAIChatCompletionMessage, OpenAIChatCompletionChunk } from '../../../types/openai';
-import { statusToolDefinition, statusToolHandler, weatherToolDefinition, weatherToolHandler, timeToolDefinition, timeToolHandler, countPhraseToolDefinition, countPhraseToolHandler, userInfoToolDefinition, userInfoToolHandler, memoListDefinition, memoListHandler, memoGetDefinition, memoGetHandler, memoCreateDefinition, memoCreateHandler, memoUpdateDefinition, memoUpdateHandler, memoDeleteDefinition, memoDeleteHandler, memoSearchDefinition, memoSearchHandler, collectHistoryDefinition, collectHistoryHandler, fetchMessageLinkDefinition, fetchMessageLinkHandler } from './ai-tools';
+import { statusToolDefinition, statusToolHandler, weatherToolDefinition, weatherToolHandler, timeToolDefinition, timeToolHandler, countPhraseToolDefinition, countPhraseToolHandler, userInfoToolDefinition, userInfoToolHandler, antiCheatUserProfileDefinition, antiCheatUserProfileHandler, createAntiCheatInterviewDefinition, createAntiCheatInterviewHandler, memoListDefinition, memoListHandler, memoGetDefinition, memoGetHandler, memoCreateDefinition, memoCreateHandler, memoUpdateDefinition, memoUpdateHandler, memoDeleteDefinition, memoDeleteHandler, memoSearchDefinition, memoSearchHandler, collectHistoryDefinition, collectHistoryHandler, fetchMessageLinkDefinition, fetchMessageLinkHandler } from './ai-tools';
 import { PdfRAGManager } from '../../../core/PdfRAGManager';
 import { database } from '../../../core/Database.js';
 
@@ -240,6 +240,9 @@ export const subcommandHandler = {
         chatManager.registerTool(countPhraseToolDefinition,countPhraseToolHandler);
         // ユーザー情報取得
         chatManager.registerTool(userInfoToolDefinition, userInfoToolHandler);
+        // AntiCheat 情報取得 / 面接室作成
+        chatManager.registerTool(antiCheatUserProfileDefinition, antiCheatUserProfileHandler);
+        chatManager.registerTool(createAntiCheatInterviewDefinition, createAntiCheatInterviewHandler);
 
         // メモ管理ツール（create, list, get, update, delete, search）
         chatManager.registerTool(memoListDefinition, memoListHandler);
@@ -398,7 +401,7 @@ export const subcommandHandler = {
             // ストリーミングレスポンスを追加（まず GPT-4o を試す）
             let modelToUse = 'gpt-4o';
 
-            const attemptStream = async (model: string, opts: { apiEndpoint?: string, apiKey?: string } = {}) => {
+            const attemptStream = async (model?: string, opts: { apiEndpoint?: string, apiKey?: string } = {}) => {
                 await chatManager.streamMessage(
                     messages,
                     (chunk: OpenAIChatCompletionChunk) => {
@@ -428,12 +431,11 @@ export const subcommandHandler = {
                     try {
                         await attemptStream(modelToUse);
                     } catch (err2: any) {
-                        console.warn('gpt-4o-mini でも失敗しました。外部フォールバックを試行します: https://capi.voids.top/v2/ (claude-opus-4-5-20251101)');
-                        // 外部互換 API にフォールバック
-                        const fallbackModel = 'claude-opus-4-5-20251101';
+                        console.warn('gpt-4o-mini でも失敗しました。外部フォールバックを試行します: https://capi.voids.top/v2/');
+                        // 外部互換 API にフォールバック。モデルは /v2/models から自動検出する。
                         responseContent = '';
                         lastUpdateTime = Date.now();
-                        await attemptStream(fallbackModel, { apiEndpoint: 'https://capi.voids.top/v2/' });
+                        await attemptStream(undefined, { apiEndpoint: 'https://capi.voids.top/v2/' });
                     }
                 } else {
                     throw error; // 再スロー

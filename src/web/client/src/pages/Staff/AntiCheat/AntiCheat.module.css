@@ -349,6 +349,13 @@
   justify-content: flex-end;
 }
 
+.buttonRow,
+.inlineButtonGroup {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
 .tableWrap {
   overflow-x: auto;
 }
@@ -413,7 +420,9 @@
   .sectionHeader,
   .inlineHeader,
   .detectorHeader,
-  .actionToolbar {
+  .actionToolbar,
+  .buttonRow,
+  .inlineButtonGroup {
     flex-direction: column;
     align-items: stretch;
   }

@@ -122,6 +122,10 @@ async function main() {
         antiCheatManager.setClient(botClient.client);
         Logger.info('🛡️ AntiCheatManager を初期化しました');
 
+        const { interviewRoomManager } = await import('./core/interview/InterviewRoomManager.js');
+        interviewRoomManager.setClient(botClient.client);
+        Logger.info('🗂️ InterviewRoomManager を初期化しました');
+
         // すべてのサーバーにコマンドをデプロイ
         Logger.info('🚀 全サーバーにコマンドをデプロイします...');
         await botClient.deployCommandsToAllGuilds();

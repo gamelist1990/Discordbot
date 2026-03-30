@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { BotClient } from '../../../core/BotClient.js';
 import { antiCheatManager } from '../../../core/anticheat/AntiCheatManager.js';
+import { interviewRoomManager } from '../../../core/interview/InterviewRoomManager.js';
 import { PunishmentExecutor } from '../../../core/anticheat/PunishmentExecutor.js';
 import { GuildAntiCheatSettings, PunishmentAction } from '../../../core/anticheat/types.js';
 import { Logger } from '../../../utils/Logger.js';
@@ -366,6 +367,111 @@ export class AntiCheatController {
         } catch (error) {
             Logger.error('Error getting user trust:', error);
             res.status(500).json({ error: 'Failed to get user trust' });
+        }
+    };
+
+    getInterviews = async (req: Request, res: Response): Promise<void> => {
+        try {
+            const { guildId } = req.params;
+            const limit = parseInt(req.query.limit as string) || 50;
+            const status = req.query.status as string | undefined;
+
+            const session = (req as any).session;
+            if (!session || !hasAccessToGuild(session, guildId)) {
+                res.status(403).json({ error: 'Access denied to this guild' });
+                return;
+            }
+
+            const guild = await this.botClient.client.guilds.fetch(guildId).catch(() => null);
+            const interviews = await interviewRoomManager.listSessions(guildId, limit);
+            const filtered = status
+                ? interviews.filter((entry) => entry.status === status)
+                : interviews;
+
+            const enriched = await Promise.all(filtered.map(async (entry) => {
+                const user = guild ? await guild.members.fetch(entry.userId).catch(() => null) : null;
+                const staff = guild ? await guild.members.fetch(entry.staffId).catch(() => null) : null;
+                const channel = guild ? await guild.channels.fetch(entry.channelId).catch(() => null) : null;
+
+                return {
+                    ...entry,
+                    userName: user?.user.username || '不明',
+                    userDisplayName: user?.displayName || '不明',
+                    staffName: staff?.user.username || '不明',
+                    channelExists: !!channel,
+                    channelUrl: `https://discord.com/channels/${guildId}/${entry.channelId}`
+                };
+            }));
+
+            res.json({ interviews: enriched });
+        } catch (error) {
+            Logger.error('Error getting interview rooms:', error);
+            res.status(500).json({ error: 'Failed to get interviews' });
+        }
+    };
+
+    createInterview = async (req: Request, res: Response): Promise<void> => {
+        try {
+            const { guildId } = req.params;
+            const { userId, title } = req.body as { userId: string; title?: string };
+
+            const session = (req as any).session;
+            if (!session || !hasAccessToGuild(session, guildId)) {
+                res.status(403).json({ error: 'Access denied to this guild' });
+                return;
+            }
+
+            if (!userId || typeof userId !== 'string') {
+                res.status(400).json({ error: 'userId is required' });
+                return;
+            }
+
+            const guild = await this.botClient.client.guilds.fetch(guildId).catch(() => null);
+            if (!guild) {
+                res.status(404).json({ error: 'Guild not found' });
+                return;
+            }
+
+            const interview = await interviewRoomManager.createInterviewRoom(guild, userId, session.userId, title);
+            res.json({
+                success: true,
+                interview: {
+                    ...interview,
+                    channelUrl: `https://discord.com/channels/${guildId}/${interview.channelId}`
+                }
+            });
+        } catch (error) {
+            Logger.error('Error creating interview room:', error);
+            res.status(500).json({ error: error instanceof Error ? error.message : 'Failed to create interview room' });
+        }
+    };
+
+    closeInterview = async (req: Request, res: Response): Promise<void> => {
+        try {
+            const { guildId, sessionId } = req.params;
+            const { reason } = req.body as { reason?: string };
+
+            const session = (req as any).session;
+            if (!session || !hasAccessToGuild(session, guildId)) {
+                res.status(403).json({ error: 'Access denied to this guild' });
+                return;
+            }
+
+            const success = await interviewRoomManager.closeInterviewRoom(
+                guildId,
+                sessionId,
+                reason || `スタッフ ${session.userId} により面接室を終了`
+            );
+
+            if (!success) {
+                res.status(404).json({ error: 'Interview room not found' });
+                return;
+            }
+
+            res.json({ success: true });
+        } catch (error) {
+            Logger.error('Error closing interview room:', error);
+            res.status(500).json({ error: 'Failed to close interview room' });
         }
     };
 }

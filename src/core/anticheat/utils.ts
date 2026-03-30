@@ -1,3 +1,4 @@
+import { isIP } from 'node:net';
 import { CacheManager } from '../../utils/CacheManager.js';
 import { DetectionContext, DetectionResult, DetectorConfig } from './types.js';
 
@@ -7,17 +8,54 @@ export interface RedirectResolution {
     changed: boolean;
 }
 
+export interface RedirectRiskAssessment {
+    level: 'danger';
+    summary: string;
+    suspectUrl: string;
+}
+
 const SAFE_REDIRECT_HOSTS = [
+    'discord.com',
+    'discordapp.com',
+    'discord.gg',
     'google.com',
-    'www.google.com',
     'x.com',
     'twitter.com',
     't.co',
+    'facebook.com',
     'l.facebook.com',
     'lm.facebook.com',
+    'instagram.com',
     'youtu.be',
     'youtube.com',
-    'www.youtube.com'
+    'github.com',
+    'githubusercontent.com',
+    'microsoft.com',
+    'aka.ms',
+    'apple.com',
+    'amazon.com',
+    'amazon.co.jp'
+];
+
+const DANGEROUS_REDIRECT_HOSTS = [
+    'grabify.link',
+    'grabify.org',
+    'grabify.me',
+    'iplogger.org',
+    'iplogger.com',
+    'iplogger.co',
+    'iplogger.info',
+    '2no.co',
+    'yip.su',
+    'bmwforum.co',
+    'blasze.com',
+    'spottyfly.com',
+    'stopify.co'
+];
+
+const DANGEROUS_REDIRECT_TOKENS = [
+    'grabify',
+    'iplogger'
 ];
 
 const REFERRAL_QUERY_KEYS = new Set([
@@ -70,6 +108,10 @@ export function hostMatches(hostname: string, expected: string): boolean {
     return host === domain || host.endsWith(`.${domain}`);
 }
 
+function normalizeHostname(hostname: string): string {
+    return hostname.trim().toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '');
+}
+
 export function isDiscordInvite(input: string): boolean {
     try {
         const url = new URL(ensureAbsoluteUrl(input));
@@ -86,6 +128,60 @@ export function isKnownSafeRedirectHost(hostname: string, extraAllowDomains: str
     return [...SAFE_REDIRECT_HOSTS, ...extraAllowDomains].some((domain) => hostMatches(hostname, domain));
 }
 
+export function isKnownDangerousRedirectHost(hostname: string): boolean {
+    const normalizedHost = normalizeHostname(hostname);
+    return DANGEROUS_REDIRECT_HOSTS.some((domain) => hostMatches(normalizedHost, domain))
+        || DANGEROUS_REDIRECT_TOKENS.some((token) => normalizedHost.includes(token));
+}
+
+function isPrivateOrLocalIpv4(host: string): boolean {
+    const octets = host.split('.').map((part) => Number(part));
+    if (octets.length !== 4 || octets.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) {
+        return false;
+    }
+
+    const [first, second] = octets;
+
+    return first === 0
+        || first === 10
+        || first === 127
+        || (first === 100 && second >= 64 && second <= 127)
+        || (first === 169 && second === 254)
+        || (first === 172 && second >= 16 && second <= 31)
+        || (first === 192 && second === 168);
+}
+
+function isPrivateOrLocalIpv6(host: string): boolean {
+    const normalized = host.toLowerCase();
+    return normalized === '::1'
+        || normalized === '::'
+        || normalized.startsWith('fc')
+        || normalized.startsWith('fd')
+        || normalized.startsWith('fe8')
+        || normalized.startsWith('fe9')
+        || normalized.startsWith('fea')
+        || normalized.startsWith('feb')
+        || normalized.startsWith('::ffff:127.');
+}
+
+export function isLocalOrSpecialNetworkHost(hostname: string): boolean {
+    const normalizedHost = normalizeHostname(hostname);
+    const ipType = isIP(normalizedHost);
+
+    if (ipType === 4) {
+        return isPrivateOrLocalIpv4(normalizedHost);
+    }
+
+    if (ipType === 6) {
+        return isPrivateOrLocalIpv6(normalizedHost);
+    }
+
+    return hostMatches(normalizedHost, 'localhost')
+        || normalizedHost.endsWith('.local')
+        || normalizedHost.endsWith('.internal')
+        || normalizedHost.endsWith('.lan');
+}
+
 export function urlHasReferralPattern(input: string): boolean {
     try {
         const url = new URL(ensureAbsoluteUrl(input));
@@ -98,6 +194,65 @@ export function urlHasReferralPattern(input: string): boolean {
     } catch {
         return false;
     }
+}
+
+function getDangerousRedirectSummary(input: string, extraAllowDomains: string[] = []): string | null {
+    try {
+        const url = new URL(input);
+        if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+            return 'HTTP/HTTPS 以外の危険な転送先が含まれています';
+        }
+
+        if (isKnownSafeRedirectHost(url.hostname, extraAllowDomains)) {
+            return null;
+        }
+
+        if (isKnownDangerousRedirectHost(url.hostname)) {
+            return 'IPロガーとして知られるドメインを経由しています';
+        }
+
+        if (isLocalOrSpecialNetworkHost(url.hostname)) {
+            return 'ローカルネットワークまたは特殊IPへの転送が含まれています';
+        }
+
+        return null;
+    } catch {
+        return '解析できない不審な転送先が含まれています';
+    }
+}
+
+export function assessRedirectRisk(
+    resolution: RedirectResolution,
+    extraAllowDomains: string[] = []
+): RedirectRiskAssessment | null {
+    for (const url of resolution.chain) {
+        const summary = getDangerousRedirectSummary(url, extraAllowDomains);
+        if (summary) {
+            return {
+                level: 'danger',
+                summary,
+                suspectUrl: url
+            };
+        }
+    }
+
+    if (isDiscordInvite(resolution.finalUrl)) {
+        return {
+            level: 'danger',
+            summary: '最終到達先がDiscord招待リンクです',
+            suspectUrl: resolution.finalUrl
+        };
+    }
+
+    if (urlHasReferralPattern(resolution.finalUrl)) {
+        return {
+            level: 'danger',
+            summary: '最終到達先に紹介・アフィリエイト系パラメータが含まれています',
+            suspectUrl: resolution.finalUrl
+        };
+    }
+
+    return null;
 }
 
 export function scoreBuckets(actual: number, limit: number): number {

@@ -150,7 +150,18 @@ export const DEFAULT_ANTICHEAT_SETTINGS: GuildAntiCheatSettings = {
             deleteMessage: true,
             notifyChannel: true,
             config: {
-                allowDomains: ['google.com', 'x.com', 'twitter.com', 't.co'],
+                allowDomains: [
+                    'discord.com',
+                    'discordapp.com',
+                    'discord.gg',
+                    'google.com',
+                    'x.com',
+                    'twitter.com',
+                    't.co',
+                    'youtube.com',
+                    'youtu.be',
+                    'github.com'
+                ],
                 maxDepth: 5,
                 timeoutMs: 2500
             }

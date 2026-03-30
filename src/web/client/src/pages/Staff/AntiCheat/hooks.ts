@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { AntiCheatSettings, DetectionLog, UserTrustDataWithUser, PunishmentAction } from './types';
+import { AntiCheatSettings, DetectionLog, InterviewRoomSession, UserTrustDataWithUser, PunishmentAction } from './types';
 
 const API_BASE = '/api/staff/anticheat';
 
@@ -182,6 +182,101 @@ export function useAntiCheatActions(guildId: string) {
     }, [guildId]);
 
     return { executeAction, revokeTimeout, resetTrust, executing, error };
+}
+
+export function useInterviewRooms(guildId: string, status?: string) {
+    const [interviews, setInterviews] = useState<InterviewRoomSession[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+
+    const fetchInterviews = useCallback(async () => {
+        try {
+            setLoading(true);
+            const url = new URL(`${API_BASE}/${guildId}/interviews`, window.location.origin);
+            if (status) {
+                url.searchParams.set('status', status);
+            }
+
+            const response = await fetch(url.toString(), {
+                credentials: 'include'
+            });
+
+            if (!response.ok) {
+                throw new Error(`Failed to fetch interview rooms: ${response.statusText}`);
+            }
+
+            const data = await response.json();
+            setInterviews(data.interviews || []);
+            setError(null);
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Unknown error');
+        } finally {
+            setLoading(false);
+        }
+    }, [guildId, status]);
+
+    useEffect(() => {
+        fetchInterviews();
+    }, [fetchInterviews]);
+
+    return { interviews, loading, error, refetch: fetchInterviews };
+}
+
+export function useInterviewActions(guildId: string) {
+    const [executing, setExecuting] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+
+    const createInterviewRoom = useCallback(async (userId: string, title?: string) => {
+        try {
+            setExecuting(true);
+            const response = await fetch(`${API_BASE}/${guildId}/interviews`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({ userId, title })
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.error || `Failed to create interview room: ${response.statusText}`);
+            }
+
+            setError(null);
+            return await response.json();
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Unknown error');
+            return null;
+        } finally {
+            setExecuting(false);
+        }
+    }, [guildId]);
+
+    const closeInterviewRoom = useCallback(async (sessionId: string, reason?: string) => {
+        try {
+            setExecuting(true);
+            const response = await fetch(`${API_BASE}/${guildId}/interviews/${sessionId}/close`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({ reason })
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.error || `Failed to close interview room: ${response.statusText}`);
+            }
+
+            setError(null);
+            return true;
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Unknown error');
+            return false;
+        } finally {
+            setExecuting(false);
+        }
+    }, [guildId]);
+
+    return { createInterviewRoom, closeInterviewRoom, executing, error };
 }
 
 /**

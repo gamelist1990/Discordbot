@@ -9,6 +9,7 @@ export { weatherToolDefinition, weatherToolHandler } from './weather';
 export { timeToolDefinition, timeToolHandler } from './time';
 export { countPhraseToolDefinition, countPhraseToolHandler } from './count_phrase';
 export { userInfoToolDefinition, userInfoToolHandler } from './user_info';
+export { antiCheatUserProfileDefinition, antiCheatUserProfileHandler, createAntiCheatInterviewDefinition, createAntiCheatInterviewHandler } from './anticheat';
 export { memoListDefinition, memoListHandler, memoGetDefinition, memoGetHandler, memoCreateDefinition, memoCreateHandler, memoUpdateDefinition, memoUpdateHandler, memoDeleteDefinition, memoDeleteHandler, memoSearchDefinition, memoSearchHandler } from './memo';
 export { collectHistoryDefinition, collectHistoryHandler, fetchMessageLinkDefinition, fetchMessageLinkHandler } from './history';
 

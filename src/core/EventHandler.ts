@@ -279,6 +279,16 @@ export class EventHandler {
             if (!message.guild) return;
 
             try {
+                const { interviewRoomManager } = await import('./interview/InterviewRoomManager.js');
+                const handled = await interviewRoomManager.onMessage(message);
+                if (handled) {
+                    return;
+                }
+            } catch (error) {
+                Logger.debug('Failed to handle interview room on messageCreate:', error);
+            }
+
+            try {
                 // Rank XP 処理
                 const { rankManager } = await import('./RankManager.js');
                 const member = message.member;

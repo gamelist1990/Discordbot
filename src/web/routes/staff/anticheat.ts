@@ -24,6 +24,11 @@ export function createAntiCheatRoutes(
     // Get detection logs
     router.get('/:guildId/logs', verifyAuth(sessions), controller.getLogs.bind(controller));
 
+    // Interview room list / creation / close
+    router.get('/:guildId/interviews', verifyAuth(sessions), controller.getInterviews.bind(controller));
+    router.post('/:guildId/interviews', verifyAuth(sessions), controller.createInterview.bind(controller));
+    router.post('/:guildId/interviews/:sessionId/close', verifyAuth(sessions), controller.closeInterview.bind(controller));
+
     // Execute manual punishment action
     router.post('/:guildId/action', verifyAuth(sessions), controller.executeAction.bind(controller));
 

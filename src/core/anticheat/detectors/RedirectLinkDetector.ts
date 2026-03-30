@@ -1,26 +1,13 @@
 import { Message } from 'discord.js';
 import { Detector, DetectionContext, DetectionResult } from '../types.js';
 import {
+    assessRedirectRisk,
     ensureAbsoluteUrl,
     extractUrls,
     getDetectorConfig,
     isDiscordInvite,
-    isKnownSafeRedirectHost,
-    resolveRedirectChain,
-    urlHasReferralPattern
+    resolveRedirectChain
 } from '../utils.js';
-
-function inferRiskLevel(finalUrl: string): { level: 'warning' | 'danger'; summary: string } {
-    if (isDiscordInvite(finalUrl)) {
-        return { level: 'danger', summary: '最終到達先がDiscord招待リンクです' };
-    }
-
-    if (urlHasReferralPattern(finalUrl)) {
-        return { level: 'danger', summary: '最終到達先に紹介・アフィリエイト系パラメータが含まれています' };
-    }
-
-    return { level: 'warning', summary: '未知のリダイレクトドメイン経由のリンクです' };
-}
 
 export class RedirectLinkDetector implements Detector {
     name = 'redirectLink';
@@ -36,8 +23,7 @@ export class RedirectLinkDetector implements Detector {
         for (const rawUrl of urls) {
             try {
                 const preparedUrl = ensureAbsoluteUrl(rawUrl);
-                const parsed = new URL(preparedUrl);
-                if (isKnownSafeRedirectHost(parsed.hostname, allowDomains) || isDiscordInvite(preparedUrl)) {
+                if (isDiscordInvite(preparedUrl)) {
                     continue;
                 }
 
@@ -46,23 +32,29 @@ export class RedirectLinkDetector implements Detector {
                     continue;
                 }
 
-                const risk = inferRiskLevel(resolution.finalUrl);
+                const risk = assessRedirectRisk(resolution, allowDomains);
+                if (!risk) {
+                    continue;
+                }
+
                 return {
                     scoreDelta: detectorConfig.score,
                     reasons: [risk.summary],
                     metadata: {
                         originalUrl: preparedUrl,
                         finalUrl: resolution.finalUrl,
-                        chain: resolution.chain
+                        chain: resolution.chain,
+                        suspectUrl: risk.suspectUrl
                     },
                     deleteMessage: detectorConfig.deleteMessage !== false,
                     publicNotice: {
-                        title: 'リダイレクトリンクをブロックしました',
-                        description: '短縮URLや未知の中継ドメインを使ったリンクは、安全確認のため一度停止されます。',
+                        title: '危険な転送リンクをブロックしました',
+                        description: 'IPロガーや不審な中継先、隠された招待・紹介リンクを含むため停止しました。',
                         level: risk.level,
                         fields: [
                             { name: '元のリンク', value: preparedUrl, inline: false },
                             { name: '到達先', value: resolution.finalUrl, inline: false },
+                            { name: '危険箇所', value: risk.suspectUrl, inline: false },
                             { name: '判定', value: risk.summary, inline: false }
                         ],
                         footer: 'アクセスする場合は自己責任で確認してください。'
