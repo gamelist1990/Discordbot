@@ -26,6 +26,7 @@ import {
     clamp,
     createId,
     extractJsonObject,
+    isPersonalityKey,
     pickAiPersonaName,
     summarizeTranscript,
     truncateText,
@@ -39,6 +40,7 @@ import {
     requestCoreFeaturePersonaNames
 } from '../model.js';
 import {
+    PersonalityProfileHistoryEntry,
     PersonalityEvaluationResponse,
     PersonalityKey,
     PersonalityProfile,
@@ -285,6 +287,8 @@ export class PersonalityService {
         session: PersonalitySession,
         hooks?: CoreFeatureModelHooks
     ): Promise<PersonalityEvaluationResponse> {
+        const profile = await this.getProfile(session.userId, session.guildId);
+        const priorProfileContext = this.buildPriorProfileContext(profile);
         const userTurns = session.transcript.filter((entry) => entry.authorType === 'user').length;
         const latestUserAnswer = [...session.transcript]
             .reverse()
@@ -306,6 +310,8 @@ export class PersonalityService {
             '実際の面接官のように、これまでの会話内容から次に聞くべき質問を自分で判断してください。',
             '1回の返答では質問は1つだけ、簡潔に行ってください。',
             '会話の具体性、誇張、責任転嫁、煽り癖、暴走傾向、混沌性、奇行性、衝動性、虚言傾向、虚飾性、支援性、創造性などを丁寧に見てください。',
+            '過去の面談結果がある場合、それは参考資料です。今回の会話を最優先にしつつ、前回と同じ傾向が続いているのか、変化したのか、前回が誤判定だったのかを見極めてください。',
+            '過去結果があるときは、その妥当性を確認または反証できる質問を優先してください。',
             `ユーザー回答が ${PERSONALITY_MIN_USER_TURNS} 回に達するまでは、complete を false に固定し、必ず追加の質問を返してください。`,
             `ユーザー回答が ${PERSONALITY_MAX_USER_TURNS} 回に達したら、必ず最終判定してください。`,
             'complete が false のとき personality_key は null にしてください。',
@@ -324,6 +330,7 @@ export class PersonalityService {
             `候補一覧:\n${archetypeSummary}`,
             `回答回数: ${userTurns}/${PERSONALITY_MAX_USER_TURNS}`,
             `直前のユーザー回答: ${latestUserAnswer || 'なし'}`,
+            priorProfileContext ? `過去の面談結果の要約:\n${priorProfileContext}` : '過去の面談結果: なし',
             `面談ログ:\n${transcriptSummary}`
         ].join('\n\n');
 
@@ -335,7 +342,7 @@ export class PersonalityService {
         const parsed = validatePersonalityEvaluation(extractJsonObject(raw));
 
         if (userTurns < PERSONALITY_MIN_USER_TURNS) {
-            return await this.buildContinuationResponse(parsed, latestUserAnswer, transcriptSummary, hooks);
+            return await this.buildContinuationResponse(parsed, latestUserAnswer, transcriptSummary, priorProfileContext, hooks);
         }
 
         if (parsed?.complete && parsed.personality_key) {
@@ -343,7 +350,7 @@ export class PersonalityService {
         }
 
         if (userTurns < PERSONALITY_MAX_USER_TURNS) {
-            return await this.buildContinuationResponse(parsed, latestUserAnswer, transcriptSummary, hooks);
+            return await this.buildContinuationResponse(parsed, latestUserAnswer, transcriptSummary, priorProfileContext, hooks);
         }
 
         return this.forceFinalize(session, hooks);
@@ -391,6 +398,7 @@ export class PersonalityService {
         parsed: PersonalityEvaluationResponse | null,
         latestUserAnswer: string,
         transcriptSummary: string,
+        priorProfileContext: string,
         hooks?: CoreFeatureModelHooks
     ): Promise<PersonalityEvaluationResponse> {
         const reply = parsed && !parsed.complete && this.looksLikeFollowUpQuestion(parsed.reply)
@@ -400,6 +408,7 @@ export class PersonalityService {
                 transcriptSummary,
                 parsed?.reason?.trim() || '',
                 parsed?.traits ?? [],
+                priorProfileContext,
                 hooks
             );
 
@@ -430,6 +439,8 @@ export class PersonalityService {
         session: PersonalitySession,
         hooks?: CoreFeatureModelHooks
     ): Promise<PersonalityEvaluationResponse> {
+        const profile = await this.getProfile(session.userId, session.guildId);
+        const priorProfileContext = this.buildPriorProfileContext(profile);
         const archetypeSummary = Object.entries(PERSONALITY_ARCHETYPES)
             .map(([key, value]) => `- ${key}: ${value.label} / ${value.summary}`)
             .join('\n');
@@ -437,6 +448,7 @@ export class PersonalityService {
         const systemPrompt = [
             'あなたは Discord コミュニティ用の性格ロール分類 AI です。',
             '病名断定は禁止です。コミュニティ内の行動傾向ロールを1つ選びます。',
+            '過去の面談結果がある場合、それは参考資料として扱い、今回の会話だけで覆るだけの十分な材料があるかも見てください。',
             '追加質問はせず、そのまま判定を返します。',
             '出力は JSON のみで、キーは reply, complete, personality_key, reason, confidence, traits です。',
             'complete は必ず true にしてください。'
@@ -444,6 +456,7 @@ export class PersonalityService {
 
         const userPrompt = [
             `候補一覧:\n${archetypeSummary}`,
+            priorProfileContext ? `過去の面談結果の要約:\n${priorProfileContext}` : '過去の面談結果: なし',
             `面談ログ:\n${summarizeTranscript(session.transcript, 24)}`
         ].join('\n\n');
 
@@ -475,6 +488,8 @@ export class PersonalityService {
         evaluation: PersonalityEvaluationResponse,
         hooks?: CoreFeatureModelHooks
     ): Promise<number> {
+        const profile = await this.getProfile(session.userId, session.guildId);
+        const priorProfileContext = this.buildPriorProfileContext(profile);
         const heuristic = this.estimateConfidenceFromEvidence(session, evaluation);
         const userTurns = session.transcript.filter((entry) => entry.authorType === 'user').length;
         const calibration = evaluation.personality_key
@@ -485,6 +500,7 @@ export class PersonalityService {
                 userTurns,
                 summarizeTranscript(session.transcript, 24),
                 heuristic,
+                priorProfileContext,
                 hooks
             )
             : null;
@@ -513,7 +529,11 @@ export class PersonalityService {
             && Math.abs(evaluation.confidence - calibration) >= 20
         ) ? 4 : 0;
 
-        return clamp(Math.round(Math.min(blended, evidenceCap) - disagreementPenalty), 18, 96);
+        const historyAdjustment = evaluation.personality_key
+            ? this.computeHistoryConfidenceAdjustment(profile, evaluation.personality_key, evidenceCap)
+            : 0;
+
+        return clamp(Math.round(Math.min(blended, evidenceCap) - disagreementPenalty + historyAdjustment), 18, 96);
     }
 
     private estimateConfidenceFromEvidence(session: PersonalitySession, evaluation: PersonalityEvaluationResponse): number {
@@ -570,6 +590,77 @@ export class PersonalityService {
         return clamp((lengthScore * 0.6) + signalScore, 0, 1);
     }
 
+    private buildPriorProfileContext(profile: PersonalityProfile): string {
+        const history = profile.history.slice(0, 3);
+        const lines: string[] = [];
+
+        if (profile.assignedKey) {
+            const label = PERSONALITY_ARCHETYPES[profile.assignedKey]?.label || profile.assignedKey;
+            lines.push(`直近判定: ${label}`);
+            if (typeof profile.confidence === 'number') {
+                lines.push(`直近信頼度: ${profile.confidence}%`);
+            }
+            if (profile.traits.length > 0) {
+                lines.push(`直近傾向タグ: ${profile.traits.join(' / ')}`);
+            }
+            if (profile.reason) {
+                lines.push(`直近メモ: ${truncateText(profile.reason, 180)}`);
+            }
+        }
+
+        if (history.length > 0) {
+            const historyText = history.map((entry, index) => {
+                const label = PERSONALITY_ARCHETYPES[entry.assignedKey]?.label || entry.assignedKey;
+                const confidenceText = typeof entry.confidence === 'number' ? ` / ${entry.confidence}%` : '';
+                const traitText = entry.traits.length > 0 ? ` / ${entry.traits.join(', ')}` : '';
+                return `${index + 1}. ${label}${confidenceText}${traitText}`;
+            }).join('\n');
+            lines.push(`最近の履歴:\n${historyText}`);
+        }
+
+        return lines.join('\n').trim();
+    }
+
+    private computeHistoryConfidenceAdjustment(
+        profile: PersonalityProfile,
+        nextKey: PersonalityKey,
+        evidenceCap: number
+    ): number {
+        const recentHistory = profile.history.slice(0, 3);
+        if (recentHistory.length === 0 && !profile.assignedKey) {
+            return 0;
+        }
+
+        let adjustment = 0;
+        const currentStrongMatch = profile.assignedKey === nextKey && typeof profile.confidence === 'number' && profile.confidence >= 68;
+        if (currentStrongMatch) {
+            adjustment += 3;
+        }
+
+        const matchingHistory = recentHistory.filter((entry) => entry.assignedKey === nextKey);
+        const strongConflicts = recentHistory.filter((entry) => entry.assignedKey !== nextKey && typeof entry.confidence === 'number' && entry.confidence >= 72);
+
+        if (matchingHistory.length >= 2) {
+            adjustment += 3;
+        } else if (matchingHistory.length === 1 && (matchingHistory[0].confidence ?? 0) >= 65) {
+            adjustment += 1;
+        }
+
+        if (strongConflicts.length > 0 && evidenceCap < 78) {
+            adjustment -= Math.min(5, strongConflicts.length * 2);
+        }
+
+        return adjustment;
+    }
+
+    private pushProfileHistory(
+        history: PersonalityProfileHistoryEntry[],
+        nextEntry: PersonalityProfileHistoryEntry
+    ): PersonalityProfileHistoryEntry[] {
+        const normalized = Array.isArray(history) ? history.filter((entry) => entry.sessionId !== nextEntry.sessionId) : [];
+        return [nextEntry, ...normalized].slice(0, 8);
+    }
+
     private async finalize(
         guild: Guild,
         session: PersonalitySession,
@@ -608,7 +699,17 @@ export class PersonalityService {
         profile.assignedAt = active.updatedAt;
         profile.cooldownUntil = active.cooldownUntil;
         profile.lastSessionId = active.sessionId;
+        profile.confidence = resolvedConfidence;
+        profile.reason = evaluation.reason;
         profile.traits = evaluation.traits;
+        profile.history = this.pushProfileHistory(profile.history, {
+            sessionId: active.sessionId,
+            assignedKey: personalityKey,
+            confidence: resolvedConfidence,
+            reason: evaluation.reason,
+            traits: evaluation.traits,
+            recordedAt: active.updatedAt
+        });
         await this.saveProfile(profile);
 
         const channel = await guild.channels.fetch(active.channelId).catch(() => null);
@@ -883,7 +984,27 @@ export class PersonalityService {
         if (stored) {
             return {
                 ...stored,
-                traits: Array.isArray(stored.traits) ? stored.traits : []
+                traits: Array.isArray(stored.traits) ? stored.traits : [],
+                confidence: typeof stored.confidence === 'number' ? stored.confidence : null,
+                reason: typeof stored.reason === 'string' ? stored.reason : null,
+                history: Array.isArray(stored.history)
+                    ? stored.history
+                        .filter((entry): entry is PersonalityProfileHistoryEntry => Boolean(entry) && typeof entry === 'object')
+                        .map((entry) => ({
+                            sessionId: typeof entry.sessionId === 'string' ? entry.sessionId : createId('legacy-profile'),
+                            assignedKey: isPersonalityKey(entry.assignedKey) ? entry.assignedKey : null,
+                            confidence: typeof entry.confidence === 'number' ? entry.confidence : null,
+                            reason: typeof entry.reason === 'string' ? entry.reason : '',
+                            traits: Array.isArray(entry.traits) ? entry.traits.filter((value): value is string => typeof value === 'string').slice(0, 6) : [],
+                            recordedAt: typeof entry.recordedAt === 'string'
+                                ? entry.recordedAt
+                                : typeof stored.assignedAt === 'string'
+                                    ? stored.assignedAt
+                                    : new Date().toISOString()
+                        }))
+                        .filter((entry): entry is PersonalityProfileHistoryEntry => entry.assignedKey !== null)
+                        .slice(0, 8)
+                    : []
             };
         }
 
@@ -895,7 +1016,10 @@ export class PersonalityService {
             assignedAt: null,
             cooldownUntil: null,
             lastSessionId: null,
-            traits: []
+            confidence: null,
+            reason: null,
+            traits: [],
+            history: []
         };
     }
 

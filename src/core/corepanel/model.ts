@@ -115,12 +115,14 @@ export async function requestCoreFeatureNaturalFollowUp(
     transcriptSummary: string,
     provisionalReason: string,
     provisionalTraits: string[],
+    priorProfileContext?: string,
     hooks?: CoreFeatureModelHooks
 ): Promise<string> {
     const userPrompt = [
         `直前のユーザー回答: ${latestUserAnswer || 'なし'}`,
         `現時点の仮説メモ: ${provisionalReason || 'まだ仮説は弱い'}`,
         `現時点の傾向タグ: ${provisionalTraits.length > 0 ? provisionalTraits.join(', ') : '未確定'}`,
+        priorProfileContext ? `過去の面談結果の要約:\n${priorProfileContext}` : '過去の面談結果: なし',
         `ここまでの面談ログ:\n${transcriptSummary}`
     ].join('\n');
     const systemPrompts = [
@@ -177,6 +179,7 @@ export async function requestCoreFeatureConfidenceCalibration(
     userTurns: number,
     transcriptSummary: string,
     heuristicConfidence: number,
+    priorProfileContext?: string,
     hooks?: CoreFeatureModelHooks
 ): Promise<number | null> {
     const systemPrompt = [
@@ -193,6 +196,7 @@ export async function requestCoreFeatureConfidenceCalibration(
         `傾向タグ: ${traits.length > 0 ? traits.join(', ') : 'なし'}`,
         `ユーザー回答数: ${userTurns}`,
         `ヒューリスティック信頼度: ${heuristicConfidence}`,
+        priorProfileContext ? `過去の面談結果の要約:\n${priorProfileContext}` : '過去の面談結果: なし',
         `面談ログ要約:\n${transcriptSummary}`
     ].join('\n\n');
 

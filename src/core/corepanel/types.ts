@@ -74,7 +74,19 @@ export interface PersonalityProfile {
     assignedAt: string | null;
     cooldownUntil: string | null;
     lastSessionId: string | null;
+    confidence: number | null;
+    reason: string | null;
     traits: string[];
+    history: PersonalityProfileHistoryEntry[];
+}
+
+export interface PersonalityProfileHistoryEntry {
+    sessionId: string;
+    assignedKey: PersonalityKey;
+    confidence: number | null;
+    reason: string;
+    traits: string[];
+    recordedAt: string;
 }
 
 export interface DebateSession {
