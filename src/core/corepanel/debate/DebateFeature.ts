@@ -18,10 +18,18 @@ import { CoreFeaturePanelKind, DebateOpponentType } from '../types.js';
 import { isStaffMember } from '../guildUtils.js';
 
 export class DebateFeature implements CoreFeatureModule {
+    private static readonly ENTRY_TOKEN_TTL_MS = 10 * 60 * 1000;
+
     readonly key = 'debate';
     readonly order = 20;
     private readonly service = new DebateService();
     private api: CoreFeatureApi | null = null;
+    private readonly entryTokens = new Map<string, {
+        userId: string;
+        guildId: string;
+        expiresAt: number;
+        timeout: ReturnType<typeof setTimeout>;
+    }>();
 
     register(api: CoreFeatureApi): void {
         this.api = api;
@@ -53,18 +61,24 @@ export class DebateFeature implements CoreFeatureModule {
 
         if (action === 'entry') {
             const staff = await isStaffMember(interaction.guild, interaction.user.id);
+            const token = this.issueEntryToken(interaction.guild.id, interaction.user.id);
             await interaction.reply({
                 content: staff
                     ? '対戦形式を選んでください。スタッフは AI vs AI の観戦用マッチも作成できます。'
                     : '対戦形式を選んでください。AI 対戦は誰でも、論破王対戦は論破王のみ作成できます。',
-                components: this.buildModeRows(interaction.guild.id, panelKind, staff),
+                components: this.buildModeRows(interaction.guild.id, panelKind, staff, token),
                 ephemeral: true
             });
             return true;
         }
 
         if (action === 'choose') {
-            const opponentType = parts[0] as DebateOpponentType;
+            const token = parts[0];
+            const opponentType = parts[1] as DebateOpponentType;
+            if (!this.consumeEntryToken(token, interaction.guild.id, interaction.user.id)) {
+                throw new Error('この対戦選択メニューは期限切れか、すでに使用済みです。もう一度「レスバ」ボタンを押してください。');
+            }
+
             if (!['ai', 'king', 'ai_vs_ai'].includes(opponentType)) {
                 throw new Error('不明な対戦形式です。');
             }
@@ -115,14 +129,14 @@ export class DebateFeature implements CoreFeatureModule {
         };
     }
 
-    private buildModeRows(guildId: string, panelKind: CoreFeaturePanelKind, includeStaffModes: boolean): ActionRowBuilder<ButtonBuilder>[] {
+    private buildModeRows(guildId: string, panelKind: CoreFeaturePanelKind, includeStaffModes: boolean, token: string): ActionRowBuilder<ButtonBuilder>[] {
         const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
             new ButtonBuilder()
-                .setCustomId(`corefeature:${guildId}:${panelKind}:debate:choose:ai`)
+                .setCustomId(`corefeature:${guildId}:${panelKind}:debate:choose:${token}:ai`)
                 .setLabel('AIと対戦')
                 .setStyle(ButtonStyle.Primary),
             new ButtonBuilder()
-                .setCustomId(`corefeature:${guildId}:${panelKind}:debate:choose:king`)
+                .setCustomId(`corefeature:${guildId}:${panelKind}:debate:choose:${token}:king`)
                 .setLabel('論破王と対戦')
                 .setStyle(ButtonStyle.Secondary)
         );
@@ -130,7 +144,7 @@ export class DebateFeature implements CoreFeatureModule {
         if (includeStaffModes) {
             row.addComponents(
                 new ButtonBuilder()
-                    .setCustomId(`corefeature:${guildId}:${panelKind}:debate:choose:ai_vs_ai`)
+                    .setCustomId(`corefeature:${guildId}:${panelKind}:debate:choose:${token}:ai_vs_ai`)
                     .setLabel('AI vs AI')
                     .setStyle(ButtonStyle.Success)
             );
@@ -172,6 +186,41 @@ export class DebateFeature implements CoreFeatureModule {
         );
 
         return modal;
+    }
+
+    private issueEntryToken(guildId: string, userId: string): string {
+        const token = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+        const timeout = setTimeout(() => {
+            this.entryTokens.delete(token);
+        }, DebateFeature.ENTRY_TOKEN_TTL_MS);
+
+        timeout.unref?.();
+        this.entryTokens.set(token, {
+            userId,
+            guildId,
+            expiresAt: Date.now() + DebateFeature.ENTRY_TOKEN_TTL_MS,
+            timeout
+        });
+        return token;
+    }
+
+    private consumeEntryToken(token: string | undefined, guildId: string, userId: string): boolean {
+        if (!token) {
+            return false;
+        }
+
+        const record = this.entryTokens.get(token);
+        if (!record) {
+            return false;
+        }
+
+        clearTimeout(record.timeout);
+        this.entryTokens.delete(token);
+        return (
+            record.guildId === guildId
+            && record.userId === userId
+            && record.expiresAt > Date.now()
+        );
     }
 
     private async handleCreateModal(interaction: ModalSubmitInteraction, panelKind: CoreFeaturePanelKind, opponentType: DebateOpponentType): Promise<void> {

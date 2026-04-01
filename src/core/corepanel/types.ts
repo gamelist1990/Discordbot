@@ -53,6 +53,8 @@ export interface PersonalitySession {
     channelId: string;
     categoryId: string;
     userId: string;
+    userName: string;
+    userDisplayName: string;
     interviewerName: string;
     status: PersonalitySessionStatus;
     createdAt: string;
@@ -95,8 +97,14 @@ export interface DebateSession {
     channelId: string;
     categoryId: string;
     hostUserId: string;
+    hostUserName: string;
+    hostDisplayName: string;
     creatorId: string | null;
+    creatorUserName: string | null;
+    creatorDisplayName: string | null;
     opponentId: string | null;
+    opponentUserName: string | null;
+    opponentDisplayName: string | null;
     creatorAiName: string | null;
     opponentAiName: string | null;
     opponentType: DebateOpponentType;
@@ -122,6 +130,7 @@ export interface DebateProfile {
     userId: string;
     guildId: string;
     score: number;
+    aiVsAiCooldownUntil: string | null;
     wins: number;
     losses: number;
     draws: number;

@@ -26,8 +26,12 @@ export class PersonalityFeature implements CoreFeatureModule {
         }
 
         await interaction.deferReply({ ephemeral: true });
-        const session = await this.service.startSession(interaction.guild, interaction.user.id);
-        await interaction.editReply(`✅ 性格診断室を作成しました: <#${session.channelId}>`);
+        try {
+            const session = await this.service.startSession(interaction.guild, interaction.user.id);
+            await interaction.editReply(`✅ 性格診断室を作成しました: <#${session.channelId}>`);
+        } catch (error) {
+            await interaction.editReply(`❌ ${error instanceof Error ? error.message : '性格診断室の作成に失敗しました。'}`);
+        }
         return true;
     }
 

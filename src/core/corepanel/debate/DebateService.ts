@@ -16,6 +16,7 @@ import { database } from '../../Database.js';
 import {
     CLEANUP_DELAY_MS,
     DEBATE_CATEGORY_NAME,
+    DEBATE_AI_VS_AI_COOLDOWN_MS,
     DEBATE_KING_ROLE_NAME,
     DEBATE_KING_SCORE_THRESHOLD,
     DEBATE_KING_WIN_THRESHOLD,
@@ -106,6 +107,14 @@ export class DebateService {
 
         if (opponentType === 'king' && !(await this.isDebateKing(hostMember))) {
             throw new Error('論破王とのレスバは、論破王のみ作成できます。');
+        }
+
+        const profile = await this.getProfile(hostUserId, guild.id);
+        if (opponentType === 'ai_vs_ai' && profile.aiVsAiCooldownUntil) {
+            const cooldownUntil = new Date(profile.aiVsAiCooldownUntil).getTime();
+            if (Date.now() < cooldownUntil) {
+                throw new Error(`AI vs AI は60分クールダウン中です。次回は ${new Date(profile.aiVsAiCooldownUntil).toLocaleString('ja-JP')} 以降に開始できます。`);
+            }
         }
 
         const category = await ensureCategory(guild, DEBATE_CATEGORY_NAME);
@@ -200,8 +209,14 @@ export class DebateService {
             channelId: channel.id,
             categoryId: category.id,
             hostUserId,
+            hostUserName: hostMember.user.username,
+            hostDisplayName: hostMember.displayName,
             creatorId,
+            creatorUserName: creatorParticipantType === 'user' ? hostMember.user.username : null,
+            creatorDisplayName: creatorParticipantType === 'user' ? hostMember.displayName : null,
             opponentId,
+            opponentUserName: null,
+            opponentDisplayName: null,
             creatorAiName,
             opponentAiName,
             opponentType,
@@ -232,6 +247,11 @@ export class DebateService {
         sessions.push(session);
         await this.persistSessions(guild.id, sessions);
 
+        if (opponentType === 'ai_vs_ai') {
+            profile.aiVsAiCooldownUntil = new Date(Date.now() + DEBATE_AI_VS_AI_COOLDOWN_MS).toISOString();
+            await this.saveProfile(profile);
+        }
+
         const embed = new EmbedBuilder()
             .setTitle(
                 opponentType === 'ai'
@@ -257,8 +277,8 @@ export class DebateService {
             .addFields({
                 name: 'ルール',
                 value: opponentType === 'ai_vs_ai'
-                    ? 'AI が各陣営3ターンずつ主張し、最後に AI 審判が勝敗を決めます。展示マッチのため論破スコア加算はありません。'
-                    : '各陣営3ターンずつ。論点への反論力・一貫性・説得力で AI が厳格に採点します。'
+                    ? 'AI が各陣営6ターンずつ主張し、最後に AI 審判が勝敗を決めます。展示マッチのため論破スコア加算はありません。'
+                    : '各陣営6ターンずつ。論点への反論力・一貫性・説得力で AI が厳格に採点します。'
             })
             .setTimestamp();
 
@@ -332,6 +352,8 @@ export class DebateService {
         }).catch(() => null);
 
         session.opponentId = member.id;
+        session.opponentUserName = member.user.username;
+        session.opponentDisplayName = member.displayName;
         session.status = 'active';
         session.updatedAt = new Date().toISOString();
         await this.persistSessions(interaction.guild.id, sessions);
@@ -760,6 +782,7 @@ export class DebateService {
             '感情的な罵倒ではなく、論点・反論・一貫性で戦ってください。',
             '相手の主張の穴を正確に突き、結論はぶらさないでください。',
             '長すぎる演説は禁止。1〜2段落、最大500文字程度。',
+            '人間ユーザーが相手に含まれる場合は、その表示名やユーザー名を対戦相手として認識してください。',
             '出力は JSON のみで、キーは reply だけにしてください。'
         ].join('\n');
 
@@ -768,7 +791,9 @@ export class DebateService {
             `あなたの陣営: ${buildStanceLabel(myStance)}`,
             `相手の陣営: ${buildStanceLabel(opposingStance)}`,
             `今回の話者: ${speakerLabel}`,
+            `今回の話者の詳細: ${this.describeSideIdentity(session, speaker)}`,
             `相手の話者: ${opponentLabel}`,
+            `相手の話者の詳細: ${this.describeSideIdentity(session, speaker === 'creator' ? 'opponent' : 'creator')}`,
             `現在のターン: ${turnNumber}/${session.turnLimit}`,
             `これまでのログ:\n${summarizeTranscript(session.transcript, 20)}`
         ].join('\n\n');
@@ -792,18 +817,23 @@ export class DebateService {
         session: DebateSession,
         hooks?: CoreFeatureModelHooks
     ): Promise<DebateJudgeResponse> {
+        const creatorJudgeLabel = this.getJudgeSideLabel(session, 'creator');
+        const opponentJudgeLabel = this.getJudgeSideLabel(session, 'opponent');
         const systemPrompt = [
             'あなたは Discord のレスバ審判 AI です。',
             '勝敗は感情ではなく、論理、相手への応答性、一貫性、論点の深さ、反論の有効性で決めてください。',
             'ふざけ、同じ主張の繰り返し、論点逸らし、短すぎる返答は減点してください。',
             'creator と opponent のどちらが勝ったか、または draw かを JSON で返してください。',
+            `reason では creator / opponent のような機械的な呼び方を避け、必ず「${creatorJudgeLabel}」「${opponentJudgeLabel}」のように実名ベースで説明してください。`,
             '出力は JSON のみで、キーは winner, reason, creator_score, opponent_score です。'
         ].join('\n');
 
         const userPrompt = [
             `お題: ${session.topic}`,
-            `creator: ${this.buildSideSummary(session, 'creator')}`,
-            `opponent: ${this.buildSideSummary(session, 'opponent')}`,
+            `creator (${creatorJudgeLabel}): ${this.buildSideSummary(session, 'creator')}`,
+            `creator詳細: ${this.describeSideIdentity(session, 'creator')}`,
+            `opponent (${opponentJudgeLabel}): ${this.buildSideSummary(session, 'opponent')}`,
+            `opponent詳細: ${this.describeSideIdentity(session, 'opponent')}`,
             `ログ:\n${summarizeTranscript(session.transcript, 28)}`
         ].join('\n\n');
 
@@ -814,7 +844,10 @@ export class DebateService {
 
         const parsed = validateDebateJudge(extractJsonObject(raw));
         if (parsed) {
-            return parsed;
+            return {
+                ...parsed,
+                reason: this.rewriteJudgementReason(session, parsed.reason)
+            };
         }
 
         return {
@@ -990,10 +1023,10 @@ export class DebateService {
         const guild = this.client ? await this.client.guilds.fetch(guildId).catch(() => null) : null;
         const channel = guild ? await guild.channels.fetch(session.channelId).catch(() => null) : null;
         if (channel && 'send' in channel) {
-            await (channel as TextChannel).send('⏱️ 1時間無操作のため、このレスバは自動終了します。').catch(() => null);
+            await (channel as TextChannel).send('⏱️ 5分無操作のため、このレスバは自動終了します。').catch(() => null);
         }
 
-        await this.closeSession(guildId, sessionId, '1時間無操作のため自動終了');
+        await this.closeSession(guildId, sessionId, '5分無操作のため自動終了');
     }
 
     private async closeSession(guildId: string, sessionId: string, reason: string): Promise<void> {
@@ -1033,8 +1066,14 @@ export class DebateService {
                     : typeof entry.creatorId === 'string'
                         ? entry.creatorId
                         : '',
+                hostUserName: typeof (entry as any).hostUserName === 'string' ? (entry as any).hostUserName : '',
+                hostDisplayName: typeof (entry as any).hostDisplayName === 'string' ? (entry as any).hostDisplayName : '',
                 creatorId: typeof entry.creatorId === 'string' ? entry.creatorId : null,
+                creatorUserName: typeof (entry as any).creatorUserName === 'string' ? (entry as any).creatorUserName : null,
+                creatorDisplayName: typeof (entry as any).creatorDisplayName === 'string' ? (entry as any).creatorDisplayName : null,
                 opponentId: typeof entry.opponentId === 'string' && entry.opponentId !== 'AI' ? entry.opponentId : null,
+                opponentUserName: typeof (entry as any).opponentUserName === 'string' ? (entry as any).opponentUserName : null,
+                opponentDisplayName: typeof (entry as any).opponentDisplayName === 'string' ? (entry as any).opponentDisplayName : null,
                 creatorParticipantType,
                 opponentParticipantType,
                 creatorAiName: creatorParticipantType === 'ai'
@@ -1074,13 +1113,18 @@ export class DebateService {
     private async getProfile(userId: string, guildId: string): Promise<DebateProfile> {
         const stored = await database.getUserGuildData<DebateProfile>(userId, guildId, 'corefeature/debate-profile', null);
         if (stored) {
-            return stored;
+            return {
+                ...stored,
+                aiVsAiCooldownUntil: typeof stored.aiVsAiCooldownUntil === 'string' ? stored.aiVsAiCooldownUntil : null,
+                recentResults: Array.isArray(stored.recentResults) ? stored.recentResults : []
+            };
         }
 
         return {
             userId,
             guildId,
             score: 0,
+            aiVsAiCooldownUntil: null,
             wins: 0,
             losses: 0,
             draws: 0,
@@ -1209,6 +1253,45 @@ export class DebateService {
         }
 
         return this.getSpeakerLabel(session, side);
+    }
+
+    private describeSideIdentity(session: DebateSession, side: DebateSide): string {
+        const participantType = side === 'creator' ? session.creatorParticipantType : session.opponentParticipantType;
+        if (participantType === 'ai') {
+            const aiName = side === 'creator' ? session.creatorAiName : session.opponentAiName;
+            return aiName ? `AI名: ${aiName}` : 'AI';
+        }
+
+        const userId = side === 'creator' ? session.creatorId : session.opponentId;
+        const userName = side === 'creator' ? session.creatorUserName : session.opponentUserName;
+        const displayName = side === 'creator' ? session.creatorDisplayName : session.opponentDisplayName;
+        return [
+            displayName ? `表示名: ${displayName}` : null,
+            userName ? `ユーザー名: ${userName}` : null,
+            userId ? `ユーザーID: ${userId}` : null
+        ].filter(Boolean).join(' / ') || '人間ユーザー';
+    }
+
+    private getJudgeSideLabel(session: DebateSession, side: DebateSide): string {
+        const participantType = side === 'creator' ? session.creatorParticipantType : session.opponentParticipantType;
+        if (participantType === 'ai') {
+            const aiName = side === 'creator' ? session.creatorAiName : session.opponentAiName;
+            return aiName ? `AI (${aiName})` : this.getSpeakerLabel(session, side);
+        }
+
+        const displayName = side === 'creator' ? session.creatorDisplayName : session.opponentDisplayName;
+        const userName = side === 'creator' ? session.creatorUserName : session.opponentUserName;
+        return displayName || (userName ? `@${userName}` : this.getSpeakerMention(session, side));
+    }
+
+    private rewriteJudgementReason(session: DebateSession, reason: string): string {
+        const creatorLabel = this.getJudgeSideLabel(session, 'creator');
+        const opponentLabel = this.getJudgeSideLabel(session, 'opponent');
+        return reason
+            .replace(/\bcreator\b/g, creatorLabel)
+            .replace(/\bopponent\b/g, opponentLabel)
+            .replace(/先行側/g, creatorLabel)
+            .replace(/後攻側/g, opponentLabel);
     }
 
     private buildSideSummary(session: DebateSession, side: DebateSide): string {

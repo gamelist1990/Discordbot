@@ -134,6 +134,7 @@ export class PersonalityService {
         );
         const intro = [
             `今回の面談は私、${interviewerName}が担当します。`,
+            `${member.displayName} さんの最近の言動をもとに見ていきます。`,
             'これから1対1で性格診断を行います。これは病名診断ではなく、コミュニティ内での行動傾向を測る面談です。',
             'できるだけ具体例を交えて答えてください。',
             'まず最初に、最近の発言や行動で「自分らしい」と思ったものを1つ、状況つきで説明してください。'
@@ -144,6 +145,8 @@ export class PersonalityService {
             channelId: channel.id,
             categoryId: category.id,
             userId,
+            userName: member.user.username,
+            userDisplayName: member.displayName,
             interviewerName,
             status: 'active',
             createdAt,
@@ -306,6 +309,7 @@ export class PersonalityService {
         const systemPrompt = [
             'あなたは Discord コミュニティ用の性格診断 AI です。',
             'これは病名や精神疾患を断定する診断ではありません。コミュニティ内の行動傾向ロールを選ぶ作業です。',
+            '面談相手の表示名・ユーザー名を認識し、その人物の発言履歴として自然に扱ってください。',
             `候補は ${Object.keys(PERSONALITY_ARCHETYPES).join(', ')} の ${Object.keys(PERSONALITY_ARCHETYPES).length}種類です。`,
             '実際の面接官のように、これまでの会話内容から次に聞くべき質問を自分で判断してください。',
             '1回の返答では質問は1つだけ、簡潔に行ってください。',
@@ -327,6 +331,7 @@ export class PersonalityService {
         ].join('\n');
 
         const userPrompt = [
+            `面談相手: ${session.userDisplayName || session.userName || '不明'}${session.userName ? ` (@${session.userName})` : ''}`,
             `候補一覧:\n${archetypeSummary}`,
             `回答回数: ${userTurns}/${PERSONALITY_MAX_USER_TURNS}`,
             `直前のユーザー回答: ${latestUserAnswer || 'なし'}`,
@@ -448,6 +453,7 @@ export class PersonalityService {
         const systemPrompt = [
             'あなたは Discord コミュニティ用の性格ロール分類 AI です。',
             '病名断定は禁止です。コミュニティ内の行動傾向ロールを1つ選びます。',
+            '面談相手の表示名・ユーザー名を認識し、その人物の会話ログとして自然に読んでください。',
             '過去の面談結果がある場合、それは参考資料として扱い、今回の会話だけで覆るだけの十分な材料があるかも見てください。',
             '追加質問はせず、そのまま判定を返します。',
             '出力は JSON のみで、キーは reply, complete, personality_key, reason, confidence, traits です。',
@@ -455,6 +461,7 @@ export class PersonalityService {
         ].join('\n');
 
         const userPrompt = [
+            `面談相手: ${session.userDisplayName || session.userName || '不明'}${session.userName ? ` (@${session.userName})` : ''}`,
             `候補一覧:\n${archetypeSummary}`,
             priorProfileContext ? `過去の面談結果の要約:\n${priorProfileContext}` : '過去の面談結果: なし',
             `面談ログ:\n${summarizeTranscript(session.transcript, 24)}`
@@ -927,10 +934,10 @@ export class PersonalityService {
         const guild = this.client ? await this.client.guilds.fetch(guildId).catch(() => null) : null;
         const channel = guild ? await guild.channels.fetch(session.channelId).catch(() => null) : null;
         if (channel && 'send' in channel) {
-            await (channel as TextChannel).send('⏱️ 1時間無操作のため、この性格診断は自動終了します。').catch(() => null);
+            await (channel as TextChannel).send('⏱️ 5分無操作のため、この性格診断は自動終了します。').catch(() => null);
         }
 
-        await this.closeSession(guildId, sessionId, '性格診断タイムアウト');
+        await this.closeSession(guildId, sessionId, '5分無操作のため自動終了');
     }
 
     private async closeSession(guildId: string, sessionId: string, reason = '性格診断終了'): Promise<void> {
@@ -957,6 +964,8 @@ export class PersonalityService {
         const stored = await database.get<PersonalitySession[]>(guildId, getPersonalitySessionsKey(guildId), []);
         return (Array.isArray(stored) ? stored : []).map((entry) => ({
             ...entry,
+            userName: typeof (entry as any).userName === 'string' ? (entry as any).userName : '',
+            userDisplayName: typeof (entry as any).userDisplayName === 'string' ? (entry as any).userDisplayName : '',
             interviewerName: typeof entry.interviewerName === 'string' && entry.interviewerName.trim()
                 ? entry.interviewerName.trim()
                 : pickAiPersonaName(`${guildId}:${entry.sessionId}:personality`),
