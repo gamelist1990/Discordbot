@@ -454,7 +454,14 @@ export class RequestFeature implements CoreFeatureModule {
             [itemId, nextStatus]
         );
         if (!handled) {
-            await interaction.reply({ content: '❌ ステータス更新に失敗しました。', ephemeral: true });
+            const items = await this.getItems(interaction.guild.id);
+            const exists = items.some((entry) => entry.id === itemId);
+            await interaction.reply({
+                content: exists
+                    ? '❌ ステータス更新に失敗しました。対象は存在しますが、権限またはモーダル処理で失敗しています。'
+                    : '❌ ステータス更新に失敗しました。対象のRequestが見つかりません。',
+                ephemeral: true
+            });
         }
         return true;
     }

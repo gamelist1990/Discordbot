@@ -17,7 +17,7 @@ export class DuplicateMessageDetector implements Detector {
         const windowSeconds = Number(config.windowSeconds) || 180;
         const deleteFrom = Number(config.deleteFrom) || 2;
         const scoreFrom = Number(config.scoreFrom) || 4;
-        const cacheKey = `anticheat:duplicate:${context.guildId}:${context.userId}`;
+        const cacheKey = `anticheat:duplicate:${context.guildId}:${context.channelId}:${context.userId}`;
         const normalized = normalizeContent(message.content);
 
         if (!normalized) {

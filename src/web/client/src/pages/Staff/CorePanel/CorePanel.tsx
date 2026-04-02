@@ -33,6 +33,7 @@ type CorePanelConfig = {
   spectatorRoleId: string | null;
   requestDoneChannelId?: string | null;
   requestCategoryName?: string | null;
+  requestLabels?: string[];
   requestStaffRoleId?: string | null;
   requestTrackingChannelId?: string | null;
   updatedBy: string;
@@ -69,6 +70,7 @@ const CorePanelPage: React.FC = () => {
   const [spectatorRoleId, setSpectatorRoleId] = useState('');
   const [requestDoneChannelId, setRequestDoneChannelId] = useState('');
   const [requestCategoryName, setRequestCategoryName] = useState('');
+  const [requestLabels, setRequestLabels] = useState('');
   const [requestStaffRoleId, setRequestStaffRoleId] = useState('');
   const [requestTrackingChannelId, setRequestTrackingChannelId] = useState('');
 
@@ -111,6 +113,10 @@ const CorePanelPage: React.FC = () => {
   const currentRequestCategoryName = useMemo(
     () => requestCategoryName || config?.requestCategoryName || '未設定',
     [config?.requestCategoryName, requestCategoryName]
+  );
+  const currentRequestLabels = useMemo(
+    () => requestLabels || (config?.requestLabels || []).join(',') || '未設定',
+    [config?.requestLabels, requestLabels]
   );
   const savedTrackingChannelDisplay = useMemo(() => {
     const trackingChannelId = requestTrackingChannelId || config?.requestTrackingChannelId || '';
@@ -162,6 +168,7 @@ const CorePanelPage: React.FC = () => {
       setSpectatorRoleId('');
       setRequestDoneChannelId('');
       setRequestCategoryName('');
+      setRequestLabels('');
       setRequestStaffRoleId('');
       setRequestTrackingChannelId('');
       setPanelKind('combined');
@@ -201,6 +208,7 @@ const CorePanelPage: React.FC = () => {
         setSpectatorRoleId(nextConfig?.spectatorRoleId || '');
         setRequestDoneChannelId(nextConfig?.requestDoneChannelId || '');
         setRequestCategoryName(nextConfig?.requestCategoryName || 'Request');
+        setRequestLabels((nextConfig?.requestLabels || []).join(','));
         setRequestStaffRoleId(nextConfig?.requestStaffRoleId || '');
         setRequestTrackingChannelId(nextConfig?.requestTrackingChannelId || '');
       } catch (loadError) {
@@ -232,6 +240,7 @@ const CorePanelPage: React.FC = () => {
           spectatorRoleId: usesSpectatorRole ? spectatorRoleId || null : null,
           requestDoneChannelId: usesRequestSettings ? requestDoneChannelId || null : null,
           requestCategoryName: usesRequestSettings ? requestCategoryName.trim() || null : null,
+          requestLabels: usesRequestSettings ? requestLabels.split(',').map((entry) => entry.trim().slice(0, 10)).filter(Boolean) : [],
           requestStaffRoleId: usesRequestSettings ? requestStaffRoleId || null : null,
           requestTrackingChannelId: usesRequestSettings ? requestTrackingChannelId || null : null,
         }),
@@ -268,6 +277,7 @@ const CorePanelPage: React.FC = () => {
           spectatorRoleId: usesSpectatorRole ? spectatorRoleId || null : null,
           requestDoneChannelId: usesRequestSettings ? requestDoneChannelId || null : null,
           requestCategoryName: usesRequestSettings ? requestCategoryName.trim() || null : null,
+          requestLabels: usesRequestSettings ? requestLabels.split(',').map((entry) => entry.trim().slice(0, 10)).filter(Boolean) : [],
           requestStaffRoleId: usesRequestSettings ? requestStaffRoleId || null : null,
           requestTrackingChannelId: usesRequestSettings ? requestTrackingChannelId || null : null,
         }),
@@ -415,6 +425,17 @@ const CorePanelPage: React.FC = () => {
                   </div>
 
                   <div className={styles.field}>
+                    <label htmlFor="corepanel-request-labels">ラベル設定</label>
+                    <input
+                      id="corepanel-request-labels"
+                      value={requestLabels}
+                      onChange={(event) => setRequestLabels(event.target.value)}
+                      placeholder="未設定でも可。必要なら機能リクエスト,バグ修正,その他"
+                    />
+                    <p className={styles.hint}>未設定のままでも使えます。設定する場合はカンマ区切りで入力してください。</p>
+                  </div>
+
+                  <div className={styles.field}>
                     <label htmlFor="corepanel-request-staff-role">対応スタッフロール</label>
                     <select
                       id="corepanel-request-staff-role"
@@ -491,6 +512,10 @@ const CorePanelPage: React.FC = () => {
                 <div className={styles.infoItem}>
                   <span>Request カテゴリ</span>
                   <strong>{usesRequestSettings ? currentRequestCategoryName : '未使用'}</strong>
+                </div>
+                <div className={styles.infoItem}>
+                  <span>Request ラベル</span>
+                  <strong>{usesRequestSettings ? currentRequestLabels : '未使用'}</strong>
                 </div>
                 <div className={styles.infoItem}>
                   <span>対応スタッフロール</span>

@@ -29,7 +29,7 @@ export class TextSpamDetector implements Detector {
         const rapidThreshold = Number(config.rapidMessageCount) || 6;
         const rapidWindowMs = (Number(config.windowSeconds) || 5) * 1000;
         const capsRatioThreshold = Number(config.capsRatio) || 0.88;
-        const cacheKey = `anticheat:messages:${context.guildId}:${context.userId}`;
+        const cacheKey = `anticheat:messages:${context.guildId}:${context.channelId}:${context.userId}`;
         const normalizedContent = normalizeContent(message.content);
         
         // Get user's recent messages from cache

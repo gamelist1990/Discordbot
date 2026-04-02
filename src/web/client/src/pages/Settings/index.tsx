@@ -120,7 +120,7 @@ const SettingsPage: React.FC = () => {
         description: 'ユーザーリクエスト機能の設定を管理します。カテゴリ名、ラベル、説明文をカスタマイズできます。',
         icon: 'assignment',
         actionLabel: 'Request 管理を開く',
-        onClick: () => navigate(`/staff/requestmanager?guildId=${guildId}&returnTo=${encodeURIComponent(`/settings/${guildId}`)}`),
+        onClick: () => navigate(`/staff/corepanel?guildId=${guildId}&returnTo=${encodeURIComponent(`/settings/${guildId}`)}`),
       },
       {
         title: 'AntiCheat',
