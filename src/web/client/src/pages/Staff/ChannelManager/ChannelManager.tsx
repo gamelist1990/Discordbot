@@ -212,6 +212,14 @@ const ChannelManagerPage: React.FC = () => {
     () => editableRoles.find((role) => role.id === selectedOverwriteId) || null,
     [editableRoles, selectedOverwriteId]
   );
+  const existingOverwriteRoles = useMemo(
+    () => editableRoles.filter((role) => selectedChannel?.overwrites.some((overwrite) => overwrite.id === role.id)),
+    [editableRoles, selectedChannel]
+  );
+  const addableOverwriteRoles = useMemo(
+    () => editableRoles.filter((role) => !selectedChannel?.overwrites.some((overwrite) => overwrite.id === role.id)),
+    [editableRoles, selectedChannel]
+  );
 
   useEffect(() => {
     if (!selectedOverwriteId) {
@@ -808,11 +816,22 @@ const ChannelManagerPage: React.FC = () => {
                     </div>
                   </div>
                   <div className={styles.roleStrip}>
-                    {editableRoles.map((role) => (
+                    {existingOverwriteRoles.map((role) => (
                       <button key={role.id} className={`${styles.roleChip} ${selectedOverwriteId === role.id ? styles.roleChipActive : ''}`} onClick={() => setSelectedOverwriteId(role.id)} type="button">
                         {role.name}
                       </button>
                     ))}
+                  </div>
+                  <div className={styles.addOverwriteBar}>
+                    <label className={styles.field}>
+                      <span>ロールを追加</span>
+                      <select className={styles.select} value={selectedOverwrite && selectedOverwriteRole ? selectedOverwriteId : ''} onChange={(event) => setSelectedOverwriteId(event.target.value)}>
+                        <option value="">選択してください</option>
+                        {addableOverwriteRoles.map((role) => (
+                          <option key={role.id} value={role.id}>{role.name}</option>
+                        ))}
+                      </select>
+                    </label>
                   </div>
                   {selectedOverwriteRole ? (
                     <>
@@ -831,7 +850,7 @@ const ChannelManagerPage: React.FC = () => {
                                 <strong>{permission.label}</strong>
                                 <div className={styles.permissionKey}>{permission.key}</div>
                               </div>
-                              <select className={styles.select} value={permissionModes[permission.key] || 'inherit'} onChange={(event) => setPermissionModes((current) => ({ ...current, [permission.key]: event.target.value as PermissionMode }))} disabled={!selectedChannel.manageable || !selectedOverwrite.editable || !overwriteManageable}>
+                              <select className={styles.select} value={permissionModes[permission.key] || 'inherit'} onChange={(event) => setPermissionModes((current) => ({ ...current, [permission.key]: event.target.value as PermissionMode }))} disabled={!selectedChannel.manageable || !selectedOverwriteRole.editable || !overwriteManageable}>
                                 <option value="inherit">継承</option>
                                 <option value="allow">許可</option>
                                 <option value="deny">拒否</option>

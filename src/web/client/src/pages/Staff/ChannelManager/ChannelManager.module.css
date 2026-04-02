@@ -45,10 +45,35 @@
 .quickStats,
 .createGrid,
 .roleStrip,
-.tabRow {
+.tabRow,
+.addOverwriteBar {
   display: flex;
   gap: 12px;
   flex-wrap: wrap;
+}
+
+.addOverwriteBar {
+  margin: 8px 0 14px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  background: linear-gradient(180deg, #fbf7ef 0%, #f5ede0 100%);
+  border: 1px solid rgba(20, 39, 47, 0.08);
+}
+
+.addOverwriteBar .field {
+  min-width: 100%;
+  flex: 1 1 100%;
+}
+
+.addOverwriteBar .field span {
+  font-size: 0.88rem;
+  color: #5f727b;
+}
+
+.addOverwriteBar .select {
+  background: #fffdf9;
+  border-color: rgba(30, 104, 109, 0.22);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8), 0 4px 12px rgba(20, 39, 47, 0.05);
 }
 
 .tabButton {
