@@ -27,7 +27,7 @@ export interface PersonalityArchetypeDefinition {
     summary: string;
 }
 
-export type CoreFeaturePanelKind = 'combined' | 'personality' | 'debate';
+export type CoreFeaturePanelKind = 'combined' | 'personality' | 'debate' | 'request';
 
 export interface CoreFeaturePanelConfig {
     panelKind: CoreFeaturePanelKind;

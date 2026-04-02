@@ -9,6 +9,9 @@ export function getCorePanelKindLabel(panelKind: CoreFeaturePanelKind): string {
     if (panelKind === 'debate') {
         return 'レスバ';
     }
+    if (panelKind === 'request') {
+        return 'リクエスト';
+    }
     return '統合';
 }
 
@@ -44,11 +47,25 @@ export function buildCorePanelEmbed(panelKind: CoreFeaturePanelKind, spectatorRo
             .setTimestamp();
     }
 
+    if (panelKind === 'request') {
+        return new EmbedBuilder()
+            .setTitle('リクエストパネル')
+            .setColor(0x2f9e44)
+            .setDescription([
+                'このパネルでは、リクエスト機能だけを個別に利用できます。',
+                '',
+                '機能追加、改善案、バグ報告などを送信できます。',
+                '送信後は専用スレッド（チャンネル）が作成され、進捗管理されます。'
+            ].join('\n'))
+            .setFooter({ text: 'カテゴリ名・ラベル・完了通知先は Request 管理画面の設定が使われます。' })
+            .setTimestamp();
+    }
+
     return new EmbedBuilder()
         .setTitle('Core機能パネル')
         .setColor(0x5865f2)
         .setDescription([
-            'このパネルでは、AI 性格診断と レスバ をまとめて利用できます。',
+            'このパネルでは、AI 性格診断・レスバ・リクエスト をまとめて利用できます。',
             '',
             '**性格診断**',
             `AI と1対1で面談し、${Object.keys(PERSONALITY_ARCHETYPES).length}種類の性格ロールから1つを判定します。`,
@@ -59,7 +76,11 @@ export function buildCorePanelEmbed(panelKind: CoreFeaturePanelKind, spectatorRo
             'お題を決めて 賛成/反対 を選び、AI か論破王と勝負できます。',
             'スタッフは観戦用の AI vs AI レスバも作成できます。',
             '勝つと論破スコアが加算され、一定成績で論破王になれます。',
-            spectatorRoleId ? `観戦ロール: <@&${spectatorRoleId}>` : '観戦ロール: 未設定'
+            spectatorRoleId ? `観戦ロール: <@&${spectatorRoleId}>` : '観戦ロール: 未設定',
+            '',
+            '**リクエスト**',
+            '機能追加、改善案、バグ報告などを送信できます。',
+            '送信後は専用チャンネルが作成され、進捗管理されます。'
         ].join('\n'))
         .setFooter({ text: '論破王対戦は論破王のみ作成・参加できます。部屋は結果後または1時間無操作で自動整理されます。' })
         .setTimestamp();

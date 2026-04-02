@@ -90,7 +90,7 @@ export class RequestManagerController {
             await database.set(guildId, getRequestConfigKey(guildId), config);
 
             // Also update the core panel config to use these values
-            const corePanelKeys = ['combined', 'personality', 'debate'] as const;
+            const corePanelKeys = ['combined', 'personality', 'debate', 'request'] as const;
             for (const panelKind of corePanelKeys) {
                 const panelMapKey = `Guild/${guildId}/corefeature/panels`;
                 const panelMap = await database.get<Record<string, any> | null>(guildId, panelMapKey, {});

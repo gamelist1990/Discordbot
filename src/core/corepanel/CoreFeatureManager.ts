@@ -30,7 +30,7 @@ function getPanelMapKey(guildId: string): string {
 }
 
 function isPanelKind(value: string): value is CoreFeaturePanelKind {
-    return ['combined', 'personality', 'debate'].includes(value);
+    return ['combined', 'personality', 'debate', 'request'].includes(value);
 }
 
 function normalizePanelConfig(
@@ -109,7 +109,7 @@ export class CoreFeatureManager implements CoreFeatureApi {
         const stored = await database.get<Partial<Record<CoreFeaturePanelKind, CoreFeaturePanelConfig>> | null>(guildId, getPanelMapKey(guildId), null);
         const result: Partial<Record<CoreFeaturePanelKind, CoreFeaturePanelConfig>> = {};
 
-        for (const panelKind of ['combined', 'personality', 'debate'] as CoreFeaturePanelKind[]) {
+        for (const panelKind of ['combined', 'personality', 'debate', 'request'] as CoreFeaturePanelKind[]) {
             const normalized = normalizePanelConfig(panelKind, stored?.[panelKind]);
             if (normalized) {
                 result[panelKind] = normalized;
@@ -253,7 +253,7 @@ export class CoreFeatureManager implements CoreFeatureApi {
             return features;
         }
 
-        return features.filter((feature) => feature.key === panelKind || feature.key === 'request');
+        return features.filter((feature) => feature.key === panelKind);
     }
 }
 
