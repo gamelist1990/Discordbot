@@ -13,10 +13,16 @@ import {
     GuildMemberRoleManager,
     StringSelectMenuBuilder,
     StringSelectMenuInteraction,
-    StringSelectMenuOptionBuilder
+    StringSelectMenuOptionBuilder,
+    ModalBuilder,
+    TextInputBuilder,
+    TextInputStyle,
+    ModalSubmitInteraction
 } from 'discord.js';
 
 import { RolePresetManager } from '../../../core/RolePresetManager.js';
+import config from '../../../config.js';
+import { registerModalHandler } from '../../../utils/Modal.js';
 
 /**
  * ロールが操作可能かどうかをチェック
@@ -25,10 +31,89 @@ function canManageRole(role: any, botMember: any): boolean {
     return role && role.position < botMember.roles.highest.position;
 }
 
+function resolveAuthUrl(preset: any): string {
+    if (typeof preset?.authUrl === 'string' && preset.authUrl.trim()) {
+        return preset.authUrl.trim();
+    }
+    const base = (config as any)?.BASE_URL;
+    if (typeof base === 'string' && base.trim()) {
+        return `${base.replace(/\/+$/g, '')}/api/auth/discord`;
+    }
+    return '/api/auth/discord';
+}
+
+type AuthCodeRecord = {
+    guildId: string;
+    presetId: string;
+    userId: string;
+    code: string;
+    roles: string[];
+    expiresAt: number;
+};
+
+type AuthMathRecord = {
+    guildId: string;
+    presetId: string;
+    userId: string;
+    questions: Array<{ label: string; answer: number }>;
+    roles: string[];
+    expiresAt: number;
+};
+
+const AUTH_TTL_MS = 10 * 60 * 1000;
+const authCodeRecords = new Map<string, AuthCodeRecord>();
+const authMathRecords = new Map<string, AuthMathRecord>();
+const authGrantRecords = new Map<string, {
+    guildId: string;
+    presetId: string;
+    userId: string;
+    roles: string[];
+    expiresAt: number;
+}>();
+
+function issueToken(prefix: string): string {
+    return `${prefix}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 9)}`;
+}
+
+function cleanupExpiredAuthRecords(): void {
+    const now = Date.now();
+    for (const [token, record] of authCodeRecords.entries()) {
+        if (record.expiresAt <= now) {
+            authCodeRecords.delete(token);
+        }
+    }
+    for (const [token, record] of authMathRecords.entries()) {
+        if (record.expiresAt <= now) {
+            authMathRecords.delete(token);
+        }
+    }
+    for (const [token, record] of authGrantRecords.entries()) {
+        if (record.expiresAt <= now) {
+            authGrantRecords.delete(token);
+        }
+    }
+}
+
+function makeOneDigitMathQuestion(): { label: string; answer: number } {
+    const left = Math.floor(Math.random() * 9) + 1;
+    const right = Math.floor(Math.random() * 9) + 1;
+    const plus = Math.random() >= 0.5;
+    if (plus) {
+        return { label: `${left} + ${right}`, answer: left + right };
+    }
+    const a = Math.max(left, right);
+    const b = Math.min(left, right);
+    return { label: `${a} - ${b}`, answer: a - b };
+}
+
+function getAuthRecordKey(guildId: string, presetId: string, userId: string): string {
+    return `${guildId}:${presetId}:${userId}`;
+}
+
 /**
  * /staff rolepanel サブコマンド
  */
-export default {
+const rolePanelSubcommand = {
     name: 'rolepanel',
     description: 'ロールパネルを投稿または管理します',
 
@@ -94,6 +179,18 @@ export default {
                 return;
             }
 
+            if (interaction.isButton() && action === 'auth_modal') {
+                const modalType = parts[4];
+                await this.showAuthModal(interaction as ButtonInteraction, preset, modalType);
+                return;
+            }
+
+            if (interaction.isButton() && action === 'grant') {
+                const token = parts[4];
+                await this.handleGrantButton(interaction as ButtonInteraction, preset, token);
+                return;
+            }
+
             // SelectMenu選択の場合はロール変更処理
             if (interaction.isStringSelectMenu() && action === 'select') {
                 await this.handleRoleChange(interaction as StringSelectMenuInteraction, preset);
@@ -121,6 +218,11 @@ export default {
     async showRoleSelectionMenu(interaction: ButtonInteraction, preset: any): Promise<void> {
         const member = interaction.member as any;
         if (!member) return;
+
+        if ((preset.panelType || 'toggle') === 'grant_missing') {
+            await this.handleGrantMissingEntry(interaction, preset);
+            return;
+        }
 
         // 現在のロール状態を取得
         const currentRoles = member.roles.cache.map((r: any) => r.id);
@@ -239,6 +341,350 @@ export default {
         });
     },
 
+    async handleGrantMissingEntry(interaction: ButtonInteraction, preset: any): Promise<void> {
+        cleanupExpiredAuthRecords();
+
+        const member = interaction.member as any;
+        if (!member || !interaction.guild) return;
+
+        const botMember = interaction.guild.members.me;
+        const currentRoles = (member.roles as GuildMemberRoleManager).cache.map((r) => r.id);
+        const missingRoleIds = (preset.roles || []).filter((roleId: string) => !currentRoles.includes(roleId));
+
+        if (missingRoleIds.length === 0) {
+            await interaction.reply({
+                content: '✅ すでに必要なロールをすべて所持しています。このパネルでは追加できるロールがありません。',
+                ephemeral: true
+            });
+            return;
+        }
+
+        if ((preset.authType || 'none') === 'none') {
+            const message = await this.grantMissingRoles(interaction.guild.id, preset.id, member, botMember, missingRoleIds);
+            await interaction.reply({ content: message, ephemeral: true });
+            return;
+        }
+
+        const authType = preset.authType || 'none';
+        if (authType === 'web') {
+            const token = issueToken('grant');
+            authGrantRecords.set(token, {
+                guildId: interaction.guild.id,
+                presetId: preset.id,
+                userId: interaction.user.id,
+                roles: missingRoleIds,
+                expiresAt: Date.now() + AUTH_TTL_MS
+            });
+
+            const authUrl = resolveAuthUrl(preset);
+            const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+                new ButtonBuilder()
+                    .setLabel('Web認証を開く')
+                    .setStyle(ButtonStyle.Link)
+                    .setURL(authUrl),
+                new ButtonBuilder()
+                    .setCustomId(`rolepanel:${interaction.guild.id}:${preset.id}:grant:${token}`)
+                    .setLabel('認証後に一括付与')
+                    .setStyle(ButtonStyle.Success)
+                    .setEmoji('✅')
+            );
+            await interaction.reply({
+                content: `🔐 Web認証を完了してから「認証後に一括付与」を押してください。\n認証URL: ${authUrl}`,
+                components: [row],
+                ephemeral: true
+            });
+            return;
+        }
+
+        const authKey = getAuthRecordKey(interaction.guild.id, preset.id, interaction.user.id);
+        if (authType === 'code') {
+            const code = `${Math.floor(Math.random() * 900000) + 100000}`;
+            authCodeRecords.set(authKey, {
+                guildId: interaction.guild.id,
+                presetId: preset.id,
+                userId: interaction.user.id,
+                code,
+                roles: missingRoleIds,
+                expiresAt: Date.now() + AUTH_TTL_MS
+            });
+            const authUrl = resolveAuthUrl(preset);
+            const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+                new ButtonBuilder()
+                    .setCustomId(`rolepanel:${interaction.guild.id}:${preset.id}:auth_modal:code`)
+                    .setLabel('コードを入力')
+                    .setStyle(ButtonStyle.Primary)
+            );
+            await interaction.reply({
+                content: `🔐 認証コード: **${code}**\nこのコードを覚えて次のURLで入力してください: ${authUrl}\nその後「コードを入力」を押してください。`,
+                components: [row],
+                ephemeral: true
+            });
+            return;
+        }
+
+        if (authType === 'math') {
+            const questions = [makeOneDigitMathQuestion(), makeOneDigitMathQuestion(), makeOneDigitMathQuestion()];
+            authMathRecords.set(authKey, {
+                guildId: interaction.guild.id,
+                presetId: preset.id,
+                userId: interaction.user.id,
+                questions,
+                roles: missingRoleIds,
+                expiresAt: Date.now() + AUTH_TTL_MS
+            });
+            const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+                new ButtonBuilder()
+                    .setCustomId(`rolepanel:${interaction.guild.id}:${preset.id}:auth_modal:math`)
+                    .setLabel('計算認証を開始')
+                    .setStyle(ButtonStyle.Primary)
+            );
+            await interaction.reply({
+                content: '🔐 1桁の計算問題を3問解いて認証してください。',
+                components: [row],
+                ephemeral: true
+            });
+            return;
+        }
+
+        await interaction.reply({
+            content: '❌ 不明な認証方式です。',
+            ephemeral: true
+        });
+    },
+
+    async showAuthModal(interaction: ButtonInteraction, preset: any, modalType: string): Promise<void> {
+        if (!interaction.guild) return;
+        const key = getAuthRecordKey(interaction.guild.id, preset.id, interaction.user.id);
+
+        if (modalType === 'code') {
+            const record = authCodeRecords.get(key);
+            if (!record || record.expiresAt <= Date.now()) {
+                authCodeRecords.delete(key);
+                await interaction.reply({ content: '❌ 認証コードが期限切れです。もう一度パネルを押してください。', ephemeral: true });
+                return;
+            }
+
+            const modal = new ModalBuilder()
+                .setCustomId('rolepanel_auth_code_modal')
+                .setTitle('Code 認証');
+            const codeInput = new TextInputBuilder()
+                .setCustomId('code')
+                .setLabel('表示されたコードを入力')
+                .setStyle(TextInputStyle.Short)
+                .setRequired(true)
+                .setMaxLength(12);
+            modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(codeInput));
+            await interaction.showModal(modal);
+            return;
+        }
+
+        if (modalType === 'math') {
+            const record = authMathRecords.get(key);
+            if (!record || record.expiresAt <= Date.now()) {
+                authMathRecords.delete(key);
+                await interaction.reply({ content: '❌ 計算認証が期限切れです。もう一度パネルを押してください。', ephemeral: true });
+                return;
+            }
+
+            const modal = new ModalBuilder()
+                .setCustomId('rolepanel_auth_math_modal')
+                .setTitle('計算認証 (3問)');
+            modal.addComponents(
+                new ActionRowBuilder<TextInputBuilder>().addComponents(
+                    new TextInputBuilder().setCustomId('q1').setLabel(record.questions[0].label).setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(5)
+                ),
+                new ActionRowBuilder<TextInputBuilder>().addComponents(
+                    new TextInputBuilder().setCustomId('q2').setLabel(record.questions[1].label).setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(5)
+                ),
+                new ActionRowBuilder<TextInputBuilder>().addComponents(
+                    new TextInputBuilder().setCustomId('q3').setLabel(record.questions[2].label).setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(5)
+                )
+            );
+            await interaction.showModal(modal);
+            return;
+        }
+
+        await interaction.reply({ content: '❌ 不明な認証モーダルです。', ephemeral: true });
+    },
+
+    async handleGrantButton(interaction: ButtonInteraction, preset: any, token: string): Promise<void> {
+        cleanupExpiredAuthRecords();
+        const record = authGrantRecords.get(token);
+        if (!record || !interaction.guild) {
+            await interaction.reply({ content: '❌ 認証情報が見つからないか期限切れです。', ephemeral: true });
+            return;
+        }
+
+        if (
+            record.guildId !== interaction.guild.id
+            || record.presetId !== preset.id
+            || record.userId !== interaction.user.id
+            || record.expiresAt <= Date.now()
+        ) {
+            authGrantRecords.delete(token);
+            await interaction.reply({ content: '❌ 認証情報が一致しません。もう一度やり直してください。', ephemeral: true });
+            return;
+        }
+
+        const member = interaction.member as any;
+        if (!member) {
+            await interaction.reply({ content: '❌ メンバー情報を取得できませんでした。', ephemeral: true });
+            return;
+        }
+
+        const botMember = interaction.guild.members.me;
+        const currentRoles = (member.roles as GuildMemberRoleManager).cache.map((r) => r.id);
+        const stillMissing = record.roles.filter((roleId) => !currentRoles.includes(roleId));
+        const message = await this.grantMissingRoles(interaction.guild.id, preset.id, member, botMember, stillMissing);
+        authGrantRecords.delete(token);
+        await interaction.reply({ content: message, ephemeral: true });
+    },
+
+    async grantMissingRoles(guildId: string, presetId: string, member: any, botMember: any, roleIds: string[]): Promise<string> {
+        if (!member.guild) {
+            return '❌ サーバー情報を取得できませんでした。';
+        }
+
+        if (roleIds.length === 0) {
+            return '✅ すでに必要なロールをすべて所持しています。';
+        }
+
+        const results: string[] = [];
+        const errors: string[] = [];
+        for (const roleId of roleIds) {
+            const role = member.guild.roles.cache.get(roleId);
+            if (!role) continue;
+            if (!canManageRole(role, botMember)) {
+                errors.push(`${role.name}: 権限不足`);
+                continue;
+            }
+            try {
+                await (member.roles as GuildMemberRoleManager).add(role);
+                results.push(`✅ ${role.name} を追加`);
+                await RolePresetManager.logRoleChange({
+                    timestamp: new Date().toISOString(),
+                    guildId,
+                    userId: member.id,
+                    executorId: member.id,
+                    presetId,
+                    action: 'add',
+                    roleId: role.id,
+                    roleName: role.name,
+                    success: true
+                });
+            } catch (error) {
+                errors.push(`${role.name}: 追加失敗`);
+            }
+        }
+
+        if (results.length === 0 && errors.length === 0) {
+            return '✅ 変更はありませんでした。';
+        }
+        return [
+            results.join('\n'),
+            errors.length > 0 ? `\n**エラー:**\n${errors.join('\n')}` : ''
+        ].join('').trim();
+    },
+
+    async handleCodeModalSubmit(interaction: ModalSubmitInteraction): Promise<void> {
+        cleanupExpiredAuthRecords();
+        if (!interaction.guild) {
+            await interaction.reply({ content: '❌ サーバー内でのみ使用できます。', ephemeral: true });
+            return;
+        }
+
+        const record = Array.from(authCodeRecords.values()).find((entry) =>
+            entry.guildId === interaction.guild!.id
+            && entry.userId === interaction.user.id
+            && entry.expiresAt > Date.now()
+        );
+        if (!record) {
+            await interaction.reply({ content: '❌ 認証コードが見つかりません。もう一度やり直してください。', ephemeral: true });
+            return;
+        }
+
+        const entered = interaction.fields.getTextInputValue('code').trim();
+        if (entered !== record.code) {
+            await interaction.reply({ content: '❌ コードが一致しません。', ephemeral: true });
+            return;
+        }
+
+        authCodeRecords.delete(getAuthRecordKey(record.guildId, record.presetId, record.userId));
+        const token = issueToken('grant');
+        authGrantRecords.set(token, {
+            guildId: record.guildId,
+            presetId: record.presetId,
+            userId: record.userId,
+            roles: record.roles,
+            expiresAt: Date.now() + AUTH_TTL_MS
+        });
+
+        await interaction.reply({
+            content: '✅ 認証成功。「認証後に一括付与」を押すと不足ロールを付与します。',
+            components: [
+                new ActionRowBuilder<ButtonBuilder>().addComponents(
+                    new ButtonBuilder()
+                        .setCustomId(`rolepanel:${record.guildId}:${record.presetId}:grant:${token}`)
+                        .setLabel('認証後に一括付与')
+                        .setStyle(ButtonStyle.Success)
+                )
+            ],
+            ephemeral: true
+        });
+    },
+
+    async handleMathModalSubmit(interaction: ModalSubmitInteraction): Promise<void> {
+        cleanupExpiredAuthRecords();
+        if (!interaction.guild) {
+            await interaction.reply({ content: '❌ サーバー内でのみ使用できます。', ephemeral: true });
+            return;
+        }
+
+        const record = Array.from(authMathRecords.values()).find((entry) =>
+            entry.guildId === interaction.guild!.id
+            && entry.userId === interaction.user.id
+            && entry.expiresAt > Date.now()
+        );
+        if (!record) {
+            await interaction.reply({ content: '❌ 計算認証情報が見つかりません。もう一度やり直してください。', ephemeral: true });
+            return;
+        }
+
+        const answers = [
+            Number(interaction.fields.getTextInputValue('q1').trim()),
+            Number(interaction.fields.getTextInputValue('q2').trim()),
+            Number(interaction.fields.getTextInputValue('q3').trim())
+        ];
+        const ok = answers.every((value, index) => Number.isFinite(value) && value === record.questions[index].answer);
+        if (!ok) {
+            await interaction.reply({ content: '❌ 計算結果が正しくありません。', ephemeral: true });
+            return;
+        }
+
+        authMathRecords.delete(getAuthRecordKey(record.guildId, record.presetId, record.userId));
+        const token = issueToken('grant');
+        authGrantRecords.set(token, {
+            guildId: record.guildId,
+            presetId: record.presetId,
+            userId: record.userId,
+            roles: record.roles,
+            expiresAt: Date.now() + AUTH_TTL_MS
+        });
+
+        await interaction.reply({
+            content: '✅ 計算認証に成功しました。「認証後に一括付与」を押してください。',
+            components: [
+                new ActionRowBuilder<ButtonBuilder>().addComponents(
+                    new ButtonBuilder()
+                        .setCustomId(`rolepanel:${record.guildId}:${record.presetId}:grant:${token}`)
+                        .setLabel('認証後に一括付与')
+                        .setStyle(ButtonStyle.Success)
+                )
+            ],
+            ephemeral: true
+        });
+    },
+
     async execute(interaction: ChatInputCommandInteraction): Promise<void> {
         if (!interaction.guild) {
             await interaction.reply({
@@ -350,3 +796,12 @@ export default {
         }
     }
 };
+
+registerModalHandler('rolepanel_auth_code_modal', async (interaction) => {
+    await rolePanelSubcommand.handleCodeModalSubmit(interaction);
+});
+registerModalHandler('rolepanel_auth_math_modal', async (interaction) => {
+    await rolePanelSubcommand.handleMathModalSubmit(interaction);
+});
+
+export default rolePanelSubcommand;

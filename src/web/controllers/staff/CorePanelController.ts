@@ -47,7 +47,13 @@ export class CorePanelController {
                 return;
             }
 
-            const { channelId, spectatorRoleId } = req.body as { channelId?: string; spectatorRoleId?: string | null };
+            const { channelId, spectatorRoleId, requestCategoryName, requestLabels, requestDoneChannelId } = req.body as {
+                channelId?: string;
+                spectatorRoleId?: string | null;
+                requestCategoryName?: string | null;
+                requestLabels?: string[] | string | null;
+                requestDoneChannelId?: string | null;
+            };
             const existing = await coreFeatureManager.getPanelConfig(guildId, panelKind);
             const nextChannelId = typeof channelId === 'string' && channelId.trim()
                 ? channelId.trim()
@@ -68,6 +74,17 @@ export class CorePanelController {
                     : spectatorRoleId === undefined
                         ? existing?.spectatorRoleId || null
                         : spectatorRoleId || null,
+                requestCategoryName: typeof requestCategoryName === 'string' && requestCategoryName.trim()
+                    ? requestCategoryName.trim()
+                    : existing?.requestCategoryName || 'Request',
+                requestLabels: Array.isArray(requestLabels)
+                    ? requestLabels.filter((entry) => typeof entry === 'string').map((entry) => entry.trim()).filter(Boolean).slice(0, 20)
+                    : typeof requestLabels === 'string'
+                        ? requestLabels.split(',').map((entry) => entry.trim()).filter(Boolean).slice(0, 20)
+                        : existing?.requestLabels || ['機能リクエスト', 'バグ修正', 'その他'],
+                requestDoneChannelId: requestDoneChannelId === undefined
+                    ? existing?.requestDoneChannelId || null
+                    : requestDoneChannelId || null,
                 updatedBy: session.userId,
                 updatedAt: new Date().toISOString()
             };

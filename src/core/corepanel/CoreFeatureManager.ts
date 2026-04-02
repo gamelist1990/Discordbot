@@ -9,6 +9,7 @@ import { database } from '../Database.js';
 import { registerModalHandler } from '../../utils/Modal.js';
 import { createDebateFeature } from './debate/index.js';
 import { createPersonalityFeature } from './personality/index.js';
+import { createRequestFeature } from './request/index.js';
 import {
     buildPanelRowsFromFeatures,
     CoreFeatureApi,
@@ -46,6 +47,11 @@ function normalizePanelConfig(
         channelId: config.channelId,
         messageId: typeof config.messageId === 'string' ? config.messageId : null,
         spectatorRoleId: typeof config.spectatorRoleId === 'string' ? config.spectatorRoleId : null,
+        requestCategoryName: typeof config.requestCategoryName === 'string' ? config.requestCategoryName : null,
+        requestLabels: Array.isArray(config.requestLabels)
+            ? config.requestLabels.filter((entry): entry is string => typeof entry === 'string').map((entry) => entry.trim()).filter(Boolean).slice(0, 20)
+            : undefined,
+        requestDoneChannelId: typeof config.requestDoneChannelId === 'string' ? config.requestDoneChannelId : null,
         updatedBy: typeof config.updatedBy === 'string' ? config.updatedBy : 'unknown',
         updatedAt: typeof config.updatedAt === 'string' ? config.updatedAt : new Date(0).toISOString()
     };
@@ -58,6 +64,7 @@ export class CoreFeatureManager implements CoreFeatureApi {
     constructor() {
         this.registerFeature(createPersonalityFeature());
         this.registerFeature(createDebateFeature());
+        this.registerFeature(createRequestFeature());
     }
 
     setClient(client: Client): void {
@@ -184,6 +191,19 @@ export class CoreFeatureManager implements CoreFeatureApi {
         return false;
     }
 
+    async onModalSubmit(interaction: ModalSubmitInteraction): Promise<boolean> {
+        for (const feature of this.features.values()) {
+            if (!feature.handleModalSubmit) {
+                continue;
+            }
+            const handled = await feature.handleModalSubmit(interaction, interaction.customId);
+            if (handled) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     async closeSessions(
         guild: Guild,
         options: { channelId?: string; panelKind?: CoreFeaturePanelKind; reason: string }
@@ -233,7 +253,7 @@ export class CoreFeatureManager implements CoreFeatureApi {
             return features;
         }
 
-        return features.filter((feature) => feature.key === panelKind);
+        return features.filter((feature) => feature.key === panelKind || feature.key === 'request');
     }
 }
 

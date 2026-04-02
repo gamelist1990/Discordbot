@@ -9,6 +9,9 @@ interface RolePreset {
   description: string;
   roles: string[];
   allowMulti: boolean;
+  panelType?: "toggle" | "grant_missing";
+  authType?: "none" | "web" | "code" | "math";
+  authUrl?: string | null;
   createdBy: string;
   createdAt: string;
   updatedAt?: string;
@@ -88,6 +91,9 @@ const RoleManagerPage: React.FC = () => {
     description: "",
     roles: [] as string[],
     allowMulti: true,
+    panelType: "toggle" as "toggle" | "grant_missing",
+    authType: "none" as "none" | "web" | "code" | "math",
+    authUrl: "",
   });
 
   const { addToast } = (() => {
@@ -178,6 +184,9 @@ const RoleManagerPage: React.FC = () => {
       description: "",
       roles: [],
       allowMulti: true,
+      panelType: "toggle",
+      authType: "none",
+      authUrl: "",
     });
     setShowModal(true);
   };
@@ -191,6 +200,9 @@ const RoleManagerPage: React.FC = () => {
       description: preset.description,
       roles: preset.roles,
       allowMulti: preset.allowMulti,
+      panelType: preset.panelType || "toggle",
+      authType: preset.authType || "none",
+      authUrl: preset.authUrl || "",
     });
     setShowModal(true);
   };
@@ -405,6 +417,16 @@ const RoleManagerPage: React.FC = () => {
                       </i>
                       <span>
                         {preset.allowMulti ? "複数選択可" : "単一選択"}
+                      </span>
+                    </div>
+                    <div className={styles.metaItem}>
+                      <i className="material-icons">apps</i>
+                      <span>{preset.panelType === "grant_missing" ? "一括付与" : "通常切替"}</span>
+                    </div>
+                    <div className={styles.metaItem}>
+                      <i className="material-icons">verified_user</i>
+                      <span>
+                        {preset.authType === "web" ? "Web認証" : preset.authType === "code" ? "Code認証" : preset.authType === "math" ? "計算認証" : "認証なし"}
                       </span>
                     </div>
                   </div>
@@ -630,6 +652,43 @@ const RoleManagerPage: React.FC = () => {
                     選択されたロール: {formData.roles.length}個
                   </small>
                 )}
+              </div>
+              <div className={styles.formGroup}>
+                <label>パネルタイプ</label>
+                <select
+                  value={formData.panelType}
+                  onChange={(e) =>
+                    setFormData({ ...formData, panelType: e.target.value as "toggle" | "grant_missing" })
+                  }
+                >
+                  <option value="toggle">通常（付与/解除）</option>
+                  <option value="grant_missing">不足ロールを一括付与</option>
+                </select>
+              </div>
+              <div className={styles.formGroup}>
+                <label>認証方式</label>
+                <select
+                  value={formData.authType}
+                  onChange={(e) =>
+                    setFormData({ ...formData, authType: e.target.value as "none" | "web" | "code" | "math" })
+                  }
+                >
+                  <option value="none">認証なし</option>
+                  <option value="web">Web認証</option>
+                  <option value="code">Code認証</option>
+                  <option value="math">計算認証</option>
+                </select>
+              </div>
+              <div className={styles.formGroup}>
+                <label>認証URL（任意）</label>
+                <input
+                  type="url"
+                  value={formData.authUrl}
+                  onChange={(e) =>
+                    setFormData({ ...formData, authUrl: e.target.value })
+                  }
+                  placeholder="https://example.com/verify"
+                />
               </div>
               <div className={styles.formGroup}>
                 <label className={styles.checkboxLabel}>

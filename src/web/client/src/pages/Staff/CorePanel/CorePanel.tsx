@@ -29,6 +29,9 @@ type CorePanelConfig = {
   channelId: string;
   messageId: string | null;
   spectatorRoleId: string | null;
+  requestCategoryName?: string | null;
+  requestLabels?: string[];
+  requestDoneChannelId?: string | null;
   updatedBy: string;
   updatedAt: string;
 };
@@ -95,6 +98,9 @@ const CorePanelPage: React.FC = () => {
   const [panelUrl, setPanelUrl] = useState<string | null>(null);
   const [channelId, setChannelId] = useState('');
   const [spectatorRoleId, setSpectatorRoleId] = useState('');
+  const [requestCategoryName, setRequestCategoryName] = useState('Request');
+  const [requestLabels, setRequestLabels] = useState('機能リクエスト,バグ修正,その他');
+  const [requestDoneChannelId, setRequestDoneChannelId] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   const { addToast } = (() => {
@@ -152,6 +158,9 @@ const CorePanelPage: React.FC = () => {
       setPanelUrl(null);
       setChannelId('');
       setSpectatorRoleId('');
+      setRequestCategoryName('Request');
+      setRequestLabels('機能リクエスト,バグ修正,その他');
+      setRequestDoneChannelId('');
       setPanelKind('combined');
       return;
     }
@@ -188,6 +197,9 @@ const CorePanelPage: React.FC = () => {
         setRoles(nextRoles);
         setChannelId(nextConfig?.channelId || nextChannels[0]?.id || '');
         setSpectatorRoleId(nextConfig?.spectatorRoleId || '');
+        setRequestCategoryName(nextConfig?.requestCategoryName || 'Request');
+        setRequestLabels((nextConfig?.requestLabels || ['機能リクエスト', 'バグ修正', 'その他']).join(','));
+        setRequestDoneChannelId(nextConfig?.requestDoneChannelId || '');
       } catch (loadError) {
         const message = loadError instanceof Error ? loadError.message : 'Core パネル設定の読み込みに失敗しました。';
         setError(message);
@@ -224,6 +236,9 @@ const CorePanelPage: React.FC = () => {
           panelKind,
           channelId,
           spectatorRoleId: panelKind === 'personality' ? null : spectatorRoleId || null,
+          requestCategoryName,
+          requestLabels,
+          requestDoneChannelId: requestDoneChannelId || null,
         }),
       });
 
@@ -426,6 +441,39 @@ const CorePanelPage: React.FC = () => {
                       ? '性格診断専用パネルでは観戦ロールは使いません。'
                       : '未設定なら一般向け表示だけになり、観戦専用ロールは付きません。'}
                   </p>
+                </div>
+                <div className={styles.field}>
+                  <label htmlFor="corepanel-request-category">Requestカテゴリ名</label>
+                  <input
+                    id="corepanel-request-category"
+                    value={requestCategoryName}
+                    onChange={(event) => setRequestCategoryName(event.target.value)}
+                    placeholder="Request"
+                  />
+                </div>
+                <div className={styles.field}>
+                  <label htmlFor="corepanel-request-labels">Requestラベル一覧</label>
+                  <input
+                    id="corepanel-request-labels"
+                    value={requestLabels}
+                    onChange={(event) => setRequestLabels(event.target.value)}
+                    placeholder="機能リクエスト,バグ修正,その他"
+                  />
+                </div>
+                <div className={styles.field}>
+                  <label htmlFor="corepanel-request-done-channel">完了投稿先チャンネル</label>
+                  <select
+                    id="corepanel-request-done-channel"
+                    value={requestDoneChannelId}
+                    onChange={(event) => setRequestDoneChannelId(event.target.value)}
+                  >
+                    <option value="">未設定</option>
+                    {channels.map((channel) => (
+                      <option key={channel.id} value={channel.id}>
+                        #{channel.name}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </div>
 

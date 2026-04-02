@@ -2,6 +2,7 @@ import {
     ButtonInteraction,
     ChannelType,
     ChatInputCommandInteraction,
+    ModalSubmitInteraction,
     SlashCommandSubcommandBuilder
 } from 'discord.js';
 import { coreFeatureManager } from '../../../core/corepanel/CoreFeatureManager.js';
@@ -85,6 +86,27 @@ export default {
                     ephemeral: true
                 });
             }
+        }
+    },
+
+    async handleModalInteraction(interaction: ModalSubmitInteraction): Promise<void> {
+        if (!interaction.customId.startsWith('corefeature:')) {
+            return;
+        }
+
+        try {
+            const handled = await coreFeatureManager.onModalSubmit(interaction);
+            if (!handled) {
+                await interaction.reply({
+                    content: '❌ このモーダルは無効か、現在は利用できません。',
+                    ephemeral: true
+                });
+            }
+        } catch (error) {
+            await interaction.reply({
+                content: `❌ ${error instanceof Error ? error.message : '処理に失敗しました。'}`,
+                ephemeral: true
+            });
         }
     },
 
