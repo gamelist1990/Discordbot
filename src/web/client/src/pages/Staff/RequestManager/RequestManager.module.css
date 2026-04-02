@@ -1,0 +1,295 @@
+.page {
+  display: grid;
+  gap: 1.5rem;
+  padding: 1.5rem;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  padding: 1.5rem;
+  border-radius: 24px;
+  background: linear-gradient(135deg, rgba(54, 83, 189, 0.16), rgba(53, 133, 210, 0.08));
+  border: 1px solid rgba(76, 102, 201, 0.2);
+}
+
+.headerCopy {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.eyebrow {
+  font-size: 0.78rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--md-sys-color-primary);
+}
+
+.header h1 {
+  margin: 0;
+  font-size: clamp(1.8rem, 2.7vw, 2.6rem);
+}
+
+.header p {
+  margin: 0;
+  color: var(--md-sys-color-on-surface-variant);
+  max-width: 760px;
+}
+
+.headerActions {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.button,
+.buttonGhost,
+.buttonPrimary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  padding: 0.8rem 1.1rem;
+  font: inherit;
+  cursor: pointer;
+  transition: transform 0.16s ease, border-color 0.16s ease, background-color 0.16s ease;
+}
+
+.button:hover,
+.buttonGhost:hover,
+.buttonPrimary:hover {
+  transform: translateY(-1px);
+}
+
+.buttonGhost {
+  background: transparent;
+  border-color: var(--md-sys-color-outline-variant);
+  color: var(--md-sys-color-on-surface);
+}
+
+.button {
+  background: var(--md-sys-color-surface-container-high);
+  color: var(--md-sys-color-on-surface);
+}
+
+.buttonPrimary {
+  background: var(--md-sys-color-primary);
+  color: var(--md-sys-color-on-primary);
+}
+
+.layout {
+  display: grid;
+  gap: 1.5rem;
+}
+
+.statePanel,
+.guildSelector,
+.panelCard,
+.infoCard {
+  border-radius: 24px;
+  background: var(--md-sys-color-surface-container-low);
+  border: 1px solid var(--md-sys-color-outline-variant);
+  padding: 1.35rem;
+}
+
+.statePanel {
+  text-align: center;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.guildSelector {
+  display: grid;
+  gap: 1rem;
+}
+
+.guildGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem;
+}
+
+.guildCard {
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: 18px;
+  background: var(--md-sys-color-surface);
+  padding: 1rem;
+  display: grid;
+  gap: 0.75rem;
+  cursor: pointer;
+}
+
+.guildCard:hover {
+  border-color: var(--md-sys-color-primary);
+}
+
+.guildIdentity {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.guildIcon,
+.guildIconFallback {
+  width: 52px;
+  height: 52px;
+  border-radius: 16px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.guildIcon img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.guildIconFallback {
+  display: grid;
+  place-items: center;
+  background: rgba(74, 98, 183, 0.14);
+  color: var(--md-sys-color-primary);
+  font-weight: 700;
+}
+
+.summaryGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem;
+}
+
+.summaryValue {
+  display: block;
+  margin-top: 0.35rem;
+  font-size: 1.2rem;
+  font-weight: 700;
+}
+
+.contentGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.95fr);
+  gap: 1.5rem;
+}
+
+.panelCard,
+.infoCard {
+  display: grid;
+  gap: 1rem;
+}
+
+.sectionHeader {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.sectionHeader h2,
+.sectionHeader h3 {
+  margin: 0;
+}
+
+.sectionHeader p {
+  margin: 0;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.formGrid {
+  display: grid;
+  gap: 1rem;
+}
+
+.field {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.field label {
+  font-weight: 600;
+}
+
+.field select,
+.field input,
+.field textarea {
+  border-radius: 14px;
+  border: 1px solid var(--md-sys-color-outline-variant);
+  background: var(--md-sys-color-surface);
+  color: var(--md-sys-color-on-surface);
+  padding: 0.9rem 1rem;
+  font: inherit;
+  resize: vertical;
+}
+
+.field textarea {
+  min-height: 80px;
+}
+
+.hint {
+  margin: 0;
+  font-size: 0.92rem;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.actionRow {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.linkButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: var(--md-sys-color-primary);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.infoList {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.infoItem {
+  display: grid;
+  gap: 0.3rem;
+  padding: 0.9rem 1rem;
+  border-radius: 16px;
+  background: var(--md-sys-color-surface);
+  border: 1px solid var(--md-sys-color-outline-variant);
+}
+
+.infoItem span {
+  font-size: 0.82rem;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+@media (max-width: 960px) {
+  .contentGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .page {
+    padding: 1rem;
+  }
+
+  .header {
+    padding: 1.15rem;
+    border-radius: 20px;
+    flex-direction: column;
+  }
+
+  .headerActions,
+  .actionRow {
+    width: 100%;
+  }
+
+  .button,
+  .buttonGhost,
+  .buttonPrimary {
+    width: 100%;
+    justify-content: center;
+  }
+}

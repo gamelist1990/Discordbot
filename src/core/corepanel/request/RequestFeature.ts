@@ -160,7 +160,8 @@ export class RequestFeature implements CoreFeatureModule {
             };
 
             const config = this.api ? await this.api.getPanelConfig(interaction.guild.id, panelKind) : null;
-            const categoryName = config?.requestCategoryName || 'Request';
+            const requestConfig = await this.getRequestConfig(interaction.guild.id);
+            const categoryName = requestConfig?.categoryName || config?.requestCategoryName || 'Request';
             let category = interaction.guild.channels.cache.find((ch) => ch.type === ChannelType.GuildCategory && ch.name === categoryName);
             if (!category) {
                 category = await interaction.guild.channels.create({
@@ -215,9 +216,11 @@ export class RequestFeature implements CoreFeatureModule {
             item.updatedAt = new Date().toISOString();
             await this.saveItems(interaction.guild.id, items);
 
+            const requestConfig = await this.getRequestConfig(interaction.guild.id);
             const config = this.api ? await this.api.getPanelConfig(interaction.guild.id, item.panelKind) : null;
-            if (config?.requestDoneChannelId) {
-                const doneCh = await interaction.guild.channels.fetch(config.requestDoneChannelId).catch(() => null);
+            const doneChannelId = requestConfig?.doneChannelId || config?.requestDoneChannelId;
+            if (doneChannelId) {
+                const doneCh = await interaction.guild.channels.fetch(doneChannelId).catch(() => null);
                 if (doneCh && doneCh.type === ChannelType.GuildText) {
                     const polished = await this.polishDoneMessage(reportTitle, reportBody, item);
                     await (doneCh as TextChannel).send(polished);
@@ -245,6 +248,10 @@ export class RequestFeature implements CoreFeatureModule {
 
     private async saveItems(guildId: string, items: RequestItem[]): Promise<void> {
         await database.set(guildId, getRequestsKey(guildId), items);
+    }
+
+    private async getRequestConfig(guildId: string): Promise<{ categoryName: string; doneChannelId: string | null; labels: string[]; description: string; instructions: string } | null> {
+        return await database.get(guildId, `Guild/${guildId}/corefeature/request/config`, null);
     }
 
     private async isRequestSafe(label: string, title: string, body: string): Promise<boolean> {
