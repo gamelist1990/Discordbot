@@ -42,11 +42,11 @@ type DetectorEntry = {
 };
 
 const DETECTORS: DetectorEntry[] = [
-  { key: 'textSpam', title: 'テキストスパム', description: '大量投稿と大文字スパムを検知します。', icon: 'sms', fields: [
+  { key: 'textSpam', title: 'テキストスパム', description: '短時間の連投や、大文字ばかりの目立つ文章を検知します。', icon: 'sms', fields: [
     { kind: 'number', key: 'windowSeconds', label: '監視秒数', defaultValue: 5, min: 1 },
     { kind: 'number', key: 'rapidMessageCount', label: '大量投稿回数', defaultValue: 6, min: 1 },
     { kind: 'number', key: 'duplicateThreshold', label: '重複しきい値', defaultValue: 3, min: 1 },
-    { kind: 'number', key: 'capsRatio', label: '大文字比率', defaultValue: 0.88, min: 0, max: 1, step: 0.01 },
+    { kind: 'number', key: 'capsRatio', label: '大文字だらけ判定', defaultValue: 0.88, min: 0, max: 1, step: 0.01 },
   ] },
   { key: 'inviteReferral', title: '広告防止 / 紹介', description: '招待リンクと紹介パターンを止めます。', icon: 'campaign', fields: [
     { kind: 'list', key: 'blockedDomains', label: 'ブロックドメイン', wide: true, placeholder: 'example.com' },
@@ -74,7 +74,7 @@ const DETECTORS: DetectorEntry[] = [
   { key: 'maxLines', title: '最大行数', description: '長文スパムを行数で見ます。', icon: 'format_line_spacing', fields: [
     { kind: 'number', key: 'maxLines', label: '最大行数', defaultValue: 10, min: 1 },
   ] },
-  { key: 'wordFilter', title: 'フィルター', description: '単語と正規表現の個別ルールです。', icon: 'filter_alt' },
+  { key: 'wordFilter', title: 'フィルター', description: 'NGワードや指定パターンを、ルールごとに個別設定します。', icon: 'filter_alt' },
   { key: 'raidDetection', title: '自動アンチレイド', description: '参加急増時に保護を強めます。', icon: 'security', fields: [
     { kind: 'number', key: 'joinsPerHour', label: '1時間あたりの参加数', defaultValue: 25, min: 1 },
     { kind: 'number', key: 'burstCount', label: '短時間バースト数', defaultValue: 10, min: 1 },
@@ -95,6 +95,18 @@ const parseListText = (value: string) => value.split(/\r?\n|,/).map((entry) => e
 const toTextList = (value: unknown) => Array.isArray(value) ? value.join('\n') : '';
 const readNumber = (value: unknown, fallback: number) => Number.isFinite(Number(value)) ? Number(value) : fallback;
 const formatDate = (value?: string | null) => value ? new Date(value).toLocaleString('ja-JP') : '未設定';
+const getWordFilterModeLabel = (mode: WordFilterRule['mode']) => {
+  switch (mode) {
+    case 'contains':
+      return '含む';
+    case 'exact':
+      return '完全一致';
+    case 'regex':
+      return 'パターン一致';
+    default:
+      return mode;
+  }
+};
 const createWordFilterRule = (): WordFilterRule => ({
   id: `rule-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
   label: '',
@@ -367,12 +379,27 @@ const AntiCheatUnified: React.FC = () => {
               <input className={styles.input} type="text" value={rule.label} onChange={(event) => updateWordRule(rule.id, { label: event.target.value })} disabled={!detector.enabled} />
             </label>
             <label className={styles.field}>
-              <span>判定モード</span>
+              <span>一致方法</span>
               <select className={styles.select} value={rule.mode} onChange={(event) => updateWordRule(rule.id, { mode: event.target.value as WordFilterRule['mode'] })} disabled={!detector.enabled}>
-                <option value="contains">contains</option>
-                <option value="exact">exact</option>
-                <option value="regex">regex</option>
+                <option value="contains">{getWordFilterModeLabel('contains')}</option>
+                <option value="exact">{getWordFilterModeLabel('exact')}</option>
+                <option value="regex">{getWordFilterModeLabel('regex')}</option>
               </select>
+            </label>
+            <label className={`${styles.field} ${styles.fieldWide}`}>
+              <span>説明</span>
+              <input
+                className={styles.input}
+                type="text"
+                value={
+                  rule.mode === 'contains'
+                    ? '入力した文字が文章のどこかに入っていたら検知します'
+                    : rule.mode === 'exact'
+                      ? '文章が入力した文字と完全に同じときだけ検知します'
+                      : '記号を使ったパターン指定で検知します'
+                }
+                disabled
+              />
             </label>
             <label className={`${styles.field} ${styles.fieldWide}`}>
               <span>パターン</span>
