@@ -4,7 +4,7 @@ import crypto from 'crypto';
 import config from '../../config.js';
 // import { Logger } from '../../utils/Logger.js';
 import { SettingsSession } from '../types';
-import { parsePermissionBitfield } from './permissionsUtils.js';
+import { parsePermissionBitfield, userHasAdminOrManageFlag } from './permissionsUtils.js';
 import { PermissionFlagsBits } from 'discord.js';
 import { database } from '../../core/Database.js';
 import fs from 'fs';
@@ -358,11 +358,11 @@ export function createAuthRoutes(
                             level = 2;
                         } else if (settings && settings.staffRoleId && roles.includes(settings.staffRoleId)) {
                             level = 1;
-                        } else if (g.owner) {
+                        } else if (userHasAdminOrManageFlag(g)) {
                             level = 2;
                         } else {
                             // Handle permission bitfields which may be string/number/bigint
-                            const perms = parsePermissionBitfield(g.permissions);
+                            const perms = parsePermissionBitfield(g.permissions_new ?? g.permissions);
                             const manageGuildFlag = Number((PermissionFlagsBits as any).ManageGuild || PermissionFlagsBits.ManageGuild || 0);
                             const adminFlag = Number(PermissionFlagsBits.Administrator);
                             if (perms & manageGuildFlag) {
@@ -374,10 +374,10 @@ export function createAuthRoutes(
                     }
                 } catch (e) {
                     // fallback: owner/権限フラグ
-                    if (g.owner) {
+                    if (userHasAdminOrManageFlag(g)) {
                         level = 2;
                     } else {
-                        const perms = parsePermissionBitfield(g.permissions);
+                        const perms = parsePermissionBitfield(g.permissions_new ?? g.permissions);
                         const manageGuildFlag = Number((PermissionFlagsBits as any).ManageGuild || PermissionFlagsBits.ManageGuild || 0);
                         const adminFlag = Number(PermissionFlagsBits.Administrator);
                         if (perms & manageGuildFlag) {

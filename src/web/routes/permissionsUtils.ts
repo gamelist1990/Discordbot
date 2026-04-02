@@ -22,7 +22,7 @@ export function parsePermissionBitfield(p: any): number {
 export function userHasAdminOrManageFlag(guildInfo: any): boolean {
     if (!guildInfo) return false;
     if (guildInfo.owner === true) return true;
-    const perms = parsePermissionBitfield(guildInfo.permissions);
+    const perms = parsePermissionBitfield(guildInfo.permissions_new ?? guildInfo.permissions);
     // PermissionFlagsBits constants can be bigint, convert to number for bitwise ops
     const admin = Number(PermissionFlagsBits.Administrator);
     const manageGuild = Number((PermissionFlagsBits as any).ManageGuild || (PermissionFlagsBits as any).ManageGuildPermissions || 0);
