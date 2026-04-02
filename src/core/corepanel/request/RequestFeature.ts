@@ -107,7 +107,7 @@ export class RequestFeature implements CoreFeatureModule {
     buildPanelButton(guildId: string, panelKind: CoreFeaturePanelKind): ButtonBuilder {
         return new ButtonBuilder()
             .setCustomId(`corefeature:${guildId}:${panelKind}:${this.key}:entry`)
-            .setLabel('Request')
+            .setLabel('リクエストを作成')
             .setEmoji('📝')
             .setStyle(ButtonStyle.Secondary);
     }
@@ -115,13 +115,20 @@ export class RequestFeature implements CoreFeatureModule {
     async handleButtonInteraction(interaction: ButtonInteraction, panelKind: CoreFeaturePanelKind, action: string, parts: string[]): Promise<boolean> {
         if (!interaction.guild) return false;
         if (action === 'entry') {
+            const config = await this.getRequestConfig(interaction.guild.id);
+            const categoryName = config?.categoryName?.trim() || '作成カテゴリ名';
+            const labels = (config?.labels || []).map((entry) => entry.trim()).filter(Boolean);
             const modal = new ModalBuilder()
                 .setCustomId(`corefeature:request:create:${panelKind}`)
-                .setTitle('Request を作成');
+                .setTitle(`${categoryName}を作成`);
+            if (labels.length > 0) {
+                modal.addComponents(
+                    new ActionRowBuilder<TextInputBuilder>().addComponents(
+                        new TextInputBuilder().setCustomId('label').setLabel('ラベル').setStyle(TextInputStyle.Short).setRequired(true).setPlaceholder(labels.join(' / ')).setMaxLength(10)
+                    )
+                );
+            }
             modal.addComponents(
-                new ActionRowBuilder<TextInputBuilder>().addComponents(
-                    new TextInputBuilder().setCustomId('label').setLabel('ラベル').setStyle(TextInputStyle.Short).setRequired(true).setPlaceholder('機能リクエスト / バグ修正 / その他').setMaxLength(10)
-                ),
                 new ActionRowBuilder<TextInputBuilder>().addComponents(
                     new TextInputBuilder().setCustomId('title').setLabel('件名').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(120)
                 ),
@@ -229,12 +236,15 @@ export class RequestFeature implements CoreFeatureModule {
 
         if (customId.startsWith('corefeature:request:create:')) {
             const panelKind = (customId.split(':')[3] || 'combined') as CoreFeaturePanelKind;
-            const label = interaction.fields.getTextInputValue('label').trim().slice(0, 10);
+            const requestConfig = await this.getRequestConfig(interaction.guild.id);
+            const validLabels = (requestConfig?.labels || []).map((entry) => entry.trim().slice(0, 10)).filter(Boolean);
+            const label = interaction.fields.fields.has('label')
+                ? interaction.fields.getTextInputValue('label').trim().slice(0, 10)
+                : '';
             const title = interaction.fields.getTextInputValue('title').trim().slice(0, 120);
             const body = interaction.fields.getTextInputValue('body').trim();
             await interaction.deferReply({ ephemeral: true });
 
-            const requestConfig = await this.getRequestConfig(interaction.guild.id);
             const cooldownMs = Math.max(30000, (requestConfig?.cooldownSeconds || 300) * 1000);
             const itemsForCooldown = await this.getItems(interaction.guild.id);
             const lastOwn = itemsForCooldown
@@ -253,8 +263,11 @@ export class RequestFeature implements CoreFeatureModule {
                 }
             }
 
-            const validLabels = (requestConfig?.labels || []).map((entry) => entry.trim().slice(0, 10)).filter(Boolean);
             const safeLabel = label.slice(0, 10);
+            if (validLabels.length > 0 && !safeLabel) {
+                await interaction.editReply({ content: '❌ ラベルを選択してください。' });
+                return true;
+            }
             if (validLabels.length > 0 && !validLabels.includes(safeLabel)) {
                 await interaction.editReply({ content: '❌ ラベルが無効です。管理画面で設定されたラベルを使ってください。' });
                 return true;
@@ -337,8 +350,8 @@ export class RequestFeature implements CoreFeatureModule {
             );
 
             const embed = new EmbedBuilder()
-                .setTitle(`Request #${id}`)
-                .setDescription(`**ラベル:** ${safeLabel}\n**件名:** ${title}\n\n${body}`)
+                .setTitle(`${requestConfig?.categoryName?.trim() || 'Request'} #${id}`)
+                .setDescription(`${safeLabel ? `**ラベル:** ${safeLabel}\n` : ''}**件名:** ${title}\n\n${body}`)
                 .setFooter({ text: 'スタッフが対応状態を更新します。' })
                 .setTimestamp();
 
@@ -369,7 +382,7 @@ export class RequestFeature implements CoreFeatureModule {
             items.push(item);
             await this.saveItems(interaction.guild.id, items);
 
-            await interaction.editReply({ content: `✅ Request を作成しました: <#${requestChannel.id}> (ID: ${id})` });
+            await interaction.editReply({ content: `✅ ${requestConfig?.categoryName?.trim() || 'Request'} を作成しました: <#${requestChannel.id}> (ID: ${id})` });
             return true;
         }
 
@@ -463,7 +476,8 @@ export class RequestFeature implements CoreFeatureModule {
     }
 
     private async getRequestConfig(guildId: string): Promise<RequestConfig | null> {
-        return await database.get(guildId, `Guild/${guildId}/corefeature/request/config`, null);
+        const config = await database.get<RequestConfig | null>(guildId, `Guild/${guildId}/corefeature/request/config`, null);
+        return config;
     }
 
     private buildTrackingEmbed(guildId: string, item: RequestItem): EmbedBuilder {

@@ -48,11 +48,12 @@ export function buildCorePanelEmbed(panelKind: CoreFeaturePanelKind, spectatorRo
     }
 
     if (panelKind === 'request') {
+        const requestCategoryName = '作成カテゴリ名';
         return new EmbedBuilder()
-            .setTitle('リクエストパネル')
+            .setTitle(`${requestCategoryName}パネル`)
             .setColor(0x2f9e44)
             .setDescription([
-                'このパネルでは、リクエスト機能だけを個別に利用できます。',
+                `${requestCategoryName}機能だけを個別に利用できます。`,
                 '',
                 '機能追加、改善案、バグ報告などを送信できます。',
                 '送信後は専用スレッド（チャンネル）が作成され、進捗管理されます。'

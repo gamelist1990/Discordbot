@@ -84,14 +84,14 @@ export class RequestManagerController {
                 guildId,
                 categoryName: typeof categoryName === 'string' && categoryName.trim()
                     ? categoryName.trim()
-                    : existing?.categoryName || 'Request',
+                    : existing?.categoryName || '作成カテゴリ名',
                 labels: Array.isArray(labels)
                     ? labels
                         .filter((entry) => typeof entry === 'string')
                         .map((entry) => entry.trim().slice(0, 10))
                         .filter(Boolean)
                         .slice(0, 20)
-                    : existing?.labels || ['機能リクエスト', 'バグ修正', 'その他'],
+                    : existing?.labels || [],
                 doneChannelId: doneChannelId === undefined
                     ? existing?.doneChannelId || null
                     : doneChannelId || null,
@@ -109,7 +109,7 @@ export class RequestManagerController {
                     : existing?.description || 'このパネルから機能リクエスト、バグ報告、その他の要望を送信できます。',
                 instructions: typeof instructions === 'string' && instructions.trim()
                     ? instructions.trim()
-                    : existing?.instructions || '1. ラベルを選択してください\n2. 件名を入力してください\n3. 詳細な内容を記述してください',
+                    : existing?.instructions || '1. 必要ならラベルを設定してください\n2. 件名を入力してください\n3. 詳細な内容を記述してください',
                 updatedBy: session.userId,
                 updatedAt: new Date().toISOString()
             };

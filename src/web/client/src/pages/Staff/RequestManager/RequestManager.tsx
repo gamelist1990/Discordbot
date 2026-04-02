@@ -62,8 +62,8 @@ const RequestManagerPage: React.FC = () => {
   const [roles, setRoles] = useState<GuildRole[]>([]);
   const [items, setItems] = useState<RequestItemSummary[]>([]);
   const [config, setConfig] = useState<RequestConfig | null>(null);
-  const [categoryName, setCategoryName] = useState('Request');
-  const [labels, setLabels] = useState('機能リクエスト,バグ修正,その他');
+  const [categoryName, setCategoryName] = useState('作成カテゴリ名');
+  const [labels, setLabels] = useState('');
   const [doneChannelId, setDoneChannelId] = useState('');
   const [staffRoleId, setStaffRoleId] = useState('');
   const [trackingChannelId, setTrackingChannelId] = useState('');
@@ -121,8 +121,8 @@ const RequestManagerPage: React.FC = () => {
       setChannels([]);
       setRoles([]);
       setItems([]);
-      setCategoryName('Request');
-      setLabels('機能リクエスト,バグ修正,その他');
+      setCategoryName('作成カテゴリ名');
+      setLabels('');
       setDoneChannelId('');
       setStaffRoleId('');
       setTrackingChannelId('');
@@ -165,8 +165,8 @@ const RequestManagerPage: React.FC = () => {
         setChannels(nextChannels);
         setRoles(nextRoles);
         setItems(nextItems);
-        setCategoryName(nextConfig?.categoryName || 'Request');
-        setLabels((nextConfig?.labels || ['機能リクエスト', 'バグ修正', 'その他']).join(','));
+        setCategoryName(nextConfig?.categoryName || '作成カテゴリ名');
+        setLabels((nextConfig?.labels || []).join(','));
         setDoneChannelId(nextConfig?.doneChannelId || '');
         setStaffRoleId(nextConfig?.staffRoleId || '');
         setTrackingChannelId(nextConfig?.trackingChannelId || '');
@@ -263,7 +263,7 @@ const RequestManagerPage: React.FC = () => {
         <div className={styles.headerCopy}>
           <span className={styles.eyebrow}>Request Management</span>
           <h1>Request 管理</h1>
-          <p>ユーザーからのリクエストを受け付けるための設定を管理します。カテゴリ名、ラベル、説明文などをカスタマイズできます。</p>
+          <p>ユーザーからのリクエストを受け付けるための設定を管理します。作成カテゴリ名、ラベル、説明文などをカスタマイズできます。</p>
         </div>
 
         <div className={styles.headerActions}>
@@ -456,7 +456,7 @@ const RequestManagerPage: React.FC = () => {
                     placeholder={DEFAULT_DESCRIPTION}
                     rows={3}
                   />
-                  <p className={styles.hint}>リクエストボタンの説明として表示されます。</p>
+                  <p className={styles.hint}>作成パネルの説明として表示されます。</p>
                 </div>
 
                 <div className={styles.field}>
