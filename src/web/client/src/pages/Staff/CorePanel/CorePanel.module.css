@@ -225,9 +225,37 @@
   font: inherit;
 }
 
+.field input {
+  border-radius: 12px;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+  background: white;
+  color: #1c1b1f;
+  padding: 0.75rem 0.9rem;
+  font: inherit;
+}
+
 .hint {
   margin: 0;
   color: #49454f;
+}
+
+.subsection {
+  display: grid;
+  gap: 1rem;
+  padding: 1rem;
+  border-radius: 18px;
+  background: linear-gradient(135deg, #f8f4ff 0%, #f1f7ff 100%);
+  border: 1px solid rgba(103, 80, 164, 0.14);
+}
+
+.subsectionHeader {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.subsectionHeader h3 {
+  margin: 0;
+  color: #1c1b1f;
 }
 
 .actionRow {

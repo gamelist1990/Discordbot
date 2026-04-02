@@ -32,6 +32,8 @@ type CorePanelConfig = {
   messageId: string | null;
   spectatorRoleId: string | null;
   requestDoneChannelId?: string | null;
+  requestCategoryName?: string | null;
+  requestStaffRoleId?: string | null;
   updatedBy: string;
   updatedAt: string;
 };
@@ -65,6 +67,8 @@ const CorePanelPage: React.FC = () => {
   const [channelId, setChannelId] = useState('');
   const [spectatorRoleId, setSpectatorRoleId] = useState('');
   const [requestDoneChannelId, setRequestDoneChannelId] = useState('');
+  const [requestCategoryName, setRequestCategoryName] = useState('');
+  const [requestStaffRoleId, setRequestStaffRoleId] = useState('');
 
   const { addToast } = (() => {
     try {
@@ -90,14 +94,24 @@ const CorePanelPage: React.FC = () => {
     const roleId = spectatorRoleId || config?.spectatorRoleId || '';
     return roles.find((role) => role.id === roleId)?.name || (roleId ? '不明なロール' : '未設定');
   }, [config?.spectatorRoleId, roles, spectatorRoleId]);
+  const currentRequestStaffRoleName = useMemo(() => {
+    const roleId = requestStaffRoleId || config?.requestStaffRoleId || '';
+    return roles.find((role) => role.id === roleId)?.name || (roleId ? '不明なロール' : '未設定');
+  }, [config?.requestStaffRoleId, requestStaffRoleId, roles]);
   const savedDoneChannelDisplay = useMemo(() => {
-    const doneChannelId = config?.requestDoneChannelId || '';
+    const doneChannelId = requestDoneChannelId || config?.requestDoneChannelId || '';
     if (!doneChannelId) {
       return '未設定';
     }
     const doneChannel = channels.find((channel) => channel.id === doneChannelId);
     return doneChannel?.name ? `#${doneChannel.name}` : doneChannelId;
-  }, [channels, config?.requestDoneChannelId]);
+  }, [channels, config?.requestDoneChannelId, requestDoneChannelId]);
+  const currentRequestCategoryName = useMemo(
+    () => requestCategoryName || config?.requestCategoryName || '未設定',
+    [config?.requestCategoryName, requestCategoryName]
+  );
+  const usesRequestSettings = panelKind === 'request';
+  const usesSpectatorRole = panelKind === 'combined' || panelKind === 'debate';
 
   useEffect(() => {
     const loadGuilds = async () => {
@@ -137,6 +151,8 @@ const CorePanelPage: React.FC = () => {
       setChannelId('');
       setSpectatorRoleId('');
       setRequestDoneChannelId('');
+      setRequestCategoryName('');
+      setRequestStaffRoleId('');
       setPanelKind('combined');
       return;
     }
@@ -173,6 +189,8 @@ const CorePanelPage: React.FC = () => {
         setChannelId(nextConfig?.channelId || nextChannels[0]?.id || '');
         setSpectatorRoleId(nextConfig?.spectatorRoleId || '');
         setRequestDoneChannelId(nextConfig?.requestDoneChannelId || '');
+        setRequestCategoryName(nextConfig?.requestCategoryName || 'Request');
+        setRequestStaffRoleId(nextConfig?.requestStaffRoleId || '');
       } catch (loadError) {
         const message = loadError instanceof Error ? loadError.message : 'Core パネル設定の読み込みに失敗しました。';
         setError(message);
@@ -199,8 +217,10 @@ const CorePanelPage: React.FC = () => {
         body: JSON.stringify({
           panelKind,
           channelId,
-          spectatorRoleId: panelKind === 'personality' || panelKind === 'request' ? null : spectatorRoleId || null,
-          requestDoneChannelId: panelKind === 'request' ? requestDoneChannelId || null : null,
+          spectatorRoleId: usesSpectatorRole ? spectatorRoleId || null : null,
+          requestDoneChannelId: usesRequestSettings ? requestDoneChannelId || null : null,
+          requestCategoryName: usesRequestSettings ? requestCategoryName.trim() || null : null,
+          requestStaffRoleId: usesRequestSettings ? requestStaffRoleId || null : null,
         }),
       });
       const data = await response.json();
@@ -232,8 +252,10 @@ const CorePanelPage: React.FC = () => {
         body: JSON.stringify({
           panelKind,
           channelId,
-          spectatorRoleId: panelKind === 'personality' || panelKind === 'request' ? null : spectatorRoleId || null,
-          requestDoneChannelId: panelKind === 'request' ? requestDoneChannelId || null : null,
+          spectatorRoleId: usesSpectatorRole ? spectatorRoleId || null : null,
+          requestDoneChannelId: usesRequestSettings ? requestDoneChannelId || null : null,
+          requestCategoryName: usesRequestSettings ? requestCategoryName.trim() || null : null,
+          requestStaffRoleId: usesRequestSettings ? requestStaffRoleId || null : null,
         }),
       });
       const data = await response.json();
@@ -348,7 +370,7 @@ const CorePanelPage: React.FC = () => {
                   id="corepanel-spectator-role"
                   value={spectatorRoleId}
                   onChange={(event) => setSpectatorRoleId(event.target.value)}
-                  disabled={panelKind === 'personality' || panelKind === 'request'}
+                  disabled={!usesSpectatorRole}
                 >
                   <option value="">未設定</option>
                   {roles.map((role) => (
@@ -359,21 +381,54 @@ const CorePanelPage: React.FC = () => {
                 </select>
               </div>
 
-              {panelKind === 'request' ? (
-                <div className={styles.field}>
-                  <label htmlFor="corepanel-request-done-channel">完了通知チャンネル</label>
-                  <select
-                    id="corepanel-request-done-channel"
-                    value={requestDoneChannelId}
-                    onChange={(event) => setRequestDoneChannelId(event.target.value)}
-                  >
-                    <option value="">未設定</option>
-                    {channels.map((channel) => (
-                      <option key={channel.id} value={channel.id}>
-                        #{channel.name}
-                      </option>
-                    ))}
-                  </select>
+              {usesRequestSettings ? (
+                <div className={styles.subsection}>
+                  <div className={styles.subsectionHeader}>
+                    <h3>Request 設定</h3>
+                    <p className={styles.hint}>Request 専用パネルで使う設定です。</p>
+                  </div>
+
+                  <div className={styles.field}>
+                    <label htmlFor="corepanel-request-category">作成カテゴリ名</label>
+                    <input
+                      id="corepanel-request-category"
+                      value={requestCategoryName}
+                      onChange={(event) => setRequestCategoryName(event.target.value)}
+                      placeholder="Request"
+                    />
+                  </div>
+
+                  <div className={styles.field}>
+                    <label htmlFor="corepanel-request-staff-role">対応スタッフロール</label>
+                    <select
+                      id="corepanel-request-staff-role"
+                      value={requestStaffRoleId}
+                      onChange={(event) => setRequestStaffRoleId(event.target.value)}
+                    >
+                      <option value="">未設定</option>
+                      {roles.map((role) => (
+                        <option key={role.id} value={role.id}>
+                          {role.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className={styles.field}>
+                    <label htmlFor="corepanel-request-done-channel">完了通知チャンネル</label>
+                    <select
+                      id="corepanel-request-done-channel"
+                      value={requestDoneChannelId}
+                      onChange={(event) => setRequestDoneChannelId(event.target.value)}
+                    >
+                      <option value="">未設定</option>
+                      {channels.map((channel) => (
+                        <option key={channel.id} value={channel.id}>
+                          #{channel.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
               ) : null}
 
@@ -398,11 +453,19 @@ const CorePanelPage: React.FC = () => {
                 </div>
                 <div className={styles.infoItem}>
                   <span>観戦ロール</span>
-                  <strong>{panelKind === 'personality' || panelKind === 'request' ? '未使用' : currentRoleName}</strong>
+                  <strong>{usesSpectatorRole ? currentRoleName : '未使用'}</strong>
+                </div>
+                <div className={styles.infoItem}>
+                  <span>Request カテゴリ</span>
+                  <strong>{usesRequestSettings ? currentRequestCategoryName : '未使用'}</strong>
+                </div>
+                <div className={styles.infoItem}>
+                  <span>対応スタッフロール</span>
+                  <strong>{usesRequestSettings ? currentRequestStaffRoleName : '未使用'}</strong>
                 </div>
                 <div className={styles.infoItem}>
                   <span>完了通知チャンネル</span>
-                  <strong>{panelKind === 'request' ? savedDoneChannelDisplay : '未使用'}</strong>
+                  <strong>{usesRequestSettings ? savedDoneChannelDisplay : '未使用'}</strong>
                 </div>
                 <div className={styles.infoItem}>
                   <span>Discord 投稿</span>

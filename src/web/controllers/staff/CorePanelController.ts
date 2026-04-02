@@ -4,6 +4,7 @@ import { BotClient } from '../../../core/BotClient.js';
 import { coreFeatureManager } from '../../../core/corepanel/CoreFeatureManager.js';
 import { buildCorePanelEmbed } from '../../../core/corepanel/panelMessage.js';
 import { CoreFeaturePanelKind } from '../../../core/corepanel/types.js';
+import { database } from '../../../core/Database.js';
 
 type SessionLike = {
     userId: string;
@@ -27,9 +28,10 @@ export class CorePanelController {
             }
 
             const config = await coreFeatureManager.getPanelConfig(guildId, panelKind);
+            const requestConfig = supportsRequestSettings(panelKind) ? await getRequestConfig(guildId) : null;
             res.json({
                 panelKind,
-                config,
+                config: mergeRequestSettings(config, requestConfig),
                 panelUrl: buildPanelUrl(guildId, config?.channelId || null, config?.messageId || null)
             });
         } catch (error) {
@@ -47,16 +49,21 @@ export class CorePanelController {
                 return;
             }
 
-            const { channelId, spectatorRoleId, requestDoneChannelId } = req.body as {
+            const { channelId, spectatorRoleId, requestDoneChannelId, requestCategoryName, requestStaffRoleId } = req.body as {
                 channelId?: string;
                 spectatorRoleId?: string | null;
                 requestDoneChannelId?: string | null;
+                requestCategoryName?: string | null;
+                requestStaffRoleId?: string | null;
             };
             const existing = await coreFeatureManager.getPanelConfig(guildId, panelKind);
+            const existingRequestConfig = supportsRequestSettings(panelKind) ? await getRequestConfig(guildId) : null;
             const nextChannelId = typeof channelId === 'string' && channelId.trim()
                 ? channelId.trim()
                 : existing?.channelId || null;
             const nextRequestDoneChannelId = resolveRequestDoneChannelId(panelKind, requestDoneChannelId, existing?.requestDoneChannelId);
+            const nextRequestCategoryName = resolveRequestCategoryName(panelKind, requestCategoryName, existingRequestConfig?.categoryName, existing?.requestCategoryName);
+            const nextRequestStaffRoleId = resolveRequestStaffRoleId(panelKind, requestStaffRoleId, existingRequestConfig?.staffRoleId);
 
             if (!nextChannelId) {
                 res.status(400).json({ error: 'channelId is required' });
@@ -73,18 +80,27 @@ export class CorePanelController {
                     : spectatorRoleId === undefined
                         ? existing?.spectatorRoleId || null
                         : spectatorRoleId || null,
-                requestCategoryName: existing?.requestCategoryName ?? null,
+                requestCategoryName: nextRequestCategoryName,
                 requestLabels: existing?.requestLabels,
                 requestDoneChannelId: nextRequestDoneChannelId,
+                requestStaffRoleId: nextRequestStaffRoleId,
                 updatedBy: session.userId,
                 updatedAt: new Date().toISOString()
             };
+
+            if (supportsRequestSettings(panelKind)) {
+                await saveRequestConfig(guildId, session.userId, {
+                    categoryName: nextRequestCategoryName,
+                    doneChannelId: nextRequestDoneChannelId,
+                    staffRoleId: nextRequestStaffRoleId
+                });
+            }
 
             await coreFeatureManager.savePanelConfig(guildId, config, panelKind);
             res.json({
                 success: true,
                 panelKind,
-                config,
+                config: mergeRequestSettings(config, supportsRequestSettings(panelKind) ? await getRequestConfig(guildId) : null),
                 panelUrl: buildPanelUrl(guildId, config.channelId, config.messageId)
             });
         } catch (error) {
@@ -102,12 +118,15 @@ export class CorePanelController {
                 return;
             }
 
-            const { channelId, spectatorRoleId, requestDoneChannelId } = req.body as {
+            const { channelId, spectatorRoleId, requestDoneChannelId, requestCategoryName, requestStaffRoleId } = req.body as {
                 channelId?: string;
                 spectatorRoleId?: string | null;
                 requestDoneChannelId?: string | null;
+                requestCategoryName?: string | null;
+                requestStaffRoleId?: string | null;
             };
             const existing = await coreFeatureManager.getPanelConfig(guildId, panelKind);
+            const existingRequestConfig = supportsRequestSettings(panelKind) ? await getRequestConfig(guildId) : null;
             const targetChannelId = typeof channelId === 'string' && channelId.trim()
                 ? channelId.trim()
                 : existing?.channelId || null;
@@ -117,6 +136,8 @@ export class CorePanelController {
                     ? existing?.spectatorRoleId || null
                     : spectatorRoleId || null;
             const nextRequestDoneChannelId = resolveRequestDoneChannelId(panelKind, requestDoneChannelId, existing?.requestDoneChannelId);
+            const nextRequestCategoryName = resolveRequestCategoryName(panelKind, requestCategoryName, existingRequestConfig?.categoryName, existing?.requestCategoryName);
+            const nextRequestStaffRoleId = resolveRequestStaffRoleId(panelKind, requestStaffRoleId, existingRequestConfig?.staffRoleId);
 
             if (!targetChannelId) {
                 res.status(400).json({ error: 'channelId is required' });
@@ -158,18 +179,27 @@ export class CorePanelController {
                 channelId: targetChannelId,
                 messageId: message.id,
                 spectatorRoleId: nextSpectatorRoleId,
-                requestCategoryName: existing?.requestCategoryName ?? null,
+                requestCategoryName: nextRequestCategoryName,
                 requestLabels: existing?.requestLabels,
                 requestDoneChannelId: nextRequestDoneChannelId,
+                requestStaffRoleId: nextRequestStaffRoleId,
                 updatedBy: session.userId,
                 updatedAt: new Date().toISOString()
             };
+
+            if (supportsRequestSettings(panelKind)) {
+                await saveRequestConfig(guildId, session.userId, {
+                    categoryName: nextRequestCategoryName,
+                    doneChannelId: nextRequestDoneChannelId,
+                    staffRoleId: nextRequestStaffRoleId
+                });
+            }
 
             await coreFeatureManager.savePanelConfig(guildId, config, panelKind);
             res.json({
                 success: true,
                 panelKind,
-                config,
+                config: mergeRequestSettings(config, supportsRequestSettings(panelKind) ? await getRequestConfig(guildId) : null),
                 panelUrl: buildPanelUrl(guildId, config.channelId, config.messageId)
             });
         } catch (error) {
@@ -187,7 +217,7 @@ function resolveRequestDoneChannelId(
     requestDoneChannelId: unknown,
     existingRequestDoneChannelId: string | null | undefined
 ): string | null {
-    if (panelKind !== 'request') {
+    if (!supportsRequestSettings(panelKind)) {
         return existingRequestDoneChannelId || null;
     }
     if (requestDoneChannelId === undefined) {
@@ -197,6 +227,101 @@ function resolveRequestDoneChannelId(
         return requestDoneChannelId.trim();
     }
     return null;
+}
+
+function supportsRequestSettings(panelKind: CoreFeaturePanelKind): boolean {
+    return panelKind === 'combined' || panelKind === 'request';
+}
+
+type StoredRequestConfig = {
+    guildId: string;
+    categoryName: string;
+    labels: string[];
+    doneChannelId: string | null;
+    staffRoleId: string | null;
+    trackingChannelId: string | null;
+    cooldownSeconds: number;
+    description: string;
+    instructions: string;
+    updatedBy: string;
+    updatedAt: string;
+};
+
+function getRequestConfigKey(guildId: string): string {
+    return `Guild/${guildId}/corefeature/request/config`;
+}
+
+async function getRequestConfig(guildId: string): Promise<StoredRequestConfig | null> {
+    return await database.get<StoredRequestConfig | null>(guildId, getRequestConfigKey(guildId), null);
+}
+
+async function saveRequestConfig(
+    guildId: string,
+    userId: string,
+    updates: { categoryName: string | null; doneChannelId: string | null; staffRoleId: string | null }
+): Promise<StoredRequestConfig> {
+    const existing = await getRequestConfig(guildId);
+    const nextConfig: StoredRequestConfig = {
+        guildId,
+        categoryName: updates.categoryName || existing?.categoryName || 'Request',
+        labels: existing?.labels || ['機能リクエスト', 'バグ修正', 'その他'],
+        doneChannelId: updates.doneChannelId === undefined ? existing?.doneChannelId || null : updates.doneChannelId || null,
+        staffRoleId: updates.staffRoleId === undefined ? existing?.staffRoleId || null : updates.staffRoleId || null,
+        trackingChannelId: existing?.trackingChannelId || null,
+        cooldownSeconds: existing?.cooldownSeconds || 300,
+        description: existing?.description || 'このパネルから機能リクエスト、バグ報告、その他の要望を送信できます。',
+        instructions: existing?.instructions || '1. ラベルを選択してください\n2. 件名を入力してください\n3. 詳細な内容を記述してください',
+        updatedBy: userId,
+        updatedAt: new Date().toISOString()
+    };
+
+    await database.set(guildId, getRequestConfigKey(guildId), nextConfig);
+    return nextConfig;
+}
+
+function resolveRequestCategoryName(
+    panelKind: CoreFeaturePanelKind,
+    requestCategoryName: unknown,
+    existingCategoryName: string | null | undefined,
+    existingPanelCategoryName: string | null | undefined
+): string | null {
+    if (!supportsRequestSettings(panelKind)) {
+        return existingPanelCategoryName || null;
+    }
+    if (typeof requestCategoryName === 'string' && requestCategoryName.trim()) {
+        return requestCategoryName.trim();
+    }
+    return existingCategoryName || existingPanelCategoryName || 'Request';
+}
+
+function resolveRequestStaffRoleId(
+    panelKind: CoreFeaturePanelKind,
+    requestStaffRoleId: unknown,
+    existingStaffRoleId: string | null | undefined
+): string | null {
+    if (!supportsRequestSettings(panelKind)) {
+        return null;
+    }
+    if (requestStaffRoleId === undefined) {
+        return existingStaffRoleId || null;
+    }
+    if (typeof requestStaffRoleId === 'string' && requestStaffRoleId.trim()) {
+        return requestStaffRoleId.trim();
+    }
+    return null;
+}
+
+function mergeRequestSettings(config: any, requestConfig: StoredRequestConfig | null) {
+    if (!config) {
+        return config;
+    }
+
+    return {
+        ...config,
+        requestCategoryName: requestConfig?.categoryName || config.requestCategoryName || null,
+        requestDoneChannelId: requestConfig?.doneChannelId || config.requestDoneChannelId || null,
+        requestStaffRoleId: requestConfig?.staffRoleId || config.requestStaffRoleId || null
+    };
 }
 
 function buildPanelUrl(guildId: string, channelId: string | null, messageId: string | null): string | null {

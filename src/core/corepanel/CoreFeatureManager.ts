@@ -53,6 +53,7 @@ function normalizePanelConfig(
             ? config.requestLabels.filter((entry): entry is string => typeof entry === 'string').map((entry) => entry.trim()).filter(Boolean).slice(0, 20)
             : undefined,
         requestDoneChannelId: typeof config.requestDoneChannelId === 'string' ? config.requestDoneChannelId : null,
+        requestStaffRoleId: typeof config.requestStaffRoleId === 'string' ? config.requestStaffRoleId : null,
         updatedBy: typeof config.updatedBy === 'string' ? config.updatedBy : 'unknown',
         updatedAt: typeof config.updatedAt === 'string' ? config.updatedAt : new Date(0).toISOString()
     };

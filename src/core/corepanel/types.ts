@@ -38,6 +38,7 @@ export interface CoreFeaturePanelConfig {
     requestCategoryName?: string | null;
     requestLabels?: string[];
     requestDoneChannelId?: string | null;
+    requestStaffRoleId?: string | null;
     updatedBy: string;
     updatedAt: string;
 }

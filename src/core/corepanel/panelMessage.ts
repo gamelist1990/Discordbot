@@ -27,7 +27,7 @@ export function buildCorePanelEmbed(panelKind: CoreFeaturePanelKind, spectatorRo
                 '判定結果には観測した傾向タグも付きます。',
                 '判定後は専用ロールを付与し、再挑戦は1週間後です。'
             ].join('\n'))
-            .setFooter({ text: '性格診断室は結果後または1時間無操作で自動整理されます。' })
+            .setFooter({ text: '性格診断室は結果後または五分間無操作で自動整理されます。' })
             .setTimestamp();
     }
 
@@ -57,7 +57,7 @@ export function buildCorePanelEmbed(panelKind: CoreFeaturePanelKind, spectatorRo
                 '機能追加、改善案、バグ報告などを送信できます。',
                 '送信後は専用スレッド（チャンネル）が作成され、進捗管理されます。'
             ].join('\n'))
-            .setFooter({ text: 'カテゴリ名・ラベル・完了通知先は Request 管理画面の設定が使われます。' })
+            .setFooter({ text: 'Create by Koukunn' })
             .setTimestamp();
     }
 
@@ -82,6 +82,6 @@ export function buildCorePanelEmbed(panelKind: CoreFeaturePanelKind, spectatorRo
             '機能追加、改善案、バグ報告などを送信できます。',
             '送信後は専用チャンネルが作成され、進捗管理されます。'
         ].join('\n'))
-        .setFooter({ text: '論破王対戦は論破王のみ作成・参加できます。部屋は結果後または1時間無操作で自動整理されます。' })
+        .setFooter({ text: '論破王対戦は論破王のみ作成・参加できます。部屋は結果後または5分間無操作で自動整理されます。' })
         .setTimestamp();
 }
