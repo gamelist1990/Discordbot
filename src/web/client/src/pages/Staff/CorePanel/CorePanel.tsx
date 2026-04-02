@@ -83,7 +83,8 @@ const CorePanelPage: React.FC = () => {
     [panelKind]
   );
   const currentChannelName = useMemo(() => {
-    return channels.find((channel) => channel.id === (channelId || config?.channelId || ''))?.name || '未設定';
+    const activeChannelId = channelId || config?.channelId || '';
+    return channels.find((channel) => channel.id === activeChannelId)?.name || '未設定';
   }, [channelId, channels, config?.channelId]);
   const currentRoleName = useMemo(() => {
     const roleId = spectatorRoleId || config?.spectatorRoleId || '';
@@ -94,9 +95,8 @@ const CorePanelPage: React.FC = () => {
     if (!doneChannelId) {
       return '未設定';
     }
-    return channels.find((channel) => channel.id === doneChannelId)?.name
-      ? `#${channels.find((channel) => channel.id === doneChannelId)?.name}`
-      : doneChannelId;
+    const doneChannel = channels.find((channel) => channel.id === doneChannelId);
+    return doneChannel?.name ? `#${doneChannel.name}` : doneChannelId;
   }, [channels, config?.requestDoneChannelId]);
 
   useEffect(() => {
