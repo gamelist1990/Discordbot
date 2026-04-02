@@ -276,7 +276,32 @@ export function useInterviewActions(guildId: string) {
         }
     }, [guildId]);
 
-    return { createInterviewRoom, closeInterviewRoom, executing, error };
+    const deleteInterviewRoom = useCallback(async (sessionId: string, reason?: string) => {
+        try {
+            setExecuting(true);
+            const response = await fetch(`${API_BASE}/${guildId}/interviews/${sessionId}`, {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({ reason })
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.error || `Failed to delete interview room: ${response.statusText}`);
+            }
+
+            setError(null);
+            return true;
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Unknown error');
+            return false;
+        } finally {
+            setExecuting(false);
+        }
+    }, [guildId]);
+
+    return { createInterviewRoom, closeInterviewRoom, deleteInterviewRoom, executing, error };
 }
 
 /**

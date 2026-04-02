@@ -1,4 +1,4 @@
-import { ChatInputCommandInteraction } from 'discord.js';
+import { ChatInputCommandInteraction, GuildMember } from 'discord.js';
 import { OpenAITool, ToolHandler } from '../../../../types/openai';
 import { antiCheatManager } from '../../../../core/anticheat/AntiCheatManager.js';
 import { interviewRoomManager } from '../../../../core/interview/InterviewRoomManager.js';
@@ -30,11 +30,75 @@ function getNextPunishmentSummary(currentScore: number, punishments: Array<{ thr
     return `最高しきい値 ${highest.threshold} に到達済み`;
 }
 
+function formatCompactList(values: string[], limit = 8, emptyLabel = 'なし'): string {
+    if (values.length === 0) {
+        return emptyLabel;
+    }
+
+    const shown = values.slice(0, limit);
+    const suffix = values.length > limit ? ` ...(+${values.length - limit})` : '';
+    return `${shown.join(', ')}${suffix}`;
+}
+
+function buildMemberProfile(member: GuildMember | null): Record<string, unknown> {
+    if (!member) {
+        return {
+            username: '不明',
+            display_name: '不明',
+            nickname: null,
+            joined_at: null,
+            top_role: null,
+            roles: [],
+            permissions: [],
+            is_timed_out: false,
+            timeout_until: null
+        };
+    }
+
+    const roleNames = member.roles.cache
+        .filter((role) => role.id !== member.guild.id)
+        .sort((left, right) => right.position - left.position)
+        .map((role) => `${role.name} (${role.id})`);
+
+    return {
+        username: member.user.username,
+        display_name: member.displayName,
+        nickname: member.nickname || null,
+        joined_at: member.joinedAt ? member.joinedAt.toISOString() : null,
+        top_role: member.roles.highest?.name || null,
+        roles: roleNames.slice(0, 12),
+        permissions: member.permissions.toArray().slice(0, 15),
+        role_summary: formatCompactList(roleNames, 8),
+        permission_summary: formatCompactList(member.permissions.toArray(), 10),
+        is_timed_out: !!member.communicationDisabledUntil,
+        timeout_until: member.communicationDisabledUntil ? member.communicationDisabledUntil.toISOString() : null
+    };
+}
+
+function summarizeDetectionLog(log: { timestamp: string; detector: string; scoreDelta: number; reason: string; metadata?: Record<string, any> }): string {
+    const at = new Date(log.timestamp).toLocaleString('ja-JP');
+    const details: string[] = [];
+
+    if (log.metadata?.channelId) {
+        details.push(`channel:${log.metadata.channelId}`);
+    }
+
+    if (typeof log.metadata?.deletedMessage === 'boolean') {
+        details.push(log.metadata.deletedMessage ? 'deleted:true' : 'deleted:false');
+    }
+
+    if (typeof log.metadata?.contentPreview === 'string' && log.metadata.contentPreview.trim()) {
+        details.push(`content:${log.metadata.contentPreview.trim()}`);
+    }
+
+    return `${at} / ${log.detector} / +${log.scoreDelta} / ${log.reason}${details.length > 0 ? ` / ${details.join(' / ')}` : ''}`;
+}
+
 export const antiCheatUserProfileDefinition: OpenAITool = {
     type: 'function',
     function: {
         name: 'get_anticheat_user_profile',
-        description: '指定ユーザーの AntiCheat 信頼スコア、履歴、直近の検知ログ、次の処罰見込みを取得します',
+        description: '指定ユーザーの AntiCheat 信頼スコア、履歴、直近の検知ログ、役職・権限・表示名、次の処罰見込みを取得します',
         parameters: {
             type: 'object',
             properties: {
@@ -74,16 +138,23 @@ export const antiCheatUserProfileHandler: ToolHandler = async (
         const sessions = await interviewRoomManager.listSessions(guild.id, 20);
         const latestInterview = sessions.find((session) => session.userId === userId);
         const historyLimit = Math.max(1, Math.min(20, args.history_limit ?? 10));
+        const positiveTrustHistory = (trust.history || [])
+            .filter((entry) => entry.delta > 0)
+            .slice(-historyLimit)
+            .reverse();
 
         return {
             user_id: userId,
             username: member?.user.username || '不明',
             display_name: member?.displayName || '不明',
+            member_profile: buildMemberProfile(member),
             current_score: trust.score,
             last_updated: trust.lastUpdated,
             next_punishment: getNextPunishmentSummary(trust.score, settings.punishments || []),
             trust_history: (trust.history || []).slice(-historyLimit).reverse(),
+            trust_increase_history: positiveTrustHistory,
             recent_detection_logs: logs,
+            recent_detection_summary: logs.map((log) => summarizeDetectionLog(log)),
             latest_interview: latestInterview ? {
                 session_id: latestInterview.sessionId,
                 status: latestInterview.status,

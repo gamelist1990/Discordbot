@@ -139,7 +139,7 @@ const AntiCheatUnified: React.FC = () => {
   const { trust, loading: trustLoading, error: trustError, refetch: refetchTrust } = useUserTrust(guildId || '');
   const { revokeTimeout, resetTrust, executing, error: actionError } = useAntiCheatActions(guildId || '');
   const { interviews, loading: interviewsLoading, error: interviewsError, refetch: refetchInterviews } = useInterviewRooms(guildId || '');
-  const { createInterviewRoom, closeInterviewRoom, executing: interviewExecuting, error: interviewActionError } = useInterviewActions(guildId || '');
+  const { createInterviewRoom, deleteInterviewRoom, executing: interviewExecuting, error: interviewActionError } = useInterviewActions(guildId || '');
 
   const [guildName, setGuildName] = useState('AntiCheat');
   const [draft, setDraft] = useState<AntiCheatSettings | null>(null);
@@ -317,11 +317,11 @@ const AntiCheatUnified: React.FC = () => {
     await refetchInterviews();
   };
 
-  const handleCloseInterview = async (session: InterviewRoomSession) => {
-    if (!window.confirm(`面接室「${session.title}」を終了しますか？`)) return;
-    const success = await closeInterviewRoom(session.sessionId, 'スタッフが手動で終了');
+  const handleDeleteInterview = async (session: InterviewRoomSession) => {
+    if (!window.confirm(`面接室「${session.title}」を削除しますか？ チャンネルと面接ログを削除します。`)) return;
+    const success = await deleteInterviewRoom(session.sessionId, 'スタッフが手動で削除');
     if (!success) return;
-    setInterviewNotice(`面接室を終了しました: ${session.title}`);
+    setInterviewNotice(`面接室を削除しました: ${session.title}`);
     await refetchInterviews();
   };
 
@@ -413,7 +413,7 @@ const AntiCheatUnified: React.FC = () => {
               <span>有効</span>
             </label>
             <label className={styles.checkField}>
-              <input type="checkbox" checked={Boolean(rule.deleteMessage)} onChange={(event) => updateWordRule(rule.id, { deleteMessage: event.target.checked })} disabled={!detector.enabled} />
+              <input type="checkbox" checked={Boolean(rule.deleteMessage)} onChange={(event) => updateWordRule(rule.id, { deleteMessage: event.target.checked })} disabled={!detector.enabled || !draft.autoDelete.enabled} />
               <span>メッセージを削除</span>
             </label>
           </div>
@@ -530,7 +530,7 @@ const AntiCheatUnified: React.FC = () => {
               <div className={styles.inlineHeader}>
                 <div>
                   <strong>自動処理</strong>
-                  <p>削除対象の秒数と自動タイムアウトを管理します。</p>
+                  <p>削除対象の秒数と自動タイムアウトを管理します。無効時は検知時の自動削除も止まります。</p>
                 </div>
                 <div className={`${styles.statusPill} ${draft.raidMode.active ? styles.statusDanger : styles.statusNeutral}`}>
                   {draft.raidMode.active ? 'Raid active' : 'Raid standby'}
@@ -543,7 +543,7 @@ const AntiCheatUnified: React.FC = () => {
                 </label>
                 <label className={styles.field}>
                   <span>削除対象の秒数</span>
-                  <input className={styles.input} type="number" min={1} value={draft.autoDelete.windowSeconds} onChange={(event) => updateDraft((current) => ({ ...current, autoDelete: { ...current.autoDelete, windowSeconds: Number(event.target.value) } }))} />
+                  <input className={styles.input} type="number" min={1} value={draft.autoDelete.windowSeconds} onChange={(event) => updateDraft((current) => ({ ...current, autoDelete: { ...current.autoDelete, windowSeconds: Number(event.target.value) } }))} disabled={!draft.autoDelete.enabled} />
                 </label>
                 <label className={styles.checkField}>
                   <input type="checkbox" checked={draft.autoTimeout.enabled} onChange={(event) => updateDraft((current) => ({ ...current, autoTimeout: { ...current.autoTimeout, enabled: event.target.checked } }))} />
@@ -551,7 +551,7 @@ const AntiCheatUnified: React.FC = () => {
                 </label>
                 <label className={styles.field}>
                   <span>タイムアウト秒数</span>
-                  <input className={styles.input} type="number" min={1} value={draft.autoTimeout.durationSeconds} onChange={(event) => updateDraft((current) => ({ ...current, autoTimeout: { ...current.autoTimeout, durationSeconds: Number(event.target.value) } }))} />
+                  <input className={styles.input} type="number" min={1} value={draft.autoTimeout.durationSeconds} onChange={(event) => updateDraft((current) => ({ ...current, autoTimeout: { ...current.autoTimeout, durationSeconds: Number(event.target.value) } }))} disabled={!draft.autoTimeout.enabled} />
                 </label>
               </div>
               <div className={styles.raidSummary}>
@@ -602,7 +602,7 @@ const AntiCheatUnified: React.FC = () => {
                       <input className={styles.input} type="number" min={0} value={detector.score} onChange={(event) => updateDetector(entry.key, { score: Number(event.target.value) })} disabled={!detector.enabled} />
                     </label>
                     <label className={styles.checkField}>
-                      <input type="checkbox" checked={Boolean(detector.deleteMessage)} onChange={(event) => updateDetector(entry.key, { deleteMessage: event.target.checked })} disabled={!detector.enabled} />
+                      <input type="checkbox" checked={Boolean(detector.deleteMessage)} onChange={(event) => updateDetector(entry.key, { deleteMessage: event.target.checked })} disabled={!detector.enabled || !draft.autoDelete.enabled} />
                       <span>メッセージを削除</span>
                     </label>
                     <label className={styles.checkField}>
@@ -815,11 +815,9 @@ const AntiCheatUnified: React.FC = () => {
                             <button className={styles.inlineButton} onClick={() => window.open(session.channelUrl, '_blank', 'noopener,noreferrer')} type="button">
                               開く
                             </button>
-                            {session.status === 'active' ? (
-                              <button className={styles.dangerButton} onClick={() => handleCloseInterview(session)} type="button" disabled={interviewExecuting}>
-                                終了
-                              </button>
-                            ) : null}
+                            <button className={styles.dangerButton} onClick={() => handleDeleteInterview(session)} type="button" disabled={interviewExecuting}>
+                              削除
+                            </button>
                           </div>
                           {session.warnings?.length ? <div className={styles.logSecondary}>{session.warnings.join(' / ')}</div> : null}
                         </td>

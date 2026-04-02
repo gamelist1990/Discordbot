@@ -1,0 +1,412 @@
+.page {
+  display: grid;
+  gap: 18px;
+  padding: 22px;
+  background:
+    radial-gradient(circle at top left, rgba(242, 197, 114, 0.18), transparent 24%),
+    linear-gradient(180deg, #f5efe3 0%, #f9f7f2 100%);
+}
+
+.pageHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  align-items: flex-start;
+  padding: 24px;
+  border-radius: 26px;
+  background: linear-gradient(130deg, #173746 0%, #24505d 48%, #e3b868 100%);
+  color: #fff7e8;
+  box-shadow: 0 22px 60px rgba(17, 35, 43, 0.2);
+}
+
+.pageHeaderCopy h1 {
+  margin: 6px 0 10px;
+  font-size: clamp(2rem, 3vw, 2.9rem);
+}
+
+.pageHeaderCopy p {
+  margin: 0;
+  max-width: 760px;
+  color: rgba(255, 247, 232, 0.84);
+}
+
+.pageEyebrow,
+.panelEyebrow {
+  display: inline-flex;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-size: 0.72rem;
+  opacity: 0.78;
+}
+
+.pageHeaderActions,
+.buttonRow,
+.topBar,
+.quickStats,
+.createGrid,
+.roleStrip,
+.tabRow {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.tabButton {
+  border: 1px solid rgba(20, 39, 47, 0.12);
+  background: #f6f0e4;
+  color: #173640;
+  border-radius: 999px;
+  padding: 10px 16px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.tabButtonActive {
+  background: #1e686d;
+  color: #fff;
+  border-color: #1e686d;
+}
+
+.topBar {
+  align-items: end;
+}
+
+.quickStats {
+  flex: 1;
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: minmax(420px, 1.05fr) minmax(520px, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.treePane,
+.editorPane,
+.channelTree,
+.channelGroup,
+.permissionTable {
+  display: grid;
+  gap: 14px;
+}
+
+.panel,
+.noticeSuccess,
+.noticeError,
+.statePanel,
+.statCard,
+.contextMenu {
+  border-radius: 22px;
+  background: rgba(255, 253, 248, 0.95);
+  border: 1px solid rgba(20, 39, 47, 0.08);
+  box-shadow: 0 14px 40px rgba(20, 39, 47, 0.08);
+}
+
+.panel {
+  padding: 20px;
+}
+
+.panelHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+
+.panelHeader h2 {
+  margin: 4px 0 6px;
+  color: #16333e;
+}
+
+.panelHeader p {
+  margin: 0;
+  color: #62737c;
+}
+
+.field,
+.checkField {
+  display: grid;
+  gap: 8px;
+  color: #25414b;
+}
+
+.field {
+  min-width: 220px;
+  flex: 1 1 220px;
+}
+
+.fieldWide {
+  grid-column: 1 / -1;
+}
+
+.input,
+.select,
+.textarea {
+  width: 100%;
+  border-radius: 16px;
+  border: 1px solid rgba(21, 52, 63, 0.12);
+  background: #fffdfa;
+  color: #16353f;
+  padding: 12px 14px;
+  font: inherit;
+}
+
+.colorInput {
+  min-height: 52px;
+  padding: 6px;
+  cursor: pointer;
+}
+
+.colorInput::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.colorInput::-webkit-color-swatch {
+  border: 0;
+  border-radius: 10px;
+}
+
+.textarea {
+  min-height: 110px;
+  resize: vertical;
+}
+
+.checkboxInput {
+  width: 18px;
+  height: 18px;
+  accent-color: #1e686d;
+  cursor: pointer;
+}
+
+.primaryButton,
+.secondaryButton,
+.miniButton,
+.roleChip,
+.contextItem {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: 15px;
+  padding: 11px 16px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.primaryButton {
+  border: 0;
+  background: #1e686d;
+  color: #fff;
+}
+
+.secondaryButton,
+.miniButton,
+.roleChip,
+.contextItem {
+  border: 1px solid rgba(20, 39, 47, 0.1);
+  background: #f7f1e6;
+  color: #173640;
+}
+
+.miniButton {
+  padding: 8px 12px;
+  border-radius: 12px;
+  font-size: 0.88rem;
+}
+
+.primaryButton:disabled,
+.secondaryButton:disabled,
+.miniButton:disabled,
+.roleChip:disabled,
+.contextItem:disabled,
+.checkboxInput:disabled,
+.colorInput:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.roleChipActive {
+  background: #dff0ed;
+  border-color: #1e686d;
+}
+
+.statCard {
+  padding: 14px 16px;
+  min-width: 132px;
+}
+
+.statCard span {
+  display: block;
+  color: #697982;
+  font-size: 0.82rem;
+}
+
+.statCard strong {
+  display: block;
+  margin-top: 7px;
+  color: #14343e;
+  font-size: 1.12rem;
+}
+
+.channelTree {
+  max-height: 72vh;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.channelRow {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) 20px;
+  gap: 10px;
+  align-items: center;
+  width: 100%;
+  text-align: left;
+  border-radius: 16px;
+  border: 1px solid rgba(20, 39, 47, 0.08);
+  background: #faf4e9;
+  color: #183742;
+  padding: 12px 14px;
+  transition: transform 0.14s ease, border-color 0.14s ease, background 0.14s ease;
+}
+
+.channelChild {
+  margin-left: 18px;
+  background: #fff9f1;
+}
+
+.channelRowMain {
+  display: grid;
+  gap: 3px;
+}
+
+.channelRowMain strong {
+  font-size: 0.98rem;
+}
+
+.channelRowMain small {
+  color: #687982;
+}
+
+.channelRow:hover {
+  transform: translateY(-1px);
+  border-color: rgba(30, 104, 109, 0.3);
+}
+
+.channelRowActive {
+  background: #dff0ed;
+  border-color: #1e686d;
+}
+
+.channelRowDragging {
+  opacity: 0.55;
+}
+
+.groupLabel {
+  padding-left: 6px;
+  color: #73828a;
+  font-size: 0.82rem;
+}
+
+.editorGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.checkField {
+  grid-template-columns: 18px 1fr;
+  align-items: center;
+}
+
+.permissionRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 190px;
+  gap: 12px;
+  align-items: center;
+  border-radius: 16px;
+  background: #f8f4ec;
+  padding: 12px 14px;
+}
+
+.overwriteSummary {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 12px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: #f6f0e4;
+  color: #173640;
+}
+
+.overwriteSummary span {
+  color: #6d7d84;
+  font-size: 0.88rem;
+}
+
+.permissionKey {
+  margin-top: 4px;
+  color: #73828a;
+  font-size: 0.8rem;
+}
+
+.noticeSuccess,
+.noticeError,
+.statePanel {
+  padding: 16px 18px;
+}
+
+.noticeSuccess {
+  color: #0f5f43;
+  background: #ebfff4;
+}
+
+.noticeError {
+  color: #7b1e2a;
+  background: #fff1f4;
+}
+
+.contextMenu {
+  position: fixed;
+  z-index: 40;
+  min-width: 190px;
+  padding: 8px;
+}
+
+.contextItem {
+  width: 100%;
+  justify-content: flex-start;
+  background: transparent;
+  border: 0;
+}
+
+.contextItem:hover {
+  background: #eef5f4;
+}
+
+@media (max-width: 1180px) {
+  .layout,
+  .editorGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .page {
+    padding: 16px;
+  }
+
+  .pageHeader {
+    padding: 18px;
+    border-radius: 20px;
+  }
+
+  .permissionRow {
+    grid-template-columns: 1fr;
+  }
+
+  .field {
+    min-width: 100%;
+  }
+}

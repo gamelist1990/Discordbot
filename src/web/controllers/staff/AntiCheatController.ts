@@ -474,6 +474,39 @@ export class AntiCheatController {
             res.status(500).json({ error: 'Failed to close interview room' });
         }
     };
+
+    /**
+     * DELETE /api/staff/anticheat/:guildId/interviews/:sessionId
+     * Delete an interview room, its Discord channel, and its stored logs/session data
+     */
+    deleteInterview = async (req: Request, res: Response): Promise<void> => {
+        try {
+            const { guildId, sessionId } = req.params;
+            const { reason } = req.body as { reason?: string };
+
+            const session = (req as any).session;
+            if (!session || !hasAccessToGuild(session, guildId)) {
+                res.status(403).json({ error: 'Access denied to this guild' });
+                return;
+            }
+
+            const success = await interviewRoomManager.deleteInterviewRoom(
+                guildId,
+                sessionId,
+                reason || `スタッフ ${session.userId} により面接室を削除`
+            );
+
+            if (!success) {
+                res.status(404).json({ error: 'Interview room not found' });
+                return;
+            }
+
+            res.json({ success: true });
+        } catch (error) {
+            Logger.error('Error deleting interview room:', error);
+            res.status(500).json({ error: 'Failed to delete interview room' });
+        }
+    };
 }
 
 /**

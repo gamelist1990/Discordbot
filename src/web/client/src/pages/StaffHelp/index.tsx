@@ -36,6 +36,12 @@ const services = [
     path: '/staff/rankmanager',
     icon: 'leaderboard',
   },
+  {
+    title: 'チャンネル管理',
+    description: 'カテゴリやチャンネルの作成、権限、並び順をまとめて操作します。',
+    path: '/staff/channel-manager',
+    icon: 'view_kanban',
+  },
 ];
 
 const StaffHelpPage: React.FC = () => {

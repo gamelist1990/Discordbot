@@ -283,7 +283,7 @@ export class AntiCheatManager {
                 allReasons.push(...result.reasons);
                 detectionResults.push({ detector: name, result });
 
-                if (result.deleteMessage && !messageDeleted) {
+                if (settings.autoDelete.enabled && result.deleteMessage && !messageDeleted) {
                     await message.delete().then(() => {
                         messageDeleted = true;
                     }).catch(() => null);
@@ -317,6 +317,8 @@ export class AntiCheatManager {
             return;
         }
 
+        const autoDeleteEnabled = settings.autoDelete.enabled;
+
         if (totalScoreDelta > 0) {
             await this.applyTrustAdjustment(
                 settings,
@@ -326,7 +328,7 @@ export class AntiCheatManager {
                 allReasons.join('; ')
             );
 
-            if (settings.autoDelete.enabled) {
+            if (autoDeleteEnabled) {
                 try {
                     const deleted = await this.deleteRecentMessages(message.guild!, userId, settings.autoDelete.windowSeconds);
                     Logger.info(`Auto-deleted ${deleted} messages for user ${userId} in guild ${guildId}`);

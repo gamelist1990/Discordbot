@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
+import { antiCheatManager } from '../src/core/anticheat/AntiCheatManager.ts';
+import { DEFAULT_ANTICHEAT_SETTINGS } from '../src/core/anticheat/types.ts';
 import { RedirectLinkDetector } from '../src/core/anticheat/detectors/RedirectLinkDetector.ts';
 import { TextSpamDetector } from '../src/core/anticheat/detectors/TextSpamDetector.ts';
 import { hasMeaningfulDetection } from '../src/core/anticheat/utils.ts';
@@ -59,6 +61,95 @@ test('duplicate-message style results still count as meaningful when they provid
         reasons: ['重複メッセージを 2 回送信しました'],
         deleteMessage: true
     }), true);
+});
+
+test('autoDelete off suppresses detector-driven message deletion', async (t) => {
+    const detectorName = 'testAutoDeleteGuard';
+    const originalGetSettings = antiCheatManager.getSettings;
+    const originalSetSettings = antiCheatManager.setSettings;
+
+    const settings = JSON.parse(JSON.stringify(DEFAULT_ANTICHEAT_SETTINGS)) as typeof DEFAULT_ANTICHEAT_SETTINGS;
+    settings.enabled = true;
+    settings.autoDelete.enabled = false;
+    settings.autoTimeout.enabled = false;
+    settings.punishments = [];
+    settings.excludedRoles = [];
+    settings.excludedChannels = [];
+    settings.logChannelId = null;
+    settings.avatarLogChannelId = null;
+    settings.userTrust = {};
+    settings.recentLogs = [];
+    settings.detectors = {
+        ...settings.detectors,
+        [detectorName]: {
+            enabled: true,
+            score: 1,
+            deleteMessage: true,
+            notifyChannel: false,
+            config: {}
+        }
+    };
+
+    antiCheatManager.registerDetector({
+        name: detectorName,
+        detect: async () => ({
+            scoreDelta: 1,
+            reasons: ['test detection'],
+            deleteMessage: true
+        })
+    });
+
+    (antiCheatManager as any).getSettings = async () => settings;
+    (antiCheatManager as any).setSettings = async () => {};
+
+    t.after(() => {
+        (antiCheatManager as any).getSettings = originalGetSettings;
+        (antiCheatManager as any).setSettings = originalSetSettings;
+    });
+
+    let deleteCalls = 0;
+    await antiCheatManager.onMessage({
+        id: 'message-guard-1',
+        content: 'guard check',
+        author: {
+            id: 'user-guard-1',
+            bot: false,
+            tag: 'Guard#0001',
+            username: 'Guard',
+            toString: () => '<@user-guard-1>'
+        },
+        guild: {
+            id: 'guild-guard-1',
+            members: {
+                me: null
+            }
+        },
+        channel: {
+            id: 'channel-guard-1'
+        },
+        member: {
+            permissions: {
+                has: () => false
+            },
+            roles: {
+                cache: {
+                    has: () => false
+                }
+            }
+        },
+        mentions: {
+            users: new Map(),
+            roles: {
+                size: 0,
+                some: () => false
+            }
+        },
+        delete: async () => {
+            deleteCalls += 1;
+        }
+    } as any);
+
+    assert.equal(deleteCalls, 0);
 });
 
 function createRedirectContext() {

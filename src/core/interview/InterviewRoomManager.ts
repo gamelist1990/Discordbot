@@ -112,7 +112,21 @@ function summarizeDetectionLogs(logs: DetectionLog[]): string {
 
     return logs.map((log) => {
         const at = new Date(log.timestamp).toLocaleString('ja-JP');
-        return `${at} / ${log.detector} / +${log.scoreDelta} / ${log.reason}`;
+        const details: string[] = [];
+
+        if (log.metadata?.channelId) {
+            details.push(`channel:${log.metadata.channelId}`);
+        }
+
+        if (typeof log.metadata?.deletedMessage === 'boolean') {
+            details.push(log.metadata.deletedMessage ? 'deleted:true' : 'deleted:false');
+        }
+
+        if (typeof log.metadata?.contentPreview === 'string' && log.metadata.contentPreview.trim()) {
+            details.push(`content:${log.metadata.contentPreview.trim()}`);
+        }
+
+        return `${at} / ${log.detector} / +${log.scoreDelta} / ${log.reason}${details.length > 0 ? ` / ${details.join(' / ')}` : ''}`;
     }).join('\n');
 }
 
@@ -130,6 +144,56 @@ function summarizeTranscript(transcript: InterviewTranscriptEntry[], limit = 14)
             return `[${label}] ${entry.content}`;
         })
         .join('\n');
+}
+
+function formatCompactList(values: string[], limit = 8, emptyLabel = 'なし'): string {
+    if (values.length === 0) {
+        return emptyLabel;
+    }
+
+    const shown = values.slice(0, limit);
+    const suffix = values.length > limit ? ` ...(+${values.length - limit})` : '';
+    return `${shown.join(', ')}${suffix}`;
+}
+
+function summarizePositiveTrustHistory(trust: UserTrustData, limit = 8): string {
+    const history = Array.isArray(trust.history)
+        ? trust.history.filter((entry) => entry.delta > 0).slice(-limit)
+        : [];
+
+    if (history.length === 0) {
+        return '上昇履歴なし';
+    }
+
+    return history.map((entry) => {
+        const delta = entry.delta >= 0 ? `+${entry.delta}` : `${entry.delta}`;
+        return `${new Date(entry.timestamp).toLocaleString('ja-JP')}: ${delta} / ${entry.reason}`;
+    }).join('\n');
+}
+
+function summarizeMemberProfile(member: GuildMember | null): string {
+    if (!member) {
+        return 'ユーザー情報を取得できませんでした';
+    }
+
+    const roleNames = member.roles.cache
+        .filter((role) => role.id !== member.guild.id)
+        .sort((left, right) => right.position - left.position)
+        .map((role) => `${role.name} (${role.id})`);
+
+    const permissions = member.permissions.toArray();
+
+    return [
+        `ユーザー名: ${member.user.tag}`,
+        `表示名: ${member.displayName}`,
+        `ユーザーID: ${member.id}`,
+        `ニックネーム: ${member.nickname || 'なし'}`,
+        `参加日: ${member.joinedAt ? member.joinedAt.toLocaleString('ja-JP') : '不明'}`,
+        `最上位ロール: ${member.roles.highest?.name || 'なし'}`,
+        `ロール一覧: ${formatCompactList(roleNames, 6)}`,
+        `権限: ${formatCompactList(permissions, 10)}`,
+        `通信制限中: ${member.communicationDisabledUntil ? member.communicationDisabledUntil.toLocaleString('ja-JP') : 'いいえ'}`
+    ].join('\n');
 }
 
 function extractJsonObject(raw: string): InterviewModelResponse | null {
@@ -276,9 +340,9 @@ export class InterviewRoomManager {
         const createdAt = new Date().toISOString();
         const introMessage = [
             'これから AntiCheat の面接を開始します。',
-            '私は感情ではなく事実で判断します。',
-            'ふざけた回答、はぐらかし、責任転嫁、曖昧な弁明はその場で終了します。',
-            'まず、自分が何をして信頼スコアが上がったのかを具体的に説明してください。'
+            '私は感情ではなく、検知ログ・信頼履歴・役職・権限を照合して判断します。',
+            'ふざけた回答、はぐらかし、責任転嫁、曖昧な弁明、ログと矛盾する説明はその場で不利になります。',
+            'まず、自分が何をして信頼スコアが上がったのかを、検知された内容、時刻、チャンネル、役職や権限まで含めて具体的に説明してください。'
         ].join('\n');
 
         const session: InterviewRoomSession = {
@@ -381,7 +445,7 @@ export class InterviewRoomManager {
                 return true;
             }
 
-            const modelResponse = await this.evaluateInterview(message.guild, refreshed);
+            const modelResponse = await this.evaluateInterview(message.guild, refreshed, message.member);
             const replyText = modelResponse.reply || '回答を続けてください。';
 
             await this.appendTranscript(message.guild.id, refreshed.sessionId, {
@@ -418,7 +482,7 @@ export class InterviewRoomManager {
     }
 
     async closeInterviewRoom(guildId: string, sessionId: string, reason = 'スタッフにより終了'): Promise<boolean> {
-        this.clearInactivityTimeout(guildId, sessionId);
+        this.clearSessionRuntimeState(guildId, sessionId);
 
         const sessions = await this.getSessions(guildId);
         const index = sessions.findIndex((session) => session.sessionId === sessionId);
@@ -440,6 +504,24 @@ export class InterviewRoomManager {
             sessions[index] = session;
             await this.persistSessions(guildId, sessions);
         }
+
+        await this.deleteDiscordRoom(session, reason);
+        await this.cleanupRoleAssignments(session);
+        return true;
+    }
+
+    async deleteInterviewRoom(guildId: string, sessionId: string, reason = 'スタッフにより面接室を削除'): Promise<boolean> {
+        this.clearSessionRuntimeState(guildId, sessionId);
+
+        const sessions = await this.getSessions(guildId);
+        const index = sessions.findIndex((session) => session.sessionId === sessionId);
+        if (index === -1) {
+            return false;
+        }
+
+        const session = sessions[index];
+        const nextSessions = sessions.filter((_, currentIndex) => currentIndex !== index);
+        await this.persistSessions(guildId, nextSessions);
 
         await this.deleteDiscordRoom(session, reason);
         await this.cleanupRoleAssignments(session);
@@ -567,26 +649,33 @@ export class InterviewRoomManager {
         await this.closeInterviewRoom(guildId, sessionId, '1時間無操作のため自動終了');
     }
 
-    private async evaluateInterview(guild: Guild, session: InterviewRoomSession): Promise<InterviewModelResponse> {
+    private async evaluateInterview(guild: Guild, session: InterviewRoomSession, member?: GuildMember | null): Promise<InterviewModelResponse> {
         const trust = await antiCheatManager.getUserTrust(guild.id, session.userId);
         const recentLogs = await antiCheatManager.getUserLogs(guild.id, session.userId, 10);
+        const targetMember = member || await guild.members.fetch(session.userId).catch(() => null);
+        const memberProfile = summarizeMemberProfile(targetMember);
 
         const systemPrompt = [
             'あなたは Discord サーバーの AntiCheat 面接官です。',
             '目的は、対象ユーザーの信頼スコアをリセットしてよいかを、公平かつ厳格に判断することです。',
             '情緒的な甘さは不要です。曖昧な同情、なんとなくの温情、雰囲気での許可は禁止です。',
+            'ユーザーが意図的に重要情報を伏せている可能性を前提に、発言と検知ログ、信頼履歴、役職、権限、面接ログの矛盾を必ず確認してください。',
+            'ユーザーの説明がログやプロフィールと食い違う場合は、どこが食い違うのかを具体的に指摘してください。',
             '次の基準を守ってください。',
             '- continue: まだ情報不足。短く鋭く質問を1つだけ返す。',
-            '- approve_reset: 本人が具体的に事実を説明し、責任を認め、再発防止策が現実的で、ログとも大きく矛盾しない。',
-            '- reject: 説明不足、責任回避、矛盾、言い訳過多、再発防止策が弱い。',
+            '- approve_reset: 本人が具体的に事実を説明し、責任を認め、再発防止策が現実的で、ログ・役職・権限情報とも大きく矛盾しない。',
+            '- reject: 説明不足、責任回避、矛盾、言い訳過多、再発防止策が弱い、または説明がログと食い違う。',
             '- terminate: ふざけ、挑発、荒らし、無意味な繰り返し、面接拒否、侮辱、露骨なはぐらかし。',
+            '信頼スコアが上がった理由は、positive delta の信頼履歴と直近の検知ログを使って、何をしたのかを具体的に説明してください。',
             '出力はJSONのみで、キーは reply, verdict, reason, reset_score の4つだけにしてください。',
             'reply はユーザーに送る日本語1段落、reason は内部判定向けの短い理由です。'
         ].join('\n');
 
         const userPrompt = [
             `対象ユーザーID: ${session.userId}`,
+            `対象ユーザーのプロフィール:\n${memberProfile}`,
             `現在スコア: ${trust.score}`,
+            `信頼スコア上昇履歴:\n${summarizePositiveTrustHistory(trust)}`,
             `信頼スコア履歴:\n${summarizeTrustHistory(trust)}`,
             `直近の検知ログ:\n${summarizeDetectionLogs(recentLogs)}`,
             `これまでの面接ログ:\n${summarizeTranscript(session.transcript)}`,
@@ -662,6 +751,23 @@ export class InterviewRoomManager {
             .sort((left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime())
             .slice(-MAX_SESSIONS);
         await database.set(guildId, getSessionsKey(guildId), trimmed);
+    }
+
+    private clearSessionRuntimeState(guildId: string, sessionId: string): void {
+        this.clearInactivityTimeout(guildId, sessionId);
+        this.clearCleanupTimer(guildId, sessionId);
+        this.processingSessions.delete(sessionId);
+    }
+
+    private clearCleanupTimer(guildId: string, sessionId: string): void {
+        const cacheKey = `${guildId}:${sessionId}`;
+        const existingTimer = this.cleanupTimers.get(cacheKey);
+        if (!existingTimer) {
+            return;
+        }
+
+        clearTimeout(existingTimer);
+        this.cleanupTimers.delete(cacheKey);
     }
 
     private async ensureCategory(guild: Guild): Promise<CategoryChannel> {
