@@ -60,6 +60,12 @@ type AuthMathRecord = {
     expiresAt: number;
 };
 
+type PanelPresetSummary = {
+    description: string;
+    panelType?: 'toggle' | 'grant_missing';
+    authType?: 'none' | 'web' | 'code' | 'math';
+};
+
 const AUTH_TTL_MS = 10 * 60 * 1000;
 const ONE_DIGIT_MIN = 1;
 const ONE_DIGIT_MAX = 9;
@@ -114,6 +120,39 @@ function generateSixDigitCode(): string {
 
 function getAuthRecordKey(guildId: string, presetId: string, userId: string): string {
     return `${guildId}:${presetId}:${userId}`;
+}
+
+function buildPanelUsageDescription(preset: PanelPresetSummary): string {
+    const panelType = preset.panelType || 'toggle';
+    const authType = preset.authType || 'none';
+
+    const lines: string[] = [];
+    if (panelType === 'grant_missing') {
+        lines.push('• ボタンをクリックして不足ロールの付与を開始');
+        if (authType === 'none') {
+            lines.push('• 不足ロールをそのまま一括付与');
+        } else if (authType === 'web') {
+            lines.push('• Web認証完了後に不足ロールを一括付与');
+        } else if (authType === 'code') {
+            lines.push('• ダイアログで認証コードを入力すると不足ロールを一括付与');
+        } else if (authType === 'math') {
+            lines.push('• ダイアログで計算問題(3問)に正解すると不足ロールを一括付与');
+        } else {
+            lines.push('• 認証方式を確認してから利用してください');
+        }
+        lines.push('• すでに所持しているロールはスキップされます');
+    } else {
+        lines.push('• ボタンをクリックしてロール管理を開始');
+        lines.push('• 現在のロール状態を確認可能');
+        lines.push('• ロールの追加/削除が可能');
+    }
+
+    return (
+        preset.description +
+        '\n\n**使い方:**' +
+        `\n${lines.join('\n')}` +
+        '\n\n**注意:** ボットより上位のロールは操作不可'
+    );
 }
 
 /**
@@ -413,18 +452,7 @@ const rolePanelSubcommand = {
                 roles: missingRoleIds,
                 expiresAt: Date.now() + AUTH_TTL_MS
             });
-            const authUrl = resolveAuthUrl(preset);
-            const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-                new ButtonBuilder()
-                    .setCustomId(`rolepanel:${interaction.guild.id}:${preset.id}:auth_modal:code`)
-                    .setLabel('コードを入力')
-                    .setStyle(ButtonStyle.Primary)
-            );
-            await interaction.reply({
-                content: `🔐 認証コード: **${code}**\nこのコードを覚えて次のURLで入力してください: ${authUrl}\nその後「コードを入力」を押してください。`,
-                components: [row],
-                ephemeral: true
-            });
+            await this.showAuthModal(interaction, preset, 'code');
             return;
         }
 
@@ -438,17 +466,7 @@ const rolePanelSubcommand = {
                 roles: missingRoleIds,
                 expiresAt: Date.now() + AUTH_TTL_MS
             });
-            const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-                new ButtonBuilder()
-                    .setCustomId(`rolepanel:${interaction.guild.id}:${preset.id}:auth_modal:math`)
-                    .setLabel('計算認証を開始')
-                    .setStyle(ButtonStyle.Primary)
-            );
-            await interaction.reply({
-                content: '🔐 1桁の計算問題を3問解いて認証してください。',
-                components: [row],
-                ephemeral: true
-            });
+            await this.showAuthModal(interaction, preset, 'math');
             return;
         }
 
@@ -476,6 +494,7 @@ const rolePanelSubcommand = {
             const codeInput = new TextInputBuilder()
                 .setCustomId('code')
                 .setLabel('表示されたコードを入力')
+                .setPlaceholder(`認証コード: ${record.code}`)
                 .setStyle(TextInputStyle.Short)
                 .setRequired(true)
                 .setMaxLength(12);
@@ -515,9 +534,16 @@ const rolePanelSubcommand = {
 
     async handleGrantButton(interaction: ButtonInteraction, preset: any, token: string): Promise<void> {
         cleanupExpiredAuthRecords();
+        const respond = async (content: string): Promise<void> => {
+            if (interaction.deferred || interaction.replied) {
+                await interaction.followUp({ content, ephemeral: true });
+                return;
+            }
+            await interaction.update({ content, components: [] });
+        };
         const record = authGrantRecords.get(token);
         if (!record || !interaction.guild) {
-            await interaction.reply({ content: '❌ 認証情報が見つからないか期限切れです。', ephemeral: true });
+            await respond('❌ 認証情報が見つからないか期限切れです。');
             return;
         }
 
@@ -528,13 +554,13 @@ const rolePanelSubcommand = {
             || record.expiresAt <= Date.now()
         ) {
             authGrantRecords.delete(token);
-            await interaction.reply({ content: '❌ 認証情報が一致しません。もう一度やり直してください。', ephemeral: true });
+            await respond('❌ 認証情報が一致しません。もう一度やり直してください。');
             return;
         }
 
         const member = interaction.member as any;
         if (!member) {
-            await interaction.reply({ content: '❌ メンバー情報を取得できませんでした。', ephemeral: true });
+            await respond('❌ メンバー情報を取得できませんでした。');
             return;
         }
 
@@ -543,7 +569,7 @@ const rolePanelSubcommand = {
         const stillMissing = record.roles.filter((roleId) => !currentRoles.includes(roleId));
         const message = await this.grantMissingRoles(interaction.guild.id, preset.id, member, botMember, stillMissing);
         authGrantRecords.delete(token);
-        await interaction.reply({ content: message, ephemeral: true });
+        await respond(message);
     },
 
     async grantMissingRoles(guildId: string, presetId: string, member: any, botMember: any, roleIds: string[]): Promise<string> {
@@ -592,6 +618,23 @@ const rolePanelSubcommand = {
         ].join('').trim();
     },
 
+    async grantRolesAfterAuth(
+        interaction: ModalSubmitInteraction,
+        record: { guildId: string; presetId: string; userId: string; roles: string[] }
+    ): Promise<string> {
+        if (!interaction.guild) {
+            return '❌ サーバー内でのみ使用できます。';
+        }
+        const member = await interaction.guild.members.fetch(record.userId).catch(() => null);
+        if (!member) {
+            return '❌ メンバー情報を取得できませんでした（サーバーから退出した可能性があります）。';
+        }
+        const botMember = interaction.guild.members.me;
+        const currentRoles = (member.roles as GuildMemberRoleManager).cache.map((r) => r.id);
+        const stillMissing = record.roles.filter((roleId) => !currentRoles.includes(roleId));
+        return this.grantMissingRoles(record.guildId, record.presetId, member, botMember, stillMissing);
+    },
+
     async handleCodeModalSubmit(interaction: ModalSubmitInteraction): Promise<void> {
         cleanupExpiredAuthRecords();
         if (!interaction.guild) {
@@ -616,25 +659,10 @@ const rolePanelSubcommand = {
         }
 
         authCodeRecords.delete(getAuthRecordKey(record.guildId, record.presetId, record.userId));
-        const token = generateAuthToken('grant');
-        authGrantRecords.set(token, {
-            guildId: record.guildId,
-            presetId: record.presetId,
-            userId: record.userId,
-            roles: record.roles,
-            expiresAt: Date.now() + AUTH_TTL_MS
-        });
+        const message = await this.grantRolesAfterAuth(interaction, record);
 
         await interaction.reply({
-            content: '✅ 認証成功。「認証後に一括付与」を押すと不足ロールを付与します。',
-            components: [
-                new ActionRowBuilder<ButtonBuilder>().addComponents(
-                    new ButtonBuilder()
-                        .setCustomId(`rolepanel:${record.guildId}:${record.presetId}:grant:${token}`)
-                        .setLabel('認証後に一括付与')
-                        .setStyle(ButtonStyle.Success)
-                )
-            ],
+            content: `✅ 認証成功。\n${message}`,
             ephemeral: true
         });
     },
@@ -668,25 +696,10 @@ const rolePanelSubcommand = {
         }
 
         authMathRecords.delete(getAuthRecordKey(record.guildId, record.presetId, record.userId));
-        const token = generateAuthToken('grant');
-        authGrantRecords.set(token, {
-            guildId: record.guildId,
-            presetId: record.presetId,
-            userId: record.userId,
-            roles: record.roles,
-            expiresAt: Date.now() + AUTH_TTL_MS
-        });
+        const message = await this.grantRolesAfterAuth(interaction, record);
 
         await interaction.reply({
-            content: '✅ 計算認証に成功しました。「認証後に一括付与」を押してください。',
-            components: [
-                new ActionRowBuilder<ButtonBuilder>().addComponents(
-                    new ButtonBuilder()
-                        .setCustomId(`rolepanel:${record.guildId}:${record.presetId}:grant:${token}`)
-                        .setLabel('認証後に一括付与')
-                        .setStyle(ButtonStyle.Success)
-                )
-            ],
+            content: `✅ 計算認証に成功しました。\n${message}`,
             ephemeral: true
         });
     },
@@ -758,14 +771,7 @@ const rolePanelSubcommand = {
             // Embedを作成
             const embed = new EmbedBuilder()
                 .setTitle(`🎭 ${preset.name}`)
-                .setDescription(
-                    preset.description +
-                    '\n\n**使い方:**' +
-                    '\n• ボタンをクリックしてロール管理を開始' +
-                    '\n• 現在のロール状態を確認可能' +
-                    '\n• ロールの追加/削除が可能' +
-                    '\n\n**注意:** ボットより上位のロールは操作不可'
-                )
+                .setDescription(buildPanelUsageDescription(preset))
                 .setColor(0x5865F2)
                 .setFooter({ text: `ID: ${preset.id}` })
                 .setTimestamp();
@@ -773,7 +779,7 @@ const rolePanelSubcommand = {
             // ボタンを作成
             const roleButton = new ButtonBuilder()
                 .setCustomId(`rolepanel:${interaction.guild.id}:${preset.id}:manage`)
-                .setLabel('ロールを管理する')
+                .setLabel((preset.panelType || 'toggle') === 'grant_missing' ? '不足ロールを受け取る' : 'ロールを管理する')
                 .setStyle(ButtonStyle.Primary)
                 .setEmoji('🎭');
 
