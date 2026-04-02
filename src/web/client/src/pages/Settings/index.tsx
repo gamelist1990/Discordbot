@@ -116,6 +116,13 @@ const SettingsPage: React.FC = () => {
         onClick: () => navigate(`/staff/corepanel?guildId=${guildId}&returnTo=${encodeURIComponent(`/settings/${guildId}`)}`),
       },
       {
+        title: 'Request 管理',
+        description: 'ユーザーリクエスト機能の設定を管理します。カテゴリ名、ラベル、説明文をカスタマイズできます。',
+        icon: 'assignment',
+        actionLabel: 'Request 管理を開く',
+        onClick: () => navigate(`/staff/requestmanager?guildId=${guildId}&returnTo=${encodeURIComponent(`/settings/${guildId}`)}`),
+      },
+      {
         title: 'AntiCheat',
         description: '検知ルール、スコア、処罰、ログ出力をサーバー単位で調整します。',
         icon: 'shield',

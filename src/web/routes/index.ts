@@ -11,3 +11,4 @@ export * from './rank.js';
 
 export * from './staff/anticheat.js';
 export * from './staff/corepanel.js';
+export * from './staff/requestmanager.js';
