@@ -2,13 +2,14 @@ import { Router } from 'express';
 import { SettingsController } from '../controllers/SettingsController.js';
 import { SettingsSession } from '../types/index.js';
 import { AuthMiddleware, verifyAuth } from '../middleware/auth.js';
+import { BotClient } from '../../core/BotClient.js';
 
 /**
  * 設定ルート
  */
-export function createSettingsRoutes(sessions: Map<string, SettingsSession>): Router {
+export function createSettingsRoutes(sessions: Map<string, SettingsSession>, botClient?: BotClient): Router {
     const router = Router();
-    const controller = new SettingsController();
+    const controller = new SettingsController(botClient);
     const auth = new AuthMiddleware(sessions);
 
     // 設定の取得 (token ベース、既存互換)

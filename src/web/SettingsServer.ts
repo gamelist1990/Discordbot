@@ -133,7 +133,7 @@ export class SettingsServer {
         // APIルートをモジュールから読み込み（静的ファイルより先に定義）
         this.app.use('/api', createStatusRoutes(this.botClient));
         this.app.use('/api', createSessionRoutes(sessions, this.botClient));
-        this.app.use('/api', createSettingsRoutes(sessions));
+        this.app.use('/api', createSettingsRoutes(sessions, this.botClient));
         this.app.use('/api/staff', createStaffRoutes(sessions, this.botClient));
         this.app.use('/api/staff', createRolePresetRoutes(sessions, this.botClient));
         this.app.use('/api/staff/rankmanager', createRankRoutes(sessions, this.botClient));
