@@ -413,7 +413,6 @@ const rolePanelSubcommand = {
                 roles: missingRoleIds,
                 expiresAt: Date.now() + AUTH_TTL_MS
             });
-            const authUrl = resolveAuthUrl(preset);
             const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
                 new ButtonBuilder()
                     .setCustomId(`rolepanel:${interaction.guild.id}:${preset.id}:auth_modal:code`)
@@ -421,7 +420,7 @@ const rolePanelSubcommand = {
                     .setStyle(ButtonStyle.Primary)
             );
             await interaction.reply({
-                content: `🔐 認証コード: **${code}**\nこのコードを覚えて次のURLで入力してください: ${authUrl}\nその後「コードを入力」を押してください。`,
+                content: `🔐 認証コード: **${code}**\n下の「コードを入力」を押して、表示されるダイアログにこのコードを入力してください。`,
                 components: [row],
                 ephemeral: true
             });
