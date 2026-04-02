@@ -42,11 +42,10 @@ type DetectorEntry = {
 };
 
 const DETECTORS: DetectorEntry[] = [
-  { key: 'textSpam', title: 'テキストスパム', description: '短時間の連投や、大文字ばかりの目立つ文章を検知します。', icon: 'sms', fields: [
+  { key: 'textSpam', title: 'テキストスパム', description: '短時間の連投を検知します。', icon: 'sms', fields: [
     { kind: 'number', key: 'windowSeconds', label: '監視秒数', defaultValue: 5, min: 1 },
     { kind: 'number', key: 'rapidMessageCount', label: '大量投稿回数', defaultValue: 6, min: 1 },
     { kind: 'number', key: 'duplicateThreshold', label: '重複しきい値', defaultValue: 3, min: 1 },
-    { kind: 'number', key: 'capsRatio', label: '大文字だらけ判定', defaultValue: 0.88, min: 0, max: 1, step: 0.01 },
   ] },
   { key: 'inviteReferral', title: '広告防止 / 紹介', description: '招待リンクと紹介パターンを止めます。', icon: 'campaign', fields: [
     { kind: 'list', key: 'blockedDomains', label: 'ブロックドメイン', wide: true, placeholder: 'example.com' },

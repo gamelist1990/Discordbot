@@ -28,7 +28,6 @@ export class TextSpamDetector implements Detector {
         const duplicateThreshold = Number(config.duplicateThreshold) || 3;
         const rapidThreshold = Number(config.rapidMessageCount) || 6;
         const rapidWindowMs = (Number(config.windowSeconds) || 5) * 1000;
-        const capsRatioThreshold = Number(config.capsRatio) || 0.88;
         const cacheKey = `anticheat:messages:${context.guildId}:${context.channelId}:${context.userId}`;
         const normalizedContent = normalizeContent(message.content);
         
@@ -75,14 +74,6 @@ export class TextSpamDetector implements Detector {
             reasons.push(`短時間に大量投稿しました (${recentCount}件/${rapidWindowMs / 1000}秒)`);
         }
         
-        const letters = message.content.replace(/[^A-Za-z]/g, '');
-        const upperCaseLetters = letters.replace(/[^A-Z]/g, '');
-        const capsRatio = letters.length > 0 ? upperCaseLetters.length / letters.length : 0;
-        if (letters.length >= 12 && capsRatio >= capsRatioThreshold) {
-            scoreDelta += detectorConfig.score;
-            reasons.push('大文字比率の高いスパム文面を検知しました');
-        }
-        
         if (reasons.length === 0) {
             return {
                 scoreDelta: 0,
@@ -90,8 +81,7 @@ export class TextSpamDetector implements Detector {
                 metadata: {
                     duplicateCount,
                     recentCount,
-                    totalMessages: recentMessages.length,
-                    capsRatio
+                    totalMessages: recentMessages.length
                 }
             };
         }
@@ -102,8 +92,7 @@ export class TextSpamDetector implements Detector {
             metadata: {
                 duplicateCount,
                 recentCount,
-                totalMessages: recentMessages.length,
-                capsRatio
+                totalMessages: recentMessages.length
             },
             deleteMessage: detectorConfig.deleteMessage === true
         };

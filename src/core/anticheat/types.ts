@@ -130,8 +130,7 @@ export const DEFAULT_ANTICHEAT_SETTINGS: GuildAntiCheatSettings = {
             config: {
                 windowSeconds: 5,
                 rapidMessageCount: 6,
-                duplicateThreshold: 3,
-                capsRatio: 0.88
+                duplicateThreshold: 3
             }
         },
         inviteReferral: {
