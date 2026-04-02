@@ -173,6 +173,8 @@ export class RequestManagerController {
                     title: item.title || '',
                     label: item.label || '',
                     status: item.status || 'undecided',
+                    statusLabel: getRequestStatusLabel(item.status || 'undecided'),
+                    statusColor: getRequestStatusColor(item.status || 'undecided'),
                     createdAt: item.createdAt || null,
                     channelId,
                     exists,
@@ -224,6 +226,40 @@ export class RequestManagerController {
             res.status(500).json({ error: error instanceof Error ? error.message : 'Failed to cleanup missing request items' });
         }
     };
+}
+
+function getRequestStatusLabel(status: string): string {
+    switch (status) {
+        case 'waiting':
+            return '情報待ち';
+        case 'planned':
+            return '計画';
+        case 'working':
+            return '作業中';
+        case 'done':
+            return '完了';
+        case 'closed':
+            return 'クローズ';
+        default:
+            return '未定';
+    }
+}
+
+function getRequestStatusColor(status: string): number {
+    switch (status) {
+        case 'waiting':
+            return 0xf59e0b;
+        case 'planned':
+            return 0x2563eb;
+        case 'working':
+            return 0xd97706;
+        case 'done':
+            return 0x16a34a;
+        case 'closed':
+            return 0x6b7280;
+        default:
+            return 0x7c3aed;
+    }
 }
 
 function hasAccessToGuild(session: SessionLike, guildId: string): boolean {

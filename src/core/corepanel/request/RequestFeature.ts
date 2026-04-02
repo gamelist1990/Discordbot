@@ -22,7 +22,7 @@ import { isStaffMember } from '../guildUtils.js';
 import { requestCoreFeatureModelText } from '../model.js';
 import { database } from '../../Database.js';
 
-type RequestStatus = 'undecided' | 'planned' | 'working' | 'done' | 'closed';
+type RequestStatus = 'undecided' | 'waiting' | 'planned' | 'working' | 'done' | 'closed';
 type RequestItem = {
     id: string;
     guildId: string;
@@ -48,6 +48,40 @@ type RequestConfig = {
     trackingChannelId?: string | null;
     cooldownSeconds?: number;
 };
+
+export function getRequestStatusLabel(status: RequestStatus): string {
+    switch (status) {
+        case 'waiting':
+            return '情報待ち';
+        case 'planned':
+            return '計画';
+        case 'working':
+            return '作業中';
+        case 'done':
+            return '完了';
+        case 'closed':
+            return 'クローズ';
+        default:
+            return '未定';
+    }
+}
+
+export function getRequestStatusColor(status: RequestStatus): number {
+    switch (status) {
+        case 'waiting':
+            return 0xf59e0b;
+        case 'planned':
+            return 0x2563eb;
+        case 'working':
+            return 0xd97706;
+        case 'done':
+            return 0x16a34a;
+        case 'closed':
+            return 0x6b7280;
+        default:
+            return 0x7c3aed;
+    }
+}
 
 function getRequestsKey(guildId: string): string {
     return `Guild/${guildId}/corefeature/request/items`;
@@ -143,10 +177,14 @@ export class RequestFeature implements CoreFeatureModule {
             await this.syncTrackingMessage(guild.id, item);
             await interaction.deferReply({ ephemeral: true });
             if (nextStatus === 'closed') {
+                await this.deleteTrackingMessage(guild.id, item);
+                const remainingItems = (await this.getItems(guild.id)).filter((entry) => entry.id !== item.id);
+                await this.saveItems(guild.id, remainingItems);
                 const targetChannel = await guild.channels.fetch(item.channelId).catch(() => null);
                 if (targetChannel && targetChannel.type === ChannelType.GuildText) {
                     await (targetChannel as TextChannel).send('🔒 このリクエストはクローズされました。');
                     await (targetChannel as TextChannel).permissionOverwrites.edit(item.authorId, { SendMessages: false }).catch(() => null);
+                    await (targetChannel as TextChannel).delete('Request closed').catch(() => null);
                 }
             }
 
@@ -290,6 +328,7 @@ export class RequestFeature implements CoreFeatureModule {
                     .setPlaceholder('Todo ステータスを選択')
                     .addOptions(
                         { label: '未定', value: 'undecided' },
+                        { label: '情報待ち', value: 'waiting' },
                         { label: '計画', value: 'planned' },
                         { label: '作業中', value: 'working' },
                         { label: '完了', value: 'done' },
@@ -432,13 +471,13 @@ export class RequestFeature implements CoreFeatureModule {
             .setTitle(`Request #${item.id}`)
             .setDescription(item.title || '無題')
             .addFields(
-                { name: 'ステータス', value: this.getStatusLabel(item.status), inline: true },
+                { name: 'ステータス', value: getRequestStatusLabel(item.status), inline: true },
                 { name: 'ラベル', value: item.label || '未設定', inline: true },
                 { name: '作成者', value: `<@${item.authorId}>`, inline: true },
                 { name: '要約', value: item.summary?.trim() || item.body.slice(0, 120) || '内容なし', inline: false },
                 { name: 'リクエストURL', value: `https://discord.com/channels/${guildId}/${item.channelId}`, inline: false }
             )
-            .setColor(this.getStatusColor(item.status))
+            .setColor(getRequestStatusColor(item.status))
             .setTimestamp(new Date(item.updatedAt || item.createdAt));
     }
 
@@ -489,34 +528,36 @@ export class RequestFeature implements CoreFeatureModule {
         }
     }
 
-    private getStatusLabel(status: RequestStatus): string {
-        switch (status) {
-            case 'planned':
-                return '計画';
-            case 'working':
-                return '作業中';
-            case 'done':
-                return '完了';
-            case 'closed':
-                return 'クローズ';
-            default:
-                return '未定';
+    private async deleteTrackingMessage(guildId: string, item: RequestItem): Promise<void> {
+        if (!item.trackingMessageId) {
+            return;
         }
-    }
 
-    private getStatusColor(status: RequestStatus): number {
-        switch (status) {
-            case 'planned':
-                return 0x2563eb;
-            case 'working':
-                return 0xd97706;
-            case 'done':
-                return 0x16a34a;
-            case 'closed':
-                return 0x6b7280;
-            default:
-                return 0x7c3aed;
+        const requestConfig = await this.getRequestConfig(guildId);
+        if (!requestConfig?.trackingChannelId) {
+            return;
         }
+
+        const client = this.api?.getClient();
+        if (!client) {
+            return;
+        }
+
+        const guild = await client.guilds.fetch(guildId).catch(() => null);
+        if (!guild) {
+            return;
+        }
+
+        const trackingCh = await guild.channels.fetch(requestConfig.trackingChannelId).catch(() => null);
+        if (!trackingCh || trackingCh.type !== ChannelType.GuildText) {
+            return;
+        }
+
+        const message = await (trackingCh as TextChannel).messages.fetch(item.trackingMessageId).catch(() => null);
+        if (message) {
+            await message.delete().catch(() => null);
+        }
+        item.trackingMessageId = null;
     }
 
     private async isRequestSafe(label: string, title: string, body: string): Promise<boolean> {
