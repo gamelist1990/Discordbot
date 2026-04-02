@@ -358,7 +358,7 @@ export function createAuthRoutes(
                             level = 2;
                         } else if (settings && settings.staffRoleId && roles.includes(settings.staffRoleId)) {
                             level = 1;
-                        } else if (g.owner || userHasAdminOrManageFlag(g)) {
+                        } else if (userHasAdminOrManageFlag(g)) {
                             level = 2;
                         } else {
                             // Handle permission bitfields which may be string/number/bigint
@@ -374,7 +374,7 @@ export function createAuthRoutes(
                     }
                 } catch (e) {
                     // fallback: owner/権限フラグ
-                    if (g.owner || userHasAdminOrManageFlag(g)) {
+                    if (userHasAdminOrManageFlag(g)) {
                         level = 2;
                     } else {
                         const perms = parsePermissionBitfield(g.permissions_new ?? g.permissions);

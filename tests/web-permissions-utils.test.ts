@@ -9,7 +9,14 @@ test('userHasAdminOrManageFlag returns true for guild owner', () => {
 });
 
 test('userHasAdminOrManageFlag reads permissions_new bitfield', () => {
-    const manageGuild = Number((PermissionFlagsBits as any).ManageGuild || 0);
+    const admin = Number(PermissionFlagsBits.Administrator);
+    const result = userHasAdminOrManageFlag({ owner: false, permissions_new: String(admin) });
+    assert.equal(result, true);
+});
+
+test('userHasAdminOrManageFlag reads manage guild bitfield', () => {
+    const manageGuild = Number((PermissionFlagsBits as any).ManageGuild ?? (PermissionFlagsBits as any).ManageGuildPermissions ?? 0);
+    assert.notEqual(manageGuild, 0);
     const result = userHasAdminOrManageFlag({ owner: false, permissions_new: String(manageGuild) });
     assert.equal(result, true);
 });
