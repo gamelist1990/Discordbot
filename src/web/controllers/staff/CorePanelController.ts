@@ -47,14 +47,16 @@ export class CorePanelController {
                 return;
             }
 
-            const { channelId, spectatorRoleId } = req.body as {
+            const { channelId, spectatorRoleId, requestDoneChannelId } = req.body as {
                 channelId?: string;
                 spectatorRoleId?: string | null;
+                requestDoneChannelId?: string | null;
             };
             const existing = await coreFeatureManager.getPanelConfig(guildId, panelKind);
             const nextChannelId = typeof channelId === 'string' && channelId.trim()
                 ? channelId.trim()
                 : existing?.channelId || null;
+            const nextRequestDoneChannelId = resolveRequestDoneChannelId(panelKind, requestDoneChannelId, existing?.requestDoneChannelId);
 
             if (!nextChannelId) {
                 res.status(400).json({ error: 'channelId is required' });
@@ -71,6 +73,9 @@ export class CorePanelController {
                     : spectatorRoleId === undefined
                         ? existing?.spectatorRoleId || null
                         : spectatorRoleId || null,
+                requestCategoryName: existing?.requestCategoryName ?? null,
+                requestLabels: existing?.requestLabels,
+                requestDoneChannelId: nextRequestDoneChannelId,
                 updatedBy: session.userId,
                 updatedAt: new Date().toISOString()
             };
@@ -97,7 +102,11 @@ export class CorePanelController {
                 return;
             }
 
-            const { channelId, spectatorRoleId } = req.body as { channelId?: string; spectatorRoleId?: string | null };
+            const { channelId, spectatorRoleId, requestDoneChannelId } = req.body as {
+                channelId?: string;
+                spectatorRoleId?: string | null;
+                requestDoneChannelId?: string | null;
+            };
             const existing = await coreFeatureManager.getPanelConfig(guildId, panelKind);
             const targetChannelId = typeof channelId === 'string' && channelId.trim()
                 ? channelId.trim()
@@ -107,6 +116,7 @@ export class CorePanelController {
                 : spectatorRoleId === undefined
                     ? existing?.spectatorRoleId || null
                     : spectatorRoleId || null;
+            const nextRequestDoneChannelId = resolveRequestDoneChannelId(panelKind, requestDoneChannelId, existing?.requestDoneChannelId);
 
             if (!targetChannelId) {
                 res.status(400).json({ error: 'channelId is required' });
@@ -148,6 +158,9 @@ export class CorePanelController {
                 channelId: targetChannelId,
                 messageId: message.id,
                 spectatorRoleId: nextSpectatorRoleId,
+                requestCategoryName: existing?.requestCategoryName ?? null,
+                requestLabels: existing?.requestLabels,
+                requestDoneChannelId: nextRequestDoneChannelId,
                 updatedBy: session.userId,
                 updatedAt: new Date().toISOString()
             };
@@ -167,6 +180,23 @@ export class CorePanelController {
 
 function readPanelKind(value: unknown): CoreFeaturePanelKind {
     return value === 'personality' || value === 'debate' || value === 'request' ? value : 'combined';
+}
+
+function resolveRequestDoneChannelId(
+    panelKind: CoreFeaturePanelKind,
+    requestDoneChannelId: unknown,
+    existingRequestDoneChannelId: string | null | undefined
+): string | null {
+    if (panelKind !== 'request') {
+        return existingRequestDoneChannelId || null;
+    }
+    if (requestDoneChannelId === undefined) {
+        return existingRequestDoneChannelId || null;
+    }
+    if (typeof requestDoneChannelId === 'string' && requestDoneChannelId.trim()) {
+        return requestDoneChannelId.trim();
+    }
+    return null;
 }
 
 function buildPanelUrl(guildId: string, channelId: string | null, messageId: string | null): string | null {

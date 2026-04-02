@@ -109,6 +109,7 @@ const CorePanelPage: React.FC = () => {
   const [panelUrl, setPanelUrl] = useState<string | null>(null);
   const [channelId, setChannelId] = useState('');
   const [spectatorRoleId, setSpectatorRoleId] = useState('');
+  const [requestDoneChannelId, setRequestDoneChannelId] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   const { addToast } = (() => {
@@ -166,6 +167,7 @@ const CorePanelPage: React.FC = () => {
       setPanelUrl(null);
       setChannelId('');
       setSpectatorRoleId('');
+      setRequestDoneChannelId('');
       setPanelKind('combined');
       return;
     }
@@ -202,6 +204,7 @@ const CorePanelPage: React.FC = () => {
         setRoles(nextRoles);
         setChannelId(nextConfig?.channelId || nextChannels[0]?.id || '');
         setSpectatorRoleId(nextConfig?.spectatorRoleId || '');
+        setRequestDoneChannelId(nextConfig?.requestDoneChannelId || '');
       } catch (loadError) {
         const message = loadError instanceof Error ? loadError.message : 'Core パネル設定の読み込みに失敗しました。';
         setError(message);
@@ -221,7 +224,17 @@ const CorePanelPage: React.FC = () => {
     const targetRoleId = spectatorRoleId || config?.spectatorRoleId || '';
     return roles.find((role) => role.id === targetRoleId)?.name || (targetRoleId ? '不明なロール' : '未設定');
   }, [spectatorRoleId, roles, config?.spectatorRoleId]);
-
+  const savedDoneChannelDisplay = useMemo(() => {
+    const targetDoneChannelId = config?.requestDoneChannelId || '';
+    const found = channels.find((channel) => channel.id === targetDoneChannelId);
+    if (!targetDoneChannelId) {
+      return '未設定';
+    }
+    if (found?.name) {
+      return `#${found.name}`;
+    }
+    return targetDoneChannelId;
+  }, [channels, config?.requestDoneChannelId]);
   const saveConfig = async () => {
     if (!selectedGuildId || !channelId) {
       addToast?.('投稿先チャンネルを選択してください', 'warning');
@@ -238,6 +251,7 @@ const CorePanelPage: React.FC = () => {
           panelKind,
           channelId,
           spectatorRoleId: panelKind === 'personality' || panelKind === 'request' ? null : spectatorRoleId || null,
+          requestDoneChannelId: panelKind === 'request' ? requestDoneChannelId || null : null,
         }),
       });
 
@@ -272,6 +286,7 @@ const CorePanelPage: React.FC = () => {
           panelKind,
           channelId,
           spectatorRoleId: panelKind === 'personality' || panelKind === 'request' ? null : spectatorRoleId || null,
+          requestDoneChannelId: panelKind === 'request' ? requestDoneChannelId || null : null,
         }),
       });
 
@@ -441,6 +456,25 @@ const CorePanelPage: React.FC = () => {
                       : '未設定なら一般向け表示だけになり、観戦専用ロールは付きません。'}
                   </p>
                 </div>
+
+                {panelKind === 'request' ? (
+                  <div className={styles.field}>
+                    <label htmlFor="corepanel-request-done-channel">完了通知チャンネル</label>
+                    <select
+                      id="corepanel-request-done-channel"
+                      value={requestDoneChannelId}
+                      onChange={(event) => setRequestDoneChannelId(event.target.value)}
+                    >
+                      <option value="">未設定</option>
+                      {channels.map((channel) => (
+                        <option key={channel.id} value={channel.id}>
+                          #{channel.name}
+                        </option>
+                      ))}
+                    </select>
+                    <p className={styles.hint}>Request を完了にした時の通知先チャンネルです。</p>
+                  </div>
+                ) : null}
               </div>
 
               <div className={styles.actionRow}>
@@ -469,6 +503,10 @@ const CorePanelPage: React.FC = () => {
                 <div className={styles.infoItem}>
                   <span>保存済み観戦ロール</span>
                   <strong>{panelKind === 'personality' || panelKind === 'request' ? '未使用' : config?.spectatorRoleId ? roles.find((role) => role.id === config.spectatorRoleId)?.name || config.spectatorRoleId : '未設定'}</strong>
+                </div>
+                <div className={styles.infoItem}>
+                  <span>完了通知チャンネル</span>
+                  <strong>{panelKind === 'request' ? savedDoneChannelDisplay : '未使用'}</strong>
                 </div>
                 <div className={styles.infoItem}>
                   <span>Discord 投稿</span>
