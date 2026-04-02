@@ -122,7 +122,11 @@ export function getCurrentUser(req: Request) {
 /**
  * ギルドアクセス権限をチェック（session のギルドIDがリクエストのギルドIDと一致するか）
  */
-export function isGuildAccessible(session: SettingsSession, guildId: string): boolean {
+export function isGuildAccessible(session: SettingsSession | undefined, guildId: string): boolean {
+    if (!session) {
+        return false;
+    }
+
     // session.guildId と一致するか確認
     if (session.guildId === guildId) {
         return true;
@@ -134,6 +138,28 @@ export function isGuildAccessible(session: SettingsSession, guildId: string): bo
     }
     
     return false;
+}
+
+/**
+ * セッションに保存されたギルド別権限レベルを取得
+ */
+export function getSessionGuildPermissionLevel(session: SettingsSession | undefined, guildId: string): number {
+    if (!session) {
+        return 0;
+    }
+
+    if (Array.isArray(session.permissions)) {
+        const found = session.permissions.find((permission) => permission.guildId === guildId);
+        if (found && typeof found.level === 'number') {
+            return found.level;
+        }
+    }
+
+    if (session.guildId === guildId && typeof session.permission === 'number') {
+        return session.permission;
+    }
+
+    return 0;
 }
 
 /**

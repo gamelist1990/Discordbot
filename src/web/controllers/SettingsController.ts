@@ -5,6 +5,7 @@ import { PermissionManager } from '../../utils/PermissionManager.js';
 import { CacheManager } from '../../utils/CacheManager.js';
 import { BotClient } from '../../core/BotClient.js';
 import { Guild, PermissionFlagsBits } from 'discord.js';
+import { getSessionGuildPermissionLevel } from '../middleware/auth.js';
 
 /**
  * セッションの permissions 配列に含まれていないギルドについて、Bot 経由でリアルタイムに
@@ -81,13 +82,7 @@ export class SettingsController {
             return;
         }
         // サーバーごとの権限を判定
-        let level = 0;
-        if (Array.isArray(session.permissions)) {
-            const found = session.permissions.find(p => p.guildId === guildId);
-            if (found) level = found.level;
-        } else if (session.permission !== undefined) {
-            level = session.permission;
-        }
+        let level = getSessionGuildPermissionLevel(session, guildId);
         // セッションにギルドの権限情報がない場合、Bot 経由でリアルタイムに確認する
         // （新規サーバー追加後にログインし直していないユーザーへの対応）
         if (level === 0 && this.botClient) {
@@ -140,13 +135,7 @@ export class SettingsController {
             return;
         }
         // サーバーごとの権限を判定
-        let level = 0;
-        if (Array.isArray(session.permissions)) {
-            const found = session.permissions.find(p => p.guildId === guildId);
-            if (found) level = found.level;
-        } else if (session.permission !== undefined) {
-            level = session.permission;
-        }
+        let level = getSessionGuildPermissionLevel(session, guildId);
         // セッションにギルドの権限情報がない場合、Bot 経由でリアルタイムに確認する
         if (level === 0 && this.botClient) {
             level = await resolveGuildPermissionLevel(session, guildId as string, this.botClient);

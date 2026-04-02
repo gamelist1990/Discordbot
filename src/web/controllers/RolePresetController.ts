@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { RolePresetManager, RolePreset } from '../../core/RolePresetManager.js';
 import { SettingsSession } from '../types/index.js';
+import { getSessionGuildPermissionLevel, isGuildAccessible } from '../middleware/auth.js';
 import { BotClient } from '../../core/BotClient.js';
 import { Logger } from '../../utils/Logger.js';
 import { PermissionManager } from '../../utils/PermissionManager.js';
@@ -28,14 +29,13 @@ export class RolePresetController {
             return;
         }
 
-        // 権限チェック (STAFF以上)
-        let level = 0;
-        if (Array.isArray(session.permissions)) {
-            const found = session.permissions.find(p => p.guildId === guildId);
-            if (found) level = found.level;
-        } else if (session.permission !== undefined) {
-            level = session.permission;
+        if (!isGuildAccessible(session, guildId)) {
+            res.status(403).json({ error: 'Access denied' });
+            return;
         }
+
+        // 権限チェック
+        const level = getSessionGuildPermissionLevel(session, guildId);
 
         const permissionError = PermissionManager.checkPermission(level, 1, '権限がありません');
         if (permissionError) {
@@ -76,14 +76,13 @@ export class RolePresetController {
             return;
         }
 
-        // 権限チェック
-        let level = 0;
-        if (Array.isArray(session.permissions)) {
-            const found = session.permissions.find(p => p.guildId === guildId);
-            if (found) level = found.level;
-        } else if (session.permission !== undefined) {
-            level = session.permission;
+        if (!isGuildAccessible(session, guildId)) {
+            res.status(403).json({ error: 'Access denied' });
+            return;
         }
+
+        // 権限チェック
+        const level = getSessionGuildPermissionLevel(session, guildId);
 
         const permissionError = PermissionManager.checkPermission(level, 1, '権限がありません');
         if (permissionError) {
@@ -148,14 +147,13 @@ export class RolePresetController {
             return;
         }
 
-        // 権限チェック
-        let level = 0;
-        if (Array.isArray(session.permissions)) {
-            const found = session.permissions.find(p => p.guildId === guildId);
-            if (found) level = found.level;
-        } else if (session.permission !== undefined) {
-            level = session.permission;
+        if (!isGuildAccessible(session, guildId)) {
+            res.status(403).json({ error: 'Access denied' });
+            return;
         }
+
+        // 権限チェック
+        const level = getSessionGuildPermissionLevel(session, guildId);
 
         const permissionError = PermissionManager.checkPermission(level, 1, '権限がありません');
         if (permissionError) {
@@ -209,14 +207,13 @@ export class RolePresetController {
             return;
         }
 
-        // 権限チェック
-        let level = 0;
-        if (Array.isArray(session.permissions)) {
-            const found = session.permissions.find(p => p.guildId === guildId);
-            if (found) level = found.level;
-        } else if (session.permission !== undefined) {
-            level = session.permission;
+        if (!isGuildAccessible(session, guildId)) {
+            res.status(403).json({ error: 'Access denied' });
+            return;
         }
+
+        // 権限チェック
+        const level = getSessionGuildPermissionLevel(session, guildId);
 
         const permissionError = PermissionManager.checkPermission(level, 1, '権限がありません');
         if (permissionError) {
@@ -262,14 +259,13 @@ export class RolePresetController {
             return;
         }
 
-        // 権限チェック
-        let level = 0;
-        if (Array.isArray(session.permissions)) {
-            const found = session.permissions.find(p => p.guildId === guildId);
-            if (found) level = found.level;
-        } else if (session.permission !== undefined) {
-            level = session.permission;
+        if (!isGuildAccessible(session, guildId)) {
+            res.status(403).json({ error: 'Access denied' });
+            return;
         }
+
+        // 権限チェック
+        const level = getSessionGuildPermissionLevel(session, guildId);
 
         const permissionError = PermissionManager.checkPermission(level, 1, '権限がありません');
         if (permissionError) {
@@ -310,14 +306,13 @@ export class RolePresetController {
             return;
         }
 
-        // 権限チェック
-        let level = 0;
-        if (Array.isArray(session.permissions)) {
-            const found = session.permissions.find(p => p.guildId === guildId);
-            if (found) level = found.level;
-        } else if (session.permission !== undefined) {
-            level = session.permission;
+        if (!isGuildAccessible(session, guildId)) {
+            res.status(403).json({ error: 'Access denied' });
+            return;
         }
+
+        // 権限チェック
+        const level = getSessionGuildPermissionLevel(session, guildId);
 
         const permissionError = PermissionManager.checkPermission(level, 1, '権限がありません');
         if (permissionError) {
