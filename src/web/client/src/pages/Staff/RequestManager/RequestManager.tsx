@@ -21,10 +21,29 @@ type RequestConfig = {
   categoryName: string;
   labels: string[];
   doneChannelId: string | null;
+  staffRoleId: string | null;
+  trackingChannelId: string | null;
+  cooldownSeconds: number;
   description: string;
   instructions: string;
   updatedBy: string;
   updatedAt: string;
+};
+type GuildRole = {
+  id: string;
+  name: string;
+  color: number;
+  position: number;
+};
+type RequestItemSummary = {
+  id: string;
+  title: string;
+  label: string;
+  status: string;
+  createdAt: string | null;
+  channelId: string | null;
+  exists: boolean;
+  url: string | null;
 };
 
 const DEFAULT_DESCRIPTION = 'このパネルから機能リクエスト、バグ報告、その他の要望を送信できます。';
@@ -40,10 +59,15 @@ const RequestManagerPage: React.FC = () => {
   const [guilds, setGuilds] = useState<GuildSummary[]>([]);
   const [selectedGuildId, setSelectedGuildId] = useState<string | null>(initialGuildId);
   const [channels, setChannels] = useState<GuildChannel[]>([]);
+  const [roles, setRoles] = useState<GuildRole[]>([]);
+  const [items, setItems] = useState<RequestItemSummary[]>([]);
   const [config, setConfig] = useState<RequestConfig | null>(null);
   const [categoryName, setCategoryName] = useState('Request');
   const [labels, setLabels] = useState('機能リクエスト,バグ修正,その他');
   const [doneChannelId, setDoneChannelId] = useState('');
+  const [staffRoleId, setStaffRoleId] = useState('');
+  const [trackingChannelId, setTrackingChannelId] = useState('');
+  const [cooldownSeconds, setCooldownSeconds] = useState(300);
   const [description, setDescription] = useState(DEFAULT_DESCRIPTION);
   const [instructions, setInstructions] = useState(DEFAULT_INSTRUCTIONS);
   const [error, setError] = useState<string | null>(null);
@@ -95,9 +119,14 @@ const RequestManagerPage: React.FC = () => {
     if (!selectedGuildId) {
       setConfig(null);
       setChannels([]);
+      setRoles([]);
+      setItems([]);
       setCategoryName('Request');
       setLabels('機能リクエスト,バグ修正,その他');
       setDoneChannelId('');
+      setStaffRoleId('');
+      setTrackingChannelId('');
+      setCooldownSeconds(300);
       setDescription(DEFAULT_DESCRIPTION);
       setInstructions(DEFAULT_INSTRUCTIONS);
       return;
@@ -107,30 +136,41 @@ const RequestManagerPage: React.FC = () => {
       setLoading(true);
       setError(null);
       try {
-        const [configRes, channelsRes] = await Promise.all([
+        const [configRes, channelsRes, rolesRes, itemsRes] = await Promise.all([
           fetch(`/api/staff/requestmanager/${selectedGuildId}`, { credentials: 'include' }),
           fetch(`/api/staff/guilds/${selectedGuildId}/channels`, { credentials: 'include' }),
+          fetch(`/api/staff/guilds/${selectedGuildId}/roles`, { credentials: 'include' }),
+          fetch(`/api/staff/requestmanager/${selectedGuildId}/items`, { credentials: 'include' }),
         ]);
 
-        if (!configRes.ok || !channelsRes.ok) {
+        if (!configRes.ok || !channelsRes.ok || !rolesRes.ok || !itemsRes.ok) {
           throw new Error('Request 設定の読み込みに失敗しました。');
         }
 
-        const [configData, channelsData] = await Promise.all([
+        const [configData, channelsData, rolesData, itemsData] = await Promise.all([
           configRes.json(),
           channelsRes.json(),
+          rolesRes.json(),
+          itemsRes.json(),
         ]);
 
         const nextConfig = (configData.config || null) as RequestConfig | null;
         const nextChannels = ((channelsData.channels || []) as GuildChannel[]).filter((channel) =>
           [0, 5, 15].includes(channel.type)
         );
+        const nextRoles = (rolesData.roles || []) as GuildRole[];
+        const nextItems = (itemsData.items || []) as RequestItemSummary[];
 
         setConfig(nextConfig);
         setChannels(nextChannels);
+        setRoles(nextRoles);
+        setItems(nextItems);
         setCategoryName(nextConfig?.categoryName || 'Request');
         setLabels((nextConfig?.labels || ['機能リクエスト', 'バグ修正', 'その他']).join(','));
         setDoneChannelId(nextConfig?.doneChannelId || '');
+        setStaffRoleId(nextConfig?.staffRoleId || '');
+        setTrackingChannelId(nextConfig?.trackingChannelId || '');
+        setCooldownSeconds(nextConfig?.cooldownSeconds || 300);
         setDescription(nextConfig?.description || DEFAULT_DESCRIPTION);
         setInstructions(nextConfig?.instructions || DEFAULT_INSTRUCTIONS);
       } catch (loadError) {
@@ -163,8 +203,11 @@ const RequestManagerPage: React.FC = () => {
         credentials: 'include',
         body: JSON.stringify({
           categoryName,
-          labels: labels.split(',').map((l) => l.trim()).filter(Boolean),
+          labels: labels.split(',').map((l) => l.trim().slice(0, 10)).filter(Boolean),
           doneChannelId: doneChannelId || null,
+          staffRoleId: staffRoleId || null,
+          trackingChannelId: trackingChannelId || null,
+          cooldownSeconds: Number.isFinite(cooldownSeconds) ? cooldownSeconds : 300,
           description,
           instructions,
         }),
@@ -181,6 +224,28 @@ const RequestManagerPage: React.FC = () => {
       addToast?.(saveError instanceof Error ? saveError.message : '設定の保存に失敗しました。', 'error');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const cleanupMissingItems = async () => {
+    if (!selectedGuildId) return;
+    try {
+      const response = await fetch(`/api/staff/requestmanager/${selectedGuildId}/items/cleanup-missing`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || 'クリーンアップに失敗しました。');
+      }
+      addToast?.(`存在しないパネルを ${data.removed || 0} 件削除しました`, 'success');
+      const refresh = await fetch(`/api/staff/requestmanager/${selectedGuildId}/items`, { credentials: 'include' });
+      if (refresh.ok) {
+        const payload = await refresh.json();
+        setItems((payload.items || []) as RequestItemSummary[]);
+      }
+    } catch (cleanupError) {
+      addToast?.(cleanupError instanceof Error ? cleanupError.message : 'クリーンアップに失敗しました。', 'error');
     }
   };
 
@@ -272,6 +337,11 @@ const RequestManagerPage: React.FC = () => {
               <strong className={styles.summaryValue}>{currentDoneChannelName}</strong>
               <p className={styles.hint}>完了報告を投稿するチャンネルです。</p>
             </div>
+            <div className={styles.infoCard}>
+              <span className={styles.eyebrow}>Panels</span>
+              <strong className={styles.summaryValue}>{items.length}件</strong>
+              <p className={styles.hint}>保存済みのリクエストパネル一覧です。</p>
+            </div>
           </section>
 
           <div className={styles.contentGrid}>
@@ -301,7 +371,7 @@ const RequestManagerPage: React.FC = () => {
                     onChange={(event) => setLabels(event.target.value)}
                     placeholder="機能リクエスト,バグ修正,その他"
                   />
-                  <p className={styles.hint}>カンマ区切りで最大20個まで設定できます。</p>
+                  <p className={styles.hint}>カンマ区切りで最大20個まで設定できます（各ラベル最大10文字）。</p>
                 </div>
 
                 <div className={styles.field}>
@@ -320,12 +390,52 @@ const RequestManagerPage: React.FC = () => {
                   </select>
                   <p className={styles.hint}>リクエストが完了したときの報告を投稿するチャンネルです。</p>
                 </div>
+                <div className={styles.field}>
+                  <label htmlFor="request-staff-role">対応スタッフロール</label>
+                  <select id="request-staff-role" value={staffRoleId} onChange={(event) => setStaffRoleId(event.target.value)}>
+                    <option value="">未設定</option>
+                    {roles.map((role) => (
+                      <option key={role.id} value={role.id}>
+                        {role.name}
+                      </option>
+                    ))}
+                  </select>
+                  <p className={styles.hint}>リクエストチャンネルを閲覧・対応できるスタッフロールです。</p>
+                </div>
+                <div className={styles.field}>
+                  <label htmlFor="request-tracking-channel">追跡一覧チャンネル</label>
+                  <select id="request-tracking-channel" value={trackingChannelId} onChange={(event) => setTrackingChannelId(event.target.value)}>
+                    <option value="">未設定</option>
+                    {channels.map((channel) => (
+                      <option key={channel.id} value={channel.id}>
+                        #{channel.name}
+                      </option>
+                    ))}
+                  </select>
+                  <p className={styles.hint}>スタッフ向けにリクエストURLを一覧表示するチャンネルです。</p>
+                </div>
+                <div className={styles.field}>
+                  <label htmlFor="request-cooldown-seconds">クールダウン(秒)</label>
+                  <input
+                    id="request-cooldown-seconds"
+                    type="number"
+                    min={30}
+                    max={86400}
+                    value={cooldownSeconds}
+                    onChange={(event) => setCooldownSeconds(Number(event.target.value))}
+                  />
+                  <p className={styles.hint}>同一ユーザーが連続投稿できないよう制限します。</p>
+                </div>
               </div>
 
               <div className={styles.actionRow}>
                 <button className={styles.buttonPrimary} disabled={saving} onClick={saveConfig} type="button">
                   <span className="material-icons">save</span>
                   <span>{saving ? '保存中...' : '設定を保存'}</span>
+                </button>
+                <button className={styles.buttonGhost} onClick={cleanupMissingItems} type="button">
+                  <span className="material-icons">cleaning_services</span>
+                  <span>存在しないパネルを削除</span>
                 </button>
               </div>
             </section>
@@ -363,6 +473,32 @@ const RequestManagerPage: React.FC = () => {
               </div>
             </section>
 
+            <section className={styles.panelCard}>
+              <div className={styles.sectionHeader}>
+                <h2>投稿済みパネル一覧</h2>
+                <p>Discord上に存在するリクエストチャンネルを確認できます。</p>
+              </div>
+              <div className={styles.infoList}>
+                {items.length === 0 ? (
+                  <p className={styles.hint}>まだリクエストパネルはありません。</p>
+                ) : (
+                  items.map((item) => (
+                    <div key={item.id} className={styles.infoItem}>
+                      <span>#{item.id} / {item.status}</span>
+                      <strong>{item.title || '無題'}</strong>
+                      <p className={styles.hint}>{item.exists ? '存在中' : '削除済み'} / ラベル: {item.label || '未設定'}</p>
+                      {item.url ? (
+                        <a className={styles.linkButton} href={item.url} rel="noreferrer" target="_blank">
+                          <span className="material-icons">open_in_new</span>
+                          <span>Discordで開く</span>
+                        </a>
+                      ) : null}
+                    </div>
+                  ))
+                )}
+              </div>
+            </section>
+
             <aside className={styles.infoCard}>
               <div className={styles.sectionHeader}>
                 <h3>現在の状態</h3>
@@ -381,6 +517,18 @@ const RequestManagerPage: React.FC = () => {
                 <div className={styles.infoItem}>
                   <span>完了通知</span>
                   <strong>{config?.doneChannelId ? '設定済み' : '未設定'}</strong>
+                </div>
+                <div className={styles.infoItem}>
+                  <span>スタッフロール</span>
+                  <strong>{config?.staffRoleId ? '設定済み' : '未設定'}</strong>
+                </div>
+                <div className={styles.infoItem}>
+                  <span>追跡チャンネル</span>
+                  <strong>{config?.trackingChannelId ? '設定済み' : '未設定'}</strong>
+                </div>
+                <div className={styles.infoItem}>
+                  <span>クールダウン</span>
+                  <strong>{config?.cooldownSeconds || 300}秒</strong>
                 </div>
                 <div className={styles.infoItem}>
                   <span>カスタム説明</span>

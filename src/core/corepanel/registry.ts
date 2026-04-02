@@ -5,7 +5,8 @@ import {
     Client,
     Guild,
     ModalSubmitInteraction,
-    Message
+    Message,
+    StringSelectMenuInteraction
 } from 'discord.js';
 import { CoreFeaturePanelConfig, CoreFeaturePanelKind } from './types.js';
 
@@ -38,6 +39,7 @@ export interface CoreFeatureModule {
     closeSessions?(guild: Guild, options: { channelId?: string; reason: string }): Promise<CoreFeatureCloseResult[]>;
     resetUserData?(guild: Guild, userId: string, reason: string): Promise<CoreFeatureResetResult | null>;
     handleButtonInteraction?(interaction: ButtonInteraction, panelKind: CoreFeaturePanelKind, action: string, parts: string[]): Promise<boolean>;
+    handleSelectMenuInteraction?(interaction: StringSelectMenuInteraction, panelKind: CoreFeaturePanelKind, action: string, parts: string[]): Promise<boolean>;
     handleMessage?(message: Message): Promise<boolean>;
     handleModalSubmit?(interaction: ModalSubmitInteraction, customId: string): Promise<boolean>;
 }

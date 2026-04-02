@@ -3,7 +3,8 @@ import {
     ChannelType,
     ChatInputCommandInteraction,
     ModalSubmitInteraction,
-    SlashCommandSubcommandBuilder
+    SlashCommandSubcommandBuilder,
+    StringSelectMenuInteraction
 } from 'discord.js';
 import { coreFeatureManager } from '../../../core/corepanel/CoreFeatureManager.js';
 import { buildCorePanelEmbed, getCorePanelKindLabel } from '../../../core/corepanel/panelMessage.js';
@@ -63,13 +64,15 @@ export default {
             );
     },
 
-    async handleInteraction(interaction: ButtonInteraction): Promise<void> {
+    async handleInteraction(interaction: ButtonInteraction | StringSelectMenuInteraction): Promise<void> {
         if (!interaction.customId.startsWith('corefeature:')) {
             return;
         }
 
         try {
-            const handled = await coreFeatureManager.handleButtonInteraction(interaction);
+            const handled = interaction.isStringSelectMenu()
+                ? await coreFeatureManager.handleSelectMenuInteraction(interaction)
+                : await coreFeatureManager.handleButtonInteraction(interaction as ButtonInteraction);
             if (!handled) {
                 await interaction.reply({
                     content: '❌ このボタンは無効か、現在は利用できません。',

@@ -13,6 +13,8 @@ export function createRequestManagerRoutes(
 
     router.get('/:guildId', verifyAuth(sessions), controller.getConfig.bind(controller));
     router.post('/:guildId/config', verifyAuth(sessions), controller.saveConfig.bind(controller));
+    router.get('/:guildId/items', verifyAuth(sessions), controller.listItems.bind(controller));
+    router.post('/:guildId/items/cleanup-missing', verifyAuth(sessions), controller.cleanupMissingItems.bind(controller));
 
     return router;
 }

@@ -15,6 +15,9 @@ type RequestConfig = {
     categoryName: string;
     labels: string[];
     doneChannelId: string | null;
+    staffRoleId: string | null;
+    trackingChannelId: string | null;
+    cooldownSeconds: number;
     description: string;
     instructions: string;
     updatedBy: string;
@@ -25,11 +28,12 @@ function getRequestConfigKey(guildId: string): string {
     return `Guild/${guildId}/corefeature/request/config`;
 }
 
+function getRequestItemsKey(guildId: string): string {
+    return `Guild/${guildId}/corefeature/request/items`;
+}
+
 export class RequestManagerController {
-    constructor(_botClient: BotClient) {
-        // BotClient may be used in future methods
-        void _botClient;
-    }
+    constructor(private botClient: BotClient) {}
 
     getConfig = async (req: Request, res: Response): Promise<void> => {
         try {
@@ -56,15 +60,22 @@ export class RequestManagerController {
                 return;
             }
 
-            const { categoryName, labels, doneChannelId, description, instructions } = req.body as {
+            const { categoryName, labels, doneChannelId, staffRoleId, trackingChannelId, cooldownSeconds, description, instructions } = req.body as {
                 categoryName?: string;
                 labels?: string[];
                 doneChannelId?: string | null;
+                staffRoleId?: string | null;
+                trackingChannelId?: string | null;
+                cooldownSeconds?: number;
                 description?: string;
                 instructions?: string;
             };
 
             const existing = await database.get<RequestConfig | null>(guildId, getRequestConfigKey(guildId), null);
+
+            const parsedCooldown = typeof cooldownSeconds === 'number'
+                ? cooldownSeconds
+                : (typeof cooldownSeconds === 'string' ? Number(cooldownSeconds) : NaN);
 
             const config: RequestConfig = {
                 guildId,
@@ -72,11 +83,24 @@ export class RequestManagerController {
                     ? categoryName.trim()
                     : existing?.categoryName || 'Request',
                 labels: Array.isArray(labels)
-                    ? labels.filter((entry) => typeof entry === 'string').map((entry) => entry.trim()).filter(Boolean).slice(0, 20)
+                    ? labels
+                        .filter((entry) => typeof entry === 'string')
+                        .map((entry) => entry.trim().slice(0, 10))
+                        .filter(Boolean)
+                        .slice(0, 20)
                     : existing?.labels || ['機能リクエスト', 'バグ修正', 'その他'],
                 doneChannelId: doneChannelId === undefined
                     ? existing?.doneChannelId || null
                     : doneChannelId || null,
+                staffRoleId: staffRoleId === undefined
+                    ? existing?.staffRoleId || null
+                    : staffRoleId || null,
+                trackingChannelId: trackingChannelId === undefined
+                    ? existing?.trackingChannelId || null
+                    : trackingChannelId || null,
+                cooldownSeconds: Number.isFinite(parsedCooldown)
+                    ? Math.max(30, Math.min(86400, Math.floor(parsedCooldown)))
+                    : (existing?.cooldownSeconds || 300),
                 description: typeof description === 'string' && description.trim()
                     ? description.trim()
                     : existing?.description || 'このパネルから機能リクエスト、バグ報告、その他の要望を送信できます。',
@@ -112,6 +136,89 @@ export class RequestManagerController {
             });
         } catch (error) {
             res.status(500).json({ error: error instanceof Error ? error.message : 'Failed to save request config' });
+        }
+    };
+
+    listItems = async (req: Request, res: Response): Promise<void> => {
+        try {
+            const { guildId } = req.params;
+            const session = (req as any).session as SessionLike | undefined;
+            if (!session || !hasAccessToGuild(session, guildId)) {
+                res.status(403).json({ error: 'Access denied to this guild' });
+                return;
+            }
+
+            const items = await database.get<Array<{
+                id: string;
+                title?: string;
+                label?: string;
+                channelId?: string;
+                status?: string;
+                createdAt?: string;
+            }> | null>(guildId, getRequestItemsKey(guildId), []);
+
+            const guild = await this.botClient.client.guilds.fetch(guildId).catch(() => null);
+            const rows = await Promise.all((items || []).map(async (item) => {
+                const channelId = item.channelId || null;
+                let exists = false;
+                if (guild && channelId) {
+                    const channel = await guild.channels.fetch(channelId).catch(() => null);
+                    exists = Boolean(channel);
+                }
+                return {
+                    id: item.id,
+                    title: item.title || '',
+                    label: item.label || '',
+                    status: item.status || 'undecided',
+                    createdAt: item.createdAt || null,
+                    channelId,
+                    exists,
+                    url: channelId ? `https://discord.com/channels/${guildId}/${channelId}` : null
+                };
+            }));
+
+            res.json({ items: rows });
+        } catch (error) {
+            res.status(500).json({ error: error instanceof Error ? error.message : 'Failed to list request items' });
+        }
+    };
+
+    cleanupMissingItems = async (req: Request, res: Response): Promise<void> => {
+        try {
+            const { guildId } = req.params;
+            const session = (req as any).session as SessionLike | undefined;
+            if (!session || !hasAccessToGuild(session, guildId)) {
+                res.status(403).json({ error: 'Access denied to this guild' });
+                return;
+            }
+
+            const items = await database.get<Array<{ channelId?: string } & Record<string, any>> | null>(guildId, getRequestItemsKey(guildId), []);
+            const guild = await this.botClient.client.guilds.fetch(guildId).catch(() => null);
+            if (!guild) {
+                res.status(404).json({ error: 'Guild not found' });
+                return;
+            }
+
+            const kept: Array<Record<string, any>> = [];
+            let removed = 0;
+            for (const item of items || []) {
+                const channelId = typeof item.channelId === 'string' ? item.channelId : '';
+                if (!channelId) {
+                    removed += 1;
+                    continue;
+                }
+                const channel = await guild.channels.fetch(channelId).catch(() => null);
+                if (!channel) {
+                    removed += 1;
+                    continue;
+                }
+                kept.push(item);
+            }
+
+            await database.set(guildId, getRequestItemsKey(guildId), kept);
+            res.json({ success: true, removed, remaining: kept.length });
+        } catch (error) {
+            res.status(500).json({ error: error instanceof Error ? error.message : 'Failed to cleanup missing request items' });
         }
     };
 }
