@@ -1,202 +1,209 @@
-.page {
-  display: grid;
-  gap: 1.5rem;
-  padding: 1.5rem;
+.container {
+  min-height: 100vh;
+  background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+  padding: 2rem 0;
+  font-family: 'Roboto', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
 }
 
 .header {
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(20px);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+  padding: 2rem;
+  margin-bottom: 2rem;
+  border-radius: 0 0 24px 24px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12), 0 1px 2px rgba(0, 0, 0, 0.24);
+}
+
+.headerContent {
+  max-width: 1400px;
+  margin: 0 auto;
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
-  gap: 1rem;
-  padding: 1.5rem;
-  border-radius: 24px;
-  background: linear-gradient(135deg, rgba(54, 83, 189, 0.16), rgba(53, 133, 210, 0.08));
-  border: 1px solid rgba(76, 102, 201, 0.2);
+  align-items: center;
 }
 
-.headerCopy {
-  display: grid;
-  gap: 0.5rem;
-}
-
-.eyebrow {
-  font-size: 0.78rem;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--md-sys-color-primary);
-}
-
-.header h1 {
-  margin: 0;
-  font-size: clamp(1.8rem, 2.7vw, 2.6rem);
-}
-
-.header p {
-  margin: 0;
-  color: var(--md-sys-color-on-surface-variant);
-  max-width: 760px;
-}
-
-.headerActions {
+.headerTitle {
   display: flex;
-  gap: 0.75rem;
-  flex-wrap: wrap;
+  align-items: center;
+  gap: 1.5rem;
+  color: #1c1b1f;
 }
 
-.button,
-.buttonGhost,
-.buttonPrimary {
+.headerTitle i {
+  font-size: 3rem;
+  color: #6750a4;
+}
+
+.headerTitle h1 {
+  font-size: 2.25rem;
+  font-weight: 400;
+  margin: 0;
+  letter-spacing: 0.5px;
+}
+
+.backButton,
+.changeGuildButton,
+.secondaryButton,
+.primaryButton {
   display: inline-flex;
   align-items: center;
-  gap: 0.45rem;
-  border-radius: 999px;
-  border: 1px solid transparent;
-  padding: 0.8rem 1.1rem;
-  font: inherit;
+  gap: 0.75rem;
+  border: none;
+  border-radius: 20px;
+  padding: 1rem 1.6rem;
   cursor: pointer;
-  transition: transform 0.16s ease, border-color 0.16s ease, background-color 0.16s ease;
+  font-size: 1rem;
+  font-weight: 500;
+  transition: all 0.2s ease;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12), 0 1px 2px rgba(0, 0, 0, 0.24);
 }
 
-.button:hover,
-.buttonGhost:hover,
-.buttonPrimary:hover {
+.backButton,
+.primaryButton {
+  background: #6750a4;
+  color: white;
+}
+
+.changeGuildButton,
+.secondaryButton {
+  background: white;
+  color: #6750a4;
+  border: 2px solid #6750a4;
+}
+
+.backButton:hover,
+.changeGuildButton:hover,
+.secondaryButton:hover,
+.primaryButton:hover {
   transform: translateY(-1px);
 }
 
-.buttonGhost {
-  background: transparent;
-  border-color: var(--md-sys-color-outline-variant);
-  color: var(--md-sys-color-on-surface);
-}
-
-.button {
-  background: var(--md-sys-color-surface-container-high);
-  color: var(--md-sys-color-on-surface);
-}
-
-.buttonPrimary {
-  background: var(--md-sys-color-primary);
-  color: var(--md-sys-color-on-primary);
-}
-
-.layout {
-  display: grid;
-  gap: 1.5rem;
-}
-
-.statePanel,
-.guildSelector,
-.panelCard,
-.infoCard {
-  border-radius: 24px;
-  background: var(--md-sys-color-surface-container-low);
-  border: 1px solid var(--md-sys-color-outline-variant);
-  padding: 1.35rem;
-}
-
-.statePanel {
+.loading,
+.emptyState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 3rem 2rem;
+  color: #49454f;
   text-align: center;
-  color: var(--md-sys-color-on-surface-variant);
+  background: rgba(255, 255, 255, 0.8);
+  border-radius: 24px;
+  margin: 2rem auto;
+  max-width: 800px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12), 0 1px 2px rgba(0, 0, 0, 0.24);
 }
 
-.guildSelector {
-  display: grid;
-  gap: 1rem;
+.guildSelector,
+.content {
+  max-width: 1400px;
+  margin: 3rem auto;
+  padding: 0 2rem;
+}
+
+.guildSelector h2 {
+  color: #1c1b1f;
+  font-size: 2rem;
+  font-weight: 400;
+  margin-bottom: 2rem;
+  text-align: center;
 }
 
 .guildGrid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 1rem;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 1.5rem;
 }
 
 .guildCard {
-  border: 1px solid var(--md-sys-color-outline-variant);
-  border-radius: 18px;
-  background: var(--md-sys-color-surface);
-  padding: 1rem;
-  display: grid;
-  gap: 0.75rem;
+  background: white;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 24px;
+  padding: 2rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
   cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12), 0 1px 2px rgba(0, 0, 0, 0.24);
 }
 
 .guildCard:hover {
-  border-color: var(--md-sys-color-primary);
+  transform: translateY(-2px);
+  border-color: #6750a4;
 }
 
-.guildIdentity {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-}
-
-.guildIcon,
-.guildIconFallback {
-  width: 52px;
-  height: 52px;
-  border-radius: 16px;
-  overflow: hidden;
-  flex-shrink: 0;
-}
-
-.guildIcon img {
-  width: 100%;
-  height: 100%;
+.guildIcon {
+  width: 72px;
+  height: 72px;
+  border-radius: 18px;
   object-fit: cover;
 }
 
 .guildIconFallback {
-  display: grid;
-  place-items: center;
-  background: rgba(74, 98, 183, 0.14);
-  color: var(--md-sys-color-primary);
-  font-weight: 700;
+  width: 72px;
+  height: 72px;
+  border-radius: 18px;
+  background: linear-gradient(135deg, #6750a4 0%, #9c27b0 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
 }
 
-.summaryGrid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+.guildName {
+  font-weight: 500;
+  text-align: center;
+  color: #1c1b1f;
+}
+
+.toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
   gap: 1rem;
+  margin-bottom: 1.5rem;
+  background: white;
+  padding: 1.5rem;
+  border-radius: 24px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12), 0 1px 2px rgba(0, 0, 0, 0.24);
 }
 
-.summaryValue {
-  display: block;
-  margin-top: 0.35rem;
-  font-size: 1.2rem;
-  font-weight: 700;
-}
-
-.contentGrid {
+.toolbarMeta {
   display: grid;
-  grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.95fr);
+  gap: 0.25rem;
+}
+
+.toolbarTitle {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: #1c1b1f;
+}
+
+.toolbarSub {
+  color: #49454f;
+}
+
+.mainGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(280px, 0.9fr);
   gap: 1.5rem;
 }
 
-.panelCard,
-.infoCard {
+.card {
+  background: white;
+  border-radius: 24px;
+  padding: 1.5rem;
   display: grid;
   gap: 1rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12), 0 1px 2px rgba(0, 0, 0, 0.24);
 }
 
-.sectionHeader {
-  display: grid;
-  gap: 0.35rem;
-}
-
-.sectionHeader h2,
-.sectionHeader h3 {
+.card h2 {
   margin: 0;
-}
-
-.sectionHeader p {
-  margin: 0;
-  color: var(--md-sys-color-on-surface-variant);
-}
-
-.formGrid {
-  display: grid;
-  gap: 1rem;
+  color: #1c1b1f;
 }
 
 .field {
@@ -206,37 +213,27 @@
 
 .field label {
   font-weight: 600;
+  color: #1c1b1f;
 }
 
-.field select,
-.field input {
-  border-radius: 14px;
-  border: 1px solid var(--md-sys-color-outline-variant);
-  background: var(--md-sys-color-surface);
-  color: var(--md-sys-color-on-surface);
-  padding: 0.9rem 1rem;
+.field select {
+  border-radius: 12px;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+  background: white;
+  color: #1c1b1f;
+  padding: 0.75rem 0.9rem;
   font: inherit;
 }
 
 .hint {
   margin: 0;
-  font-size: 0.92rem;
-  color: var(--md-sys-color-on-surface-variant);
+  color: #49454f;
 }
 
 .actionRow {
   display: flex;
   gap: 0.75rem;
   flex-wrap: wrap;
-}
-
-.linkButton {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.45rem;
-  color: var(--md-sys-color-primary);
-  text-decoration: none;
-  font-weight: 600;
 }
 
 .infoList {
@@ -247,65 +244,54 @@
 .infoItem {
   display: grid;
   gap: 0.3rem;
-  padding: 0.9rem 1rem;
-  border-radius: 16px;
-  background: var(--md-sys-color-surface);
-  border: 1px solid var(--md-sys-color-outline-variant);
+  padding: 0.8rem 1rem;
+  border-radius: 14px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  background: #faf8ff;
 }
 
 .infoItem span {
-  font-size: 0.82rem;
-  color: var(--md-sys-color-on-surface-variant);
+  font-size: 0.85rem;
+  color: #49454f;
 }
 
-.featureList {
-  display: grid;
-  gap: 0.8rem;
+.linkButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: #6750a4;
+  text-decoration: none;
+  font-weight: 600;
 }
 
-.featureItem {
-  padding: 0.95rem 1rem;
-  border-radius: 16px;
-  background: var(--md-sys-color-surface);
-  border: 1px solid var(--md-sys-color-outline-variant);
-}
-
-.featureItem strong {
-  display: block;
-  margin-bottom: 0.3rem;
-}
-
-.featureItem p {
-  margin: 0;
-  color: var(--md-sys-color-on-surface-variant);
-}
-
-@media (max-width: 960px) {
-  .contentGrid {
+@media (max-width: 980px) {
+  .mainGrid {
     grid-template-columns: 1fr;
   }
 }
 
 @media (max-width: 720px) {
-  .page {
-    padding: 1rem;
+  .container {
+    padding: 1rem 0;
   }
 
   .header {
-    padding: 1.15rem;
-    border-radius: 20px;
+    padding: 1.2rem;
+  }
+
+  .headerContent {
     flex-direction: column;
+    align-items: flex-start;
   }
 
-  .headerActions,
-  .actionRow {
-    width: 100%;
+  .guildSelector,
+  .content {
+    margin: 1.5rem auto;
+    padding: 0 1rem;
   }
 
-  .button,
-  .buttonGhost,
-  .buttonPrimary {
-    width: 100%;
-    justify-content: center;
+  .toolbar {
+    flex-direction: column;
+    align-items: flex-start;
   }
 }

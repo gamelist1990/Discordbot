@@ -23,94 +23,48 @@ type GuildRole = {
   position: number;
 };
 
+type CoreFeaturePanelKind = 'combined' | 'personality' | 'debate' | 'request';
+
 type CorePanelConfig = {
   panelKind: CoreFeaturePanelKind;
   guildId: string;
   channelId: string;
   messageId: string | null;
   spectatorRoleId: string | null;
-  requestCategoryName?: string | null;
-  requestLabels?: string[];
   requestDoneChannelId?: string | null;
   updatedBy: string;
   updatedAt: string;
 };
 
-type CoreFeaturePanelKind = 'combined' | 'personality' | 'debate' | 'request';
-
 const panelKindOptions: Array<{ value: CoreFeaturePanelKind; label: string; description: string }> = [
-  { value: 'combined', label: '統合パネル', description: '性格診断・レスバ・リクエスト をまとめて1枚に出します。' },
-  { value: 'personality', label: '性格診断だけ', description: '性格診断ボタンだけを単独で投稿します。' },
-  { value: 'debate', label: 'レスバだけ', description: 'レスバボタンだけを単独で投稿します。' },
-  { value: 'request', label: 'リクエストだけ', description: 'リクエストボタンだけを単独で投稿します。' },
+  { value: 'combined', label: '統合パネル', description: '性格診断・レスバ・リクエスト をまとめて投稿します。' },
+  { value: 'personality', label: '性格診断だけ', description: '性格診断ボタンだけを投稿します。' },
+  { value: 'debate', label: 'レスバだけ', description: 'レスバボタンだけを投稿します。' },
+  { value: 'request', label: 'リクエストだけ', description: 'リクエストボタンだけを投稿します。' },
 ];
-
-const featureCardsByKind: Record<CoreFeaturePanelKind, Array<{ title: string; description: string }>> = {
-  combined: [
-    {
-      title: '性格診断',
-      description: 'AI と 1 対 1 の面談を行い、傾向タグ付きで性格ロールを判定します。',
-    },
-    {
-      title: 'レスバ',
-      description: 'AI 対戦、論破王対戦、スタッフ限定の AI vs AI 観戦マッチまでこのパネルから起動できます。',
-    },
-    {
-      title: '自動整理',
-      description: '部屋は勝負決着後 1 時間で削除され、1 時間無操作でも自動終了します。',
-    },
-  ],
-  personality: [
-    {
-      title: '性格診断',
-      description: 'AI と 1 対 1 の面談だけを個別パネルとして出せます。',
-    },
-    {
-      title: '週次クールダウン',
-      description: '診断完了後は 1 週間のクールダウンが付き、傾向タグも表示されます。',
-    },
-  ],
-  debate: [
-    {
-      title: 'レスバ',
-      description: 'AI 対戦、論破王対戦、スタッフ限定の AI vs AI 観戦マッチを単独パネル化できます。',
-    },
-    {
-      title: '観戦設定',
-      description: '観戦ロールを付けた レスバ 専用パネルとして運用できます。',
-    },
-  ],
-  request: [
-    {
-      title: 'リクエスト',
-      description: '機能提案・改善案・バグ報告などを投稿できる専用パネルです。',
-    },
-    {
-      title: '進捗管理',
-      description: '投稿ごとに専用チャンネルが作成され、対応ステータスで管理できます。',
-    },
-  ],
-};
 
 const CorePanelPage: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const initialGuildId = searchParams.get('guildId');
   const returnTo = searchParams.get('returnTo') || '/staff';
+
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [posting, setPosting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
   const [guilds, setGuilds] = useState<GuildSummary[]>([]);
   const [selectedGuildId, setSelectedGuildId] = useState<string | null>(initialGuildId);
-  const [panelKind, setPanelKind] = useState<CoreFeaturePanelKind>('combined');
   const [channels, setChannels] = useState<GuildChannel[]>([]);
   const [roles, setRoles] = useState<GuildRole[]>([]);
   const [config, setConfig] = useState<CorePanelConfig | null>(null);
   const [panelUrl, setPanelUrl] = useState<string | null>(null);
+
+  const [panelKind, setPanelKind] = useState<CoreFeaturePanelKind>('combined');
   const [channelId, setChannelId] = useState('');
   const [spectatorRoleId, setSpectatorRoleId] = useState('');
   const [requestDoneChannelId, setRequestDoneChannelId] = useState('');
-  const [error, setError] = useState<string | null>(null);
 
   const { addToast } = (() => {
     try {
@@ -128,6 +82,22 @@ const CorePanelPage: React.FC = () => {
     () => panelKindOptions.find((option) => option.value === panelKind) || panelKindOptions[0],
     [panelKind]
   );
+  const currentChannelName = useMemo(() => {
+    const activeChannelId = channelId || config?.channelId || '';
+    return channels.find((channel) => channel.id === activeChannelId)?.name || '未設定';
+  }, [channelId, channels, config?.channelId]);
+  const currentRoleName = useMemo(() => {
+    const roleId = spectatorRoleId || config?.spectatorRoleId || '';
+    return roles.find((role) => role.id === roleId)?.name || (roleId ? '不明なロール' : '未設定');
+  }, [config?.spectatorRoleId, roles, spectatorRoleId]);
+  const savedDoneChannelDisplay = useMemo(() => {
+    const doneChannelId = config?.requestDoneChannelId || '';
+    if (!doneChannelId) {
+      return '未設定';
+    }
+    const doneChannel = channels.find((channel) => channel.id === doneChannelId);
+    return doneChannel?.name ? `#${doneChannel.name}` : doneChannelId;
+  }, [channels, config?.requestDoneChannelId]);
 
   useEffect(() => {
     const loadGuilds = async () => {
@@ -136,7 +106,6 @@ const CorePanelPage: React.FC = () => {
         if (!response.ok) {
           throw new Error('アクセス可能なサーバーを取得できませんでした。');
         }
-
         const data = await response.json();
         const nextGuilds = (data.guilds || []) as GuildSummary[];
         setGuilds(nextGuilds);
@@ -175,6 +144,7 @@ const CorePanelPage: React.FC = () => {
     const loadGuildData = async () => {
       setLoading(true);
       setError(null);
+
       try {
         const [configRes, channelsRes, rolesRes] = await Promise.all([
           fetch(`/api/staff/corepanel/${selectedGuildId}?panelKind=${panelKind}`, { credentials: 'include' }),
@@ -193,9 +163,7 @@ const CorePanelPage: React.FC = () => {
         ]);
 
         const nextConfig = (configData.config || null) as CorePanelConfig | null;
-        const nextChannels = ((channelsData.channels || []) as GuildChannel[]).filter((channel) =>
-          [0, 5, 15].includes(channel.type)
-        );
+        const nextChannels = ((channelsData.channels || []) as GuildChannel[]).filter((channel) => [0, 5, 15].includes(channel.type));
         const nextRoles = (rolesData.roles || []) as GuildRole[];
 
         setConfig(nextConfig);
@@ -216,25 +184,6 @@ const CorePanelPage: React.FC = () => {
     loadGuildData();
   }, [panelKind, selectedGuildId]);
 
-  const currentChannelName = useMemo(() => {
-    return channels.find((channel) => channel.id === (channelId || config?.channelId || ''))?.name || '未設定';
-  }, [channelId, channels, config?.channelId]);
-
-  const currentRoleName = useMemo(() => {
-    const targetRoleId = spectatorRoleId || config?.spectatorRoleId || '';
-    return roles.find((role) => role.id === targetRoleId)?.name || (targetRoleId ? '不明なロール' : '未設定');
-  }, [spectatorRoleId, roles, config?.spectatorRoleId]);
-  const savedDoneChannelDisplay = useMemo(() => {
-    const targetDoneChannelId = config?.requestDoneChannelId || '';
-    const found = channels.find((channel) => channel.id === targetDoneChannelId);
-    if (!targetDoneChannelId) {
-      return '未設定';
-    }
-    if (found?.name) {
-      return `#${found.name}`;
-    }
-    return targetDoneChannelId;
-  }, [channels, config?.requestDoneChannelId]);
   const saveConfig = async () => {
     if (!selectedGuildId || !channelId) {
       addToast?.('投稿先チャンネルを選択してください', 'warning');
@@ -254,12 +203,10 @@ const CorePanelPage: React.FC = () => {
           requestDoneChannelId: panelKind === 'request' ? requestDoneChannelId || null : null,
         }),
       });
-
       const data = await response.json();
       if (!response.ok) {
         throw new Error(data.error || '設定の保存に失敗しました。');
       }
-
       setConfig(data.config || null);
       setPanelUrl(data.panelUrl || null);
       addToast?.('Core パネル設定を保存しました', 'success');
@@ -289,12 +236,10 @@ const CorePanelPage: React.FC = () => {
           requestDoneChannelId: panelKind === 'request' ? requestDoneChannelId || null : null,
         }),
       });
-
       const data = await response.json();
       if (!response.ok) {
         throw new Error(data.error || 'パネル投稿に失敗しました。');
       }
-
       setConfig(data.config || null);
       setPanelUrl(data.panelUrl || null);
       addToast?.('Core パネルを Discord に投稿しました', 'success');
@@ -306,127 +251,123 @@ const CorePanelPage: React.FC = () => {
   };
 
   if (loading && guilds.length === 0) {
-    return <div className={styles.statePanel}>Core 機能ページを読み込んでいます...</div>;
+    return <div className={styles.loading}>Core 機能ページを読み込んでいます...</div>;
   }
 
   if (error && guilds.length === 0) {
-    return <div className={styles.statePanel}>{error}</div>;
+    return <div className={styles.loading}>{error}</div>;
   }
 
   return (
-    <div className={styles.page}>
-      <section className={styles.header}>
-        <div className={styles.headerCopy}>
-          <span className={styles.eyebrow}>Core Feature Group</span>
-          <h1>Core 機能パネル</h1>
-          <p>Core パネルで機能をまとめて管理し、統合パネルと機能別パネル（性格診断・レスバ・リクエスト）を投稿できます。</p>
-        </div>
-
-        <div className={styles.headerActions}>
-          <button className={styles.buttonGhost} onClick={() => navigate(returnTo)} type="button">
-            <span className="material-icons">arrow_back</span>
-            <span>戻る</span>
+    <div className={styles.container}>
+      <header className={styles.header}>
+        <div className={styles.headerContent}>
+          <div className={styles.headerTitle}>
+            <i className="material-icons">dashboard</i>
+            <h1>Core 機能パネル管理</h1>
+          </div>
+          <button className={styles.backButton} onClick={() => navigate(returnTo)} type="button">
+            <i className="material-icons">arrow_back</i>
+            戻る
           </button>
-          {selectedGuildId ? (
-            <button className={styles.button} onClick={() => setSelectedGuildId(null)} type="button">
-              <span className="material-icons">swap_horiz</span>
-              <span>サーバー変更</span>
-            </button>
-          ) : null}
         </div>
-      </section>
+      </header>
 
       {!selectedGuildId ? (
-        <section className={styles.guildSelector}>
-          <div className={styles.sectionHeader}>
-            <h2>サーバーを選択</h2>
-            <p>まずは Core 機能パネルを管理したいサーバーを選んでください。</p>
-          </div>
-          <div className={styles.guildGrid}>
-            {guilds.map((guild) => (
-              <button
-                key={guild.id}
-                className={styles.guildCard}
-                onClick={() => setSelectedGuildId(guild.id)}
-                type="button"
-              >
-                <div className={styles.guildIdentity}>
+        <div className={styles.guildSelector}>
+          <h2>サーバーを選択</h2>
+          {guilds.length === 0 ? (
+            <div className={styles.emptyState}>
+              <i className="material-icons">visibility_off</i>
+              <p>アクセス可能なサーバーがありません</p>
+            </div>
+          ) : (
+            <div className={styles.guildGrid}>
+              {guilds.map((guild) => (
+                <button key={guild.id} className={styles.guildCard} onClick={() => setSelectedGuildId(guild.id)} type="button">
                   {guild.icon ? (
-                    <span className={styles.guildIcon}>
-                      <img src={`https://cdn.discordapp.com/icons/${guild.id}/${guild.icon}.png`} alt={guild.name} />
-                    </span>
+                    <img src={`https://cdn.discordapp.com/icons/${guild.id}/${guild.icon}.png`} alt={guild.name} className={styles.guildIcon} />
                   ) : (
-                    <span className={styles.guildIconFallback}>{guild.name.charAt(0).toUpperCase()}</span>
+                    <div className={styles.guildIconFallback}>
+                      <i className="material-icons">group</i>
+                    </div>
                   )}
-                  <div>
-                    <strong>{guild.name}</strong>
-                    <p className={styles.hint}>ID {guild.id}</p>
-                  </div>
-                </div>
-              </button>
-            ))}
-          </div>
-        </section>
+                  <span className={styles.guildName}>{guild.name}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       ) : (
-        <div className={styles.layout}>
-          {loading ? <div className={styles.statePanel}>設定を読み込んでいます...</div> : null}
-          {error ? <div className={styles.statePanel}>{error}</div> : null}
+        <div className={styles.content}>
+          {loading ? <div className={styles.loading}>設定を読み込んでいます...</div> : null}
+          {error ? <div className={styles.emptyState}><p>{error}</p></div> : null}
 
-          <section className={styles.summaryGrid}>
-            <div className={styles.infoCard}>
-              <span className={styles.eyebrow}>Guild</span>
-              <strong className={styles.summaryValue}>{selectedGuild?.name || selectedGuildId}</strong>
-              <p className={styles.hint}>現在編集中のサーバーです。</p>
+          <div className={styles.toolbar}>
+            <div className={styles.toolbarMeta}>
+              <div className={styles.toolbarTitle}>{selectedGuild?.name || selectedGuildId}</div>
+              <div className={styles.toolbarSub}>現在の種類: {panelKindMeta.label}</div>
             </div>
-            <div className={styles.infoCard}>
-              <span className={styles.eyebrow}>Panel</span>
-              <strong className={styles.summaryValue}>{panelKindMeta.label}</strong>
-              <p className={styles.hint}>いま設定中の投稿種類です。</p>
-            </div>
-            <div className={styles.infoCard}>
-              <span className={styles.eyebrow}>Channel</span>
-              <strong className={styles.summaryValue}>#{currentChannelName}</strong>
-              <p className={styles.hint}>Core 機能パネルの投稿先です。</p>
-            </div>
-            <div className={styles.infoCard}>
-              <span className={styles.eyebrow}>Spectator</span>
-              <strong className={styles.summaryValue}>{panelKind === 'personality' || panelKind === 'request' ? '未使用' : currentRoleName}</strong>
-              <p className={styles.hint}>レスバ系パネルで使う任意ロールです。</p>
-            </div>
-          </section>
+            <button className={styles.changeGuildButton} onClick={() => setSelectedGuildId(null)} type="button">
+              <i className="material-icons">swap_horiz</i>
+              サーバー変更
+            </button>
+          </div>
 
-          <div className={styles.contentGrid}>
-            <section className={styles.panelCard}>
-              <div className={styles.sectionHeader}>
-                <h2>パネル設定</h2>
-                <p>投稿種類ごとに別設定として保存でき、統合・性格診断・レスバ・リクエストを別々に投稿できます。</p>
+          <div className={styles.mainGrid}>
+            <section className={styles.card}>
+              <h2>パネル設定</h2>
+              <p className={styles.hint}>{panelKindMeta.description}</p>
+
+              <div className={styles.field}>
+                <label htmlFor="corepanel-kind">パネル種類</label>
+                <select id="corepanel-kind" value={panelKind} onChange={(event) => setPanelKind(event.target.value as CoreFeaturePanelKind)}>
+                  {panelKindOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
               </div>
 
-              <div className={styles.formGrid}>
-                <div className={styles.field}>
-                  <label htmlFor="corepanel-kind">パネル種類</label>
-                  <select
-                    id="corepanel-kind"
-                    value={panelKind}
-                    onChange={(event) => setPanelKind(event.target.value as CoreFeaturePanelKind)}
-                  >
-                    {panelKindOptions.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                  <p className={styles.hint}>{panelKindMeta.description}</p>
-                </div>
+              <div className={styles.field}>
+                <label htmlFor="corepanel-channel">投稿チャンネル</label>
+                <select id="corepanel-channel" value={channelId} onChange={(event) => setChannelId(event.target.value)}>
+                  <option value="">チャンネルを選択</option>
+                  {channels.map((channel) => (
+                    <option key={channel.id} value={channel.id}>
+                      #{channel.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
 
+              <div className={styles.field}>
+                <label htmlFor="corepanel-spectator-role">観戦ロール</label>
+                <select
+                  id="corepanel-spectator-role"
+                  value={spectatorRoleId}
+                  onChange={(event) => setSpectatorRoleId(event.target.value)}
+                  disabled={panelKind === 'personality' || panelKind === 'request'}
+                >
+                  <option value="">未設定</option>
+                  {roles.map((role) => (
+                    <option key={role.id} value={role.id}>
+                      {role.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {panelKind === 'request' ? (
                 <div className={styles.field}>
-                  <label htmlFor="corepanel-channel">投稿チャンネル</label>
+                  <label htmlFor="corepanel-request-done-channel">完了通知チャンネル</label>
                   <select
-                    id="corepanel-channel"
-                    value={channelId}
-                    onChange={(event) => setChannelId(event.target.value)}
+                    id="corepanel-request-done-channel"
+                    value={requestDoneChannelId}
+                    onChange={(event) => setRequestDoneChannelId(event.target.value)}
                   >
-                    <option value="">チャンネルを選択</option>
+                    <option value="">未設定</option>
                     {channels.map((channel) => (
                       <option key={channel.id} value={channel.id}>
                         #{channel.name}
@@ -434,75 +375,30 @@ const CorePanelPage: React.FC = () => {
                     ))}
                   </select>
                 </div>
-
-                <div className={styles.field}>
-                  <label htmlFor="corepanel-spectator-role">観戦ロール</label>
-                  <select
-                    id="corepanel-spectator-role"
-                    value={spectatorRoleId}
-                    onChange={(event) => setSpectatorRoleId(event.target.value)}
-                    disabled={panelKind === 'personality' || panelKind === 'request'}
-                  >
-                    <option value="">未設定</option>
-                    {roles.map((role) => (
-                      <option key={role.id} value={role.id}>
-                        {role.name}
-                      </option>
-                    ))}
-                  </select>
-                  <p className={styles.hint}>
-                    {panelKind === 'personality' || panelKind === 'request'
-                      ? `${panelKind === 'personality' ? '性格診断' : 'リクエスト'}専用パネルでは観戦ロールは使いません。`
-                      : '未設定なら一般向け表示だけになり、観戦専用ロールは付きません。'}
-                  </p>
-                </div>
-
-                {panelKind === 'request' ? (
-                  <div className={styles.field}>
-                    <label htmlFor="corepanel-request-done-channel">完了通知チャンネル</label>
-                    <select
-                      id="corepanel-request-done-channel"
-                      value={requestDoneChannelId}
-                      onChange={(event) => setRequestDoneChannelId(event.target.value)}
-                    >
-                      <option value="">未設定</option>
-                      {channels.map((channel) => (
-                        <option key={channel.id} value={channel.id}>
-                          #{channel.name}
-                        </option>
-                      ))}
-                    </select>
-                    <p className={styles.hint}>Request を完了にした時の通知先チャンネルです。</p>
-                  </div>
-                ) : null}
-              </div>
+              ) : null}
 
               <div className={styles.actionRow}>
-                <button className={styles.button} disabled={saving || posting} onClick={saveConfig} type="button">
-                  <span className="material-icons">save</span>
-                  <span>{saving ? '保存中...' : `${panelKindMeta.label}設定を保存`}</span>
+                <button className={styles.secondaryButton} disabled={saving || posting} onClick={saveConfig} type="button">
+                  <i className="material-icons">save</i>
+                  {saving ? '保存中...' : '設定を保存'}
                 </button>
-                <button className={styles.buttonPrimary} disabled={saving || posting} onClick={postPanel} type="button">
-                  <span className="material-icons">send</span>
-                  <span>{posting ? '投稿中...' : config?.messageId ? `${panelKindMeta.label}を更新` : `${panelKindMeta.label}を投稿`}</span>
+                <button className={styles.primaryButton} disabled={saving || posting} onClick={postPanel} type="button">
+                  <i className="material-icons">send</i>
+                  {posting ? '投稿中...' : config?.messageId ? 'パネルを更新' : 'パネルを投稿'}
                 </button>
               </div>
             </section>
 
-            <aside className={styles.infoCard}>
-              <div className={styles.sectionHeader}>
-                <h3>現在の状態</h3>
-                <p>保存済みの構成と、投稿済みメッセージの有無をここで確認できます。</p>
-              </div>
-
+            <aside className={styles.card}>
+              <h2>現在の状態</h2>
               <div className={styles.infoList}>
                 <div className={styles.infoItem}>
-                  <span>保存済みチャンネル</span>
-                  <strong>{config?.channelId ? `#${channels.find((channel) => channel.id === config.channelId)?.name || config.channelId}` : '未保存'}</strong>
+                  <span>投稿先チャンネル</span>
+                  <strong>#{currentChannelName}</strong>
                 </div>
                 <div className={styles.infoItem}>
-                  <span>保存済み観戦ロール</span>
-                  <strong>{panelKind === 'personality' || panelKind === 'request' ? '未使用' : config?.spectatorRoleId ? roles.find((role) => role.id === config.spectatorRoleId)?.name || config.spectatorRoleId : '未設定'}</strong>
+                  <span>観戦ロール</span>
+                  <strong>{panelKind === 'personality' || panelKind === 'request' ? '未使用' : currentRoleName}</strong>
                 </div>
                 <div className={styles.infoItem}>
                   <span>完了通知チャンネル</span>
@@ -516,29 +412,14 @@ const CorePanelPage: React.FC = () => {
 
               {panelUrl ? (
                 <a className={styles.linkButton} href={panelUrl} rel="noreferrer" target="_blank">
-                  <span className="material-icons">open_in_new</span>
-                  <span>Discord のパネルを開く</span>
+                  <i className="material-icons">open_in_new</i>
+                  Discord のパネルを開く
                 </a>
               ) : (
-                <p className={styles.hint}>この種類のパネルはまだ Discord に投稿されていません。設定後に投稿してください。</p>
+                <p className={styles.hint}>この種類のパネルはまだ投稿されていません。</p>
               )}
             </aside>
           </div>
-
-          <section className={styles.panelCard}>
-            <div className={styles.sectionHeader}>
-              <h2>{panelKindMeta.label}に含まれる機能</h2>
-              <p>種類ごとに別パネルとして出せるので、必要な機能だけを見せる運用ができます。</p>
-            </div>
-            <div className={styles.featureList}>
-              {featureCardsByKind[panelKind].map((feature) => (
-                <article key={feature.title} className={styles.featureItem}>
-                  <strong>{feature.title}</strong>
-                  <p>{feature.description}</p>
-                </article>
-              ))}
-            </div>
-          </section>
         </div>
       )}
     </div>
