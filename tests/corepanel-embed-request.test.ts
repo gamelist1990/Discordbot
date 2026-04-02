@@ -7,4 +7,3 @@ test('combined core panel embed includes request section', () => {
     const embed = buildCorePanelEmbed('combined', null).toJSON();
     assert.ok(embed.description?.includes('**リクエスト**'));
 });
-
