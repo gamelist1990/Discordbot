@@ -130,6 +130,11 @@ export class EventHandler {
         this.botClient.client.on(Events.InteractionCreate, async (interaction: Interaction) => {
             // Handle Modal submissions (staff info など)
             if (interaction.isModalSubmit()) {
+                if (interaction.customId.startsWith('corefeature:')) {
+                    const { default: corePanelCommand } = await import('../commands/staff/subcommands/corepanel.js');
+                    await corePanelCommand.handleModalInteraction(interaction);
+                    return;
+                }
                 await executeModalHandler(interaction);
                 return;
             }
@@ -377,4 +382,3 @@ export class EventHandler {
         });
     }
 }
-

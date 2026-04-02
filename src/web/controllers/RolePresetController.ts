@@ -141,7 +141,7 @@ export class RolePresetController {
     async createPreset(req: Request, res: Response): Promise<void> {
         const session = (req as any).session as SettingsSession;
         const guildId = req.params.guildId;
-        const { id, name, description, roles, allowMulti } = req.body;
+        const { id, name, description, roles, allowMulti, panelType, authType, authUrl } = req.body;
 
         if (!guildId) {
             res.status(400).json({ error: 'guildId is required' });
@@ -176,6 +176,9 @@ export class RolePresetController {
                 description,
                 roles,
                 allowMulti: allowMulti ?? true,
+                panelType: panelType === 'grant_missing' ? 'grant_missing' : 'toggle',
+                authType: authType === 'web' || authType === 'code' || authType === 'math' ? authType : 'none',
+                authUrl: typeof authUrl === 'string' && authUrl.trim() ? authUrl.trim() : null,
                 createdBy: session.userId
             });
 
@@ -199,7 +202,7 @@ export class RolePresetController {
         const session = (req as any).session as SettingsSession;
         const guildId = req.params.guildId;
         const presetId = req.params.id;
-        const { name, description, roles, allowMulti } = req.body;
+        const { name, description, roles, allowMulti, panelType, authType, authUrl } = req.body;
 
         if (!guildId || !presetId) {
             res.status(400).json({ error: 'guildId and presetId are required' });
@@ -227,6 +230,9 @@ export class RolePresetController {
             if (description !== undefined) updates.description = description;
             if (roles !== undefined) updates.roles = roles;
             if (allowMulti !== undefined) updates.allowMulti = allowMulti;
+            if (panelType !== undefined) updates.panelType = panelType === 'grant_missing' ? 'grant_missing' : 'toggle';
+            if (authType !== undefined) updates.authType = authType === 'web' || authType === 'code' || authType === 'math' ? authType : 'none';
+            if (authUrl !== undefined) updates.authUrl = typeof authUrl === 'string' && authUrl.trim() ? authUrl.trim() : null;
 
             const preset = await RolePresetManager.updatePreset(guildId, presetId, updates);
 

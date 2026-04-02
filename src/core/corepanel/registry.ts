@@ -39,6 +39,7 @@ export interface CoreFeatureModule {
     resetUserData?(guild: Guild, userId: string, reason: string): Promise<CoreFeatureResetResult | null>;
     handleButtonInteraction?(interaction: ButtonInteraction, panelKind: CoreFeaturePanelKind, action: string, parts: string[]): Promise<boolean>;
     handleMessage?(message: Message): Promise<boolean>;
+    handleModalSubmit?(interaction: ModalSubmitInteraction, customId: string): Promise<boolean>;
 }
 
 export function buildPanelRowsFromFeatures(

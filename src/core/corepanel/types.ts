@@ -35,6 +35,9 @@ export interface CoreFeaturePanelConfig {
     channelId: string;
     messageId: string | null;
     spectatorRoleId: string | null;
+    requestCategoryName?: string | null;
+    requestLabels?: string[];
+    requestDoneChannelId?: string | null;
     updatedBy: string;
     updatedAt: string;
 }
