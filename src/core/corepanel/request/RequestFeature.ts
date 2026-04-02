@@ -40,7 +40,7 @@ function getRequestsKey(guildId: string): string {
     return `Guild/${guildId}/corefeature/request/items`;
 }
 
-function requestId(): string {
+function generateRequestId(): string {
     return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 }
 
@@ -143,7 +143,7 @@ export class RequestFeature implements CoreFeatureModule {
             }
 
             const summary = await this.summarizeRequestTitle(title, body);
-            const id = requestId();
+            const id = generateRequestId();
             const item: RequestItem = {
                 id,
                 guildId: interaction.guild.id,
@@ -161,8 +161,14 @@ export class RequestFeature implements CoreFeatureModule {
 
             const config = this.api ? await this.api.getPanelConfig(interaction.guild.id, panelKind) : null;
             const categoryName = config?.requestCategoryName || 'Request';
-            const category = interaction.guild.channels.cache.find((ch) => ch.type === ChannelType.GuildCategory && ch.name === categoryName);
-            const categoryId = category?.id;
+            let category = interaction.guild.channels.cache.find((ch) => ch.type === ChannelType.GuildCategory && ch.name === categoryName);
+            if (!category) {
+                category = await interaction.guild.channels.create({
+                    name: categoryName,
+                    type: ChannelType.GuildCategory
+                });
+            }
+            const categoryId = category.id;
             const requestChannel = await interaction.guild.channels.create({
                 name: `${summary || 'request'}-${id}`.slice(0, 90),
                 type: ChannelType.GuildText,
@@ -247,7 +253,8 @@ export class RequestFeature implements CoreFeatureModule {
                 { role: 'system', content: '次の投稿が荒らし・スパム・違法・危険目的かを判定してください。JSONのみで {"safe": true/false} を返してください。' },
                 { role: 'user', content: `label=${label}\ntitle=${title}\nbody=${body}` }
             ], 120, 0.1, { requestLabel: 'corepanel-request-safety' });
-            return /"safe"\s*:\s*true/i.test(raw);
+            const parsed = JSON.parse(raw) as { safe?: unknown };
+            return parsed.safe === true;
         } catch {
             return true;
         }
@@ -259,8 +266,10 @@ export class RequestFeature implements CoreFeatureModule {
                 { role: 'system', content: '件名を15文字程度で短く要約して返してください。JSONのみで {"summary":"..."}。' },
                 { role: 'user', content: `title=${title}\nbody=${body}` }
             ], 80, 0.2, { requestLabel: 'corepanel-request-summary' });
-            const m = raw.match(/"summary"\s*:\s*"([^"]+)"/i);
-            if (m?.[1]) return m[1].slice(0, 20);
+            const parsed = JSON.parse(raw) as { summary?: unknown };
+            if (typeof parsed.summary === 'string' && parsed.summary.trim()) {
+                return parsed.summary.trim().slice(0, 20);
+            }
         } catch {
             // fallback
         }

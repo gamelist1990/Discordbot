@@ -1,8 +1,10 @@
 import { ChatInputCommandInteraction, SlashCommandBuilder } from 'discord.js';
 import { SlashCommand } from '../../types/command.js';
 import { PermissionLevel } from '../../web/types/permission.js';
+import config from '../../config.js';
 
-const TARGET_GUILD_ID = '890315487962095637';
+const TARGET_GUILD_ID = (config as any).STOP_COMMAND_GUILD_ID || '890315487962095637';
+const SHUTDOWN_DELAY_MS = 500;
 
 const stopCommand: SlashCommand = {
     data: new SlashCommandBuilder()
@@ -41,7 +43,7 @@ const stopCommand: SlashCommand = {
             ephemeral: true
         });
 
-        setTimeout(() => process.exit(0), 500);
+        setTimeout(() => process.exit(0), SHUTDOWN_DELAY_MS);
     }
 };
 

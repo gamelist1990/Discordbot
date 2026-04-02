@@ -61,6 +61,8 @@ type AuthMathRecord = {
 };
 
 const AUTH_TTL_MS = 10 * 60 * 1000;
+const ONE_DIGIT_MIN = 1;
+const ONE_DIGIT_MAX = 9;
 const authCodeRecords = new Map<string, AuthCodeRecord>();
 const authMathRecords = new Map<string, AuthMathRecord>();
 const authGrantRecords = new Map<string, {
@@ -71,7 +73,7 @@ const authGrantRecords = new Map<string, {
     expiresAt: number;
 }>();
 
-function issueToken(prefix: string): string {
+function generateAuthToken(prefix: string): string {
     return `${prefix}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 9)}`;
 }
 
@@ -95,8 +97,8 @@ function cleanupExpiredAuthRecords(): void {
 }
 
 function makeOneDigitMathQuestion(): { label: string; answer: number } {
-    const left = Math.floor(Math.random() * 9) + 1;
-    const right = Math.floor(Math.random() * 9) + 1;
+    const left = Math.floor(Math.random() * ONE_DIGIT_MAX) + ONE_DIGIT_MIN;
+    const right = Math.floor(Math.random() * ONE_DIGIT_MAX) + ONE_DIGIT_MIN;
     const plus = Math.random() >= 0.5;
     if (plus) {
         return { label: `${left} + ${right}`, answer: left + right };
@@ -104,6 +106,10 @@ function makeOneDigitMathQuestion(): { label: string; answer: number } {
     const a = Math.max(left, right);
     const b = Math.min(left, right);
     return { label: `${a} - ${b}`, answer: a - b };
+}
+
+function generateSixDigitCode(): string {
+    return `${Math.floor(Math.random() * 900000) + 100000}`;
 }
 
 function getAuthRecordKey(guildId: string, presetId: string, userId: string): string {
@@ -367,7 +373,7 @@ const rolePanelSubcommand = {
 
         const authType = preset.authType || 'none';
         if (authType === 'web') {
-            const token = issueToken('grant');
+            const token = generateAuthToken('grant');
             authGrantRecords.set(token, {
                 guildId: interaction.guild.id,
                 presetId: preset.id,
@@ -398,7 +404,7 @@ const rolePanelSubcommand = {
 
         const authKey = getAuthRecordKey(interaction.guild.id, preset.id, interaction.user.id);
         if (authType === 'code') {
-            const code = `${Math.floor(Math.random() * 900000) + 100000}`;
+            const code = generateSixDigitCode();
             authCodeRecords.set(authKey, {
                 guildId: interaction.guild.id,
                 presetId: preset.id,
@@ -610,7 +616,7 @@ const rolePanelSubcommand = {
         }
 
         authCodeRecords.delete(getAuthRecordKey(record.guildId, record.presetId, record.userId));
-        const token = issueToken('grant');
+        const token = generateAuthToken('grant');
         authGrantRecords.set(token, {
             guildId: record.guildId,
             presetId: record.presetId,
@@ -662,7 +668,7 @@ const rolePanelSubcommand = {
         }
 
         authMathRecords.delete(getAuthRecordKey(record.guildId, record.presetId, record.userId));
-        const token = issueToken('grant');
+        const token = generateAuthToken('grant');
         authGrantRecords.set(token, {
             guildId: record.guildId,
             presetId: record.presetId,
