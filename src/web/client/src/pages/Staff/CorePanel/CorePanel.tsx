@@ -36,12 +36,13 @@ type CorePanelConfig = {
   updatedAt: string;
 };
 
-type CoreFeaturePanelKind = 'combined' | 'personality' | 'debate';
+type CoreFeaturePanelKind = 'combined' | 'personality' | 'debate' | 'request';
 
 const panelKindOptions: Array<{ value: CoreFeaturePanelKind; label: string; description: string }> = [
-  { value: 'combined', label: '統合パネル', description: '性格診断と レスバ をまとめて1枚に出します。' },
+  { value: 'combined', label: '統合パネル', description: '性格診断・レスバ・リクエスト をまとめて1枚に出します。' },
   { value: 'personality', label: '性格診断だけ', description: '性格診断ボタンだけを単独で投稿します。' },
   { value: 'debate', label: 'レスバだけ', description: 'レスバボタンだけを単独で投稿します。' },
+  { value: 'request', label: 'リクエストだけ', description: 'リクエストボタンだけを単独で投稿します。' },
 ];
 
 const featureCardsByKind: Record<CoreFeaturePanelKind, Array<{ title: string; description: string }>> = {
@@ -77,6 +78,16 @@ const featureCardsByKind: Record<CoreFeaturePanelKind, Array<{ title: string; de
     {
       title: '観戦設定',
       description: '観戦ロールを付けた レスバ 専用パネルとして運用できます。',
+    },
+  ],
+  request: [
+    {
+      title: 'リクエスト',
+      description: '機能提案・改善案・バグ報告などを投稿できる専用パネルです。',
+    },
+    {
+      title: '進捗管理',
+      description: '投稿ごとに専用チャンネルが作成され、対応ステータスで管理できます。',
     },
   ],
 };
@@ -226,7 +237,7 @@ const CorePanelPage: React.FC = () => {
         body: JSON.stringify({
           panelKind,
           channelId,
-          spectatorRoleId: panelKind === 'personality' ? null : spectatorRoleId || null,
+          spectatorRoleId: panelKind === 'personality' || panelKind === 'request' ? null : spectatorRoleId || null,
         }),
       });
 
@@ -260,7 +271,7 @@ const CorePanelPage: React.FC = () => {
         body: JSON.stringify({
           panelKind,
           channelId,
-          spectatorRoleId: panelKind === 'personality' ? null : spectatorRoleId || null,
+          spectatorRoleId: panelKind === 'personality' || panelKind === 'request' ? null : spectatorRoleId || null,
         }),
       });
 
@@ -293,7 +304,7 @@ const CorePanelPage: React.FC = () => {
         <div className={styles.headerCopy}>
           <span className={styles.eyebrow}>Core Feature Group</span>
           <h1>Core 機能パネル</h1>
-          <p>性格診断と レスバ の機能を Web から設定して Discord に投稿できます。Request 機能は別の管理画面で設定してください。</p>
+          <p>Core パネルで機能をまとめて管理し、統合パネルと機能別パネル（性格診断・レスバ・リクエスト）を投稿できます。</p>
         </div>
 
         <div className={styles.headerActions}>
@@ -364,7 +375,7 @@ const CorePanelPage: React.FC = () => {
             </div>
             <div className={styles.infoCard}>
               <span className={styles.eyebrow}>Spectator</span>
-              <strong className={styles.summaryValue}>{panelKind === 'personality' ? '未使用' : currentRoleName}</strong>
+              <strong className={styles.summaryValue}>{panelKind === 'personality' || panelKind === 'request' ? '未使用' : currentRoleName}</strong>
               <p className={styles.hint}>レスバ系パネルで使う任意ロールです。</p>
             </div>
           </section>
@@ -373,7 +384,7 @@ const CorePanelPage: React.FC = () => {
             <section className={styles.panelCard}>
               <div className={styles.sectionHeader}>
                 <h2>パネル設定</h2>
-                <p>投稿種類ごとに別設定として保存でき、統合・性格診断・レスバを別々に投稿できます。</p>
+                <p>投稿種類ごとに別設定として保存でき、統合・性格診断・レスバ・リクエストを別々に投稿できます。</p>
               </div>
 
               <div className={styles.formGrid}>
@@ -415,7 +426,7 @@ const CorePanelPage: React.FC = () => {
                     id="corepanel-spectator-role"
                     value={spectatorRoleId}
                     onChange={(event) => setSpectatorRoleId(event.target.value)}
-                    disabled={panelKind === 'personality'}
+                    disabled={panelKind === 'personality' || panelKind === 'request'}
                   >
                     <option value="">未設定</option>
                     {roles.map((role) => (
@@ -425,8 +436,8 @@ const CorePanelPage: React.FC = () => {
                     ))}
                   </select>
                   <p className={styles.hint}>
-                    {panelKind === 'personality'
-                      ? '性格診断専用パネルでは観戦ロールは使いません。'
+                    {panelKind === 'personality' || panelKind === 'request'
+                      ? `${panelKind === 'personality' ? '性格診断' : 'リクエスト'}専用パネルでは観戦ロールは使いません。`
                       : '未設定なら一般向け表示だけになり、観戦専用ロールは付きません。'}
                   </p>
                 </div>
@@ -457,7 +468,7 @@ const CorePanelPage: React.FC = () => {
                 </div>
                 <div className={styles.infoItem}>
                   <span>保存済み観戦ロール</span>
-                  <strong>{panelKind === 'personality' ? '未使用' : config?.spectatorRoleId ? roles.find((role) => role.id === config.spectatorRoleId)?.name || config.spectatorRoleId : '未設定'}</strong>
+                  <strong>{panelKind === 'personality' || panelKind === 'request' ? '未使用' : config?.spectatorRoleId ? roles.find((role) => role.id === config.spectatorRoleId)?.name || config.spectatorRoleId : '未設定'}</strong>
                 </div>
                 <div className={styles.infoItem}>
                   <span>Discord 投稿</span>

@@ -166,7 +166,7 @@ export class CorePanelController {
 }
 
 function readPanelKind(value: unknown): CoreFeaturePanelKind {
-    return value === 'personality' || value === 'debate' ? value : 'combined';
+    return value === 'personality' || value === 'debate' || value === 'request' ? value : 'combined';
 }
 
 function buildPanelUrl(guildId: string, channelId: string | null, messageId: string | null): string | null {
