@@ -42,6 +42,12 @@ const services = [
     path: '/staff/channel-manager',
     icon: 'view_kanban',
   },
+  {
+    title: 'Todo',
+    description: 'Discord チャンネルに進行管理 Todo を Embed で保存・更新します。',
+    path: '/staff/todo',
+    icon: 'checklist',
+  },
 ];
 
 const StaffHelpPage: React.FC = () => {

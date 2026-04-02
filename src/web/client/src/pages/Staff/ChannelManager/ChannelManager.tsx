@@ -91,7 +91,7 @@ const ChannelManagerPage: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  const setNotice = (_: string | null) => {};
   const [search, setSearch] = useState('');
   const [roleSearch, setRoleSearch] = useState('');
   const [contextMenu, setContextMenu] = useState<ContextMenuState>(null);
@@ -252,13 +252,18 @@ const ChannelManagerPage: React.FC = () => {
     const allChannels = state?.channels || [];
     const matches = (channel: ChannelEntry) => !filteredKeyword || channel.name.toLowerCase().includes(filteredKeyword);
     const uncategorized = allChannels.filter((channel) => channel.type !== 4 && !channel.parentId && matches(channel));
-    return categories
+    const groups: Array<{ category: ChannelEntry | null; children: ChannelEntry[] }> = categories
       .map((category) => ({
         category,
         children: allChannels.filter((channel) => channel.parentId === category.id && matches(channel)),
       }))
-      .filter((group) => matches(group.category) || group.children.length > 0)
-      .concat(uncategorized.length > 0 ? [{ category: null, children: uncategorized }] : []);
+      .filter((group) => (group.category ? matches(group.category) : false) || group.children.length > 0);
+
+    if (uncategorized.length > 0) {
+      groups.push({ category: null, children: uncategorized });
+    }
+
+    return groups;
   }, [categories, filteredKeyword, state]);
 
   const callApi = async (url: string, options?: RequestInit) => {
@@ -404,7 +409,6 @@ const ChannelManagerPage: React.FC = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ parentId: targetParentId, position: targetIndex }),
       });
-      setNotice(`${draggedChannel.name} の並び順を変更しました。`);
       await loadState(selectedGuildId);
       setSelectedChannelId(draggedChannelId);
     } catch (reorderError) {
@@ -634,7 +638,6 @@ const ChannelManagerPage: React.FC = () => {
         </div>
       </section>
 
-      {notice ? <div className={styles.noticeSuccess}>{notice}</div> : null}
       {error ? <div className={styles.noticeError}>{error}</div> : null}
 
       <section className={styles.topBar}>

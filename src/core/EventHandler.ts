@@ -6,6 +6,7 @@ import { cooldownManager } from '../utils/CooldownManager.js';
 import { Logger } from '../utils/Logger.js';
 import { Event } from '../types/events.js';
 import { executeModalHandler } from '../utils/Modal.js';
+import { handleTodoSelectInteraction } from './todo/TodoMessageManager.js';
 
 /**
  * Discord イベントハンドラー
@@ -260,6 +261,12 @@ export class EventHandler {
         if (interaction.customId.startsWith('corefeature:')) {
             const { default: corePanelCommand } = await import('../commands/staff/subcommands/corepanel.js');
             await corePanelCommand.handleInteraction(interaction as StringSelectMenuInteraction | ButtonInteraction);
+            return;
+        }
+
+        if (interaction.isStringSelectMenu() && interaction.customId.startsWith('todo:view:')) {
+            await handleTodoSelectInteraction(interaction as StringSelectMenuInteraction);
+            return;
         }
     }
 
