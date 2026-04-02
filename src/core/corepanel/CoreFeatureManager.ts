@@ -3,7 +3,8 @@ import {
     Client,
     Guild,
     Message,
-    ModalSubmitInteraction
+    ModalSubmitInteraction,
+    StringSelectMenuInteraction
 } from 'discord.js';
 import { database } from '../Database.js';
 import { registerModalHandler } from '../../utils/Modal.js';
@@ -148,6 +149,17 @@ export class CoreFeatureManager implements CoreFeatureApi {
     }
 
     async handleButtonInteraction(interaction: ButtonInteraction): Promise<boolean> {
+        return this.handleComponentInteraction(interaction, 'button');
+    }
+
+    async handleSelectMenuInteraction(interaction: StringSelectMenuInteraction): Promise<boolean> {
+        return this.handleComponentInteraction(interaction, 'select');
+    }
+
+    private async handleComponentInteraction(
+        interaction: ButtonInteraction | StringSelectMenuInteraction,
+        kind: 'button' | 'select'
+    ): Promise<boolean> {
         if (!interaction.customId.startsWith('corefeature:')) {
             return false;
         }
@@ -169,11 +181,17 @@ export class CoreFeatureManager implements CoreFeatureApi {
         }
 
         const feature = this.features.get(featureKey);
+        if (kind === 'select') {
+            if (!feature?.handleSelectMenuInteraction) {
+                return false;
+            }
+            return feature.handleSelectMenuInteraction(interaction as StringSelectMenuInteraction, panelKind, action, rest);
+        }
+
         if (!feature?.handleButtonInteraction) {
             return false;
         }
-
-        return feature.handleButtonInteraction(interaction, panelKind, action, rest);
+        return feature.handleButtonInteraction(interaction as ButtonInteraction, panelKind, action, rest);
     }
 
     async onMessage(message: Message): Promise<boolean> {

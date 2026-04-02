@@ -259,7 +259,7 @@ export class EventHandler {
 
         if (interaction.customId.startsWith('corefeature:')) {
             const { default: corePanelCommand } = await import('../commands/staff/subcommands/corepanel.js');
-            await corePanelCommand.handleInteraction(interaction as ButtonInteraction);
+            await corePanelCommand.handleInteraction(interaction as StringSelectMenuInteraction | ButtonInteraction);
         }
     }
 
