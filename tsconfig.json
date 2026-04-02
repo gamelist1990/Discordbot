@@ -1,7 +1,8 @@
 {
     "include": [
-        "src/**/*.ts"
-, "src/commands/staff/subcommands/ai-tools/web-search.DISABLED"    ],
+        "src/**/*.ts",
+        "src/commands/staff/subcommands/ai-tools/web-search.DISABLED"
+    ],
     "exclude": [
         "node_modules",
         "src/web/client"
@@ -23,7 +24,9 @@
         "typeRoots": [
             "./node_modules/@types"
         ],
-        "types": ["node"],
+        "types": [
+            "node"
+        ],
         "skipLibCheck": true,
         "noEmit": false,
         "emitDecoratorMetadata": true,
@@ -31,7 +34,6 @@
         "strict": true,
         "allowJs": true,
         "checkJs": true,
-        "outDir": "./src/scripts",
         "strictNullChecks": true,
         "strictFunctionTypes": true,
         "strictPropertyInitialization": true,

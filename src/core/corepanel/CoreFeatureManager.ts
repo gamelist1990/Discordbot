@@ -54,6 +54,7 @@ function normalizePanelConfig(
             : undefined,
         requestDoneChannelId: typeof config.requestDoneChannelId === 'string' ? config.requestDoneChannelId : null,
         requestStaffRoleId: typeof config.requestStaffRoleId === 'string' ? config.requestStaffRoleId : null,
+        requestTrackingChannelId: typeof config.requestTrackingChannelId === 'string' ? config.requestTrackingChannelId : null,
         updatedBy: typeof config.updatedBy === 'string' ? config.updatedBy : 'unknown',
         updatedAt: typeof config.updatedAt === 'string' ? config.updatedAt : new Date(0).toISOString()
     };

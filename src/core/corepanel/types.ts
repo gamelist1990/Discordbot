@@ -39,6 +39,7 @@ export interface CoreFeaturePanelConfig {
     requestLabels?: string[];
     requestDoneChannelId?: string | null;
     requestStaffRoleId?: string | null;
+    requestTrackingChannelId?: string | null;
     updatedBy: string;
     updatedAt: string;
 }

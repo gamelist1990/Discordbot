@@ -34,6 +34,7 @@ type CorePanelConfig = {
   requestDoneChannelId?: string | null;
   requestCategoryName?: string | null;
   requestStaffRoleId?: string | null;
+  requestTrackingChannelId?: string | null;
   updatedBy: string;
   updatedAt: string;
 };
@@ -69,6 +70,7 @@ const CorePanelPage: React.FC = () => {
   const [requestDoneChannelId, setRequestDoneChannelId] = useState('');
   const [requestCategoryName, setRequestCategoryName] = useState('');
   const [requestStaffRoleId, setRequestStaffRoleId] = useState('');
+  const [requestTrackingChannelId, setRequestTrackingChannelId] = useState('');
 
   const { addToast } = (() => {
     try {
@@ -110,7 +112,15 @@ const CorePanelPage: React.FC = () => {
     () => requestCategoryName || config?.requestCategoryName || '未設定',
     [config?.requestCategoryName, requestCategoryName]
   );
-  const usesRequestSettings = panelKind === 'request';
+  const savedTrackingChannelDisplay = useMemo(() => {
+    const trackingChannelId = requestTrackingChannelId || config?.requestTrackingChannelId || '';
+    if (!trackingChannelId) {
+      return '未設定';
+    }
+    const trackingChannel = channels.find((channel) => channel.id === trackingChannelId);
+    return trackingChannel?.name ? `#${trackingChannel.name}` : trackingChannelId;
+  }, [channels, config?.requestTrackingChannelId, requestTrackingChannelId]);
+  const usesRequestSettings = panelKind === 'combined' || panelKind === 'request';
   const usesSpectatorRole = panelKind === 'combined' || panelKind === 'debate';
 
   useEffect(() => {
@@ -153,6 +163,7 @@ const CorePanelPage: React.FC = () => {
       setRequestDoneChannelId('');
       setRequestCategoryName('');
       setRequestStaffRoleId('');
+      setRequestTrackingChannelId('');
       setPanelKind('combined');
       return;
     }
@@ -191,6 +202,7 @@ const CorePanelPage: React.FC = () => {
         setRequestDoneChannelId(nextConfig?.requestDoneChannelId || '');
         setRequestCategoryName(nextConfig?.requestCategoryName || 'Request');
         setRequestStaffRoleId(nextConfig?.requestStaffRoleId || '');
+        setRequestTrackingChannelId(nextConfig?.requestTrackingChannelId || '');
       } catch (loadError) {
         const message = loadError instanceof Error ? loadError.message : 'Core パネル設定の読み込みに失敗しました。';
         setError(message);
@@ -221,6 +233,7 @@ const CorePanelPage: React.FC = () => {
           requestDoneChannelId: usesRequestSettings ? requestDoneChannelId || null : null,
           requestCategoryName: usesRequestSettings ? requestCategoryName.trim() || null : null,
           requestStaffRoleId: usesRequestSettings ? requestStaffRoleId || null : null,
+          requestTrackingChannelId: usesRequestSettings ? requestTrackingChannelId || null : null,
         }),
       });
       const data = await response.json();
@@ -256,6 +269,7 @@ const CorePanelPage: React.FC = () => {
           requestDoneChannelId: usesRequestSettings ? requestDoneChannelId || null : null,
           requestCategoryName: usesRequestSettings ? requestCategoryName.trim() || null : null,
           requestStaffRoleId: usesRequestSettings ? requestStaffRoleId || null : null,
+          requestTrackingChannelId: usesRequestSettings ? requestTrackingChannelId || null : null,
         }),
       });
       const data = await response.json();
@@ -385,7 +399,9 @@ const CorePanelPage: React.FC = () => {
                 <div className={styles.subsection}>
                   <div className={styles.subsectionHeader}>
                     <h3>Request 設定</h3>
-                    <p className={styles.hint}>Request 専用パネルで使う設定です。</p>
+                    <p className={styles.hint}>
+                      {panelKind === 'combined' ? '統合パネル内の Request に適用されます。' : 'Request 専用パネルで使う設定です。'}
+                    </p>
                   </div>
 
                   <div className={styles.field}>
@@ -429,6 +445,23 @@ const CorePanelPage: React.FC = () => {
                       ))}
                     </select>
                   </div>
+
+                  <div className={styles.field}>
+                    <label htmlFor="corepanel-request-tracking-channel">追跡一覧チャンネル</label>
+                    <select
+                      id="corepanel-request-tracking-channel"
+                      value={requestTrackingChannelId}
+                      onChange={(event) => setRequestTrackingChannelId(event.target.value)}
+                    >
+                      <option value="">未設定</option>
+                      {channels.map((channel) => (
+                        <option key={channel.id} value={channel.id}>
+                          #{channel.name}
+                        </option>
+                      ))}
+                    </select>
+                    <p className={styles.hint}>スタッフが Request 一覧を追跡する専用チャンネルです。各 Embed から元の Request に移動できます。</p>
+                  </div>
                 </div>
               ) : null}
 
@@ -466,6 +499,10 @@ const CorePanelPage: React.FC = () => {
                 <div className={styles.infoItem}>
                   <span>完了通知チャンネル</span>
                   <strong>{usesRequestSettings ? savedDoneChannelDisplay : '未使用'}</strong>
+                </div>
+                <div className={styles.infoItem}>
+                  <span>追跡一覧チャンネル</span>
+                  <strong>{usesRequestSettings ? savedTrackingChannelDisplay : '未使用'}</strong>
                 </div>
                 <div className={styles.infoItem}>
                   <span>Discord 投稿</span>

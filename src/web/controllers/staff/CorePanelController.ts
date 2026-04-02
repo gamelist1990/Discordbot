@@ -49,12 +49,13 @@ export class CorePanelController {
                 return;
             }
 
-            const { channelId, spectatorRoleId, requestDoneChannelId, requestCategoryName, requestStaffRoleId } = req.body as {
+            const { channelId, spectatorRoleId, requestDoneChannelId, requestCategoryName, requestStaffRoleId, requestTrackingChannelId } = req.body as {
                 channelId?: string;
                 spectatorRoleId?: string | null;
                 requestDoneChannelId?: string | null;
                 requestCategoryName?: string | null;
                 requestStaffRoleId?: string | null;
+                requestTrackingChannelId?: string | null;
             };
             const existing = await coreFeatureManager.getPanelConfig(guildId, panelKind);
             const existingRequestConfig = supportsRequestSettings(panelKind) ? await getRequestConfig(guildId) : null;
@@ -64,6 +65,7 @@ export class CorePanelController {
             const nextRequestDoneChannelId = resolveRequestDoneChannelId(panelKind, requestDoneChannelId, existing?.requestDoneChannelId);
             const nextRequestCategoryName = resolveRequestCategoryName(panelKind, requestCategoryName, existingRequestConfig?.categoryName, existing?.requestCategoryName);
             const nextRequestStaffRoleId = resolveRequestStaffRoleId(panelKind, requestStaffRoleId, existingRequestConfig?.staffRoleId);
+            const nextRequestTrackingChannelId = resolveRequestTrackingChannelId(panelKind, requestTrackingChannelId, existingRequestConfig?.trackingChannelId, existing?.requestTrackingChannelId);
 
             if (!nextChannelId) {
                 res.status(400).json({ error: 'channelId is required' });
@@ -84,6 +86,7 @@ export class CorePanelController {
                 requestLabels: existing?.requestLabels,
                 requestDoneChannelId: nextRequestDoneChannelId,
                 requestStaffRoleId: nextRequestStaffRoleId,
+                requestTrackingChannelId: nextRequestTrackingChannelId,
                 updatedBy: session.userId,
                 updatedAt: new Date().toISOString()
             };
@@ -92,8 +95,10 @@ export class CorePanelController {
                 await saveRequestConfig(guildId, session.userId, {
                     categoryName: nextRequestCategoryName,
                     doneChannelId: nextRequestDoneChannelId,
-                    staffRoleId: nextRequestStaffRoleId
+                    staffRoleId: nextRequestStaffRoleId,
+                    trackingChannelId: nextRequestTrackingChannelId
                 });
+                await ensureTrackingChannelAccess(this.botClient, guildId, nextRequestTrackingChannelId, nextRequestStaffRoleId);
             }
 
             await coreFeatureManager.savePanelConfig(guildId, config, panelKind);
@@ -118,12 +123,13 @@ export class CorePanelController {
                 return;
             }
 
-            const { channelId, spectatorRoleId, requestDoneChannelId, requestCategoryName, requestStaffRoleId } = req.body as {
+            const { channelId, spectatorRoleId, requestDoneChannelId, requestCategoryName, requestStaffRoleId, requestTrackingChannelId } = req.body as {
                 channelId?: string;
                 spectatorRoleId?: string | null;
                 requestDoneChannelId?: string | null;
                 requestCategoryName?: string | null;
                 requestStaffRoleId?: string | null;
+                requestTrackingChannelId?: string | null;
             };
             const existing = await coreFeatureManager.getPanelConfig(guildId, panelKind);
             const existingRequestConfig = supportsRequestSettings(panelKind) ? await getRequestConfig(guildId) : null;
@@ -138,6 +144,7 @@ export class CorePanelController {
             const nextRequestDoneChannelId = resolveRequestDoneChannelId(panelKind, requestDoneChannelId, existing?.requestDoneChannelId);
             const nextRequestCategoryName = resolveRequestCategoryName(panelKind, requestCategoryName, existingRequestConfig?.categoryName, existing?.requestCategoryName);
             const nextRequestStaffRoleId = resolveRequestStaffRoleId(panelKind, requestStaffRoleId, existingRequestConfig?.staffRoleId);
+            const nextRequestTrackingChannelId = resolveRequestTrackingChannelId(panelKind, requestTrackingChannelId, existingRequestConfig?.trackingChannelId, existing?.requestTrackingChannelId);
 
             if (!targetChannelId) {
                 res.status(400).json({ error: 'channelId is required' });
@@ -183,6 +190,7 @@ export class CorePanelController {
                 requestLabels: existing?.requestLabels,
                 requestDoneChannelId: nextRequestDoneChannelId,
                 requestStaffRoleId: nextRequestStaffRoleId,
+                requestTrackingChannelId: nextRequestTrackingChannelId,
                 updatedBy: session.userId,
                 updatedAt: new Date().toISOString()
             };
@@ -191,8 +199,10 @@ export class CorePanelController {
                 await saveRequestConfig(guildId, session.userId, {
                     categoryName: nextRequestCategoryName,
                     doneChannelId: nextRequestDoneChannelId,
-                    staffRoleId: nextRequestStaffRoleId
+                    staffRoleId: nextRequestStaffRoleId,
+                    trackingChannelId: nextRequestTrackingChannelId
                 });
+                await ensureTrackingChannelAccess(this.botClient, guildId, nextRequestTrackingChannelId, nextRequestStaffRoleId);
             }
 
             await coreFeatureManager.savePanelConfig(guildId, config, panelKind);
@@ -258,7 +268,7 @@ async function getRequestConfig(guildId: string): Promise<StoredRequestConfig | 
 async function saveRequestConfig(
     guildId: string,
     userId: string,
-    updates: { categoryName: string | null; doneChannelId: string | null; staffRoleId: string | null }
+    updates: { categoryName: string | null; doneChannelId: string | null; staffRoleId: string | null; trackingChannelId: string | null }
 ): Promise<StoredRequestConfig> {
     const existing = await getRequestConfig(guildId);
     const nextConfig: StoredRequestConfig = {
@@ -267,7 +277,7 @@ async function saveRequestConfig(
         labels: existing?.labels || ['機能リクエスト', 'バグ修正', 'その他'],
         doneChannelId: updates.doneChannelId === undefined ? existing?.doneChannelId || null : updates.doneChannelId || null,
         staffRoleId: updates.staffRoleId === undefined ? existing?.staffRoleId || null : updates.staffRoleId || null,
-        trackingChannelId: existing?.trackingChannelId || null,
+        trackingChannelId: updates.trackingChannelId === undefined ? existing?.trackingChannelId || null : updates.trackingChannelId || null,
         cooldownSeconds: existing?.cooldownSeconds || 300,
         description: existing?.description || 'このパネルから機能リクエスト、バグ報告、その他の要望を送信できます。',
         instructions: existing?.instructions || '1. ラベルを選択してください\n2. 件名を入力してください\n3. 詳細な内容を記述してください',
@@ -311,6 +321,54 @@ function resolveRequestStaffRoleId(
     return null;
 }
 
+function resolveRequestTrackingChannelId(
+    panelKind: CoreFeaturePanelKind,
+    requestTrackingChannelId: unknown,
+    existingTrackingChannelId: string | null | undefined,
+    existingPanelTrackingChannelId: string | null | undefined
+): string | null {
+    if (!supportsRequestSettings(panelKind)) {
+        return existingPanelTrackingChannelId || null;
+    }
+    if (requestTrackingChannelId === undefined) {
+        return existingTrackingChannelId || existingPanelTrackingChannelId || null;
+    }
+    if (typeof requestTrackingChannelId === 'string' && requestTrackingChannelId.trim()) {
+        return requestTrackingChannelId.trim();
+    }
+    return null;
+}
+
+async function ensureTrackingChannelAccess(
+    botClient: BotClient,
+    guildId: string,
+    trackingChannelId: string | null,
+    staffRoleId: string | null
+): Promise<void> {
+    if (!trackingChannelId) {
+        return;
+    }
+
+    const guild = await botClient.client.guilds.fetch(guildId).catch(() => null);
+    if (!guild) {
+        return;
+    }
+
+    const channel = await guild.channels.fetch(trackingChannelId).catch(() => null);
+    if (!channel || !('permissionOverwrites' in channel)) {
+        return;
+    }
+
+    await channel.permissionOverwrites.edit(guild.id, { ViewChannel: false }).catch(() => null);
+    if (staffRoleId) {
+        await channel.permissionOverwrites.edit(staffRoleId, {
+            ViewChannel: true,
+            ReadMessageHistory: true,
+            SendMessages: true
+        }).catch(() => null);
+    }
+}
+
 function mergeRequestSettings(config: any, requestConfig: StoredRequestConfig | null) {
     if (!config) {
         return config;
@@ -320,7 +378,8 @@ function mergeRequestSettings(config: any, requestConfig: StoredRequestConfig | 
         ...config,
         requestCategoryName: requestConfig?.categoryName || config.requestCategoryName || null,
         requestDoneChannelId: requestConfig?.doneChannelId || config.requestDoneChannelId || null,
-        requestStaffRoleId: requestConfig?.staffRoleId || config.requestStaffRoleId || null
+        requestStaffRoleId: requestConfig?.staffRoleId || config.requestStaffRoleId || null,
+        requestTrackingChannelId: requestConfig?.trackingChannelId || config.requestTrackingChannelId || null
     };
 }
 

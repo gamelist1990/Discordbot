@@ -34,6 +34,7 @@ type RequestItem = {
     label: string;
     status: RequestStatus;
     summary: string;
+    trackingMessageId?: string | null;
     createdAt: string;
     updatedAt: string;
 };
@@ -139,6 +140,7 @@ export class RequestFeature implements CoreFeatureModule {
             item.status = nextStatus;
             item.updatedAt = new Date().toISOString();
             await this.saveItems(guild.id, items);
+            await this.syncTrackingMessage(guild.id, item);
             await interaction.deferReply({ ephemeral: true });
             if (nextStatus === 'closed') {
                 const targetChannel = await guild.channels.fetch(item.channelId).catch(() => null);
@@ -174,6 +176,7 @@ export class RequestFeature implements CoreFeatureModule {
             item.summary = nextSummary;
             item.updatedAt = new Date().toISOString();
             await this.saveItems(interaction.guild.id, items);
+            await this.syncTrackingMessage(interaction.guild.id, item);
             await interaction.editReply({ content: `📝 要約:\n${nextSummary}` });
             return true;
         }
@@ -238,6 +241,7 @@ export class RequestFeature implements CoreFeatureModule {
                 label: safeLabel,
                 status: 'undecided',
                 summary,
+                trackingMessageId: null,
                 createdAt: new Date().toISOString(),
                 updatedAt: new Date().toISOString()
             };
@@ -302,24 +306,11 @@ export class RequestFeature implements CoreFeatureModule {
             const posted = await (requestChannel as TextChannel).send({ embeds: [embed], components: [actionRow, statusRow] });
             await posted.pin().catch(() => null);
 
-            const items = itemsForCooldown;
-            items.push(item);
-            await this.saveItems(interaction.guild.id, items);
-
             if (requestConfig?.trackingChannelId) {
                 const trackingCh = await interaction.guild.channels.fetch(requestConfig.trackingChannelId).catch(() => null);
                 if (trackingCh && trackingCh.type === ChannelType.GuildText) {
-                    const trackingEmbed = new EmbedBuilder()
-                        .setTitle(`新規 Request #${id}`)
-                        .setDescription(`**件名:** ${title}\n**ラベル:** ${safeLabel}\n**作成者:** <@${interaction.user.id}>`)
-                        .addFields(
-                            { name: 'ステータス', value: 'undecided', inline: true },
-                            { name: 'チャンネル', value: `<#${requestChannel.id}>`, inline: true },
-                            { name: 'URL', value: `https://discord.com/channels/${interaction.guild.id}/${requestChannel.id}`, inline: false }
-                        )
-                        .setTimestamp();
-                    await (trackingCh as TextChannel).send({
-                        embeds: [trackingEmbed],
+                    const trackingMessage = await (trackingCh as TextChannel).send({
+                        embeds: [this.buildTrackingEmbed(interaction.guild.id, item)],
                         components: [
                             new ActionRowBuilder<ButtonBuilder>().addComponents(
                                 new ButtonBuilder()
@@ -329,8 +320,15 @@ export class RequestFeature implements CoreFeatureModule {
                             )
                         ]
                     }).catch(() => null);
+                    if (trackingMessage) {
+                        item.trackingMessageId = trackingMessage.id;
+                    }
                 }
             }
+
+            const items = itemsForCooldown;
+            items.push(item);
+            await this.saveItems(interaction.guild.id, items);
 
             await interaction.editReply({ content: `✅ Request を作成しました: <#${requestChannel.id}> (ID: ${id})` });
             return true;
@@ -354,6 +352,7 @@ export class RequestFeature implements CoreFeatureModule {
             item.status = 'done';
             item.updatedAt = new Date().toISOString();
             await this.saveItems(interaction.guild.id, items);
+            await this.syncTrackingMessage(interaction.guild.id, item);
 
             const requestConfig = await this.getRequestConfig(interaction.guild.id);
             const config = this.api ? await this.api.getPanelConfig(interaction.guild.id, item.panelKind) : null;
@@ -426,6 +425,98 @@ export class RequestFeature implements CoreFeatureModule {
 
     private async getRequestConfig(guildId: string): Promise<RequestConfig | null> {
         return await database.get(guildId, `Guild/${guildId}/corefeature/request/config`, null);
+    }
+
+    private buildTrackingEmbed(guildId: string, item: RequestItem): EmbedBuilder {
+        return new EmbedBuilder()
+            .setTitle(`Request #${item.id}`)
+            .setDescription(item.title || '無題')
+            .addFields(
+                { name: 'ステータス', value: this.getStatusLabel(item.status), inline: true },
+                { name: 'ラベル', value: item.label || '未設定', inline: true },
+                { name: '作成者', value: `<@${item.authorId}>`, inline: true },
+                { name: '要約', value: item.summary?.trim() || item.body.slice(0, 120) || '内容なし', inline: false },
+                { name: 'リクエストURL', value: `https://discord.com/channels/${guildId}/${item.channelId}`, inline: false }
+            )
+            .setColor(this.getStatusColor(item.status))
+            .setTimestamp(new Date(item.updatedAt || item.createdAt));
+    }
+
+    private async syncTrackingMessage(guildId: string, item: RequestItem): Promise<void> {
+        const requestConfig = await this.getRequestConfig(guildId);
+        if (!requestConfig?.trackingChannelId) {
+            return;
+        }
+        const client = this.api?.getClient();
+        if (!client) {
+            return;
+        }
+        const guild = await client.guilds.fetch(guildId).catch(() => null);
+        if (!guild) {
+            return;
+        }
+        const trackingCh = await guild.channels.fetch(requestConfig.trackingChannelId).catch(() => null);
+        if (!trackingCh || trackingCh.type !== ChannelType.GuildText) {
+            return;
+        }
+        const payload = {
+            embeds: [this.buildTrackingEmbed(guildId, item)],
+            components: [
+                new ActionRowBuilder<ButtonBuilder>().addComponents(
+                    new ButtonBuilder()
+                        .setStyle(ButtonStyle.Link)
+                        .setLabel('リクエストへ移動')
+                        .setURL(`https://discord.com/channels/${guildId}/${item.channelId}`)
+                )
+            ]
+        };
+        if (item.trackingMessageId) {
+            const message = await (trackingCh as TextChannel).messages.fetch(item.trackingMessageId).catch(() => null);
+            if (message) {
+                await message.edit(payload).catch(() => null);
+                return;
+            }
+        }
+        const sent = await (trackingCh as TextChannel).send(payload).catch(() => null);
+        if (sent) {
+            item.trackingMessageId = sent.id;
+            const items = await this.getItems(guildId);
+            const index = items.findIndex((entry) => entry.id === item.id);
+            if (index >= 0) {
+                items[index] = item;
+                await this.saveItems(guildId, items);
+            }
+        }
+    }
+
+    private getStatusLabel(status: RequestStatus): string {
+        switch (status) {
+            case 'planned':
+                return '計画';
+            case 'working':
+                return '作業中';
+            case 'done':
+                return '完了';
+            case 'closed':
+                return 'クローズ';
+            default:
+                return '未定';
+        }
+    }
+
+    private getStatusColor(status: RequestStatus): number {
+        switch (status) {
+            case 'planned':
+                return 0x2563eb;
+            case 'working':
+                return 0xd97706;
+            case 'done':
+                return 0x16a34a;
+            case 'closed':
+                return 0x6b7280;
+            default:
+                return 0x7c3aed;
+        }
     }
 
     private async isRequestSafe(label: string, title: string, body: string): Promise<boolean> {
