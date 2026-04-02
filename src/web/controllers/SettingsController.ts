@@ -3,11 +3,72 @@ import { SettingsSession, GuildSettings } from '../types';
 import { database } from '../../core/Database.js';
 import { PermissionManager } from '../../utils/PermissionManager.js';
 import { CacheManager } from '../../utils/CacheManager.js';
+import { BotClient } from '../../core/BotClient.js';
+import { Guild, PermissionFlagsBits } from 'discord.js';
+
+/**
+ * セッションの permissions 配列に含まれていないギルドについて、Bot 経由でリアルタイムに
+ * 権限を確認し、セッションを更新したうえで権限レベルを返す。
+ */
+async function resolveGuildPermissionLevel(
+    session: SettingsSession,
+    guildId: string,
+    botClient: BotClient
+): Promise<number> {
+    try {
+        let guild: Guild | null = botClient.client.guilds.cache.get(guildId) ?? null;
+        if (!guild) {
+            guild = await botClient.client.guilds.fetch(guildId).catch(() => null);
+        }
+        if (!guild) return 0;
+
+        let level = 0;
+
+        if (guild.ownerId === session.userId) {
+            level = 3;
+        } else {
+            const member = await guild.members.fetch(session.userId).catch(() => null);
+            if (member) {
+                const perms = member.permissions;
+                if (perms.has(PermissionFlagsBits.Administrator) || perms.has(PermissionFlagsBits.ManageGuild)) {
+                    level = 2;
+                }
+            }
+        }
+
+        if (level > 0) {
+            // セッションの permissions を更新して次回以降の呼び出しを高速化
+            if (!Array.isArray(session.permissions)) {
+                session.permissions = [];
+            }
+            const existing = session.permissions.find(p => p.guildId === guildId);
+            if (existing) {
+                existing.level = Math.max(existing.level, level);
+            } else {
+                session.permissions.push({ guildId, level });
+            }
+            if (!session.guildIds) session.guildIds = [];
+            if (!session.guildIds.includes(guildId)) {
+                session.guildIds.push(guildId);
+            }
+        }
+
+        return level;
+    } catch {
+        return 0;
+    }
+}
 
 /**
  * 設定コントローラー
  */
 export class SettingsController {
+    private botClient?: BotClient;
+
+    constructor(botClient?: BotClient) {
+        this.botClient = botClient;
+    }
+
     /**
      * 設定の取得
      */
@@ -26,6 +87,11 @@ export class SettingsController {
             if (found) level = found.level;
         } else if (session.permission !== undefined) {
             level = session.permission;
+        }
+        // セッションにギルドの権限情報がない場合、Bot 経由でリアルタイムに確認する
+        // （新規サーバー追加後にログインし直していないユーザーへの対応）
+        if (level === 0 && this.botClient) {
+            level = await resolveGuildPermissionLevel(session, guildId as string, this.botClient);
         }
         // 権限チェック
         const permissionError = PermissionManager.checkPermission(level, 1, '権限がありません');
@@ -80,6 +146,10 @@ export class SettingsController {
             if (found) level = found.level;
         } else if (session.permission !== undefined) {
             level = session.permission;
+        }
+        // セッションにギルドの権限情報がない場合、Bot 経由でリアルタイムに確認する
+        if (level === 0 && this.botClient) {
+            level = await resolveGuildPermissionLevel(session, guildId as string, this.botClient);
         }
         // 権限チェック
         const permissionError = PermissionManager.checkPermission(level, 1, '権限がありません');
