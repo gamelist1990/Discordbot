@@ -88,7 +88,7 @@ export class RequestFeature implements CoreFeatureModule {
                     new TextInputBuilder().setCustomId('label').setLabel('ラベル').setStyle(TextInputStyle.Short).setRequired(true).setPlaceholder('機能リクエスト / バグ修正 / その他').setMaxLength(10)
                 ),
                 new ActionRowBuilder<TextInputBuilder>().addComponents(
-                    new TextInputBuilder().setCustomId('title').setLabel('件名').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(10)
+                    new TextInputBuilder().setCustomId('title').setLabel('件名').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(120)
                 ),
                 new ActionRowBuilder<TextInputBuilder>().addComponents(
                     new TextInputBuilder().setCustomId('body').setLabel('内容').setStyle(TextInputStyle.Paragraph).setRequired(true).setMaxLength(1800)
@@ -189,7 +189,7 @@ export class RequestFeature implements CoreFeatureModule {
         if (customId.startsWith('corefeature:request:create:')) {
             const panelKind = (customId.split(':')[3] || 'combined') as CoreFeaturePanelKind;
             const label = interaction.fields.getTextInputValue('label').trim().slice(0, 10);
-            const title = interaction.fields.getTextInputValue('title').trim().slice(0, 10);
+            const title = interaction.fields.getTextInputValue('title').trim().slice(0, 120);
             const body = interaction.fields.getTextInputValue('body').trim();
             await interaction.deferReply({ ephemeral: true });
 
@@ -278,7 +278,7 @@ export class RequestFeature implements CoreFeatureModule {
 
             const actionRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
                 new ButtonBuilder().setCustomId(`corefeature:${interaction.guild.id}:${panelKind}:request:status:${id}:closed`).setLabel('Close').setStyle(ButtonStyle.Danger),
-                new ButtonBuilder().setCustomId(`corefeature:${interaction.guild.id}:${panelKind}:request:summary:${id}`).setLabel('新規ボタン要約').setStyle(ButtonStyle.Secondary)
+                new ButtonBuilder().setCustomId(`corefeature:${interaction.guild.id}:${panelKind}:request:summary:${id}`).setLabel('会話要約').setStyle(ButtonStyle.Secondary)
             );
             const statusRow = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
                 new StringSelectMenuBuilder()

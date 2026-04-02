@@ -33,7 +33,10 @@ function getRequestItemsKey(guildId: string): string {
 }
 
 export class RequestManagerController {
-    constructor(private botClient: BotClient) {}
+    private botClient: BotClient;
+    constructor(botClient: BotClient) {
+        this.botClient = botClient;
+    }
 
     getConfig = async (req: Request, res: Response): Promise<void> => {
         try {
