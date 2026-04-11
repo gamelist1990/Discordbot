@@ -339,6 +339,24 @@ export class EventHandler {
                 Logger.debug('Failed to handle AntiCheat on messageCreate:', error);
             }
         });
+
+        this.botClient.client.on(Events.MessageDelete, async (message) => {
+            try {
+                const { antiCheatManager } = await import('./anticheat/AntiCheatManager.js');
+                await antiCheatManager.onMessageDelete(message as any);
+            } catch (error) {
+                Logger.debug('Failed to handle AntiCheat on messageDelete:', error);
+            }
+        });
+
+        this.botClient.client.on(Events.MessageUpdate, async (oldMessage, newMessage) => {
+            try {
+                const { antiCheatManager } = await import('./anticheat/AntiCheatManager.js');
+                await antiCheatManager.onMessageUpdate(oldMessage as any, newMessage as any);
+            } catch (error) {
+                Logger.debug('Failed to handle AntiCheat on messageUpdate:', error);
+            }
+        });
     }
 
     /**

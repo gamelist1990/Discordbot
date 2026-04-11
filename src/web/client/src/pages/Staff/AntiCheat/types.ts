@@ -16,6 +16,7 @@ export interface AntiCheatSettings {
     excludedChannels: string[];
     logChannelId: string | null;
     avatarLogChannelId: string | null;
+    chatLogChannelId: string | null;
     autoTimeout: {
         enabled: boolean;
         durationSeconds: number;

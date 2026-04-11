@@ -1,4 +1,5 @@
 import {
+    AttachmentBuilder,
     Client,
     Colors,
     EmbedBuilder,
@@ -8,7 +9,8 @@ import {
     MessageResolvable,
     PermissionFlagsBits,
     TextChannel,
-    User
+    User,
+    type PartialMessage
 } from 'discord.js';
 import { database } from '../Database.js';
 import { CacheManager } from '../../utils/CacheManager.js';
@@ -241,6 +243,66 @@ export class AntiCheatManager {
         }
     }
 
+    async onMessageDelete(message: Message | PartialMessage): Promise<void> {
+        const guild = message.guild;
+        if (!guild) {
+            return;
+        }
+
+        const settings = await this.getSettings(guild.id);
+        if (!settings.chatLogChannelId || message.channelId === settings.chatLogChannelId) {
+            return;
+        }
+
+        if (message.author?.bot) {
+            return;
+        }
+
+        await this.sendChatLog({
+            guild,
+            settings,
+            type: 'delete',
+            message
+        });
+    }
+
+    async onMessageUpdate(oldMessage: Message | PartialMessage, newMessage: Message | PartialMessage): Promise<void> {
+        const resolvedNewMessage = await this.fetchMessageIfPartial(newMessage);
+        const guild = resolvedNewMessage.guild || oldMessage.guild;
+        if (!guild) {
+            return;
+        }
+
+        const settings = await this.getSettings(guild.id);
+        if (!settings.chatLogChannelId || resolvedNewMessage.channelId === settings.chatLogChannelId) {
+            return;
+        }
+
+        const author = resolvedNewMessage.author || oldMessage.author;
+        if (author?.bot) {
+            return;
+        }
+
+        const oldContent = this.getMessageContent(oldMessage);
+        const newContent = this.getMessageContent(resolvedNewMessage);
+        const oldAttachments = this.getAttachmentLines(oldMessage);
+        const newAttachments = this.getAttachmentLines(resolvedNewMessage);
+        if (
+            oldContent === newContent &&
+            oldAttachments.join('\n') === newAttachments.join('\n')
+        ) {
+            return;
+        }
+
+        await this.sendChatLog({
+            guild,
+            settings,
+            type: 'update',
+            message: resolvedNewMessage,
+            oldMessage
+        });
+    }
+
     private async processMessage(message: Message, settings: GuildAntiCheatSettings): Promise<void> {
         const guildId = message.guild!.id;
         const userId = message.author.id;
@@ -441,6 +503,105 @@ export class AntiCheatManager {
             );
 
         await logChannel.send({ embeds: [embed] }).catch(() => null);
+    }
+
+    private async sendChatLog(options: {
+        guild: Guild;
+        settings: GuildAntiCheatSettings;
+        type: 'delete' | 'update';
+        message: Message | PartialMessage;
+        oldMessage?: Message | PartialMessage;
+    }): Promise<void> {
+        const logChannel = await this.fetchLogChannel(options.guild, options.settings.chatLogChannelId);
+        if (!logChannel) {
+            return;
+        }
+
+        const message = options.message;
+        const oldMessage = options.oldMessage;
+        const isDelete = options.type === 'delete';
+        const timestamp = new Date();
+        const author = message.author || oldMessage?.author || null;
+        const channelId = message.channelId || oldMessage?.channelId || 'unknown';
+        const messageId = message.id || oldMessage?.id || 'unknown';
+        const beforeContent = isDelete ? this.getMessageContent(message) : oldMessage ? this.getMessageContent(oldMessage) : null;
+        const afterContent = isDelete ? null : this.getMessageContent(message);
+        const beforeAttachments = isDelete ? this.getAttachmentLines(message) : oldMessage ? this.getAttachmentLines(oldMessage) : [];
+        const afterAttachments = isDelete ? [] : this.getAttachmentLines(message);
+        const messageUrl = this.buildMessageUrl(options.guild.id, channelId, messageId);
+
+        const embed = new EmbedBuilder()
+            .setTitle(isDelete ? '🗑️ メッセージ削除' : '✏️ メッセージ編集')
+            .setColor(isDelete ? Colors.Red : Colors.Orange)
+            .setTimestamp(timestamp)
+            .addFields(
+                {
+                    name: 'ユーザー',
+                    value: author ? `${author.tag}\n${author.toString()}` : '不明',
+                    inline: true
+                },
+                { name: 'チャンネル', value: channelId === 'unknown' ? '不明' : `<#${channelId}>`, inline: true },
+                { name: 'メッセージID', value: `\`${messageId}\``, inline: true }
+            );
+
+        if (isDelete) {
+            embed.addFields({
+                name: '削除された内容',
+                value: this.formatEmbedContent(beforeContent),
+                inline: false
+            });
+        } else {
+            embed.addFields(
+                {
+                    name: '変更前',
+                    value: this.formatEmbedContent(beforeContent),
+                    inline: false
+                },
+                {
+                    name: '変更後',
+                    value: this.formatEmbedContent(afterContent),
+                    inline: false
+                }
+            );
+        }
+
+        if (afterAttachments.length > 0 || beforeAttachments.length > 0) {
+            const attachmentPreview = isDelete
+                ? beforeAttachments
+                : [
+                    beforeAttachments.length > 0 ? `変更前:\n${beforeAttachments.join('\n')}` : '変更前: なし',
+                    afterAttachments.length > 0 ? `変更後:\n${afterAttachments.join('\n')}` : '変更後: なし'
+                ];
+            embed.addFields({
+                name: '添付ファイル',
+                value: attachmentPreview.join('\n').slice(0, 1024),
+                inline: false
+            });
+        }
+
+        if (messageUrl) {
+            embed.addFields({ name: 'リンク', value: messageUrl, inline: false });
+        }
+
+        const file = new AttachmentBuilder(
+            Buffer.from(this.buildChatLogFile({
+                type: options.type,
+                guild: options.guild,
+                channelId,
+                messageId,
+                authorTag: author?.tag || 'unknown',
+                authorId: author?.id || 'unknown',
+                loggedAt: timestamp.toISOString(),
+                messageUrl,
+                beforeContent,
+                afterContent,
+                beforeAttachments,
+                afterAttachments
+            }), 'utf8'),
+            { name: this.buildChatLogFileName(options.type, timestamp, messageId) }
+        );
+
+        await logChannel.send({ embeds: [embed], files: [file] }).catch(() => null);
     }
 
     private appendLog(settings: GuildAntiCheatSettings, log: DetectionLog): void {
@@ -714,6 +875,7 @@ export class AntiCheatManager {
             excludedChannels: Array.isArray(settings?.excludedChannels) ? settings!.excludedChannels : [],
             logChannelId: settings?.logChannelId ?? null,
             avatarLogChannelId: settings?.avatarLogChannelId ?? null,
+            chatLogChannelId: settings?.chatLogChannelId ?? null,
             autoTimeout: {
                 ...DEFAULT_ANTICHEAT_SETTINGS.autoTimeout,
                 ...(settings?.autoTimeout || {})
@@ -768,6 +930,100 @@ export class AntiCheatManager {
             return null;
         }
         return await guild.channels.fetch(channelId).then((channel) => channel as TextChannel | null).catch(() => null);
+    }
+
+    private async fetchMessageIfPartial(message: Message | PartialMessage): Promise<Message | PartialMessage> {
+        if (!message.partial) {
+            return message;
+        }
+
+        return await message.fetch().catch(() => message);
+    }
+
+    private getMessageContent(message: Message | PartialMessage): string | null {
+        return typeof message.content === 'string' ? message.content : null;
+    }
+
+    private getAttachmentLines(message: Message | PartialMessage): string[] {
+        const attachments = Array.from((message.attachments as any)?.values?.() || []) as any[];
+        return attachments.map((attachment) => {
+            const name = attachment.name || attachment.id || 'unknown';
+            const size = typeof attachment.size === 'number' ? ` (${attachment.size} bytes)` : '';
+            const url = attachment.url || attachment.proxyURL || 'urlなし';
+            return `${name}${size}: ${url}`;
+        });
+    }
+
+    private formatEmbedContent(content: string | null): string {
+        if (content === null) {
+            return '取得できませんでした';
+        }
+
+        if (content.length === 0) {
+            return '本文なし';
+        }
+
+        return content.slice(0, 1024);
+    }
+
+    private buildMessageUrl(guildId: string, channelId: string, messageId: string): string | null {
+        if (channelId === 'unknown' || messageId === 'unknown') {
+            return null;
+        }
+
+        return `https://discord.com/channels/${guildId}/${channelId}/${messageId}`;
+    }
+
+    private buildChatLogFileName(type: 'delete' | 'update', timestamp: Date, messageId: string): string {
+        const safeTimestamp = timestamp.toISOString().replace(/[:.]/g, '-');
+        return `chatlog-${type}-${safeTimestamp}-${messageId}.txt`;
+    }
+
+    private buildChatLogFile(data: {
+        type: 'delete' | 'update';
+        guild: Guild;
+        channelId: string;
+        messageId: string;
+        authorTag: string;
+        authorId: string;
+        loggedAt: string;
+        messageUrl: string | null;
+        beforeContent: string | null;
+        afterContent: string | null;
+        beforeAttachments: string[];
+        afterAttachments: string[];
+    }): string {
+        const contentUnavailable = '[取得できませんでした]';
+        const contentEmpty = '[本文なし]';
+        const formatContent = (content: string | null) => {
+            if (content === null) return contentUnavailable;
+            if (content.length === 0) return contentEmpty;
+            return content;
+        };
+        const formatAttachments = (attachments: string[]) => attachments.length > 0 ? attachments.join('\n') : '[なし]';
+
+        return [
+            `Chatlog Type: ${data.type === 'delete' ? 'Message Delete' : 'Message Update'}`,
+            `Logged At: ${data.loggedAt}`,
+            `Guild: ${data.guild.name} (${data.guild.id})`,
+            `Channel ID: ${data.channelId}`,
+            `Message ID: ${data.messageId}`,
+            `Author: ${data.authorTag} (${data.authorId})`,
+            `Message URL: ${data.messageUrl || 'unavailable'}`,
+            '',
+            '--- Before Content ---',
+            formatContent(data.beforeContent),
+            '',
+            '--- After Content ---',
+            data.type === 'delete' ? '[削除済み]' : formatContent(data.afterContent),
+            '',
+            '--- Before Attachments ---',
+            formatAttachments(data.beforeAttachments),
+            '',
+            '--- After Attachments ---',
+            data.type === 'delete' ? '[削除済み]' : formatAttachments(data.afterAttachments),
+            ''
+        ].join('\n');
     }
 
     private async deleteRecentMessages(guild: Guild, userId: string, windowSeconds: number): Promise<number> {

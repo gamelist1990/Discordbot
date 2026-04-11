@@ -106,6 +106,7 @@ export interface GuildAntiCheatSettings {
     excludedChannels: string[];
     logChannelId: string | null;
     avatarLogChannelId: string | null;
+    chatLogChannelId: string | null;
     autoTimeout: {
         enabled: boolean;
         durationSeconds: number;
@@ -238,6 +239,7 @@ export const DEFAULT_ANTICHEAT_SETTINGS: GuildAntiCheatSettings = {
     excludedChannels: [],
     logChannelId: null,
     avatarLogChannelId: null,
+    chatLogChannelId: null,
     autoTimeout: {
         enabled: false,
         durationSeconds: 600

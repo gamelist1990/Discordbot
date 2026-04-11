@@ -413,7 +413,7 @@ const AntiCheatUnified: React.FC = () => {
               <span>有効</span>
             </label>
             <label className={styles.checkField}>
-              <input type="checkbox" checked={Boolean(rule.deleteMessage)} onChange={(event) => updateWordRule(rule.id, { deleteMessage: event.target.checked })} disabled={!detector.enabled || !draft.autoDelete.enabled} />
+              <input type="checkbox" checked={Boolean(rule.deleteMessage)} onChange={(event) => updateWordRule(rule.id, { deleteMessage: event.target.checked })} disabled={!detector.enabled || !draft?.autoDelete.enabled} />
               <span>メッセージを削除</span>
             </label>
           </div>
@@ -522,6 +522,10 @@ const AntiCheatUnified: React.FC = () => {
                 <label className={styles.field}>
                   <span>アバターログチャンネル ID</span>
                   <input className={styles.input} type="text" value={draft.avatarLogChannelId || ''} onChange={(event) => updateDraft((current) => ({ ...current, avatarLogChannelId: event.target.value || null }))} placeholder="123456789012345678" />
+                </label>
+                <label className={styles.field}>
+                  <span>Chatlogチャンネル ID</span>
+                  <input className={styles.input} type="text" value={draft.chatLogChannelId || ''} onChange={(event) => updateDraft((current) => ({ ...current, chatLogChannelId: event.target.value || null }))} placeholder="123456789012345678" />
                 </label>
               </div>
             </article>

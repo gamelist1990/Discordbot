@@ -1,4 +1,4 @@
-import { Client, Collection, GatewayIntentBits, REST, Routes } from 'discord.js';
+import { Client, Collection, GatewayIntentBits, Partials, REST, Routes } from 'discord.js';
 import { SlashCommand } from '../types/command.js';
 import { database } from './Database.js';
 import { Logger } from '../utils/Logger.js';
@@ -41,6 +41,10 @@ export class BotClient {
                 GatewayIntentBits.MessageContent,
                 GatewayIntentBits.GuildMembers,
                 GatewayIntentBits.GuildPresences, // メンバーのオンライン状態を取得
+            ],
+            partials: [
+                Partials.Message,
+                Partials.Channel,
             ],
         });
 
