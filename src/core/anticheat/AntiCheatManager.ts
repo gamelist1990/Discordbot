@@ -285,11 +285,16 @@ export class AntiCheatManager {
 
         const oldContent = this.getMessageContent(oldMessage);
         const newContent = this.getMessageContent(resolvedNewMessage);
-        const oldAttachments = this.getAttachmentLines(oldMessage);
-        const newAttachments = this.getAttachmentLines(resolvedNewMessage);
+        const oldAttachmentSignatures = this.getAttachmentSignatures(oldMessage);
+        const newAttachmentSignatures = this.getAttachmentSignatures(resolvedNewMessage);
+
+        if (oldMessage.partial && (resolvedNewMessage as any).editedTimestamp == null) {
+            return;
+        }
+
         if (
             oldContent === newContent &&
-            oldAttachments.join('\n') === newAttachments.join('\n')
+            this.areStringArraysEqual(oldAttachmentSignatures, newAttachmentSignatures)
         ) {
             return;
         }
@@ -952,6 +957,24 @@ export class AntiCheatManager {
             const url = attachment.url || attachment.proxyURL || 'urlなし';
             return `${name}${size}: ${url}`;
         });
+    }
+
+    private getAttachmentSignatures(message: Message | PartialMessage): string[] {
+        const attachments = Array.from((message.attachments as any)?.values?.() || []) as any[];
+        return attachments.map((attachment) => {
+            const id = attachment.id || 'unknown';
+            const name = attachment.name || 'unknown';
+            const size = typeof attachment.size === 'number' ? String(attachment.size) : 'unknown';
+            return `${id}:${name}:${size}`;
+        });
+    }
+
+    private areStringArraysEqual(left: string[], right: string[]): boolean {
+        if (left.length !== right.length) {
+            return false;
+        }
+
+        return left.every((value, index) => value === right[index]);
     }
 
     private formatEmbedContent(content: string | null): string {

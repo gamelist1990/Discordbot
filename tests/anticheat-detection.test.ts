@@ -310,3 +310,136 @@ test('redirectLink blocks chains that pass through IP logger domains', async (t)
     assert.equal(result.metadata?.suspectUrl, 'https://grabify.link/track?id=abc123');
     assert.equal(result.metadata?.finalUrl, 'https://discord.com/channels/890315487962095637/1391437254160945162');
 });
+
+test('messageUpdate ignores attachment URL-only refreshes', async (t) => {
+    const originalGetSettings = antiCheatManager.getSettings;
+    const originalSendChatLog = (antiCheatManager as any).sendChatLog;
+
+    const settings = JSON.parse(JSON.stringify(DEFAULT_ANTICHEAT_SETTINGS)) as typeof DEFAULT_ANTICHEAT_SETTINGS;
+    settings.chatLogChannelId = 'chat-log-channel';
+
+    (antiCheatManager as any).getSettings = async () => settings;
+
+    let sendChatLogCalls = 0;
+    (antiCheatManager as any).sendChatLog = async () => {
+        sendChatLogCalls += 1;
+    };
+
+    t.after(() => {
+        (antiCheatManager as any).getSettings = originalGetSettings;
+        (antiCheatManager as any).sendChatLog = originalSendChatLog;
+    });
+
+    const author = {
+        id: 'user-url-refresh',
+        bot: false,
+        tag: 'User#0001',
+        username: 'User',
+        toString: () => '<@user-url-refresh>'
+    };
+
+    const oldAttachment = {
+        id: 'attachment-1',
+        name: 'image.png',
+        size: 1234,
+        contentType: 'image/png',
+        url: 'https://cdn.discordapp.com/attachments/old-url',
+        proxyURL: 'https://media.discordapp.net/attachments/old-url'
+    };
+
+    const newAttachment = {
+        id: 'attachment-1',
+        name: 'image.png',
+        size: 1234,
+        contentType: 'image/png',
+        url: 'https://cdn.discordapp.com/attachments/new-url',
+        proxyURL: 'https://media.discordapp.net/attachments/new-url'
+    };
+
+    await antiCheatManager.onMessageUpdate(
+        {
+            partial: false,
+            id: 'message-url-refresh',
+            channelId: 'channel-1',
+            content: '',
+            attachments: new Map([['attachment-1', oldAttachment]]),
+            author,
+            guild: {
+                id: 'guild-url-refresh'
+            }
+        } as any,
+        {
+            partial: false,
+            id: 'message-url-refresh',
+            channelId: 'channel-1',
+            content: '',
+            editedTimestamp: 1700000000000,
+            attachments: new Map([['attachment-1', newAttachment]]),
+            author,
+            guild: {
+                id: 'guild-url-refresh'
+            }
+        } as any
+    );
+
+    assert.equal(sendChatLogCalls, 0);
+});
+
+test('messageUpdate ignores partial cache updates without editedTimestamp', async (t) => {
+    const originalGetSettings = antiCheatManager.getSettings;
+    const originalSendChatLog = (antiCheatManager as any).sendChatLog;
+
+    const settings = JSON.parse(JSON.stringify(DEFAULT_ANTICHEAT_SETTINGS)) as typeof DEFAULT_ANTICHEAT_SETTINGS;
+    settings.chatLogChannelId = 'chat-log-channel';
+
+    (antiCheatManager as any).getSettings = async () => settings;
+
+    let sendChatLogCalls = 0;
+    (antiCheatManager as any).sendChatLog = async () => {
+        sendChatLogCalls += 1;
+    };
+
+    t.after(() => {
+        (antiCheatManager as any).getSettings = originalGetSettings;
+        (antiCheatManager as any).sendChatLog = originalSendChatLog;
+    });
+
+    const author = {
+        id: 'user-partial-refresh',
+        bot: false,
+        tag: 'User#0002',
+        username: 'User',
+        toString: () => '<@user-partial-refresh>'
+    };
+
+    await antiCheatManager.onMessageUpdate(
+        {
+            partial: true,
+            id: 'message-partial-refresh',
+            channelId: 'channel-2',
+            guild: {
+                id: 'guild-partial-refresh'
+            }
+        } as any,
+        {
+            partial: false,
+            id: 'message-partial-refresh',
+            channelId: 'channel-2',
+            content: '',
+            editedTimestamp: null,
+            attachments: new Map([['attachment-2', {
+                id: 'attachment-2',
+                name: 'photo.jpg',
+                size: 2048,
+                contentType: 'image/jpeg',
+                url: 'https://cdn.discordapp.com/attachments/partial-refresh'
+            }]]),
+            author,
+            guild: {
+                id: 'guild-partial-refresh'
+            }
+        } as any
+    );
+
+    assert.equal(sendChatLogCalls, 0);
+});
