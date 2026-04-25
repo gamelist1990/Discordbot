@@ -5,6 +5,7 @@ import { antiCheatManager } from '../src/core/anticheat/AntiCheatManager.ts';
 import { DEFAULT_ANTICHEAT_SETTINGS } from '../src/core/anticheat/types.ts';
 import { RedirectLinkDetector } from '../src/core/anticheat/detectors/RedirectLinkDetector.ts';
 import { TextSpamDetector } from '../src/core/anticheat/detectors/TextSpamDetector.ts';
+import { MentionSpamDetector } from '../src/core/anticheat/detectors/MentionSpamDetector.ts';
 import { hasMeaningfulDetection } from '../src/core/anticheat/utils.ts';
 import { CacheManager } from '../src/utils/CacheManager.ts';
 
@@ -61,6 +62,64 @@ test('duplicate-message style results still count as meaningful when they provid
         reasons: ['重複メッセージを 2 回送信しました'],
         deleteMessage: true
     }), true);
+});
+
+function createMentionSpamContext(overrides: Record<string, any> = {}) {
+    return {
+        guildId: 'guild-mention-spam',
+        userId: 'user-mention-spammer',
+        channelId: 'channel-mention-spam',
+        userTrustScore: 0,
+        settings: {
+            detectors: {
+                mentionSpam: {
+                    enabled: true,
+                    score: 2,
+                    deleteMessage: true,
+                    notifyChannel: false,
+                    config: {
+                        windowSeconds: 30,
+                        sameUserMentionThreshold: 3,
+                        roleMentionThreshold: 3,
+                        totalMentionThreshold: 6,
+                        ...overrides
+                    }
+                }
+            }
+        }
+    } as any;
+}
+
+test('mentionSpam detects repeated mentions to the same user across messages', async (t) => {
+    CacheManager.clear();
+    t.after(() => CacheManager.clear());
+
+    const detector = new MentionSpamDetector();
+    const context = createMentionSpamContext();
+
+    assert.equal((await detector.detect({ id: 'mention-1', content: '<@123>' } as any, context)).scoreDelta, 0);
+    assert.equal((await detector.detect({ id: 'mention-2', content: '<@123>' } as any, context)).scoreDelta, 0);
+
+    const result = await detector.detect({ id: 'mention-3', content: '<@123>' } as any, context);
+    assert.equal(result.scoreDelta, 2);
+    assert.match(result.reasons[0], /同一ユーザー/);
+    assert.equal(result.deleteMessage, true);
+    assert.equal(result.metadata?.repeatedUserMentions, 3);
+});
+
+test('mentionSpam detects role mention bursts', async (t) => {
+    CacheManager.clear();
+    t.after(() => CacheManager.clear());
+
+    const detector = new MentionSpamDetector();
+    const result = await detector.detect(
+        { id: 'role-mention-1', content: '<@&1> <@&2> <@&3>' } as any,
+        createMentionSpamContext()
+    );
+
+    assert.equal(result.scoreDelta, 2);
+    assert.match(result.reasons[0], /ロールメンション/);
+    assert.equal(result.metadata?.roleMentionCount, 3);
 });
 
 test('autoDelete off suppresses detector-driven message deletion', async (t) => {

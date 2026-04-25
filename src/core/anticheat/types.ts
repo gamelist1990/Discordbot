@@ -193,6 +193,18 @@ export const DEFAULT_ANTICHEAT_SETTINGS: GuildAntiCheatSettings = {
                 scoreFrom: 4
             }
         },
+        mentionSpam: {
+            enabled: true,
+            score: 2,
+            deleteMessage: true,
+            notifyChannel: false,
+            config: {
+                windowSeconds: 30,
+                sameUserMentionThreshold: 5,
+                roleMentionThreshold: 5,
+                totalMentionThreshold: 10
+            }
+        },
         mentionLimit: {
             enabled: true,
             score: 1,

@@ -32,6 +32,7 @@ import { RedirectLinkDetector } from './detectors/RedirectLinkDetector.js';
 import { CopyPasteDetector } from './detectors/CopyPasteDetector.js';
 import { EveryoneMentionDetector } from './detectors/EveryoneMentionDetector.js';
 import { DuplicateMessageDetector } from './detectors/DuplicateMessageDetector.js';
+import { MentionSpamDetector } from './detectors/MentionSpamDetector.js';
 import { MentionLimitDetector } from './detectors/MentionLimitDetector.js';
 import { MaxLinesDetector } from './detectors/MaxLinesDetector.js';
 import { WordFilterDetector } from './detectors/WordFilterDetector.js';
@@ -52,6 +53,7 @@ export class AntiCheatManager {
         this.registerDetector(new CopyPasteDetector());
         this.registerDetector(new EveryoneMentionDetector());
         this.registerDetector(new DuplicateMessageDetector());
+        this.registerDetector(new MentionSpamDetector());
         this.registerDetector(new MentionLimitDetector());
         this.registerDetector(new MaxLinesDetector());
         this.registerDetector(new WordFilterDetector());

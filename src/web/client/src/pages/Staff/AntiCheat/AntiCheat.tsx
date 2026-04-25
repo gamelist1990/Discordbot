@@ -66,6 +66,12 @@ const DETECTORS: DetectorEntry[] = [
     { kind: 'number', key: 'deleteFrom', label: '削除開始回数', defaultValue: 2, min: 1 },
     { kind: 'number', key: 'scoreFrom', label: 'スコア開始回数', defaultValue: 4, min: 1 },
   ] },
+  { key: 'mentionSpam', title: 'メンションスパム', description: '同一ユーザーへの連続メンションやロールメンション攻撃を止めます。', icon: 'record_voice_over', fields: [
+    { kind: 'number', key: 'windowSeconds', label: '監視秒数', defaultValue: 30, min: 1 },
+    { kind: 'number', key: 'sameUserMentionThreshold', label: '同一ユーザー上限', defaultValue: 5, min: 1 },
+    { kind: 'number', key: 'roleMentionThreshold', label: 'ロールメンション上限', defaultValue: 5, min: 1 },
+    { kind: 'number', key: 'totalMentionThreshold', label: '合計メンション上限', defaultValue: 10, min: 1 },
+  ] },
   { key: 'mentionLimit', title: '最大言及', description: 'ユーザー / ロールの大量メンションを制御します。', icon: 'groups', fields: [
     { kind: 'number', key: 'maxUserMentions', label: 'ユーザー言及上限', defaultValue: 200, min: 1 },
     { kind: 'number', key: 'maxRoleMentions', label: 'ロール言及上限', defaultValue: 200, min: 1 },
