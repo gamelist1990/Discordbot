@@ -1,5 +1,8 @@
 .page {
   min-height: calc(100vh - var(--header-height));
+  width: min(var(--app-content-max), calc(100% - 32px));
+  margin: 0 auto;
+  padding: var(--app-page-y) 0 44px;
 }
 
 .pageHeader {
@@ -205,6 +208,11 @@
 }
 
 @media (max-width: 760px) {
+  .page {
+    width: min(100% - 24px, var(--app-content-max));
+    padding: 18px 0 32px;
+  }
+
   .pageHeaderCopy {
     padding: 18px;
   }

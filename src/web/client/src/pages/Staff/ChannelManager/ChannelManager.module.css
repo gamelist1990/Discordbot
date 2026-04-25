@@ -435,3 +435,160 @@
     min-width: 100%;
   }
 }
+
+/* Home-aligned unified shell */
+.page {
+  width: min(var(--app-content-wide), calc(100% - 32px));
+  min-height: calc(100vh - var(--header-height));
+  margin: 0 auto;
+  padding: var(--app-page-y) 0 44px;
+  background: transparent;
+  color: var(--app-ink);
+}
+
+.pageHeader {
+  border-radius: var(--radius-md);
+  border: 1px solid var(--app-border);
+  background: linear-gradient(180deg, var(--app-surface-strong), var(--app-surface));
+  color: var(--app-ink);
+  box-shadow: var(--app-shadow-sm);
+}
+
+.pageHeaderCopy h1,
+.panelHeader h2,
+.channelRowMain strong,
+.statCard strong,
+.permissionRow,
+.overwriteSummary,
+.field,
+.checkField {
+  color: var(--app-ink);
+}
+
+.pageHeaderCopy p,
+.panelHeader p,
+.statCard span,
+.channelRowMain small,
+.groupLabel,
+.permissionKey,
+.overwriteSummary span {
+  color: var(--app-ink-soft);
+}
+
+.pageEyebrow,
+.panelEyebrow {
+  color: var(--app-accent-strong);
+  opacity: 1;
+}
+
+.panel,
+.noticeSuccess,
+.noticeError,
+.statePanel,
+.statCard,
+.contextMenu {
+  border-radius: var(--radius-md);
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
+  box-shadow: var(--app-shadow-sm);
+}
+
+.addOverwriteBar,
+.channelRow,
+.channelChild,
+.permissionRow,
+.overwriteSummary {
+  border-color: var(--app-border);
+  border-radius: var(--radius-xs);
+  background: var(--app-surface-soft);
+  color: var(--app-ink);
+}
+
+.channelRow:hover {
+  border-color: color-mix(in srgb, var(--app-accent) 24%, var(--app-border));
+}
+
+.channelRowActive,
+.roleChipActive,
+.tabButtonActive {
+  background: color-mix(in srgb, var(--app-accent) 10%, var(--app-surface));
+  border-color: color-mix(in srgb, var(--app-accent) 28%, var(--app-border));
+  color: var(--app-accent-strong);
+}
+
+.input,
+.select,
+.textarea {
+  border-color: var(--app-border);
+  border-radius: var(--radius-xs);
+  background: var(--app-surface-strong);
+  color: var(--app-ink);
+}
+
+.primaryButton,
+.secondaryButton,
+.miniButton,
+.roleChip,
+.contextItem,
+.tabButton {
+  border-radius: var(--radius-xs);
+  font-weight: 700;
+}
+
+.primaryButton {
+  background: linear-gradient(90deg, var(--app-accent), var(--app-accent-strong));
+  color: #fff;
+}
+
+.secondaryButton,
+.miniButton,
+.roleChip,
+.contextItem,
+.tabButton {
+  background: var(--app-surface-soft);
+  border: 1px solid var(--app-border-strong);
+  color: var(--app-ink);
+}
+
+.contextItem:hover {
+  background: color-mix(in srgb, var(--app-accent) 7%, var(--app-surface));
+}
+
+.checkboxInput {
+  accent-color: var(--app-accent);
+}
+
+.noticeSuccess {
+  color: var(--app-success);
+  background: color-mix(in srgb, var(--app-success) 10%, var(--app-surface));
+}
+
+.noticeError {
+  color: var(--app-danger);
+  background: color-mix(in srgb, var(--app-danger) 10%, var(--app-surface));
+}
+
+@media (max-width: 720px) {
+  .page {
+    width: min(100% - 24px, var(--app-content-wide));
+    padding: 18px 0 32px;
+  }
+
+  .pageHeader,
+  .panel {
+    padding: 18px;
+  }
+
+  .pageHeader,
+  .panelHeader,
+  .topBar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .primaryButton,
+  .secondaryButton,
+  .miniButton {
+    width: 100%;
+  }
+}

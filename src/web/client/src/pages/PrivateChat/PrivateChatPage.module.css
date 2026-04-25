@@ -801,7 +801,8 @@
 
 .guildCards {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(220px, 280px));
+  justify-content: start;
   gap: 16px;
 }
 
@@ -845,4 +846,254 @@
   font-weight: 600;
   font-size: 16px;
   text-align: center;
+}
+
+/* Home-aligned unified shell */
+.container {
+  min-height: calc(100vh - var(--header-height));
+  background: transparent;
+  color: var(--app-ink);
+  font-family: var(--font-body);
+  padding-bottom: 40px;
+}
+
+.header {
+  width: min(var(--app-content-wide), calc(100% - 32px));
+  margin: 28px auto 0;
+  padding: 24px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--app-border);
+  background: linear-gradient(180deg, var(--app-surface-strong), var(--app-surface));
+  color: var(--app-ink);
+  box-shadow: var(--app-shadow-sm);
+}
+
+.headerContent,
+.tabs,
+.content,
+.guildSelectorGrid {
+  width: min(var(--app-content-wide), calc(100% - 32px));
+  max-width: none;
+}
+
+.headerTitle h1 {
+  color: var(--app-ink);
+  font-size: clamp(1.6rem, 2.4vw, 2.3rem);
+  font-weight: 800;
+  letter-spacing: 0;
+}
+
+.headerTitle .material-icons,
+.cardHeader .material-icons,
+.chatCardTitle .material-icons,
+.detailSection h3 .material-icons,
+.infoRow .material-icons {
+  color: var(--app-accent-strong);
+}
+
+.headerStatus {
+  color: var(--app-ink-soft);
+}
+
+.statusConnected {
+  background: color-mix(in srgb, var(--app-success) 12%, var(--app-surface));
+  border: 1px solid color-mix(in srgb, var(--app-success) 20%, var(--app-border));
+  color: var(--app-success);
+  border-radius: var(--radius-xs);
+}
+
+.tabs {
+  margin: 16px auto 0;
+  padding: 8px;
+  gap: 8px;
+  border: 1px solid var(--app-border);
+  border-radius: var(--radius-md);
+  background: var(--app-surface);
+  box-shadow: var(--app-shadow-sm);
+}
+
+.tab {
+  border-radius: var(--radius-xs);
+  color: var(--app-ink-soft);
+  text-transform: none;
+}
+
+.tab:hover,
+.tabActive {
+  background: color-mix(in srgb, var(--app-accent) 9%, var(--app-surface));
+  color: var(--app-accent-strong);
+}
+
+.tabActive::after {
+  display: none;
+}
+
+.content,
+.guildSelectorGrid {
+  margin: 18px auto 0;
+  padding: 0;
+}
+
+.statsGrid {
+  gap: 16px;
+}
+
+.statCard,
+.card,
+.chatCard,
+.memberCard,
+.guildCard,
+.suggestions,
+.loading,
+.emptyState,
+.error {
+  border: 1px solid var(--app-border);
+  border-radius: var(--radius-md);
+  background: var(--app-surface);
+  color: var(--app-ink);
+  box-shadow: var(--app-shadow-sm);
+}
+
+.statCard {
+  align-items: flex-start;
+  padding: 18px;
+  gap: 10px;
+  background: var(--app-surface);
+  color: var(--app-ink);
+}
+
+.statCardPrimary,
+.statCardSuccess,
+.statCardInfo,
+.statCardWarning {
+  background: var(--app-surface);
+  color: var(--app-ink);
+}
+
+.statCard .material-icons {
+  font-size: 32px;
+  color: var(--app-accent-strong);
+}
+
+.statNumber {
+  font-size: clamp(1.7rem, 3vw, 2.35rem);
+  font-weight: 800;
+  color: var(--app-ink);
+}
+
+.statLabel {
+  color: var(--app-ink-soft);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.cardHeader {
+  border-bottom: 1px solid var(--app-border);
+  background: var(--app-surface-soft);
+}
+
+.cardHeader h2,
+.chatCardTitle,
+.roomItemName,
+.memberName,
+.suggestionUsername {
+  color: var(--app-ink);
+  font-weight: 700;
+}
+
+.inputGroup,
+.roomItem,
+.suggestionItem {
+  border-color: var(--app-border);
+  border-radius: var(--radius-xs);
+  background: var(--app-surface-soft);
+}
+
+.inputGroup:focus-within {
+  border-color: color-mix(in srgb, var(--app-accent) 42%, var(--app-border));
+  background: var(--app-surface-strong);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--app-accent) 14%, transparent);
+}
+
+.input {
+  color: var(--app-ink);
+}
+
+.button {
+  border-radius: var(--radius-xs);
+  background: linear-gradient(90deg, var(--app-accent), var(--app-accent-strong));
+  box-shadow: 0 8px 20px color-mix(in srgb, var(--app-accent) 18%, transparent);
+  text-transform: none;
+  font-weight: 700;
+}
+
+.button:hover:not(:disabled) {
+  background: linear-gradient(90deg, var(--app-accent), var(--app-accent-strong));
+  box-shadow: var(--app-shadow-md);
+}
+
+.chatCard:hover,
+.guildCard:hover,
+.memberCard:hover {
+  border-color: color-mix(in srgb, var(--app-accent) 18%, var(--app-border));
+  box-shadow: var(--app-shadow-md);
+}
+
+.roomItem:hover,
+.suggestionItem:hover {
+  background: color-mix(in srgb, var(--app-accent) 7%, var(--app-surface));
+}
+
+.roomItemActive {
+  background: color-mix(in srgb, var(--app-accent) 10%, var(--app-surface));
+  border-color: color-mix(in srgb, var(--app-accent) 28%, var(--app-border));
+}
+
+.roomItemSubtitle,
+.memberId,
+.suggestionDisplayName,
+.infoRow,
+.hint,
+.emptyState,
+.loading {
+  color: var(--app-ink-soft);
+}
+
+.deleteButton:hover,
+.removeMemberButton:hover {
+  background: color-mix(in srgb, var(--app-danger) 10%, var(--app-surface));
+  color: var(--app-danger);
+}
+
+@media (max-width: 768px) {
+  .header,
+  .headerContent,
+  .tabs,
+  .content,
+  .guildSelectorGrid {
+    width: min(100% - 24px, var(--app-content-wide));
+  }
+
+  .header {
+    margin-top: 18px;
+    padding: 18px;
+  }
+
+  .tabs {
+    overflow-x: auto;
+  }
+
+  .tab {
+    min-width: 112px;
+  }
+
+  .statsGrid,
+  .guildCards {
+    grid-template-columns: 1fr;
+  }
+
+  .chatCardHeader,
+  .memberCard {
+    align-items: flex-start;
+  }
 }

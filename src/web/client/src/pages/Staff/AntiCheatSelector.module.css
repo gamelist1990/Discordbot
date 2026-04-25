@@ -185,3 +185,50 @@
 @keyframes spin { to { transform: rotate(360deg); } }
 
 .visuallyHidden { position: absolute !important; height: 1px; width: 1px; overflow: hidden; clip: rect(1px,1px,1px,1px); white-space: nowrap; }
+
+/* Home-aligned unified shell */
+.root {
+  width: min(var(--app-content-max), calc(100% - 32px));
+  margin: 0 auto;
+  padding: var(--app-page-y) 0 44px;
+}
+
+.grid {
+  grid-template-columns: repeat(auto-fit, minmax(260px, 360px));
+  justify-content: start;
+}
+
+.card {
+  border-radius: var(--radius-md);
+}
+
+.cardInner {
+  min-height: 64px;
+}
+
+.pageHeaderCopy,
+.summaryCard,
+.card,
+.empty,
+.loading {
+  border-radius: var(--radius-md);
+}
+
+@media (max-width: 700px) {
+  .root {
+    width: min(100% - 24px, var(--app-content-max));
+    padding: 18px 0 32px;
+  }
+
+  .grid {
+    grid-template-columns: 1fr;
+  }
+
+  .cardInner {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .chevron {
+    display: none;
+  }
+}

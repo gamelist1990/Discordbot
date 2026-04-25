@@ -1,7 +1,7 @@
 .page {
-  width: min(1320px, calc(100% - 32px));
+  width: min(var(--app-content-wide), calc(100% - 32px));
   margin: 0 auto;
-  padding: 28px 0 40px;
+  padding: var(--app-page-y) 0 40px;
   display: grid;
   gap: 22px;
   position: relative;
@@ -17,7 +17,7 @@
 .loading,
 .errorBox {
   border: 1px solid var(--app-border);
-  background: var(--app-surface-strong);
+  background: var(--app-surface);
   box-shadow: var(--app-shadow-sm);
 }
 
@@ -27,11 +27,8 @@
   gap: 24px;
   align-items: flex-start;
   padding: 28px;
-  border-radius: 28px;
-  background:
-    radial-gradient(circle at top right, rgba(37, 99, 235, 0.2), transparent 32%),
-    radial-gradient(circle at bottom left, rgba(13, 148, 136, 0.14), transparent 28%),
-    linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(241, 245, 249, 0.96));
+  border-radius: var(--radius-md);
+  background: linear-gradient(180deg, var(--app-surface-strong), var(--app-surface));
 }
 
 .heroCopy h1 {
@@ -51,9 +48,9 @@
   display: inline-flex;
   align-items: center;
   padding: 6px 10px;
-  border-radius: 999px;
-  background: rgba(37, 99, 235, 0.1);
-  color: var(--app-accent);
+  border-radius: var(--radius-xs);
+  background: color-mix(in srgb, var(--app-accent) 8%, var(--app-surface));
+  color: var(--app-accent-strong);
   font-size: 0.78rem;
   font-weight: 700;
   letter-spacing: 0.08em;
@@ -73,7 +70,7 @@
 .boardCard,
 .detailCard,
 .infoCard {
-  border-radius: 24px;
+  border-radius: var(--radius-md);
   padding: 22px;
 }
 
@@ -126,7 +123,7 @@
 .summaryStats div {
   min-width: 92px;
   padding: 12px 14px;
-  border-radius: 18px;
+  border-radius: var(--radius-xs);
   background: var(--app-surface-soft);
   text-align: center;
 }
@@ -193,7 +190,7 @@
 }
 
 .groupCard {
-  border-radius: 22px;
+  border-radius: var(--radius-md);
   padding: 18px;
 }
 

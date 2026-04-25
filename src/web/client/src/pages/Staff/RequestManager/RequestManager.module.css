@@ -293,3 +293,121 @@
     justify-content: center;
   }
 }
+
+/* Home-aligned unified shell */
+.page {
+  width: min(var(--app-content-wide), calc(100% - 32px));
+  min-height: calc(100vh - var(--header-height));
+  margin: 0 auto;
+  padding: var(--app-page-y) 0 44px;
+  color: var(--app-ink);
+}
+
+.header,
+.statePanel,
+.guildSelector,
+.panelCard,
+.infoCard,
+.guildCard,
+.infoItem {
+  border-radius: var(--radius-md);
+  border: 1px solid var(--app-border);
+  background: var(--app-surface);
+  box-shadow: var(--app-shadow-sm);
+}
+
+.header {
+  background: linear-gradient(180deg, var(--app-surface-strong), var(--app-surface));
+}
+
+.eyebrow {
+  display: inline-flex;
+  width: fit-content;
+  padding: 6px 10px;
+  border-radius: var(--radius-xs);
+  background: color-mix(in srgb, var(--app-accent) 8%, var(--app-surface));
+  border: 1px solid color-mix(in srgb, var(--app-accent) 18%, var(--app-border));
+  color: var(--app-accent-strong);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.header h1,
+.sectionHeader h2,
+.sectionHeader h3,
+.field label,
+.guildCard,
+.summaryValue {
+  color: var(--app-ink);
+}
+
+.header p,
+.sectionHeader p,
+.hint,
+.statePanel,
+.infoItem span {
+  color: var(--app-ink-soft);
+}
+
+.button,
+.buttonGhost,
+.buttonPrimary,
+.field select,
+.field input,
+.field textarea {
+  border-radius: var(--radius-xs);
+}
+
+.button,
+.buttonGhost {
+  background: var(--app-surface-soft);
+  color: var(--app-ink);
+  border-color: var(--app-border-strong);
+}
+
+.buttonPrimary {
+  background: linear-gradient(90deg, var(--app-accent), var(--app-accent-strong));
+  color: #fff;
+}
+
+.guildGrid {
+  grid-template-columns: repeat(auto-fit, minmax(240px, 340px));
+}
+
+.guildIcon,
+.guildIconFallback {
+  border-radius: var(--radius-sm);
+}
+
+.guildIconFallback {
+  background: color-mix(in srgb, var(--app-accent) 10%, var(--app-surface));
+  color: var(--app-accent-strong);
+}
+
+.field select,
+.field input,
+.field textarea {
+  border-color: var(--app-border);
+  background: var(--app-surface-strong);
+  color: var(--app-ink);
+}
+
+.linkButton {
+  color: var(--app-accent-strong);
+}
+
+@media (max-width: 720px) {
+  .page {
+    width: min(100% - 24px, var(--app-content-wide));
+    padding: 18px 0 32px;
+  }
+
+  .header {
+    padding: 18px;
+    border-radius: var(--radius-md);
+  }
+
+  .guildGrid {
+    grid-template-columns: 1fr;
+  }
+}

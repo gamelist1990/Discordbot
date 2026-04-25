@@ -801,7 +801,16 @@
     }
 
     .headerTitle h1 {
-        font-size: 1.75rem;
+        font-size: 1.5rem;
+        line-height: 1.25;
+    }
+
+    .headerTitle {
+        gap: 12px;
+    }
+
+    .headerTitle i {
+        font-size: 2rem;
     }
 
     .content {
@@ -839,5 +848,242 @@
 
     .modalForm {
         padding: 2rem;
+    }
+}
+
+/* Home-aligned unified shell */
+.container {
+    min-height: calc(100vh - var(--header-height));
+    background: transparent;
+    padding: var(--app-page-y) 0 44px;
+    font-family: var(--font-body);
+    color: var(--app-ink);
+}
+
+.header,
+.toolbar,
+.loading,
+.emptyState,
+.guildCard,
+.presetCard,
+.modal {
+    border-radius: var(--radius-md);
+    border: 1px solid var(--app-border);
+    background: var(--app-surface);
+    box-shadow: var(--app-shadow-sm);
+}
+
+.header {
+    width: min(var(--app-content-wide), calc(100% - 32px));
+    margin: 0 auto 22px;
+    padding: 24px;
+    backdrop-filter: none;
+}
+
+.headerContent,
+.guildSelector,
+.content {
+    width: min(var(--app-content-wide), calc(100% - 32px));
+    max-width: none;
+}
+
+.headerTitle {
+    color: var(--app-ink);
+}
+
+.headerTitle i,
+.loading i,
+.emptyState i,
+.metaItem i {
+    color: var(--app-accent-strong);
+}
+
+.headerTitle h1 {
+    font-size: clamp(1.6rem, 2.4vw, 2.3rem);
+    font-weight: 800;
+    letter-spacing: 0;
+}
+
+.guildSelector,
+.content {
+    margin: 0 auto;
+    padding: 0;
+}
+
+.guildSelector h2,
+.presetHeader h3,
+.modalHeader h2 {
+    color: var(--app-ink);
+    font-weight: 700;
+}
+
+.guildGrid,
+.presetGrid {
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 16px;
+}
+
+.guildGrid {
+    grid-template-columns: repeat(auto-fit, minmax(260px, 340px));
+    justify-content: center;
+}
+
+.guildCard,
+.presetCard {
+    padding: 20px;
+}
+
+.guildCard:hover,
+.presetCard:hover {
+    transform: translateY(-2px);
+    border-color: color-mix(in srgb, var(--app-accent) 18%, var(--app-border));
+    box-shadow: var(--app-shadow-md);
+}
+
+.guildIcon,
+.guildIconPlaceholder {
+    border-radius: var(--radius-sm);
+}
+
+.guildIconPlaceholder {
+    background: linear-gradient(135deg, var(--app-accent), var(--app-accent-strong));
+}
+
+.guildName,
+.roleName,
+.checkboxLabel span {
+    color: var(--app-ink);
+}
+
+.toolbar {
+    padding: 18px;
+    margin-bottom: 18px;
+}
+
+.backButton,
+.changeGuildButton,
+.createButton,
+.postButton,
+.cancelButton,
+.saveButton {
+    border-radius: var(--radius-xs);
+    font-weight: 700;
+    box-shadow: none;
+}
+
+.backButton,
+.createButton,
+.postButton,
+.saveButton {
+    background: linear-gradient(90deg, var(--app-accent), var(--app-accent-strong));
+    color: #fff;
+}
+
+.changeGuildButton,
+.cancelButton {
+    background: var(--app-surface-soft);
+    color: var(--app-ink);
+    border: 1px solid var(--app-border-strong);
+}
+
+.backButton:hover,
+.changeGuildButton:hover,
+.createButton:hover,
+.postButton:hover,
+.saveButton:hover {
+    background: linear-gradient(90deg, var(--app-accent), var(--app-accent-strong));
+    color: #fff;
+    box-shadow: var(--app-shadow-md);
+}
+
+.presetDescription,
+.metaItem,
+.hint,
+.selectedCount,
+.roleMeta {
+    color: var(--app-ink-soft);
+}
+
+.roleChip,
+.selectedCount,
+.roleCheckboxes,
+.roleCheckbox,
+.checkboxLabel {
+    border-color: var(--app-border);
+    border-radius: var(--radius-xs);
+    background: var(--app-surface-soft);
+}
+
+.roleChip,
+.roleCheckbox.selected,
+.checkboxLabel:hover {
+    background: color-mix(in srgb, var(--app-accent) 8%, var(--app-surface));
+    border-color: color-mix(in srgb, var(--app-accent) 18%, var(--app-border));
+}
+
+.roleCheckbox.selected .checkmark,
+.checkboxLabel input[type="checkbox"]:checked + .checkboxMark {
+    background: var(--app-accent);
+    border-color: var(--app-accent);
+}
+
+.modalOverlay {
+    background: color-mix(in srgb, var(--app-ink) 45%, transparent);
+}
+
+.modal {
+    max-width: 720px;
+}
+
+.modalHeader,
+.modalActions {
+    border-color: var(--app-border);
+}
+
+.formGroup input[type="text"],
+.formGroup textarea,
+.searchInput input {
+    border-color: var(--app-border);
+    border-radius: var(--radius-xs);
+    background: var(--app-surface-strong);
+    color: var(--app-ink);
+}
+
+.formGroup input[type="text"]:focus,
+.formGroup textarea:focus,
+.searchInput input:focus {
+    border-color: color-mix(in srgb, var(--app-accent) 42%, var(--app-border));
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--app-accent) 14%, transparent);
+}
+
+@media (max-width: 768px) {
+    .header,
+    .headerContent,
+    .guildSelector,
+    .content {
+        width: min(100% - 24px, var(--app-content-wide));
+    }
+
+    .header {
+        padding: 18px;
+        border-radius: var(--radius-md);
+    }
+
+    .toolbar,
+    .presetHeader,
+    .modalActions,
+    .roleSearchContainer {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .backButton,
+    .changeGuildButton,
+    .createButton,
+    .postButton,
+    .cancelButton,
+    .saveButton {
+        width: 100%;
+        justify-content: center;
     }
 }

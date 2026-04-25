@@ -1,23 +1,24 @@
 .layout {
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
-  background: var(--app-bg);
+  min-height: calc(100vh - var(--header-height));
+  background: transparent;
   font-family: var(--font-body);
 }
 
 .main {
   display: flex;
   flex: 1;
-  max-width: 1600px;
+  max-width: var(--app-content-wide);
   margin: 0 auto;
   width: 100%;
 }
 
 .content {
   flex: 1;
-  padding: 40px;
+  padding: var(--app-page-y) var(--app-page-x);
   overflow-y: auto;
+  min-width: 0;
 }
 
 @media (max-width: 768px) {
@@ -26,6 +27,6 @@
   }
 
   .content {
-    padding: 20px;
+    padding: 18px 14px 28px;
   }
 }

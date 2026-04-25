@@ -6,6 +6,276 @@
     font-family: 'Roboto', 'Segoe UI', sans-serif;
 }
 
+/* Home-aligned unified shell */
+.container {
+    min-height: calc(100vh - var(--header-height));
+    background: transparent;
+    color: var(--app-ink);
+    font-family: var(--font-body);
+    padding-bottom: 44px;
+}
+
+.topBar {
+    position: static;
+    width: min(var(--app-content-wide), calc(100% - 32px));
+    margin: 28px auto 0;
+    border: 1px solid var(--app-border);
+    border-radius: var(--radius-md);
+    background: linear-gradient(180deg, var(--app-surface-strong), var(--app-surface));
+    box-shadow: var(--app-shadow-sm);
+}
+
+.topBarContent {
+    max-width: none;
+    padding: 22px 24px;
+}
+
+.mainContent {
+    width: min(var(--app-content-wide), calc(100% - 32px));
+    max-width: none;
+    padding: 0;
+    margin: 18px auto 0;
+}
+
+.titleSection h1 {
+    color: var(--app-ink);
+    font-size: clamp(1.5rem, 2.2vw, 2.15rem);
+    font-weight: 800;
+}
+
+.subtitle,
+.cardDescription,
+.helpText,
+.xpRange,
+.infoRow,
+.detail span,
+.rankNumber {
+    color: var(--app-ink-soft);
+}
+
+.backButton,
+.iconButton,
+.secondaryButton,
+.closeButton {
+    color: var(--app-ink-soft);
+}
+
+.backButton:hover,
+.iconButton:hover,
+.secondaryButton:hover,
+.closeButton:hover,
+.tab:hover,
+.modalTab:hover {
+    background: color-mix(in srgb, var(--app-accent) 7%, var(--app-surface));
+    color: var(--app-accent-strong);
+}
+
+.select,
+.formGroup input,
+.formGroup textarea,
+.formGroup select {
+    border-color: var(--app-border);
+    border-radius: var(--radius-xs);
+    background: var(--app-surface-strong);
+    color: var(--app-ink);
+}
+
+.select:focus,
+.formGroup input:focus,
+.formGroup textarea:focus,
+.formGroup select:focus {
+    border-color: color-mix(in srgb, var(--app-accent) 42%, var(--app-border));
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--app-accent) 14%, transparent);
+}
+
+.tabs,
+.modalTabs {
+    gap: 8px;
+    padding: 8px;
+    border: 1px solid var(--app-border);
+    border-radius: var(--radius-md);
+    background: var(--app-surface);
+    box-shadow: var(--app-shadow-sm);
+}
+
+.tab,
+.modalTab {
+    margin-bottom: 0;
+    border: 1px solid transparent;
+    border-radius: var(--radius-xs);
+    color: var(--app-ink-soft);
+    min-width: 112px;
+    white-space: nowrap;
+}
+
+.tab.tabActive,
+.modalTab.modalTabActive {
+    background: color-mix(in srgb, var(--app-accent) 10%, var(--app-surface));
+    border-color: color-mix(in srgb, var(--app-accent) 20%, var(--app-border));
+    color: var(--app-accent-strong);
+}
+
+.primaryButton,
+.dangerButton {
+    border-radius: var(--radius-xs);
+    font-weight: 700;
+}
+
+.primaryButton {
+    background: linear-gradient(90deg, var(--app-accent), var(--app-accent-strong));
+    box-shadow: 0 8px 20px color-mix(in srgb, var(--app-accent) 18%, transparent);
+}
+
+.primaryButton:hover:not(:disabled) {
+    background: linear-gradient(90deg, var(--app-accent), var(--app-accent-strong));
+    box-shadow: var(--app-shadow-md);
+}
+
+.secondaryButton {
+    background: var(--app-surface-soft);
+    border-color: var(--app-border-strong);
+    color: var(--app-ink);
+}
+
+.presetCard,
+.panelCard,
+.formSection,
+.loading,
+.emptyState,
+.modalContent,
+.rankEditor,
+.rewardEditor,
+.emptyRewards,
+.ruleCard,
+.optionCard,
+.multiSelect,
+.infoBox,
+.warningBox,
+.radioGroup {
+    border: 1px solid var(--app-border);
+    border-radius: var(--radius-md);
+    background: var(--app-surface);
+    color: var(--app-ink);
+    box-shadow: var(--app-shadow-sm);
+}
+
+.rankEditor,
+.rewardEditor,
+.emptyRewards,
+.multiSelect,
+.radioGroup {
+    background: var(--app-surface-soft);
+    box-shadow: none;
+}
+
+.presetCard:hover,
+.panelCard:hover,
+.ruleCard:hover,
+.optionCard:hover {
+    border-color: color-mix(in srgb, var(--app-accent) 18%, var(--app-border));
+    box-shadow: var(--app-shadow-md);
+}
+
+.cardHeader h3,
+.panelHeader h2,
+.formSection h3,
+.formGroup label,
+.detail strong,
+.optionHeader h3,
+.radioLabel span,
+.loading h2,
+.emptyState p {
+    color: var(--app-ink);
+}
+
+.infoRow i,
+.optionHeader i,
+.emptyRewards i,
+.loading i,
+.emptyState i {
+    color: var(--app-accent-strong);
+}
+
+.rankBadge,
+.checkboxLabel,
+.radioLabel {
+    border-radius: var(--radius-xs);
+    background: var(--app-surface-soft);
+}
+
+.modal {
+    background: color-mix(in srgb, var(--app-ink) 45%, transparent);
+}
+
+.modalHeader,
+.modalFooter {
+    border-color: var(--app-border);
+    background: var(--app-surface);
+}
+
+.modal:has(.warningBox) .modalHeader {
+    background: var(--app-surface);
+    border-bottom: 1px solid var(--app-border);
+}
+
+.modal:has(.warningBox) .modalHeader h2::before {
+    content: none;
+}
+
+.warningBox {
+    background: color-mix(in srgb, var(--app-warn) 10%, var(--app-surface));
+    border-color: color-mix(in srgb, var(--app-warn) 25%, var(--app-border));
+}
+
+.warningBox i,
+.warningBox p {
+    color: var(--app-warn);
+}
+
+.dangerButton {
+    background: linear-gradient(90deg, var(--app-danger), color-mix(in srgb, var(--app-danger) 82%, black));
+    box-shadow: 0 8px 20px color-mix(in srgb, var(--app-danger) 18%, transparent);
+}
+
+@media (max-width: 768px) {
+    .topBar,
+    .mainContent {
+        width: min(100% - 24px, var(--app-content-wide));
+    }
+
+    .topBar {
+        margin-top: 18px;
+    }
+
+    .topBarContent,
+    .panelHeader,
+    .ranksHeader,
+    .cardHeader {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .primaryButton,
+    .secondaryButton,
+    .dangerButton {
+        width: 100%;
+        justify-content: center;
+    }
+
+    .tabs,
+    .modalTabs {
+        overflow-x: auto;
+        scrollbar-width: thin;
+    }
+
+    .tab,
+    .modalTab {
+        flex-direction: row;
+        min-width: 120px;
+        padding: 12px 14px;
+    }
+}
+
 /* Top Bar - Fixed */
 .topBar {
     position: sticky;
@@ -1046,5 +1316,207 @@
     /* Responsive for Advanced Options */
     .advancedOptions {
         grid-template-columns: 1fr;
+    }
+}
+
+/* Final Home-aligned overrides */
+.container {
+    min-height: calc(100vh - var(--header-height));
+    background: transparent;
+    color: var(--app-ink);
+    font-family: var(--font-body);
+    padding-bottom: 44px;
+}
+
+.topBar {
+    position: static;
+    width: min(var(--app-content-wide), calc(100% - 32px));
+    margin: 28px auto 0;
+    border: 1px solid var(--app-border);
+    border-radius: var(--radius-md);
+    background: linear-gradient(180deg, var(--app-surface-strong), var(--app-surface));
+    box-shadow: var(--app-shadow-sm);
+}
+
+.topBarContent {
+    max-width: none;
+    padding: 22px 24px;
+}
+
+.mainContent {
+    width: min(var(--app-content-wide), calc(100% - 32px));
+    max-width: none;
+    padding: 0;
+    margin: 18px auto 0;
+}
+
+.titleSection h1,
+.cardHeader h3,
+.panelHeader h2,
+.formSection h3,
+.formGroup label,
+.detail strong,
+.optionHeader h3,
+.radioLabel span,
+.loading h2,
+.emptyState p {
+    color: var(--app-ink);
+}
+
+.subtitle,
+.cardDescription,
+.helpText,
+.xpRange,
+.infoRow,
+.detail span,
+.rankNumber {
+    color: var(--app-ink-soft);
+}
+
+.select,
+.formGroup input,
+.formGroup textarea,
+.formGroup select {
+    border-color: var(--app-border);
+    border-radius: var(--radius-xs);
+    background: var(--app-surface-strong);
+    color: var(--app-ink);
+}
+
+.tabs,
+.modalTabs,
+.presetCard,
+.panelCard,
+.formSection,
+.loading,
+.emptyState,
+.modalContent,
+.rankEditor,
+.rewardEditor,
+.emptyRewards,
+.ruleCard,
+.optionCard,
+.multiSelect,
+.infoBox,
+.warningBox,
+.radioGroup {
+    border: 1px solid var(--app-border);
+    border-radius: var(--radius-md);
+    background: var(--app-surface);
+    color: var(--app-ink);
+    box-shadow: var(--app-shadow-sm);
+}
+
+.tabs,
+.modalTabs {
+    gap: 8px;
+    padding: 8px;
+}
+
+.rankEditor,
+.rewardEditor,
+.emptyRewards,
+.multiSelect,
+.radioGroup {
+    background: var(--app-surface-soft);
+    box-shadow: none;
+}
+
+.tab,
+.modalTab {
+    margin-bottom: 0;
+    border: 1px solid transparent;
+    border-radius: var(--radius-xs);
+    color: var(--app-ink-soft);
+    min-width: 112px;
+    white-space: nowrap;
+}
+
+.tab.tabActive,
+.modalTab.modalTabActive {
+    background: color-mix(in srgb, var(--app-accent) 10%, var(--app-surface));
+    border-color: color-mix(in srgb, var(--app-accent) 20%, var(--app-border));
+    color: var(--app-accent-strong);
+}
+
+.primaryButton,
+.dangerButton,
+.secondaryButton {
+    border-radius: var(--radius-xs);
+    font-weight: 700;
+}
+
+.primaryButton {
+    background: linear-gradient(90deg, var(--app-accent), var(--app-accent-strong));
+    box-shadow: 0 8px 20px color-mix(in srgb, var(--app-accent) 18%, transparent);
+}
+
+.secondaryButton {
+    background: var(--app-surface-soft);
+    border-color: var(--app-border-strong);
+    color: var(--app-ink);
+}
+
+.dangerButton {
+    background: linear-gradient(90deg, var(--app-danger), color-mix(in srgb, var(--app-danger) 82%, black));
+    box-shadow: 0 8px 20px color-mix(in srgb, var(--app-danger) 18%, transparent);
+}
+
+.presetCard:hover,
+.panelCard:hover,
+.ruleCard:hover,
+.optionCard:hover {
+    border-color: color-mix(in srgb, var(--app-accent) 18%, var(--app-border));
+    box-shadow: var(--app-shadow-md);
+}
+
+.infoRow i,
+.optionHeader i,
+.emptyRewards i,
+.loading i,
+.emptyState i {
+    color: var(--app-accent-strong);
+}
+
+.modal,
+.modalHeader,
+.modalFooter {
+    border-color: var(--app-border);
+}
+
+.modal {
+    background: color-mix(in srgb, var(--app-ink) 45%, transparent);
+}
+
+.modalHeader,
+.modalFooter {
+    background: var(--app-surface);
+}
+
+.warningBox {
+    background: color-mix(in srgb, var(--app-warn) 10%, var(--app-surface));
+    border-color: color-mix(in srgb, var(--app-warn) 25%, var(--app-border));
+}
+
+.warningBox i,
+.warningBox p {
+    color: var(--app-warn);
+}
+
+@media (max-width: 768px) {
+    .topBar,
+    .mainContent {
+        width: min(100% - 24px, var(--app-content-wide));
+    }
+
+    .topBar {
+        margin-top: 18px;
+    }
+
+    .primaryButton,
+    .secondaryButton,
+    .dangerButton {
+        width: 100%;
+        justify-content: center;
     }
 }
