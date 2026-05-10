@@ -45,6 +45,7 @@ export class AntiCheatManager {
     private readonly MAX_LOGS = 100;
     private readonly detectionCooldownMs = 150;
     private lastDetectionTimestamps: Map<string, number> = new Map();
+    private logChannelCache: Map<string, TextChannel> = new Map();
 
     constructor() {
         this.registerDetector(new TextSpamDetector());
@@ -66,6 +67,12 @@ export class AntiCheatManager {
     registerDetector(detector: Detector): void {
         this.detectors.set(detector.name, detector);
         Logger.debug(`Registered AntiCheat detector: ${detector.name}`);
+    }
+
+    private runDetached(task: Promise<unknown>, context: string): void {
+        void task.catch((error) => {
+            Logger.error(`Detached AntiCheat task failed (${context}):`, error);
+        });
     }
 
     mergeSettings(
@@ -260,12 +267,12 @@ export class AntiCheatManager {
             return;
         }
 
-        await this.sendChatLog({
+        this.runDetached(this.sendChatLog({
             guild,
             settings,
             type: 'delete',
             message
-        });
+        }), `chatlog-delete:${guild.id}:${message.id}`);
     }
 
     async onMessageUpdate(oldMessage: Message | PartialMessage, newMessage: Message | PartialMessage): Promise<void> {
@@ -301,13 +308,13 @@ export class AntiCheatManager {
             return;
         }
 
-        await this.sendChatLog({
+        this.runDetached(this.sendChatLog({
             guild,
             settings,
             type: 'update',
             message: resolvedNewMessage,
             oldMessage
-        });
+        }), `chatlog-update:${guild.id}:${resolvedNewMessage.id}`);
     }
 
     private async processMessage(message: Message, settings: GuildAntiCheatSettings): Promise<void> {
@@ -324,7 +331,7 @@ export class AntiCheatManager {
 
         let totalScoreDelta = 0;
         let messageDeleted = false;
-        const allReasons: string[] = [];
+        let autoTimeoutExecuted = false;
         const detectionResults: Array<{ detector: string; result: DetectionResult }> = [];
 
         for (const [name, detector] of this.detectors) {
@@ -349,7 +356,6 @@ export class AntiCheatManager {
 
                 this.lastDetectionTimestamps.set(cooldownKey, now);
                 totalScoreDelta += result.scoreDelta;
-                allReasons.push(...result.reasons);
                 detectionResults.push({ detector: name, result });
 
                 if (settings.autoDelete.enabled && result.deleteMessage && !messageDeleted) {
@@ -374,8 +380,25 @@ export class AntiCheatManager {
                     }
                 });
 
+                if (result.scoreDelta > 0) {
+                    await this.applyTrustAdjustment(
+                        settings,
+                        guildId,
+                        userId,
+                        result.scoreDelta,
+                        result.reasons.join('; ') || name
+                    );
+
+                    if (settings.autoTimeout.enabled && !autoTimeoutExecuted) {
+                        autoTimeoutExecuted = await this.executeAutoTimeout(message.guild!, userId, settings, message.id);
+                    }
+                }
+
                 if (result.publicNotice && detectorConfig.notifyChannel) {
-                    await this.sendPublicNotice(message, result.publicNotice);
+                    this.runDetached(
+                        this.sendPublicNotice(message, result.publicNotice),
+                        `public-notice:${guildId}:${message.id}:${name}`
+                    );
                 }
             } catch (error) {
                 Logger.error(`Detector ${name} failed:`, error);
@@ -389,30 +412,22 @@ export class AntiCheatManager {
         const autoDeleteEnabled = settings.autoDelete.enabled;
 
         if (totalScoreDelta > 0) {
-            await this.applyTrustAdjustment(
-                settings,
-                guildId,
-                userId,
-                totalScoreDelta,
-                allReasons.join('; ')
-            );
-
             if (autoDeleteEnabled) {
-                try {
-                    const deleted = await this.deleteRecentMessages(message.guild!, userId, settings.autoDelete.windowSeconds);
-                    Logger.info(`Auto-deleted ${deleted} messages for user ${userId} in guild ${guildId}`);
-                } catch (error) {
-                    Logger.error('Failed to auto-delete messages:', error);
-                }
-            }
-
-            if (settings.autoTimeout.enabled) {
-                await this.executeAutoTimeout(message.guild!, userId, settings, message.id);
+                this.runDetached(
+                    this.deleteRecentMessages(message.guild!, userId, settings.autoDelete.windowSeconds)
+                        .then((deleted) => {
+                            Logger.info(`Auto-deleted ${deleted} messages for user ${userId} in guild ${guildId}`);
+                        }),
+                    `delete-recent:${guildId}:${userId}:${message.id}`
+                );
             }
         }
 
-        await this.setSettings(guildId, settings);
-        await this.sendDetectionSummary(message.guild!, message, settings, totalScoreDelta, detectionResults);
+        this.runDetached(this.setSettings(guildId, settings), `set-settings:${guildId}:${message.id}`);
+        this.runDetached(
+            this.sendDetectionSummary(message.guild!, message, settings, totalScoreDelta, detectionResults),
+            `detection-summary:${guildId}:${message.id}`
+        );
     }
 
     private async sendDetectionSummary(
@@ -936,7 +951,25 @@ export class AntiCheatManager {
         if (!channelId) {
             return null;
         }
-        return await guild.channels.fetch(channelId).then((channel) => channel as TextChannel | null).catch(() => null);
+
+        const cacheKey = `${guild.id}:${channelId}`;
+        const cachedChannel = this.logChannelCache.get(cacheKey);
+        if (cachedChannel) {
+            return cachedChannel;
+        }
+
+        const fromCache = guild.channels.cache.get(channelId);
+        if (fromCache?.isTextBased()) {
+            const textChannel = fromCache as TextChannel;
+            this.logChannelCache.set(cacheKey, textChannel);
+            return textChannel;
+        }
+
+        const fetchedChannel = await guild.channels.fetch(channelId).then((channel) => channel as TextChannel | null).catch(() => null);
+        if (fetchedChannel) {
+            this.logChannelCache.set(cacheKey, fetchedChannel);
+        }
+        return fetchedChannel;
     }
 
     private async fetchMessageIfPartial(message: Message | PartialMessage): Promise<Message | PartialMessage> {

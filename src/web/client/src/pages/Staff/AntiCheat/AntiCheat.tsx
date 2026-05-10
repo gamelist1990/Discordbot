@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { fetchGuildInfo } from '../../../services/api';
 import {
   useAntiCheatActions,
+  useActiveTimeouts,
   useAntiCheatSettings,
   useDetectionLogs,
   useInterviewActions,
@@ -12,6 +13,7 @@ import {
 import styles from './AntiCheat.module.css';
 import type {
   AntiCheatSettings,
+  ActiveTimeoutEntry,
   DetectionLog,
   DetectorConfig,
   InterviewRoomSession,
@@ -100,6 +102,16 @@ const parseListText = (value: string) => value.split(/\r?\n|,/).map((entry) => e
 const toTextList = (value: unknown) => Array.isArray(value) ? value.join('\n') : '';
 const readNumber = (value: unknown, fallback: number) => Number.isFinite(Number(value)) ? Number(value) : fallback;
 const formatDate = (value?: string | null) => value ? new Date(value).toLocaleString('ja-JP') : '未設定';
+const formatRemaining = (remainingMs: number) => {
+  if (remainingMs <= 0) return 'まもなく終了';
+  const totalSeconds = Math.floor(remainingMs / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (hours > 0) return `${hours}時間 ${minutes}分`;
+  if (minutes > 0) return `${minutes}分 ${seconds}秒`;
+  return `${seconds}秒`;
+};
 const getWordFilterModeLabel = (mode: WordFilterRule['mode']) => {
   switch (mode) {
     case 'contains':
@@ -143,6 +155,7 @@ const AntiCheatUnified: React.FC = () => {
   const { settings, loading, error, updateSettings } = useAntiCheatSettings(guildId || '');
   const { logs, loading: logsLoading, error: logsError, refetch: refetchLogs } = useDetectionLogs(guildId || '', 40);
   const { trust, loading: trustLoading, error: trustError, refetch: refetchTrust } = useUserTrust(guildId || '');
+  const { activeTimeouts, loading: timeoutsLoading, error: timeoutsError, refetch: refetchTimeouts } = useActiveTimeouts(guildId || '');
   const { revokeTimeout, resetTrust, executing, error: actionError } = useAntiCheatActions(guildId || '');
   const { interviews, loading: interviewsLoading, error: interviewsError, refetch: refetchInterviews } = useInterviewRooms(guildId || '');
   const { createInterviewRoom, deleteInterviewRoom, executing: interviewExecuting, error: interviewActionError } = useInterviewActions(guildId || '');
@@ -156,6 +169,7 @@ const AntiCheatUnified: React.FC = () => {
   const [interviewNotice, setInterviewNotice] = useState<string | null>(null);
   const [interviewUserId, setInterviewUserId] = useState('');
   const [interviewTitle, setInterviewTitle] = useState('');
+  const [mobileSection, setMobileSection] = useState<'overview' | 'moderation' | 'activity' | 'interviews' | 'settings'>('moderation');
 
   useEffect(() => {
     if (!settings) return;
@@ -168,6 +182,10 @@ const AntiCheatUnified: React.FC = () => {
   useEffect(() => {
     if (!guildId) return;
     fetchGuildInfo(guildId).then((info) => setGuildName(info.name)).catch(() => setGuildName(guildId));
+  }, [guildId]);
+
+  useEffect(() => {
+    setMobileSection('moderation');
   }, [guildId]);
 
   const trustEntries = useMemo(() => {
@@ -310,6 +328,16 @@ const AntiCheatUnified: React.FC = () => {
     if (await revokeTimeout(log.userId, false, log.messageId)) {
       await refetchLogs();
       await refetchTrust();
+      await refetchTimeouts();
+    }
+  };
+
+  const onRevokeActiveTimeout = async (entry: ActiveTimeoutEntry) => {
+    if (!window.confirm(`${entry.displayName || entry.username} のタイムアウトを解除しますか？`)) return;
+    if (await revokeTimeout(entry.userId, false, entry.sourceMessageId || undefined)) {
+      await refetchLogs();
+      await refetchTrust();
+      await refetchTimeouts();
     }
   };
 
@@ -448,50 +476,605 @@ const AntiCheatUnified: React.FC = () => {
     );
   }
 
+  const overviewCards = (
+    <div className={styles.summary}>
+      <div className={styles.summaryCard}>
+        <span className={styles.summaryLabel}>Status</span>
+        <strong>{draft.enabled ? 'Active' : 'Paused'}</strong>
+        <p>AntiCheat 全体の状態です。</p>
+      </div>
+      <div className={styles.summaryCard}>
+        <span className={styles.summaryLabel}>Raid mode</span>
+        <strong>{draft.raidMode.active ? 'Triggered' : 'Standby'}</strong>
+        <p>{draft.raidMode.reason || '待機中です。'}</p>
+      </div>
+      <div className={styles.summaryCard}>
+        <span className={styles.summaryLabel}>Timeouts</span>
+        <strong>{activeTimeouts.length}</strong>
+        <p>現在タイムアウト中のユーザー数です。</p>
+      </div>
+      <div className={styles.summaryCard}>
+        <span className={styles.summaryLabel}>Interviews</span>
+        <strong>{interviews.length}</strong>
+        <p>進行中と履歴を含む面接室件数です。</p>
+      </div>
+    </div>
+  );
+
+  const moderationSection = (
+    <section className={styles.section}>
+      <div className={styles.sectionHeader}>
+        <div>
+          <span className={styles.sectionLabel}>Moderation</span>
+          <h2>現在のタイムアウト</h2>
+        </div>
+        <p>現在進行中のタイムアウトを一覧で確認し、その場で解除できます。</p>
+      </div>
+
+      <article className={styles.panel}>
+        <div className={styles.inlineHeader}>
+          <div>
+            <strong>アクティブなタイムアウト</strong>
+            <p>{timeoutsLoading ? '現在のタイムアウトを更新しています...' : `${activeTimeouts.length} 人を表示中`}</p>
+          </div>
+          <button className={styles.secondaryButton} onClick={() => refetchTimeouts()} type="button">
+            <span className="material-icons">refresh</span>
+            <span>再取得</span>
+          </button>
+        </div>
+        {timeoutsError ? <div className={styles.noticeError}>{timeoutsError}</div> : null}
+        <div className={styles.tableWrap}>
+          <table className={styles.table}>
+            <thead>
+              <tr>
+                <th>ユーザー</th>
+                <th>解除予定</th>
+                <th>根拠</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {activeTimeouts.length === 0 ? (
+                <tr>
+                  <td colSpan={4} className={styles.emptyCell}>現在タイムアウト中のユーザーはいません。</td>
+                </tr>
+              ) : activeTimeouts.map((entry) => (
+                <tr key={entry.userId}>
+                  <td>
+                    <div className={styles.userCell}>
+                      {entry.avatar ? (
+                        <img className={styles.userAvatar} src={entry.avatar} alt={entry.displayName || entry.username} />
+                      ) : (
+                        <div className={styles.userFallback}>{(entry.displayName || entry.username).charAt(0).toUpperCase()}</div>
+                      )}
+                      <div>
+                        <div className={styles.logPrimary}>{entry.displayName || entry.username}</div>
+                        <div className={styles.logSecondary}>{entry.userId}</div>
+                      </div>
+                    </div>
+                  </td>
+                  <td>
+                    <div>{formatDate(entry.timeoutUntil)}</div>
+                    <div className={styles.logSecondary}>残り {formatRemaining(entry.remainingMs)}</div>
+                  </td>
+                  <td>
+                    <div className={styles.logPrimary}>{entry.sourceDetector || 'manual / unknown'}</div>
+                    <div className={styles.logSecondary}>{entry.sourceReason || `信頼スコア ${entry.trustScore}`}</div>
+                  </td>
+                  <td>
+                    <div className={styles.inlineButtonGroup}>
+                      <button className={styles.inlineButton} onClick={() => onRevokeActiveTimeout(entry)} type="button" disabled={executing}>タイムアウト解除</button>
+                      <button className={styles.secondaryButton} onClick={() => handleCreateInterview(entry.userId)} type="button" disabled={interviewExecuting}>面接室作成</button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </article>
+    </section>
+  );
+
+  const activitySection = (
+    <section className={styles.section}>
+      <div className={styles.sectionHeader}>
+        <div>
+          <span className={styles.sectionLabel}>Activity</span>
+          <h2>ログと信頼スコア</h2>
+        </div>
+        <p>直近の検知と、現在スコアが高いユーザーを確認します。</p>
+      </div>
+
+      <div className={styles.panelGrid}>
+        <article className={styles.panel}>
+          <div className={styles.inlineHeader}>
+            <div>
+              <strong>最新ログ</strong>
+              <p>{logsLoading ? 'ログを更新しています...' : `${logs.length} 件を表示中`}</p>
+            </div>
+            <button className={styles.secondaryButton} onClick={() => refetchLogs()} type="button">
+              <span className="material-icons">refresh</span>
+              <span>再取得</span>
+            </button>
+          </div>
+          {logsError ? <div className={styles.noticeError}>{logsError}</div> : null}
+          <div className={styles.tableWrap}>
+            <table className={styles.table}>
+              <thead>
+                <tr>
+                  <th>検知</th>
+                  <th>スコア</th>
+                  <th>日時</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {logs.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className={styles.emptyCell}>まだ検知ログはありません。</td>
+                  </tr>
+                ) : logs.map((log) => (
+                  <tr key={`${log.messageId}-${log.timestamp}`}>
+                    <td>
+                      <div className={styles.logPrimary}>{log.detector}</div>
+                      <div className={styles.logSecondary}>{log.reason}</div>
+                    </td>
+                    <td>{log.scoreDelta}</td>
+                    <td>{formatDate(log.timestamp)}</td>
+                    <td>
+                      {log.metadata?.isTimedOut ? (
+                        <button className={styles.inlineButton} onClick={() => onRevokeTimeout(log)} type="button" disabled={executing}>タイムアウト解除</button>
+                      ) : (
+                        <span className={styles.logSecondary}>-</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </article>
+
+        <article className={styles.panel}>
+          <div className={styles.inlineHeader}>
+            <div>
+              <strong>信頼スコア</strong>
+              <p>{trustLoading ? '信頼スコアを更新しています...' : `${trustEntries.length} 人を表示中`}</p>
+            </div>
+            <button className={styles.secondaryButton} onClick={() => refetchTrust()} type="button">
+              <span className="material-icons">refresh</span>
+              <span>再取得</span>
+            </button>
+          </div>
+          {trustError ? <div className={styles.noticeError}>{trustError}</div> : null}
+          <div className={styles.tableWrap}>
+            <table className={styles.table}>
+              <thead>
+                <tr>
+                  <th>ユーザー</th>
+                  <th>スコア</th>
+                  <th>更新</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {trustEntries.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className={styles.emptyCell}>監視中のユーザーはいません。</td>
+                  </tr>
+                ) : trustEntries.map((entry) => (
+                  <tr key={entry.userId}>
+                    <td>
+                      <div className={styles.userCell}>
+                        {entry.avatar ? (
+                          <img className={styles.userAvatar} src={entry.avatar} alt={entry.displayName || entry.username} />
+                        ) : (
+                          <div className={styles.userFallback}>{(entry.displayName || entry.username).charAt(0).toUpperCase()}</div>
+                        )}
+                        <div>
+                          <div className={styles.logPrimary}>{entry.displayName || entry.username}</div>
+                          <div className={styles.logSecondary}>{entry.userId}</div>
+                        </div>
+                      </div>
+                    </td>
+                    <td>{entry.score}</td>
+                    <td>{formatDate(entry.lastUpdated)}</td>
+                    <td>
+                      <div className={styles.inlineButtonGroup}>
+                        <button className={styles.inlineButton} onClick={() => onResetTrust(entry.userId)} type="button" disabled={executing}>スコアをリセット</button>
+                        <button className={styles.secondaryButton} onClick={() => handleCreateInterview(entry.userId)} type="button" disabled={interviewExecuting}>面接室作成</button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </article>
+      </div>
+    </section>
+  );
+
+  const interviewsSection = (
+    <section className={styles.section}>
+      <div className={styles.sectionHeader}>
+        <div>
+          <span className={styles.sectionLabel}>Interviews</span>
+          <h2>面接室</h2>
+        </div>
+        <p>信頼スコアの再審査用に AI 面接室を作成します。24時間クールダウンがあり、ふざけた応答は即終了です。</p>
+      </div>
+
+      <div className={styles.panelGrid}>
+        <article className={styles.panel}>
+          <div className={styles.inlineHeader}>
+            <div>
+              <strong>面接室を作成</strong>
+              <p>ユーザー ID を指定して手動作成します。タイトルは任意です。</p>
+            </div>
+            <button className={styles.secondaryButton} onClick={() => refetchInterviews()} type="button">
+              <span className="material-icons">refresh</span>
+              <span>再取得</span>
+            </button>
+          </div>
+          <div className={styles.formGrid}>
+            <label className={styles.field}>
+              <span>対象ユーザー ID</span>
+              <input className={styles.input} type="text" value={interviewUserId} onChange={(event) => setInterviewUserId(event.target.value)} placeholder="123456789012345678" />
+            </label>
+            <label className={styles.field}>
+              <span>部屋タイトル</span>
+              <input className={styles.input} type="text" value={interviewTitle} onChange={(event) => setInterviewTitle(event.target.value)} placeholder="appeal-username" />
+            </label>
+          </div>
+          <div className={styles.buttonRow}>
+            <button className={styles.primaryButton} onClick={() => handleCreateInterview(interviewUserId, interviewTitle || undefined)} type="button" disabled={interviewExecuting || !interviewUserId.trim()}>
+              <span className="material-icons">forum</span>
+              <span>{interviewExecuting ? '作成中...' : '面接室を作成'}</span>
+            </button>
+          </div>
+          <div className={styles.raidSummary}>
+            <div>
+              <span>進行中</span>
+              <strong>{activeInterviews.length}</strong>
+            </div>
+            <div>
+              <span>総件数</span>
+              <strong>{interviews.length}</strong>
+            </div>
+          </div>
+        </article>
+
+        <article className={styles.panel}>
+          <div className={styles.inlineHeader}>
+            <div>
+              <strong>面接室一覧</strong>
+              <p>{interviewsLoading ? '面接室一覧を更新しています...' : `${interviews.length} 件を表示中`}</p>
+            </div>
+          </div>
+          {interviewsError ? <div className={styles.noticeError}>{interviewsError}</div> : null}
+          <div className={styles.tableWrap}>
+            <table className={styles.table}>
+              <thead>
+                <tr>
+                  <th>対象</th>
+                  <th>状態</th>
+                  <th>更新</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {interviews.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className={styles.emptyCell}>まだ面接室はありません。</td>
+                  </tr>
+                ) : interviews.map((session) => (
+                  <tr key={session.sessionId}>
+                    <td>
+                      <div className={styles.logPrimary}>{session.userDisplayName || session.userName}</div>
+                      <div className={styles.logSecondary}>{session.title}</div>
+                      <div className={styles.logSecondary}>{session.userId}</div>
+                    </td>
+                    <td>
+                      <div className={styles.logPrimary}>{statusText(session)}</div>
+                      <div className={styles.logSecondary}>次回: {formatDate(session.cooldownUntil)}</div>
+                    </td>
+                    <td>
+                      <div>{formatDate(session.updatedAt)}</div>
+                      {session.decision ? <div className={styles.logSecondary}>{session.decision.reason}</div> : null}
+                    </td>
+                    <td>
+                      <div className={styles.inlineButtonGroup}>
+                        <button className={styles.inlineButton} onClick={() => window.open(session.channelUrl, '_blank', 'noopener,noreferrer')} type="button">
+                          開く
+                        </button>
+                        <button className={styles.dangerButton} onClick={() => handleDeleteInterview(session)} type="button" disabled={interviewExecuting}>
+                          削除
+                        </button>
+                      </div>
+                      {session.warnings?.length ? <div className={styles.logSecondary}>{session.warnings.join(' / ')}</div> : null}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </article>
+      </div>
+    </section>
+  );
+
+  const settingsSection = (
+    <>
+      <section className={styles.section}>
+        <div className={styles.sectionHeader}>
+          <div>
+            <span className={styles.sectionLabel}>Overview</span>
+            <h2>全体設定</h2>
+          </div>
+          <p>保護スイッチ、ログ出力先、自動処理を先に固めます。</p>
+        </div>
+        <div className={styles.panelGrid}>
+          <article className={styles.panel}>
+            <div className={styles.inlineHeader}>
+              <div>
+                <strong>保護スイッチ</strong>
+                <p>サーバー全体で AntiCheat を有効化します。</p>
+              </div>
+              <label className={styles.checkField}>
+                <input type="checkbox" checked={draft.enabled} onChange={(event) => updateDraft((current) => ({ ...current, enabled: event.target.checked }))} />
+                <span>{draft.enabled ? '有効' : '無効'}</span>
+              </label>
+            </div>
+            <div className={styles.formGrid}>
+              <label className={styles.field}>
+                <span>検知ログチャンネル ID</span>
+                <input className={styles.input} type="text" value={draft.logChannelId || ''} onChange={(event) => updateDraft((current) => ({ ...current, logChannelId: event.target.value || null }))} placeholder="123456789012345678" />
+              </label>
+              <label className={styles.field}>
+                <span>アバターログチャンネル ID</span>
+                <input className={styles.input} type="text" value={draft.avatarLogChannelId || ''} onChange={(event) => updateDraft((current) => ({ ...current, avatarLogChannelId: event.target.value || null }))} placeholder="123456789012345678" />
+              </label>
+              <label className={styles.field}>
+                <span>Chatlogチャンネル ID</span>
+                <input className={styles.input} type="text" value={draft.chatLogChannelId || ''} onChange={(event) => updateDraft((current) => ({ ...current, chatLogChannelId: event.target.value || null }))} placeholder="123456789012345678" />
+              </label>
+            </div>
+          </article>
+
+          <article className={styles.panel}>
+            <div className={styles.inlineHeader}>
+              <div>
+                <strong>自動処理</strong>
+                <p>削除対象の秒数と自動タイムアウトを管理します。無効時は検知時の自動削除も止まります。</p>
+              </div>
+              <div className={`${styles.statusPill} ${draft.raidMode.active ? styles.statusDanger : styles.statusNeutral}`}>
+                {draft.raidMode.active ? 'Raid active' : 'Raid standby'}
+              </div>
+            </div>
+            <div className={styles.formGrid}>
+              <label className={styles.checkField}>
+                <input type="checkbox" checked={draft.autoDelete.enabled} onChange={(event) => updateDraft((current) => ({ ...current, autoDelete: { ...current.autoDelete, enabled: event.target.checked } }))} />
+                <span>直近メッセージを削除</span>
+              </label>
+              <label className={styles.field}>
+                <span>削除対象の秒数</span>
+                <input className={styles.input} type="number" min={1} value={draft.autoDelete.windowSeconds} onChange={(event) => updateDraft((current) => ({ ...current, autoDelete: { ...current.autoDelete, windowSeconds: Number(event.target.value) } }))} disabled={!draft.autoDelete.enabled} />
+              </label>
+              <label className={styles.checkField}>
+                <input type="checkbox" checked={draft.autoTimeout.enabled} onChange={(event) => updateDraft((current) => ({ ...current, autoTimeout: { ...current.autoTimeout, enabled: event.target.checked } }))} />
+                <span>自動タイムアウト</span>
+              </label>
+              <label className={styles.field}>
+                <span>タイムアウト秒数</span>
+                <input className={styles.input} type="number" min={1} value={draft.autoTimeout.durationSeconds} onChange={(event) => updateDraft((current) => ({ ...current, autoTimeout: { ...current.autoTimeout, durationSeconds: Number(event.target.value) } }))} disabled={!draft.autoTimeout.enabled} />
+              </label>
+            </div>
+            <div className={styles.raidSummary}>
+              <div>
+                <span>最新発動</span>
+                <strong>{formatDate(draft.raidMode.activatedAt)}</strong>
+              </div>
+              <div>
+                <span>最近の参加数</span>
+                <strong>{draft.raidMode.recentJoinCount}</strong>
+              </div>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section className={styles.section}>
+        <div className={styles.sectionHeader}>
+          <div>
+            <span className={styles.sectionLabel}>Detectors</span>
+            <h2>検知ルール</h2>
+          </div>
+          <p>各ルールのスコア、削除、通知、しきい値を定義します。</p>
+        </div>
+        <div className={styles.detectorList}>
+          {DETECTORS.map((entry) => {
+            const detector = draft.detectors[entry.key];
+            if (!detector) return null;
+
+            return (
+              <article key={entry.key} className={styles.detectorCard}>
+                <div className={styles.detectorHeader}>
+                  <div className={styles.iconTitle}>
+                    <span className={styles.leadingIcon}><span className="material-icons">{entry.icon}</span></span>
+                    <div>
+                      <strong>{entry.title}</strong>
+                      <p>{entry.description}</p>
+                    </div>
+                  </div>
+                  <label className={styles.checkField}>
+                    <input type="checkbox" checked={detector.enabled} onChange={(event) => updateDetector(entry.key, { enabled: event.target.checked })} />
+                    <span>{detector.enabled ? '有効' : '無効'}</span>
+                  </label>
+                </div>
+                <div className={styles.detectorGrid}>
+                  <label className={styles.field}>
+                    <span>加算スコア</span>
+                    <input className={styles.input} type="number" min={0} value={detector.score} onChange={(event) => updateDetector(entry.key, { score: Number(event.target.value) })} disabled={!detector.enabled} />
+                  </label>
+                  <label className={styles.checkField}>
+                    <input type="checkbox" checked={Boolean(detector.deleteMessage)} onChange={(event) => updateDetector(entry.key, { deleteMessage: event.target.checked })} disabled={!detector.enabled || !draft.autoDelete.enabled} />
+                    <span>メッセージを削除</span>
+                  </label>
+                  <label className={styles.checkField}>
+                    <input type="checkbox" checked={Boolean(detector.notifyChannel)} onChange={(event) => updateDetector(entry.key, { notifyChannel: event.target.checked })} disabled={!detector.enabled} />
+                    <span>公開通知を送る</span>
+                  </label>
+                  {entry.key === 'wordFilter'
+                    ? renderWordRules(detector)
+                    : (entry.fields?.map((field) => renderField(entry.key, detector, field)) || <p className={styles.note}>追加の詳細設定はありません。</p>)}
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      </section>
+
+      <section className={styles.section}>
+        <div className={styles.sectionHeader}>
+          <div>
+            <span className={styles.sectionLabel}>Policies</span>
+            <h2>除外設定と処罰</h2>
+          </div>
+          <p>誤検知を避ける対象と、しきい値到達時の処理を定義します。</p>
+        </div>
+        <div className={styles.panelGrid}>
+          <article className={styles.panel}>
+            <div className={styles.inlineHeader}>
+              <div>
+                <strong>除外対象</strong>
+                <p>ロール ID とチャンネル ID を改行またはカンマ区切りで入力します。</p>
+              </div>
+            </div>
+            <div className={styles.formGrid}>
+              <label className={styles.field}>
+                <span>除外ロール</span>
+                <textarea className={styles.textarea} value={excludedRolesText} onChange={(event) => setExcludedRolesText(event.target.value)} placeholder="123456789012345678" />
+              </label>
+              <label className={styles.field}>
+                <span>除外チャンネル</span>
+                <textarea className={styles.textarea} value={excludedChannelsText} onChange={(event) => setExcludedChannelsText(event.target.value)} placeholder="123456789012345678" />
+              </label>
+            </div>
+          </article>
+
+          <article className={styles.panel}>
+            <div className={styles.inlineHeader}>
+              <div>
+                <strong>スコア到達時の処置</strong>
+                <p>しきい値ごとに timeout / kick / ban を並べます。</p>
+              </div>
+              <button className={styles.secondaryButton} onClick={addPunishment} type="button">
+                <span className="material-icons">add</span>
+                <span>しきい値追加</span>
+              </button>
+            </div>
+            {draft.punishments.length === 0 ? (
+              <div className={styles.emptyPanel}>処罰ポリシーはまだありません。</div>
+            ) : (
+              <div className={styles.policyList}>
+                {draft.punishments.map((punishment, thresholdIndex) => (
+                  <div key={`${punishment.threshold}-${thresholdIndex}`} className={styles.ruleCard}>
+                    <div className={styles.inlineHeader}>
+                      <label className={styles.field}>
+                        <span>しきい値</span>
+                        <input className={styles.input} type="number" min={0} value={punishment.threshold} onChange={(event) => updatePunishment(thresholdIndex, { threshold: Number(event.target.value) })} />
+                      </label>
+                      <button className={styles.dangerButton} onClick={() => removePunishment(thresholdIndex)} type="button">
+                        <span className="material-icons">delete</span>
+                        <span>削除</span>
+                      </button>
+                    </div>
+
+                    <div className={styles.actionStack}>
+                      {punishment.actions.map((action, actionIndex) => (
+                        <div key={`${thresholdIndex}-${actionIndex}`} className={styles.actionCard}>
+                          <div className={styles.formGrid}>
+                            <label className={styles.field}>
+                              <span>処置</span>
+                              <select className={styles.select} value={action.type} onChange={(event) => updateAction(thresholdIndex, actionIndex, { type: event.target.value as PunishmentAction['type'] })}>
+                                <option value="timeout">timeout</option>
+                                <option value="kick">kick</option>
+                                <option value="ban">ban</option>
+                              </select>
+                            </label>
+                            <label className={styles.field}>
+                              <span>秒数(timeout用)</span>
+                              <input className={styles.input} type="number" min={1} value={action.durationSeconds || 600} onChange={(event) => updateAction(thresholdIndex, actionIndex, { durationSeconds: Number(event.target.value) })} disabled={action.type !== 'timeout'} />
+                            </label>
+                            <label className={`${styles.field} ${styles.fieldWide}`}>
+                              <span>理由テンプレート</span>
+                              <input className={styles.input} type="text" value={action.reasonTemplate || ''} onChange={(event) => updateAction(thresholdIndex, actionIndex, { reasonTemplate: event.target.value })} />
+                            </label>
+                            <label className={styles.checkField}>
+                              <input type="checkbox" checked={Boolean(action.notify)} onChange={(event) => updateAction(thresholdIndex, actionIndex, { notify: event.target.checked })} />
+                              <span>通知を送る</span>
+                            </label>
+                          </div>
+                          <div className={styles.actionToolbar}>
+                            <button className={styles.secondaryButton} onClick={() => addAction(thresholdIndex)} type="button">
+                              <span className="material-icons">add</span>
+                              <span>処置追加</span>
+                            </button>
+                            {punishment.actions.length > 1 ? (
+                              <button className={styles.dangerButton} onClick={() => removeAction(thresholdIndex, actionIndex)} type="button">
+                                <span className="material-icons">remove</span>
+                                <span>この処置を削除</span>
+                              </button>
+                            ) : null}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </article>
+        </div>
+      </section>
+    </>
+  );
+
   return (
     <div className={styles.page}>
       <section className={styles.pageHeader}>
-        <div className={styles.pageHeaderCopy}>
-          <span className={styles.pageEyebrow}>AntiCheat</span>
-          <h1>{guildName} の保護設定</h1>
-          <p>全体設定、検知、信頼スコア、面接室までをまとめて管理する画面です。</p>
-        </div>
-
-        <div className={styles.pageHeaderActions}>
-          <button className={styles.secondaryButton} onClick={() => navigate(`/settings/${guildId}`)} type="button">
-            <span className="material-icons">arrow_back</span>
-            <span>サーバー管理へ</span>
-          </button>
-          <button className={styles.primaryButton} onClick={commitDraft} type="button" disabled={saving}>
-            <span className="material-icons">{saving ? 'sync' : 'save'}</span>
-            <span>{saving ? '保存中...' : '設定を保存'}</span>
-          </button>
-        </div>
-
-        <div className={styles.pageMeta}>
-          <span className={styles.metaChip}>{draft.enabled ? '保護有効' : '保護停止'}</span>
-          <span className={styles.metaChip}>{Object.values(draft.detectors).filter((detector) => detector.enabled).length} detectors active</span>
-          <span className={styles.metaChip}>{draft.punishments.length} thresholds</span>
-          <span className={styles.metaChip}>{activeInterviews.length} interviews active</span>
-        </div>
-
-        <div className={styles.summary}>
-          <div className={styles.summaryCard}>
-            <span className={styles.summaryLabel}>Status</span>
-            <strong>{draft.enabled ? 'Active' : 'Paused'}</strong>
-            <p>AntiCheat 全体の状態です。</p>
+        <div className={styles.heroGrid}>
+          <div className={styles.pageHeaderCopy}>
+            <span className={styles.pageEyebrow}>AntiCheat</span>
+            <h1>{guildName} の保護設定</h1>
+            <p>PC では監視と設定を見比べやすく、スマホでは緊急操作を最短で触れる構成に再設計しています。</p>
           </div>
-          <div className={styles.summaryCard}>
-            <span className={styles.summaryLabel}>Raid mode</span>
-            <strong>{draft.raidMode.active ? 'Triggered' : 'Standby'}</strong>
-            <p>{draft.raidMode.reason || '待機中です。'}</p>
-          </div>
-          <div className={styles.summaryCard}>
-            <span className={styles.summaryLabel}>Interviews</span>
-            <strong>{interviews.length}</strong>
-            <p>進行中と履歴を含む面接室件数です。</p>
+
+          <div className={styles.commandPanel}>
+            <div className={styles.pageHeaderActions}>
+              <button className={styles.secondaryButton} onClick={() => navigate(`/settings/${guildId}`)} type="button">
+                <span className="material-icons">arrow_back</span>
+                <span>サーバー管理へ</span>
+              </button>
+              <button className={styles.primaryButton} onClick={commitDraft} type="button" disabled={saving}>
+                <span className="material-icons">{saving ? 'sync' : 'save'}</span>
+                <span>{saving ? '保存中...' : '設定を保存'}</span>
+              </button>
+            </div>
+
+            <div className={styles.pageMeta}>
+              <span className={styles.metaChip}>{draft.enabled ? '保護有効' : '保護停止'}</span>
+              <span className={styles.metaChip}>{Object.values(draft.detectors).filter((detector) => detector.enabled).length} detectors active</span>
+              <span className={styles.metaChip}>{draft.punishments.length} thresholds</span>
+              <span className={styles.metaChip}>{activeInterviews.length} interviews active</span>
+              <span className={styles.metaChip}>{activeTimeouts.length} timed out now</span>
+            </div>
           </div>
         </div>
+
+        {overviewCards}
       </section>
 
       <div>
@@ -500,463 +1083,32 @@ const AntiCheatUnified: React.FC = () => {
         {interviewActionError ? <div className={styles.noticeError}>{interviewActionError}</div> : null}
         {interviewNotice ? <div className={styles.noticeSuccess}>{interviewNotice}</div> : null}
 
-        <section className={styles.section}>
-          <div className={styles.sectionHeader}>
-            <div>
-              <span className={styles.sectionLabel}>Overview</span>
-              <h2>全体設定</h2>
-            </div>
-            <p>保護スイッチ、ログ出力先、自動処理を先に固めます。</p>
+        <div className={styles.mobileNav}>
+          <button className={`${styles.mobileNavButton} ${mobileSection === 'moderation' ? styles.mobileNavButtonActive : ''}`} onClick={() => setMobileSection('moderation')} type="button">監視</button>
+          <button className={`${styles.mobileNavButton} ${mobileSection === 'activity' ? styles.mobileNavButtonActive : ''}`} onClick={() => setMobileSection('activity')} type="button">ログ</button>
+          <button className={`${styles.mobileNavButton} ${mobileSection === 'interviews' ? styles.mobileNavButtonActive : ''}`} onClick={() => setMobileSection('interviews')} type="button">面接室</button>
+          <button className={`${styles.mobileNavButton} ${mobileSection === 'settings' ? styles.mobileNavButtonActive : ''}`} onClick={() => setMobileSection('settings')} type="button">設定</button>
+          <button className={`${styles.mobileNavButton} ${mobileSection === 'overview' ? styles.mobileNavButtonActive : ''}`} onClick={() => setMobileSection('overview')} type="button">概要</button>
+        </div>
+
+        <div className={styles.desktopLayout}>
+          <div className={styles.desktopPrimary}>
+            {moderationSection}
+            {activitySection}
           </div>
-          <div className={styles.panelGrid}>
-            <article className={styles.panel}>
-              <div className={styles.inlineHeader}>
-                <div>
-                  <strong>保護スイッチ</strong>
-                  <p>サーバー全体で AntiCheat を有効化します。</p>
-                </div>
-                <label className={styles.checkField}>
-                  <input type="checkbox" checked={draft.enabled} onChange={(event) => updateDraft((current) => ({ ...current, enabled: event.target.checked }))} />
-                  <span>{draft.enabled ? '有効' : '無効'}</span>
-                </label>
-              </div>
-              <div className={styles.formGrid}>
-                <label className={styles.field}>
-                  <span>検知ログチャンネル ID</span>
-                  <input className={styles.input} type="text" value={draft.logChannelId || ''} onChange={(event) => updateDraft((current) => ({ ...current, logChannelId: event.target.value || null }))} placeholder="123456789012345678" />
-                </label>
-                <label className={styles.field}>
-                  <span>アバターログチャンネル ID</span>
-                  <input className={styles.input} type="text" value={draft.avatarLogChannelId || ''} onChange={(event) => updateDraft((current) => ({ ...current, avatarLogChannelId: event.target.value || null }))} placeholder="123456789012345678" />
-                </label>
-                <label className={styles.field}>
-                  <span>Chatlogチャンネル ID</span>
-                  <input className={styles.input} type="text" value={draft.chatLogChannelId || ''} onChange={(event) => updateDraft((current) => ({ ...current, chatLogChannelId: event.target.value || null }))} placeholder="123456789012345678" />
-                </label>
-              </div>
-            </article>
-
-            <article className={styles.panel}>
-              <div className={styles.inlineHeader}>
-                <div>
-                  <strong>自動処理</strong>
-                  <p>削除対象の秒数と自動タイムアウトを管理します。無効時は検知時の自動削除も止まります。</p>
-                </div>
-                <div className={`${styles.statusPill} ${draft.raidMode.active ? styles.statusDanger : styles.statusNeutral}`}>
-                  {draft.raidMode.active ? 'Raid active' : 'Raid standby'}
-                </div>
-              </div>
-              <div className={styles.formGrid}>
-                <label className={styles.checkField}>
-                  <input type="checkbox" checked={draft.autoDelete.enabled} onChange={(event) => updateDraft((current) => ({ ...current, autoDelete: { ...current.autoDelete, enabled: event.target.checked } }))} />
-                  <span>直近メッセージを削除</span>
-                </label>
-                <label className={styles.field}>
-                  <span>削除対象の秒数</span>
-                  <input className={styles.input} type="number" min={1} value={draft.autoDelete.windowSeconds} onChange={(event) => updateDraft((current) => ({ ...current, autoDelete: { ...current.autoDelete, windowSeconds: Number(event.target.value) } }))} disabled={!draft.autoDelete.enabled} />
-                </label>
-                <label className={styles.checkField}>
-                  <input type="checkbox" checked={draft.autoTimeout.enabled} onChange={(event) => updateDraft((current) => ({ ...current, autoTimeout: { ...current.autoTimeout, enabled: event.target.checked } }))} />
-                  <span>自動タイムアウト</span>
-                </label>
-                <label className={styles.field}>
-                  <span>タイムアウト秒数</span>
-                  <input className={styles.input} type="number" min={1} value={draft.autoTimeout.durationSeconds} onChange={(event) => updateDraft((current) => ({ ...current, autoTimeout: { ...current.autoTimeout, durationSeconds: Number(event.target.value) } }))} disabled={!draft.autoTimeout.enabled} />
-                </label>
-              </div>
-              <div className={styles.raidSummary}>
-                <div>
-                  <span>最新発動</span>
-                  <strong>{formatDate(draft.raidMode.activatedAt)}</strong>
-                </div>
-                <div>
-                  <span>最近の参加数</span>
-                  <strong>{draft.raidMode.recentJoinCount}</strong>
-                </div>
-              </div>
-            </article>
+          <div className={styles.desktopSecondary}>
+            {interviewsSection}
+            {settingsSection}
           </div>
-        </section>
+        </div>
 
-        <section className={styles.section}>
-          <div className={styles.sectionHeader}>
-            <div>
-              <span className={styles.sectionLabel}>Detectors</span>
-              <h2>検知ルール</h2>
-            </div>
-            <p>各ルールのスコア、削除、通知、しきい値を定義します。</p>
-          </div>
-          <div className={styles.detectorList}>
-            {DETECTORS.map((entry) => {
-              const detector = draft.detectors[entry.key];
-              if (!detector) return null;
-
-              return (
-                <article key={entry.key} className={styles.detectorCard}>
-                  <div className={styles.detectorHeader}>
-                    <div className={styles.iconTitle}>
-                      <span className={styles.leadingIcon}><span className="material-icons">{entry.icon}</span></span>
-                      <div>
-                        <strong>{entry.title}</strong>
-                        <p>{entry.description}</p>
-                      </div>
-                    </div>
-                    <label className={styles.checkField}>
-                      <input type="checkbox" checked={detector.enabled} onChange={(event) => updateDetector(entry.key, { enabled: event.target.checked })} />
-                      <span>{detector.enabled ? '有効' : '無効'}</span>
-                    </label>
-                  </div>
-                  <div className={styles.detectorGrid}>
-                    <label className={styles.field}>
-                      <span>加算スコア</span>
-                      <input className={styles.input} type="number" min={0} value={detector.score} onChange={(event) => updateDetector(entry.key, { score: Number(event.target.value) })} disabled={!detector.enabled} />
-                    </label>
-                    <label className={styles.checkField}>
-                      <input type="checkbox" checked={Boolean(detector.deleteMessage)} onChange={(event) => updateDetector(entry.key, { deleteMessage: event.target.checked })} disabled={!detector.enabled || !draft.autoDelete.enabled} />
-                      <span>メッセージを削除</span>
-                    </label>
-                    <label className={styles.checkField}>
-                      <input type="checkbox" checked={Boolean(detector.notifyChannel)} onChange={(event) => updateDetector(entry.key, { notifyChannel: event.target.checked })} disabled={!detector.enabled} />
-                      <span>公開通知を送る</span>
-                    </label>
-                    {entry.key === 'wordFilter'
-                      ? renderWordRules(detector)
-                      : (entry.fields?.map((field) => renderField(entry.key, detector, field)) || <p className={styles.note}>追加の詳細設定はありません。</p>)}
-                  </div>
-                </article>
-              );
-            })}
-          </div>
-        </section>
-
-        <section className={styles.section}>
-          <div className={styles.sectionHeader}>
-            <div>
-              <span className={styles.sectionLabel}>Policies</span>
-              <h2>除外設定と処罰</h2>
-            </div>
-            <p>誤検知を避ける対象と、しきい値到達時の処理を定義します。</p>
-          </div>
-          <div className={styles.panelGrid}>
-            <article className={styles.panel}>
-              <div className={styles.inlineHeader}>
-                <div>
-                  <strong>除外対象</strong>
-                  <p>ロール ID とチャンネル ID を改行またはカンマ区切りで入力します。</p>
-                </div>
-              </div>
-              <div className={styles.formGrid}>
-                <label className={styles.field}>
-                  <span>除外ロール</span>
-                  <textarea className={styles.textarea} value={excludedRolesText} onChange={(event) => setExcludedRolesText(event.target.value)} placeholder="123456789012345678" />
-                </label>
-                <label className={styles.field}>
-                  <span>除外チャンネル</span>
-                  <textarea className={styles.textarea} value={excludedChannelsText} onChange={(event) => setExcludedChannelsText(event.target.value)} placeholder="123456789012345678" />
-                </label>
-              </div>
-            </article>
-
-            <article className={styles.panel}>
-              <div className={styles.inlineHeader}>
-                <div>
-                  <strong>スコア到達時の処置</strong>
-                  <p>しきい値ごとに timeout / kick / ban を並べます。</p>
-                </div>
-                <button className={styles.secondaryButton} onClick={addPunishment} type="button">
-                  <span className="material-icons">add</span>
-                  <span>しきい値追加</span>
-                </button>
-              </div>
-              {draft.punishments.length === 0 ? (
-                <div className={styles.emptyPanel}>処罰ポリシーはまだありません。</div>
-              ) : (
-                <div className={styles.policyList}>
-                  {draft.punishments.map((punishment, thresholdIndex) => (
-                    <div key={`${punishment.threshold}-${thresholdIndex}`} className={styles.ruleCard}>
-                      <div className={styles.inlineHeader}>
-                        <label className={styles.field}>
-                          <span>しきい値</span>
-                          <input className={styles.input} type="number" min={0} value={punishment.threshold} onChange={(event) => updatePunishment(thresholdIndex, { threshold: Number(event.target.value) })} />
-                        </label>
-                        <button className={styles.dangerButton} onClick={() => removePunishment(thresholdIndex)} type="button">
-                          <span className="material-icons">delete</span>
-                          <span>削除</span>
-                        </button>
-                      </div>
-
-                      <div className={styles.actionStack}>
-                        {punishment.actions.map((action, actionIndex) => (
-                          <div key={`${thresholdIndex}-${actionIndex}`} className={styles.actionCard}>
-                            <div className={styles.formGrid}>
-                              <label className={styles.field}>
-                                <span>処置</span>
-                                <select className={styles.select} value={action.type} onChange={(event) => updateAction(thresholdIndex, actionIndex, { type: event.target.value as PunishmentAction['type'] })}>
-                                  <option value="timeout">timeout</option>
-                                  <option value="kick">kick</option>
-                                  <option value="ban">ban</option>
-                                </select>
-                              </label>
-                              <label className={styles.field}>
-                                <span>秒数(timeout用)</span>
-                                <input className={styles.input} type="number" min={1} value={action.durationSeconds || 600} onChange={(event) => updateAction(thresholdIndex, actionIndex, { durationSeconds: Number(event.target.value) })} disabled={action.type !== 'timeout'} />
-                              </label>
-                              <label className={`${styles.field} ${styles.fieldWide}`}>
-                                <span>理由テンプレート</span>
-                                <input className={styles.input} type="text" value={action.reasonTemplate || ''} onChange={(event) => updateAction(thresholdIndex, actionIndex, { reasonTemplate: event.target.value })} />
-                              </label>
-                              <label className={styles.checkField}>
-                                <input type="checkbox" checked={Boolean(action.notify)} onChange={(event) => updateAction(thresholdIndex, actionIndex, { notify: event.target.checked })} />
-                                <span>通知を送る</span>
-                              </label>
-                            </div>
-                            <div className={styles.actionToolbar}>
-                              <button className={styles.secondaryButton} onClick={() => addAction(thresholdIndex)} type="button">
-                                <span className="material-icons">add</span>
-                                <span>処置追加</span>
-                              </button>
-                              {punishment.actions.length > 1 ? (
-                                <button className={styles.dangerButton} onClick={() => removeAction(thresholdIndex, actionIndex)} type="button">
-                                  <span className="material-icons">remove</span>
-                                  <span>この処置を削除</span>
-                                </button>
-                              ) : null}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </article>
-          </div>
-        </section>
-
-        <section className={styles.section}>
-          <div className={styles.sectionHeader}>
-            <div>
-              <span className={styles.sectionLabel}>Interviews</span>
-              <h2>面接室</h2>
-            </div>
-            <p>信頼スコアの再審査用に AI 面接室を作成します。24時間クールダウンがあり、ふざけた応答は即終了です。</p>
-          </div>
-
-          <div className={styles.panelGrid}>
-            <article className={styles.panel}>
-              <div className={styles.inlineHeader}>
-                <div>
-                  <strong>面接室を作成</strong>
-                  <p>ユーザー ID を指定して手動作成します。タイトルは任意です。</p>
-                </div>
-                <button className={styles.secondaryButton} onClick={() => refetchInterviews()} type="button">
-                  <span className="material-icons">refresh</span>
-                  <span>再取得</span>
-                </button>
-              </div>
-              <div className={styles.formGrid}>
-                <label className={styles.field}>
-                  <span>対象ユーザー ID</span>
-                  <input className={styles.input} type="text" value={interviewUserId} onChange={(event) => setInterviewUserId(event.target.value)} placeholder="123456789012345678" />
-                </label>
-                <label className={styles.field}>
-                  <span>部屋タイトル</span>
-                  <input className={styles.input} type="text" value={interviewTitle} onChange={(event) => setInterviewTitle(event.target.value)} placeholder="appeal-username" />
-                </label>
-              </div>
-              <div className={styles.buttonRow}>
-                <button className={styles.primaryButton} onClick={() => handleCreateInterview(interviewUserId, interviewTitle || undefined)} type="button" disabled={interviewExecuting || !interviewUserId.trim()}>
-                  <span className="material-icons">forum</span>
-                  <span>{interviewExecuting ? '作成中...' : '面接室を作成'}</span>
-                </button>
-              </div>
-              <div className={styles.raidSummary}>
-                <div>
-                  <span>進行中</span>
-                  <strong>{activeInterviews.length}</strong>
-                </div>
-                <div>
-                  <span>総件数</span>
-                  <strong>{interviews.length}</strong>
-                </div>
-              </div>
-            </article>
-
-            <article className={styles.panel}>
-              <div className={styles.inlineHeader}>
-                <div>
-                  <strong>面接室一覧</strong>
-                  <p>{interviewsLoading ? '面接室一覧を更新しています...' : `${interviews.length} 件を表示中`}</p>
-                </div>
-              </div>
-              {interviewsError ? <div className={styles.noticeError}>{interviewsError}</div> : null}
-              <div className={styles.tableWrap}>
-                <table className={styles.table}>
-                  <thead>
-                    <tr>
-                      <th>対象</th>
-                      <th>状態</th>
-                      <th>更新</th>
-                      <th>操作</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {interviews.length === 0 ? (
-                      <tr>
-                        <td colSpan={4} className={styles.emptyCell}>まだ面接室はありません。</td>
-                      </tr>
-                    ) : interviews.map((session) => (
-                      <tr key={session.sessionId}>
-                        <td>
-                          <div className={styles.logPrimary}>{session.userDisplayName || session.userName}</div>
-                          <div className={styles.logSecondary}>{session.title}</div>
-                          <div className={styles.logSecondary}>{session.userId}</div>
-                        </td>
-                        <td>
-                          <div className={styles.logPrimary}>{statusText(session)}</div>
-                          <div className={styles.logSecondary}>次回: {formatDate(session.cooldownUntil)}</div>
-                        </td>
-                        <td>
-                          <div>{formatDate(session.updatedAt)}</div>
-                          {session.decision ? <div className={styles.logSecondary}>{session.decision.reason}</div> : null}
-                        </td>
-                        <td>
-                          <div className={styles.inlineButtonGroup}>
-                            <button className={styles.inlineButton} onClick={() => window.open(session.channelUrl, '_blank', 'noopener,noreferrer')} type="button">
-                              開く
-                            </button>
-                            <button className={styles.dangerButton} onClick={() => handleDeleteInterview(session)} type="button" disabled={interviewExecuting}>
-                              削除
-                            </button>
-                          </div>
-                          {session.warnings?.length ? <div className={styles.logSecondary}>{session.warnings.join(' / ')}</div> : null}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </article>
-          </div>
-        </section>
-
-        <section className={styles.section}>
-          <div className={styles.sectionHeader}>
-            <div>
-              <span className={styles.sectionLabel}>Activity</span>
-              <h2>ログと信頼スコア</h2>
-            </div>
-            <p>直近の検知と、現在スコアが高いユーザーを確認します。</p>
-          </div>
-
-          <div className={styles.panelGrid}>
-            <article className={styles.panel}>
-              <div className={styles.inlineHeader}>
-                <div>
-                  <strong>最新ログ</strong>
-                  <p>{logsLoading ? 'ログを更新しています...' : `${logs.length} 件を表示中`}</p>
-                </div>
-                <button className={styles.secondaryButton} onClick={() => refetchLogs()} type="button">
-                  <span className="material-icons">refresh</span>
-                  <span>再取得</span>
-                </button>
-              </div>
-              {logsError ? <div className={styles.noticeError}>{logsError}</div> : null}
-              <div className={styles.tableWrap}>
-                <table className={styles.table}>
-                  <thead>
-                    <tr>
-                      <th>検知</th>
-                      <th>スコア</th>
-                      <th>日時</th>
-                      <th>操作</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {logs.length === 0 ? (
-                      <tr>
-                        <td colSpan={4} className={styles.emptyCell}>まだ検知ログはありません。</td>
-                      </tr>
-                    ) : logs.map((log) => (
-                      <tr key={`${log.messageId}-${log.timestamp}`}>
-                        <td>
-                          <div className={styles.logPrimary}>{log.detector}</div>
-                          <div className={styles.logSecondary}>{log.reason}</div>
-                        </td>
-                        <td>{log.scoreDelta}</td>
-                        <td>{formatDate(log.timestamp)}</td>
-                        <td>
-                          {log.metadata?.isTimedOut ? (
-                            <button className={styles.inlineButton} onClick={() => onRevokeTimeout(log)} type="button" disabled={executing}>タイムアウト解除</button>
-                          ) : (
-                            <span className={styles.logSecondary}>-</span>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </article>
-
-            <article className={styles.panel}>
-              <div className={styles.inlineHeader}>
-                <div>
-                  <strong>信頼スコア</strong>
-                  <p>{trustLoading ? '信頼スコアを更新しています...' : `${trustEntries.length} 人を表示中`}</p>
-                </div>
-                <button className={styles.secondaryButton} onClick={() => refetchTrust()} type="button">
-                  <span className="material-icons">refresh</span>
-                  <span>再取得</span>
-                </button>
-              </div>
-              {trustError ? <div className={styles.noticeError}>{trustError}</div> : null}
-              <div className={styles.tableWrap}>
-                <table className={styles.table}>
-                  <thead>
-                    <tr>
-                      <th>ユーザー</th>
-                      <th>スコア</th>
-                      <th>更新</th>
-                      <th>操作</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {trustEntries.length === 0 ? (
-                      <tr>
-                        <td colSpan={4} className={styles.emptyCell}>監視中のユーザーはいません。</td>
-                      </tr>
-                    ) : trustEntries.map((entry) => (
-                      <tr key={entry.userId}>
-                        <td>
-                          <div className={styles.userCell}>
-                            {entry.avatar ? (
-                              <img className={styles.userAvatar} src={entry.avatar} alt={entry.displayName || entry.username} />
-                            ) : (
-                              <div className={styles.userFallback}>{(entry.displayName || entry.username).charAt(0).toUpperCase()}</div>
-                            )}
-                            <div>
-                              <div className={styles.logPrimary}>{entry.displayName || entry.username}</div>
-                              <div className={styles.logSecondary}>{entry.userId}</div>
-                            </div>
-                          </div>
-                        </td>
-                        <td>{entry.score}</td>
-                        <td>{formatDate(entry.lastUpdated)}</td>
-                        <td>
-                          <div className={styles.inlineButtonGroup}>
-                            <button className={styles.inlineButton} onClick={() => onResetTrust(entry.userId)} type="button" disabled={executing}>スコアをリセット</button>
-                            <button className={styles.secondaryButton} onClick={() => handleCreateInterview(entry.userId)} type="button" disabled={interviewExecuting}>面接室作成</button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </article>
-          </div>
-        </section>
+        <div className={styles.mobileLayout}>
+          {mobileSection === 'overview' ? overviewCards : null}
+          {mobileSection === 'moderation' ? moderationSection : null}
+          {mobileSection === 'activity' ? activitySection : null}
+          {mobileSection === 'interviews' ? interviewsSection : null}
+          {mobileSection === 'settings' ? settingsSection : null}
+        </div>
       </div>
     </div>
   );

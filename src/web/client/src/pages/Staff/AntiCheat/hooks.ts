@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { AntiCheatSettings, DetectionLog, InterviewRoomSession, UserTrustDataWithUser, PunishmentAction } from './types';
+import { ActiveTimeoutEntry, AntiCheatSettings, DetectionLog, InterviewRoomSession, UserTrustDataWithUser, PunishmentAction } from './types';
 
 const API_BASE = '/api/staff/anticheat';
 
@@ -341,4 +341,37 @@ export function useUserTrust(guildId: string, userId?: string) {
     }, [fetchTrust]);
 
     return { trust, loading, error, refetch: fetchTrust };
+}
+
+export function useActiveTimeouts(guildId: string) {
+    const [activeTimeouts, setActiveTimeouts] = useState<ActiveTimeoutEntry[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+
+    const fetchActiveTimeouts = useCallback(async () => {
+        try {
+            setLoading(true);
+            const response = await fetch(`${API_BASE}/${guildId}/active-timeouts`, {
+                credentials: 'include'
+            });
+
+            if (!response.ok) {
+                throw new Error(`Failed to fetch active timeouts: ${response.statusText}`);
+            }
+
+            const data = await response.json();
+            setActiveTimeouts(data.activeTimeouts || []);
+            setError(null);
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Unknown error');
+        } finally {
+            setLoading(false);
+        }
+    }, [guildId]);
+
+    useEffect(() => {
+        fetchActiveTimeouts();
+    }, [fetchActiveTimeouts]);
+
+    return { activeTimeouts, loading, error, refetch: fetchActiveTimeouts };
 }

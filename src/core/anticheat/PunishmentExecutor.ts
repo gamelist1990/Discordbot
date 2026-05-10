@@ -6,6 +6,12 @@ import { PunishmentAction } from './types.js';
  * Executes punishments (timeout, kick, ban) and handles revocation
  */
 export class PunishmentExecutor {
+    private static runDetached(task: Promise<unknown>, context: string): void {
+        void task.catch((error) => {
+            Logger.error(`Detached AntiCheat task failed (${context}):`, error);
+        });
+    }
+
     /**
      * Create a rich embed for punishment notifications
      */
@@ -89,7 +95,7 @@ export class PunishmentExecutor {
                                 }
                             ]
                         );
-                        await logChannel.send({ embeds: [embed] });
+                        this.runDetached(logChannel.send({ embeds: [embed] }), `timeout-log:${member.guild.id}:${member.id}`);
                     }
                     break;
 
@@ -110,7 +116,7 @@ export class PunishmentExecutor {
                                 }
                             ]
                         );
-                        await logChannel.send({ embeds: [embed] });
+                        this.runDetached(logChannel.send({ embeds: [embed] }), `kick-log:${member.guild.id}:${member.id}`);
                     }
                     break;
 
@@ -139,7 +145,7 @@ export class PunishmentExecutor {
                                 }
                             ]
                         );
-                        await logChannel.send({ embeds: [embed] });
+                        this.runDetached(logChannel.send({ embeds: [embed] }), `ban-log:${member.guild.id}:${member.id}`);
                     }
                     break;
 
@@ -181,7 +187,7 @@ export class PunishmentExecutor {
                         }
                     ]
                 );
-                await logChannel.send({ embeds: [embed] });
+                this.runDetached(logChannel.send({ embeds: [embed] }), `revoke-timeout-log:${member.guild.id}:${member.id}`);
             }
 
             return true;

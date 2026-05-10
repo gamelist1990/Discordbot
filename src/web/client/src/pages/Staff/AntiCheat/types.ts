@@ -86,6 +86,20 @@ export interface DetectionLog {
     metadata?: Record<string, any>;
 }
 
+export interface ActiveTimeoutEntry {
+    userId: string;
+    username: string;
+    displayName: string;
+    avatar: string | null;
+    timeoutUntil: string | null;
+    remainingMs: number;
+    trustScore: number;
+    lastUpdated: string | null;
+    sourceMessageId: string | null;
+    sourceDetector: string | null;
+    sourceReason: string | null;
+}
+
 export interface InterviewDecision {
     verdict: 'approved' | 'rejected' | 'terminated';
     reason: string;

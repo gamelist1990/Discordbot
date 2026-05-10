@@ -313,6 +313,73 @@ export class AntiCheatController {
             res.status(500).json({ error: 'Failed to get timeout status' });
         }
     };
+
+    /**
+     * GET /api/staff/anticheat/:guildId/active-timeouts
+     * Get users who are currently timed out
+     */
+    getActiveTimeouts = async (req: Request, res: Response): Promise<void> => {
+        try {
+            const { guildId } = req.params;
+
+            const session = (req as any).session;
+            if (!session || !hasAccessToGuild(session, guildId)) {
+                res.status(403).json({ error: 'Access denied to this guild' });
+                return;
+            }
+
+            const guild = await this.botClient.client.guilds.fetch(guildId).catch(() => null);
+            if (!guild) {
+                res.status(404).json({ error: 'Guild not found' });
+                return;
+            }
+
+            const members = await guild.members.fetch().catch(() => null);
+            if (!members) {
+                res.status(500).json({ error: 'Failed to fetch guild members' });
+                return;
+            }
+
+            const settings = await antiCheatManager.getSettings(guildId);
+            const trustMap = settings.userTrust || {};
+            const logs = settings.recentLogs || [];
+            const now = Date.now();
+
+            const activeTimeouts = Array.from(members.values())
+                .filter((member) => {
+                    const until = member.communicationDisabledUntil?.getTime?.() || 0;
+                    return until > now;
+                })
+                .map((member) => {
+                    const timeoutUntil = member.communicationDisabledUntil?.toISOString() || null;
+                    const userLogs = logs
+                        .filter((entry) => entry.userId === member.id && entry.metadata?.isTimedOut)
+                        .sort((left, right) => new Date(right.timestamp).getTime() - new Date(left.timestamp).getTime());
+                    const latestTimeoutLog = userLogs[0] || null;
+                    const trust = trustMap[member.id];
+
+                    return {
+                        userId: member.id,
+                        username: member.user.username,
+                        displayName: member.displayName || member.user.username,
+                        avatar: member.user.avatarURL(),
+                        timeoutUntil,
+                        remainingMs: timeoutUntil ? Math.max(0, new Date(timeoutUntil).getTime() - now) : 0,
+                        trustScore: trust?.score || 0,
+                        lastUpdated: trust?.lastUpdated || null,
+                        sourceMessageId: latestTimeoutLog?.messageId || null,
+                        sourceDetector: latestTimeoutLog?.detector || null,
+                        sourceReason: latestTimeoutLog?.reason || null
+                    };
+                })
+                .sort((left, right) => new Date(left.timeoutUntil || 0).getTime() - new Date(right.timeoutUntil || 0).getTime());
+
+            res.json({ activeTimeouts });
+        } catch (error) {
+            Logger.error('Error getting active timeouts:', error);
+            res.status(500).json({ error: 'Failed to get active timeouts' });
+        }
+    };
     getUserTrust = async (req: Request, res: Response): Promise<void> => {
         try {
             const { guildId } = req.params;

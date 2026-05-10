@@ -8,6 +8,18 @@
   margin-bottom: 18px;
 }
 
+.heroGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) minmax(300px, 1fr);
+  gap: 16px;
+}
+
+.commandPanel {
+  display: grid;
+  gap: 14px;
+  align-content: start;
+}
+
 .pageHeaderCopy {
   display: grid;
   gap: 8px;
@@ -55,6 +67,40 @@
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
+}
+
+.desktopLayout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(320px, 0.95fr);
+  gap: 18px;
+}
+
+.desktopPrimary,
+.desktopSecondary,
+.mobileLayout {
+  display: grid;
+  gap: 18px;
+}
+
+.mobileNav {
+  display: none;
+}
+
+.mobileNavButton {
+  min-height: 40px;
+  padding: 0 14px;
+  border: 1px solid var(--app-border-strong);
+  border-radius: 999px;
+  background: var(--app-surface-soft);
+  color: var(--app-ink-soft);
+  font: inherit;
+  font-weight: 700;
+}
+
+.mobileNavButtonActive {
+  border-color: color-mix(in srgb, var(--app-accent) 24%, var(--app-border));
+  background: color-mix(in srgb, var(--app-accent) 10%, var(--app-surface));
+  color: var(--app-accent-strong);
 }
 
 .summary,
@@ -408,6 +454,8 @@
 }
 
 @media (max-width: 1080px) {
+  .heroGrid,
+  .desktopLayout,
   .panelGrid,
   .formGrid,
   .detectorGrid,
@@ -417,6 +465,27 @@
 }
 
 @media (max-width: 720px) {
+  .desktopLayout {
+    display: none;
+  }
+
+  .mobileNav {
+    position: sticky;
+    top: calc(var(--header-height, 0px) + 8px);
+    z-index: 4;
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    padding: 4px 0 8px;
+    margin-bottom: 14px;
+    background: linear-gradient(180deg, var(--app-bg), color-mix(in srgb, var(--app-bg) 92%, transparent));
+  }
+
+  .mobileLayout {
+    display: grid;
+    gap: 14px;
+  }
+
   .sectionHeader,
   .inlineHeader,
   .detectorHeader,
@@ -522,11 +591,21 @@
     padding: 18px 0 32px;
   }
 
+  .heroGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .pageHeaderCopy,
   .section,
   .statePanel,
   .noticeSuccess,
   .noticeError {
     padding: 18px;
+  }
+}
+
+@media (min-width: 721px) {
+  .mobileLayout {
+    display: none;
   }
 }

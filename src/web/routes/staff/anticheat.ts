@@ -36,6 +36,9 @@ export function createAntiCheatRoutes(
     // Revoke timeout
     router.post('/:guildId/revoke', verifyAuth(sessions), controller.revokeTimeout.bind(controller));
 
+    // Get active timed out users
+    router.get('/:guildId/active-timeouts', verifyAuth(sessions), controller.getActiveTimeouts.bind(controller));
+
     // Reset trust score
     router.post('/:guildId/reset-trust', verifyAuth(sessions), controller.resetTrust.bind(controller));
 
