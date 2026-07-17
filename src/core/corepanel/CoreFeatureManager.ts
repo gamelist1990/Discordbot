@@ -7,7 +7,6 @@ import {
     StringSelectMenuInteraction
 } from 'discord.js';
 import { database } from '../Database.js';
-import { registerModalHandler } from '../../utils/Modal.js';
 import { createDebateFeature } from './debate/index.js';
 import { createPersonalityFeature } from './personality/index.js';
 import { createRequestFeature } from './request/index.js';
@@ -63,6 +62,7 @@ function normalizePanelConfig(
 export class CoreFeatureManager implements CoreFeatureApi {
     private client: Client | null = null;
     private readonly features = new Map<string, CoreFeatureModule>();
+    private readonly modalRoutes = new Map<string, (interaction: ModalSubmitInteraction) => Promise<void>>();
 
     constructor() {
         this.registerFeature(createPersonalityFeature());
@@ -90,7 +90,7 @@ export class CoreFeatureManager implements CoreFeatureApi {
     }
 
     registerModalRoute(customId: string, handler: (interaction: ModalSubmitInteraction) => Promise<void>): void {
-        registerModalHandler(customId, handler);
+        this.modalRoutes.set(customId, handler);
     }
 
     async getPanelConfig(guildId: string, panelKind: CoreFeaturePanelKind = 'combined'): Promise<CoreFeaturePanelConfig | null> {
@@ -212,6 +212,12 @@ export class CoreFeatureManager implements CoreFeatureApi {
     }
 
     async onModalSubmit(interaction: ModalSubmitInteraction): Promise<boolean> {
+        const registeredRoute = this.modalRoutes.get(interaction.customId);
+        if (registeredRoute) {
+            await registeredRoute(interaction);
+            return true;
+        }
+
         for (const feature of this.features.values()) {
             if (!feature.handleModalSubmit) {
                 continue;
