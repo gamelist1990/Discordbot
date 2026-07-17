@@ -1,13 +1,10 @@
 import { PersonalityArchetypeDefinition, PersonalityKey } from './types.js';
 
 export const CORE_FEATURE_MODEL_FALLBACKS = [
-    'claude-haiku-4-5-20251001',
-    'claude-haiku-4-5-private1',
-    'claude-haiku-4-5@20251001',
-    'claude-haiku-4.5'
+    'gemma4:e2b-it-qat'
 ] as const;
 
-export const CORE_FEATURE_API_ENDPOINT = 'https://capi.voids.top/v2/';
+export const CORE_FEATURE_API_ENDPOINT = 'http://api.pexserver.com:9000/v1';
 
 export const PERSONALITY_CATEGORY_NAME = '性格診断室';
 export const DEBATE_CATEGORY_NAME = 'レスバアリーナ';

@@ -1,9 +1,9 @@
 // src/commands/staff/subcommands/ai.ts
 import { ChatInputCommandInteraction, MessageFlags, DiscordAPIError } from 'discord.js';
-import { OpenAIChatManager } from '../../../core/OpenAIChatManager';
-import { OpenAIChatCompletionMessage, OpenAIChatCompletionChunk } from '../../../types/openai';
-import { statusToolDefinition, statusToolHandler, weatherToolDefinition, weatherToolHandler, timeToolDefinition, timeToolHandler, countPhraseToolDefinition, countPhraseToolHandler, userInfoToolDefinition, userInfoToolHandler, antiCheatUserProfileDefinition, antiCheatUserProfileHandler, createAntiCheatInterviewDefinition, createAntiCheatInterviewHandler, memoListDefinition, memoListHandler, memoGetDefinition, memoGetHandler, memoCreateDefinition, memoCreateHandler, memoUpdateDefinition, memoUpdateHandler, memoDeleteDefinition, memoDeleteHandler, memoSearchDefinition, memoSearchHandler, collectHistoryDefinition, collectHistoryHandler, fetchMessageLinkDefinition, fetchMessageLinkHandler } from './ai-tools';
-import { PdfRAGManager } from '../../../core/PdfRAGManager';
+import { OpenAIChatManager } from '../../../core/OpenAIChatManager.js';
+import { OpenAIChatCompletionMessage } from '../../../types/openai.js';
+import { statusToolDefinition, statusToolHandler, weatherToolDefinition, weatherToolHandler, timeToolDefinition, timeToolHandler, countPhraseToolDefinition, countPhraseToolHandler, userInfoToolDefinition, userInfoToolHandler, antiCheatUserProfileDefinition, antiCheatUserProfileHandler, createAntiCheatInterviewDefinition, createAntiCheatInterviewHandler, memoListDefinition, memoListHandler, memoGetDefinition, memoGetHandler, memoCreateDefinition, memoCreateHandler, memoUpdateDefinition, memoUpdateHandler, memoDeleteDefinition, memoDeleteHandler, memoSearchDefinition, memoSearchHandler, collectHistoryDefinition, collectHistoryHandler, fetchMessageLinkDefinition, fetchMessageLinkHandler } from './ai-tools/index.js';
+import { PdfRAGManager } from '../../../core/PdfRAGManager.js';
 import { database } from '../../../core/Database.js';
 
 // レート制限の設定
@@ -398,49 +398,20 @@ export const subcommandHandler = {
         let interactionExpired = false;
 
         try {
-            // ストリーミングレスポンスを追加（まず GPT-4o を試す）
-            let modelToUse = 'gpt-4o';
+            // 設定済みの Pexserver OpenAI 互換 API と既定モデルを利用する。
+            await chatManager.streamText(
+                messages,
+                (text) => {
+                    responseContent += text;
 
-            const attemptStream = async (model?: string, opts: { apiEndpoint?: string, apiKey?: string } = {}) => {
-                await chatManager.streamMessage(
-                    messages,
-                    (chunk: OpenAIChatCompletionChunk) => {
-                        if (chunk.choices[0]?.delta?.content) {
-                            responseContent += chunk.choices[0].delta.content;
-
-                            // 定期的にメッセージを更新（インタラクションが有効な場合のみ）
-                            const now = Date.now();
-                            if (now - lastUpdateTime >= UPDATE_INTERVAL && !interactionExpired) {
-                                lastUpdateTime = now;
-                                updateDiscordMessage(interaction, formatResponse(responseContent));
-                            }
-                        }
-                    },
-                    { model: model, apiEndpoint: opts.apiEndpoint, apiKey: opts.apiKey }
-                );
-            };
-
-            try {
-                await attemptStream(modelToUse);
-            } catch (error: any) {
-                if (error.message.includes('RateLimitReached') && modelToUse === 'gpt-4o') {
-                    console.log('GPT-4o がレート制限に達したため、GPT-4o-mini に切り替え');
-                    modelToUse = 'gpt-4o-mini';
-                    responseContent = ''; // レスポンスをリセット
-                    lastUpdateTime = Date.now();
-                    try {
-                        await attemptStream(modelToUse);
-                    } catch (err2: any) {
-                        console.warn('gpt-4o-mini でも失敗しました。外部フォールバックを試行します: https://capi.voids.top/v2/');
-                        // 外部互換 API にフォールバック。モデルは /v2/models から自動検出する。
-                        responseContent = '';
-                        lastUpdateTime = Date.now();
-                        await attemptStream(undefined, { apiEndpoint: 'https://capi.voids.top/v2/' });
+                    const now = Date.now();
+                    if (now - lastUpdateTime >= UPDATE_INTERVAL && !interactionExpired) {
+                        lastUpdateTime = now;
+                        updateDiscordMessage(interaction, formatResponse(responseContent));
                     }
-                } else {
-                    throw error; // 再スロー
-                }
-            }
+                },
+                { maxTokens: 2048 }
+            );
 
             // 完了としてマーク
             isCompleted = true;
@@ -493,19 +464,17 @@ export const subcommandHandler = {
                             }
                         }
 
-                        // 試行: 安全にストリーム（簡易: model を gpt-4o-mini に切り替える）
+                        // 設定済みの Pexserver モデルで安全化した入力を再試行する。
                         try {
                             responseContent = '';
-                            await chatManager.streamMessage(retryMessages, (chunk: OpenAIChatCompletionChunk) => {
-                                if (chunk.choices[0]?.delta?.content) {
-                                    responseContent += chunk.choices[0].delta.content;
-                                    const now2 = Date.now();
-                                    if (now2 - lastUpdateTime >= UPDATE_INTERVAL && !interactionExpired) {
-                                        lastUpdateTime = now2;
-                                        updateDiscordMessage(interaction, formatResponse(responseContent));
-                                    }
+                            await chatManager.streamText(retryMessages, (text) => {
+                                responseContent += text;
+                                const now2 = Date.now();
+                                if (now2 - lastUpdateTime >= UPDATE_INTERVAL && !interactionExpired) {
+                                    lastUpdateTime = now2;
+                                    updateDiscordMessage(interaction, formatResponse(responseContent));
                                 }
-                            }, { model: 'gpt-4o-mini' });
+                            }, { maxTokens: 2048 });
 
                             // 成功したら送信
                             await safeRespond({ content: formatResponse(responseContent, true) });

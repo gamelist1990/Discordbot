@@ -13,7 +13,7 @@ import {
     ToolHandler,
 } from '../types/openai.js';
 
-interface ChatOptions {
+export interface ChatOptions {
     model?: ModelSelectionInput;
     temperature?: number;
     maxTokens?: number;
@@ -26,7 +26,7 @@ interface ChatOptions {
     onRateLimitWait?: (info: RateLimitWaitInfo) => void | Promise<void>;
 }
 
-interface ChatGPTClientOptions {
+export interface ChatGPTClientOptions {
     apiKey?: string;
     apiEndpoint?: string;
     defaultModel?: string;
@@ -603,7 +603,11 @@ export class ChatGPTClient {
             model,
             messages,
             temperature: options?.temperature ?? 0.7,
-            max_tokens: options?.maxTokens ?? 1024,
+            // gemma4:e2b-it-qat は reasoning も出力トークンを消費するため、
+            // 小さすぎる上限では最終 content が空になる。最低 512 を確保する。
+            max_tokens: model === 'gemma4:e2b-it-qat'
+                ? Math.max(options?.maxTokens ?? 2048, 512)
+                : options?.maxTokens ?? 1024,
             top_p: options?.topP ?? 1,
             stream,
             ...(tools.length > 0 ? { tools, tool_choice: 'auto' } : {}),
