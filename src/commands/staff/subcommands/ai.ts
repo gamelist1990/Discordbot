@@ -5,6 +5,11 @@ import { OpenAIChatCompletionMessage } from '../../../types/openai.js';
 import { statusToolDefinition, statusToolHandler, weatherToolDefinition, weatherToolHandler, timeToolDefinition, timeToolHandler, countPhraseToolDefinition, countPhraseToolHandler, userInfoToolDefinition, userInfoToolHandler, antiCheatUserProfileDefinition, antiCheatUserProfileHandler, createAntiCheatInterviewDefinition, createAntiCheatInterviewHandler, memoListDefinition, memoListHandler, memoGetDefinition, memoGetHandler, memoCreateDefinition, memoCreateHandler, memoUpdateDefinition, memoUpdateHandler, memoDeleteDefinition, memoDeleteHandler, memoSearchDefinition, memoSearchHandler, collectHistoryDefinition, collectHistoryHandler, fetchMessageLinkDefinition, fetchMessageLinkHandler } from './ai-tools/index.js';
 import { PdfRAGManager } from '../../../core/PdfRAGManager.js';
 import { database } from '../../../core/Database.js';
+import {
+    AIConversationEntry,
+    ChannelConversationMessage,
+    buildConversationHistory,
+} from '../../../core/AIConversationHistory.js';
 
 // レート制限の設定
 const userRateLimits = new Map<string, { lastUsed: number, count: number }>();
@@ -119,37 +124,27 @@ export const subcommandHandler = {
             }
         }
 
-        // 会話履歴の取得と処理
-        let conversationHistory: string = '';
+        // 通常のチャンネル発言も、永続化された /staff ai の対話と後で統合する。
+        const channelConversationMessages: ChannelConversationMessage[] = [];
         try {
             const messages = await interaction.channel?.messages.fetch({ limit: 50 });
             if (messages) {
-                const recentMessages = Array.from(messages.values())
-                    .filter(msg => msg.createdTimestamp > Date.now() - 3600000) // 1時間以内のメッセージ
-                    .sort((a, b) => a.createdTimestamp - b.createdTimestamp)
-                    .slice(-20); // 最新20件
+                for (const message of Array.from(messages.values()).sort((a, b) => a.createdTimestamp - b.createdTimestamp)) {
+                    if (!message.content?.trim()) {
+                        continue;
+                    }
 
-                // 最新の会話履歴を取得して含める（連続投稿が5件必要、という厳しい条件は廃止）
-                // 過度に長くならないよう、最大メッセージ数と最大文字数で切り詰める
-                const MAX_HISTORY_MESSAGES = 20;
-                const MAX_HISTORY_CHARS = 1500;
-
-                const historySlice = recentMessages.slice(-MAX_HISTORY_MESSAGES);
-                if (historySlice.length > 0) {
-                    conversationHistory = historySlice
-                        .map(msg => {
-                            const display = (msg as any).member?.displayName || msg.author.username;
-                            return `${display}: ${msg.content}`;
-                        })
-                        .join('\n')
-                        .substring(0, MAX_HISTORY_CHARS);
-
-                    conversationHistory = `会話履歴:\n${conversationHistory}\n\n`;
+                    channelConversationMessages.push({
+                        id: message.id,
+                        timestamp: message.createdTimestamp,
+                        role: message.author.bot ? 'assistant' : 'user',
+                        authorName: (message as any).member?.displayName || message.author.username,
+                        content: message.content,
+                    });
                 }
             }
         } catch (error) {
             console.error('会話履歴の取得中にエラーが発生:', error);
-            // エラーが発生しても続行
         }
 
         // 添付ファイルの処理
@@ -286,93 +281,25 @@ export const subcommandHandler = {
         // ユーザーが提供した system prompt をサニタイズしてマージ
         const mergedSystemPrompt = mergeSystemPrompts(defaultSystemPrompt, userSystemPrompt, safetyOverride === true);
 
-        // AIへのメッセージを準備（systemはマージされたプロンプト）
-        // recentMessages を OpenAI の個別メッセージ（role を付与）に変換して渡す
-        const historyMessages: OpenAIChatCompletionMessage[] = [];
-
-        // 再取得せず、先に作成した historySlice 相当の recentMessages を使って構築する
+        // 永続化した /staff ai の対話と通常のチャンネル発言を、時系列順の会話として統合する。
+        let historyMessages: OpenAIChatCompletionMessage[] = [];
         try {
-            const fetched = await interaction.channel?.messages.fetch({ limit: 50 });
-            if (fetched) {
-                const recentMessages = Array.from(fetched.values())
-                    .filter(msg => msg.createdTimestamp > Date.now() - 3600000)
-                    .sort((a, b) => a.createdTimestamp - b.createdTimestamp)
-                    .slice(-20);
-
-                const historySlice = recentMessages.slice(-10); // MAX_HISTORY_MESSAGES と合わせて10
-                
-                // 会話履歴がある場合、system メッセージに説明を追加
-                if (historySlice.length > 0) {
-                    historyMessages.push({
-                        role: 'system',
-                        content: '以下は会話の文脈理解のための履歴です。各メッセージは [タイムスタンプ] ユーザー名: メッセージ の形式ですが、これは参考情報であり、あなたの応答にこの形式を含めないでください。'
-                    });
-                }
-                
-                for (const msg of historySlice) {
-                    const display = (msg as any).member?.displayName || msg.author.username;
-                    const role = msg.author.bot ? 'assistant' : 'user';
-                    // タイムスタンプをローカル表記で付与（フォールバックは ISO）
-                    const timeStr = new Date(msg.createdTimestamp).toLocaleString();
-                    // include display name and timestamp so AI can see who said what and when
-                    historyMessages.push({ role: role as any, content: `[${timeStr}] ${display}: ${msg.content}` });
-                }
-
-                // チャンネルからの履歴が不足している場合は永続化データセットから補う（最大10件）
-                if (historyMessages.length === 0) {
-                    try {
-                        const guildId = interaction.guild?.id || 'global';
-                        const dataset = await getConversationDataset(guildId, 10);
-                        if (dataset && dataset.length > 0) {
-                            historyMessages.push({
-                                role: 'system',
-                                content: '以下は過去の会話ログです。文脈理解のための参考情報として扱ってください。'
-                            });
-                            for (const entry of dataset) {
-                                const time = new Date(entry.timestamp).toLocaleString();
-                                historyMessages.push({ role: 'user', content: `[${time}] ${entry.userName || entry.userId}: ${entry.prompt}` });
-                                if (entry.response) historyMessages.push({ role: 'assistant', content: entry.response });
-                            }
-                        }
-                    } catch (dsErr) {
-                        console.error('dataset retrieval error:', dsErr);
-                    }
-                }
-            }
-        } catch (e) {
-            // fetch 失敗時は conversationHistory の文字列を fallback として使う
-            if (conversationHistory) {
-                // フォールバック時にも説明を追加
-                historyMessages.push({
-                    role: 'system',
-                    content: '以下は会話の文脈理解のための履歴です。各メッセージは [タイムスタンプ] ユーザー名: メッセージ の形式ですが、これは参考情報であり、あなたの応答にこの形式を含めないでください。'
-                });
-                
-                const lines = conversationHistory.split('\n').filter(l => l.trim() !== '' && !l.startsWith('会話履歴:'));
-                for (const line of lines) {
-                    // フォールバック行は "Name: message" または "[time] Name: message" の可能性がある
-                    const idx = line.indexOf(':');
-                    if (idx > 0) {
-                        const left = line.substring(0, idx).trim();
-                        const text = line.substring(idx + 1).trim();
-                        // left が [time] Name 形式かどうかをチェック
-                        const timeMatch = left.match(/^\[(.+?)\]\s*(.+)$/);
-                        if (timeMatch) {
-                            const time = timeMatch[1];
-                            const name = timeMatch[2];
-                            historyMessages.push({ role: 'user', content: `[${time}] ${name}: ${text}` });
-                        } else {
-                            historyMessages.push({ role: 'user', content: `${left}: ${text}` });
-                        }
-                    } else {
-                        historyMessages.push({ role: 'user', content: line });
-                    }
-                }
-            }
+            const guildId = interaction.guild?.id || 'global';
+            const dataset = await getConversationDataset(guildId, 40);
+            historyMessages = buildConversationHistory({
+                dataset,
+                channelMessages: channelConversationMessages,
+                channelId: interaction.channelId,
+                maxDatasetEntries: 20,
+                maxChannelMessages: 30,
+                maxCharacters: 20_000,
+            });
+        } catch (error) {
+            console.error('会話履歴の統合中にエラーが発生:', error);
         }
 
         // 最後に現在のユーザープロンプトを user メッセージとして追加
-        const userContentText = `### ユーザープロンプト\n${prompt}`;
+        const userContentText = prompt?.trim() || '添付ファイルの内容を確認してください。';
 
         const messages: OpenAIChatCompletionMessage[] = [
             { role: 'system', content: mergedSystemPrompt },
@@ -668,23 +595,14 @@ function getFileExtension(language: string): string {
     return extensions[language.toLowerCase()] || 'txt';
 }
 
-// 会話データセットの型
-type DatasetEntry = {
-    id: string;
-    timestamp: number;
-    userId: string;
-    userName?: string;
-    prompt: string;
-    response?: string;
-    incomplete?: boolean;
-};
-
 // データセットを保存するユーティリティ
 async function saveConversationDatasetEntry(interaction: ChatInputCommandInteraction, prompt: string | null, response?: string, incomplete = false): Promise<void> {
     const guildId = interaction.guild?.id || 'global';
-    const entry: DatasetEntry = {
+    const entry: AIConversationEntry = {
         id: `${Date.now()}_${Math.random().toString(36).substring(2,8)}`,
         timestamp: Date.now(),
+        guildId,
+        channelId: interaction.channelId,
         userId: interaction.user.id,
         userName: interaction.user.username,
         prompt: prompt ?? '',
@@ -694,7 +612,7 @@ async function saveConversationDatasetEntry(interaction: ChatInputCommandInterac
 
     const key = `Guild/${guildId}/dataset`;
     try {
-        const existing: DatasetEntry[] = (await database.get(guildId, key, [])) || [];
+        const existing: AIConversationEntry[] = (await database.get(guildId, key, [])) || [];
         existing.push(entry);
         // 最新100件のみ保持
         const trimmed = existing.slice(-100);
@@ -706,10 +624,10 @@ async function saveConversationDatasetEntry(interaction: ChatInputCommandInterac
 }
 
 // データセットを取得するユーティリティ
-async function getConversationDataset(guildId: string, limit = 100): Promise<DatasetEntry[]> {
+async function getConversationDataset(guildId: string, limit = 100): Promise<AIConversationEntry[]> {
     const key = `Guild/${guildId}/dataset`;
     try {
-        const existing: DatasetEntry[] = (await database.get(guildId, key, [])) || [];
+        const existing: AIConversationEntry[] = (await database.get(guildId, key, [])) || [];
         return existing.slice(-limit);
     } catch (err) {
         console.error('getConversationDataset error:', err);
