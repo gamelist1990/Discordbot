@@ -4,17 +4,24 @@ import {
     ChatGPTClient,
     ChatGPTClientOptions,
     ChatOptions,
+    ResponseApiStreamDelta,
 } from './ChatGPTClient.js';
 import { OpenAIChatCompletionMessage } from '../../types/openai.js';
+import { config } from '../../config.js';
 
-export const PEX_AI_ENDPOINT = 'http://api.pexserver.com:9000/v1';
-export const PEX_AI_MODEL = 'gemma4-agent';
+export const PEX_AI_ENDPOINT = config.pexAi.endpoint;
+export const PEX_AI_MODEL = config.pexAi.model;
 
 export interface GenerateTextOptions extends Omit<ChatOptions, 'stream'> {}
 
 export class OpenAIChatManager extends ChatGPTClient {
     constructor(options: ChatGPTClientOptions = {}) {
-        super(options);
+        super({
+            apiEndpoint: config.pexAi.endpoint,
+            apiKey: config.pexAi.apiKey || undefined,
+            defaultModel: config.pexAi.model,
+            ...options,
+        });
     }
 
     /** Chat Completions の通常応答から本文だけを返す簡易 API。 */
@@ -39,6 +46,15 @@ export class OpenAIChatManager extends ChatGPTClient {
                 onText(content);
             }
         }, options);
+    }
+
+    /** Responses API のストリームを使い、通常出力と API レベルの thinking/reasoning を分けて返す。 */
+    public async streamResponseText(
+        messages: OpenAIChatCompletionMessage[],
+        onDelta: (delta: ResponseApiStreamDelta) => void,
+        options?: GenerateTextOptions
+    ): Promise<void> {
+        await this.streamResponse(messages, onDelta, options);
     }
 
     /** GET /v1/models 相当のモデルカタログを返す。 */

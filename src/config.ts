@@ -22,6 +22,12 @@ export interface AppConfig {
         proxyEndpoints?: string[];
         rateLimitMaxWaitMs?: number;
     };
+    pexAi?: {
+        endpoint: string;
+        model: string;
+        visionModel: string;
+        apiKey: string;
+    };
 }
 
 const configPath = path.resolve(__dirname, '..', 'config.json');
@@ -65,6 +71,12 @@ export const config: Required<AppConfig> = {
         rateLimitMaxWaitMs: typeof raw.openai?.rateLimitMaxWaitMs === 'number' && Number.isFinite(raw.openai.rateLimitMaxWaitMs)
             ? Math.max(15_000, Math.round(raw.openai.rateLimitMaxWaitMs))
             : 3 * 60 * 1000,
+    },
+    pexAi: {
+        endpoint: raw.pexAi?.endpoint || 'http://api.pexserver.com:9000/v1',
+        model: raw.pexAi?.model || 'gemma4-agent',
+        visionModel: raw.pexAi?.visionModel || 'moondream:1.8b-v2-q2_K',
+        apiKey: raw.pexAi?.apiKey || '',
     },
 };
 

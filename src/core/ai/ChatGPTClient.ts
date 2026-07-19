@@ -15,6 +15,7 @@ import {
 
 export interface ChatOptions {
     model?: ModelSelectionInput;
+    strictModel?: boolean;
     temperature?: number;
     maxTokens?: number;
     topP?: number;
@@ -68,6 +69,18 @@ export interface RateLimitWaitInfo {
     retryAt: string;
     status: number | null;
     requestId: string | null;
+}
+
+export interface ResponseApiStreamDelta {
+    type: 'text' | 'thinking';
+    text: string;
+}
+
+interface ResponseFunctionCallItem {
+    id?: string;
+    callId: string;
+    name: string;
+    arguments: string;
 }
 
 export class ChatGPTClient {
@@ -180,6 +193,13 @@ export class ChatGPTClient {
             pushCandidate(preferredModel);
         }
 
+        if (options?.strictModel) {
+            if (candidates.length === 0 && this.defaultModel) {
+                pushCandidate(this.defaultModel);
+            }
+            return candidates;
+        }
+
         if (this.defaultModel && (availableModels.length === 0 || availableModels.includes(this.defaultModel) || candidates.length === 0)) {
             pushCandidate(this.defaultModel);
         }
@@ -210,6 +230,15 @@ export class ChatGPTClient {
         toolRound = 0
     ): Promise<void> {
         return this.streamMessageInternal(messages, onChunkReceive, options, toolRound, 0);
+    }
+
+    public async streamResponse(
+        messages: OpenAIChatCompletionMessage[],
+        onDeltaReceive: (delta: ResponseApiStreamDelta) => void,
+        options?: ChatOptions,
+        toolRound = 0
+    ): Promise<void> {
+        return this.streamResponseInternal(messages, onDeltaReceive, options, toolRound, 0);
     }
 
     private async sendMessageInternal(
@@ -358,6 +387,92 @@ export class ChatGPTClient {
             : new Error('No model candidate succeeded.');
     }
 
+    private async streamResponseInternal(
+        messages: OpenAIChatCompletionMessage[],
+        onDeltaReceive: (delta: ResponseApiStreamDelta) => void,
+        options: ChatOptions | undefined,
+        toolRound: number,
+        rateLimitRound: number,
+        previousResponseId?: string,
+        responseInput?: any[]
+    ): Promise<void> {
+        if (toolRound > this.maxToolRounds) {
+            throw new Error('Response API tool call recursion limit reached.');
+        }
+
+        const authCandidates = this.resolveAuthCandidates(options);
+        if (authCandidates.length === 0) {
+            throw new Error('No compatible model could be resolved from the configured endpoint.');
+        }
+
+        const toolDefinitions = Array.from(this.tools.values()).map(tool => tool.definition);
+        let lastError: unknown = null;
+        const rateLimitWaits: RateLimitWaitInfo[] = [];
+
+        for (const auth of authCandidates) {
+            const modelCandidates = await this.resolveModelCandidates(options, auth);
+            if (modelCandidates.length === 0) {
+                continue;
+            }
+
+            for (const model of modelCandidates) {
+                let emittedDelta = false;
+
+                try {
+                    const payload = this.buildResponseApiPayload(
+                        responseInput ?? this.convertChatMessagesToResponseInput(messages),
+                        options,
+                        model,
+                        toolDefinitions,
+                        previousResponseId,
+                    );
+                    const result = await this.streamResponseApiPayload(auth, payload, (delta) => {
+                        emittedDelta = true;
+                        onDeltaReceive(delta);
+                    });
+
+                    if (result.functionCalls.length > 0) {
+                        const toolOutputs = await this.executeResponseFunctionCalls(result.functionCalls);
+                        if (toolOutputs.length > 0 && result.responseId) {
+                            await this.streamResponseInternal(
+                                messages,
+                                onDeltaReceive,
+                                options,
+                                toolRound + 1,
+                                0,
+                                result.responseId,
+                                toolOutputs,
+                            );
+                        }
+                    }
+
+                    return;
+                } catch (error) {
+                    lastError = error;
+                    if (emittedDelta) {
+                        break;
+                    }
+
+                    const rateLimitInfo = this.buildRateLimitWaitInfo(error, options, auth.apiEndpoint, model);
+                    if (rateLimitInfo) {
+                        rateLimitWaits.push(rateLimitInfo);
+                    }
+                }
+            }
+        }
+
+        if (rateLimitWaits.length > 0 && rateLimitRound < this.maxRateLimitWaitRounds) {
+            const nextWait = rateLimitWaits.reduce((best, current) => current.waitMs < best.waitMs ? current : best);
+            await this.notifyRateLimitWait(options, nextWait, rateLimitRound + 1);
+            await this.sleep(nextWait.waitMs);
+            return this.streamResponseInternal(messages, onDeltaReceive, options, toolRound, rateLimitRound + 1, previousResponseId, responseInput);
+        }
+
+        throw lastError instanceof Error
+            ? lastError
+            : new Error('No Response API model candidate succeeded.');
+    }
+
     private resolveAuth(options?: ChatOptions): ClientAuth {
         return {
             apiEndpoint: this.normalizeEndpoint(options?.apiEndpoint || this.apiEndpoint),
@@ -427,6 +542,292 @@ export class ChatGPTClient {
 
     private createClient(auth: ClientAuth): OpenAI {
         return new OpenAI({ apiKey: auth.apiKey, baseURL: auth.apiEndpoint });
+    }
+
+    private buildResponseApiPayload(
+        input: any[],
+        options: ChatOptions | undefined,
+        model: string,
+        tools: OpenAITool[],
+        previousResponseId?: string
+    ): Record<string, unknown> {
+        return {
+            model,
+            input,
+            temperature: options?.temperature ?? 0.7,
+            max_output_tokens: model === 'gemma4:e2b-it-qat'
+                ? Math.max(options?.maxTokens ?? 2048, 512)
+                : options?.maxTokens ?? 1024,
+            top_p: options?.topP ?? 1,
+            stream: true,
+            ...(previousResponseId ? { previous_response_id: previousResponseId } : {}),
+            ...(tools.length > 0 ? { tools: this.convertToolsToResponseTools(tools), tool_choice: 'auto' } : {}),
+        };
+    }
+
+    private convertChatMessagesToResponseInput(messages: OpenAIChatCompletionMessage[]): any[] {
+        return messages
+            .filter(message => message.role !== 'tool')
+            .map(message => {
+                const role = message.role === 'function' ? 'user' : message.role;
+                if (typeof message.content === 'string' || message.content === null) {
+                    return {
+                        role,
+                        content: message.content ?? '',
+                    };
+                }
+
+                return {
+                    role,
+                    content: message.content.map(part => {
+                        if (part.type === 'image_url') {
+                            return {
+                                type: 'input_image',
+                                image_url: part.image_url?.url ?? '',
+                                detail: part.image_url?.detail ?? 'auto',
+                            };
+                        }
+
+                        return {
+                            type: 'input_text',
+                            text: part.text ?? '',
+                        };
+                    }),
+                };
+            });
+    }
+
+    private convertToolsToResponseTools(tools: OpenAITool[]): any[] {
+        return tools.map(tool => ({
+            type: 'function',
+            name: tool.function.name,
+            description: tool.function.description,
+            parameters: tool.function.parameters,
+        }));
+    }
+
+    private async streamResponseApiPayload(
+        auth: ClientAuth,
+        payload: Record<string, unknown>,
+        onDeltaReceive: (delta: ResponseApiStreamDelta) => void
+    ): Promise<{ responseId: string | null; functionCalls: ResponseFunctionCallItem[] }> {
+        const response = await fetch(`${auth.apiEndpoint}/responses`, {
+            method: 'POST',
+            headers: {
+                'content-type': 'application/json',
+                authorization: `Bearer ${auth.apiKey}`,
+            },
+            body: JSON.stringify(payload),
+        });
+
+        if (!response.ok || !response.body) {
+            const errorText = await response.text().catch(() => '');
+            const error = new Error(`Response API request failed: HTTP ${response.status} ${errorText}`);
+            (error as any).status = response.status;
+            (error as any).headers = response.headers;
+            throw error;
+        }
+
+        const decoder = new TextDecoder();
+        const reader = response.body.getReader();
+        let buffer = '';
+        let responseId: string | null = null;
+        const functionCallsByKey = new Map<string, ResponseFunctionCallItem>();
+        const textDeltaItems = new Set<string>();
+        const thinkingDeltaItems = new Set<string>();
+
+        const handleEvent = (data: any): void => {
+            responseId = this.extractResponseId(data) ?? responseId;
+
+            const eventType = typeof data?.type === 'string' ? data.type : '';
+            const textDelta = this.extractResponseTextDelta(data, eventType);
+            if (textDelta) {
+                textDeltaItems.add(String(data?.item_id ?? data?.output_index ?? 'default'));
+                onDeltaReceive({ type: 'text', text: textDelta });
+            }
+
+            const thinkingDelta = this.extractResponseThinkingDelta(data, eventType);
+            if (thinkingDelta) {
+                thinkingDeltaItems.add(String(data?.item_id ?? data?.output_index ?? 'default'));
+                onDeltaReceive({ type: 'thinking', text: thinkingDelta });
+            }
+
+            // PEXは実行によってdeltaを省略し、done/output_item.doneにだけ完成文を
+            // 入れる場合がある。deltaを既に受信したitemでは全文を再送せず、
+            // deltaが無かったitemだけdoneをフォールバックとして通知する。
+            if (eventType === 'response.output_text.done' && typeof data?.text === 'string') {
+                const itemKey = String(data?.item_id ?? data?.output_index ?? 'default');
+                if (!textDeltaItems.has(itemKey)) {
+                    textDeltaItems.add(itemKey);
+                    onDeltaReceive({ type: 'text', text: data.text });
+                }
+            }
+
+            if (eventType === 'response.reasoning_summary_text.done' && typeof data?.text === 'string') {
+                const itemKey = String(data?.item_id ?? data?.output_index ?? 'default');
+                if (!thinkingDeltaItems.has(itemKey)) {
+                    thinkingDeltaItems.add(itemKey);
+                    onDeltaReceive({ type: 'thinking', text: data.text });
+                }
+            }
+
+            if (eventType === 'response.output_item.done' && data?.item?.type === 'reasoning') {
+                const itemKey = String(data.item.id ?? data?.output_index ?? 'default');
+                const summaryText = Array.isArray(data.item.summary)
+                    ? data.item.summary
+                        .map((entry: any) => typeof entry?.text === 'string' ? entry.text : '')
+                        .filter(Boolean)
+                        .join('\n')
+                    : '';
+                if (summaryText && !thinkingDeltaItems.has(itemKey)) {
+                    thinkingDeltaItems.add(itemKey);
+                    onDeltaReceive({ type: 'thinking', text: summaryText });
+                }
+            }
+
+            this.collectResponseFunctionCall(data, eventType, functionCallsByKey);
+        };
+
+        try {
+            while (true) {
+                const { value, done } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+                let separatorIndex = buffer.indexOf('\n\n');
+
+                while (separatorIndex >= 0) {
+                    const rawEvent = buffer.slice(0, separatorIndex);
+                    buffer = buffer.slice(separatorIndex + 2);
+                    separatorIndex = buffer.indexOf('\n\n');
+
+                    const dataLines = rawEvent
+                        .split(/\r?\n/)
+                        .filter(line => line.startsWith('data:'))
+                        .map(line => line.slice(5).trim());
+                    const dataText = dataLines.join('\n');
+
+                    if (!dataText || dataText === '[DONE]') {
+                        continue;
+                    }
+
+                    try {
+                        handleEvent(JSON.parse(dataText));
+                    } catch (error) {
+                        Logger.debug('[ChatGPTClient] Failed to parse Response API stream event:', error);
+                    }
+                }
+            }
+        } finally {
+            reader.releaseLock();
+        }
+
+        return {
+            responseId,
+            functionCalls: Array.from(functionCallsByKey.values())
+                .filter(call => call.callId && call.name),
+        };
+    }
+
+    private extractResponseId(data: any): string | null {
+        const directId = typeof data?.id === 'string' && data.id.startsWith('resp_') ? data.id : null;
+        const responseId = typeof data?.response?.id === 'string' ? data.response.id : null;
+        return responseId || directId;
+    }
+
+    private extractResponseTextDelta(data: any, eventType: string): string {
+        // PEX Responses API は delta の後に done（全文）も返す。
+        // done.text まで通知すると「6」+「6です。」のように回答が二重化するため、
+        // ストリーミング表示には delta イベントだけを使用する。
+        return eventType === 'response.output_text.delta' && typeof data?.delta === 'string'
+            ? data.delta
+            : '';
+    }
+
+    private extractResponseThinkingDelta(data: any, eventType: string): string {
+        // PEX は reasoning/thinking 系イベントを複数の名前で返し得る。
+        // 実機確認済みの response.reasoning_summary_text.delta を含め、
+        // reasoning または thinking を含み末尾が .delta のイベントだけを拾う。
+        // .done は完成済み全文なので対象外にし、二重加算を防ぐ。
+        const isThinkingDelta = (eventType.includes('reasoning') || eventType.includes('thinking'))
+            && eventType.endsWith('.delta');
+        return isThinkingDelta && typeof data?.delta === 'string'
+            ? data.delta
+            : '';
+    }
+
+    private collectResponseFunctionCall(
+        data: any,
+        eventType: string,
+        functionCallsByKey: Map<string, ResponseFunctionCallItem>
+    ): void {
+        const item = data?.item;
+        if ((eventType === 'response.output_item.added' || eventType === 'response.output_item.done') && item?.type === 'function_call') {
+            const key = String(item.id ?? item.call_id ?? data.output_index ?? functionCallsByKey.size);
+            const existing = functionCallsByKey.get(key) || {
+                id: typeof item.id === 'string' ? item.id : undefined,
+                callId: typeof item.call_id === 'string' ? item.call_id : '',
+                name: typeof item.name === 'string' ? item.name : '',
+                arguments: '',
+            };
+            existing.id = typeof item.id === 'string' ? item.id : existing.id;
+            existing.callId = typeof item.call_id === 'string' ? item.call_id : existing.callId;
+            existing.name = typeof item.name === 'string' ? item.name : existing.name;
+            existing.arguments = typeof item.arguments === 'string' ? item.arguments : existing.arguments;
+            functionCallsByKey.set(key, existing);
+            return;
+        }
+
+        if (eventType === 'response.function_call_arguments.delta') {
+            const key = String(data.item_id ?? data.output_index ?? '0');
+            const existing = functionCallsByKey.get(key) || {
+                id: typeof data.item_id === 'string' ? data.item_id : undefined,
+                callId: '',
+                name: '',
+                arguments: '',
+            };
+            if (typeof data.delta === 'string') {
+                existing.arguments += data.delta;
+            }
+            functionCallsByKey.set(key, existing);
+        }
+    }
+
+    private async executeResponseFunctionCalls(functionCalls: ResponseFunctionCallItem[]): Promise<any[]> {
+        const outputs: any[] = [];
+
+        for (const functionCall of functionCalls) {
+            const toolEntry = this.tools.get(functionCall.name);
+            if (!toolEntry) {
+                outputs.push({
+                    type: 'function_call_output',
+                    call_id: functionCall.callId,
+                    name: functionCall.name,
+                    output: `Error: Tool not found: ${functionCall.name}`,
+                });
+                continue;
+            }
+
+            try {
+                const args = functionCall.arguments ? JSON.parse(functionCall.arguments) : {};
+                const result = await toolEntry.handler(args, this.toolContext);
+                outputs.push({
+                    type: 'function_call_output',
+                    call_id: functionCall.callId,
+                    name: functionCall.name,
+                    output: typeof result === 'string' ? result : JSON.stringify(result),
+                });
+            } catch (error) {
+                outputs.push({
+                    type: 'function_call_output',
+                    call_id: functionCall.callId,
+                    name: functionCall.name,
+                    output: `Error: ${error instanceof Error ? error.message : String(error)}`,
+                });
+            }
+        }
+
+        return outputs;
     }
 
     private buildRateLimitWaitInfo(
