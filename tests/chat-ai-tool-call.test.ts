@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 
 import { ChatGPTClient } from '../src/core/ai/ChatGPTClient.ts';
+import { config } from '../src/config.ts';
+import { Logger } from '../src/utils/Logger.ts';
 
 function sendSse(response: http.ServerResponse, events: unknown[]): void {
     response.writeHead(200, {
@@ -92,17 +94,75 @@ test('Responses APIのfunction_callを実行し、SDK経由で結果をモデル
         }, async (args: any) => `echo:${args.value}`);
 
         let output = '';
+        const toolSteps: Array<{ phase: string; name: string; round: number }> = [];
         await client.streamResponse(
             [{ role: 'user', content: 'ツールを使って' }],
             (delta) => {
                 if (delta.type === 'text') output += delta.text;
             },
-            { model: 'test-model', strictModel: true },
+            {
+                model: 'test-model',
+                strictModel: true,
+                onToolStep: step => toolSteps.push({ phase: step.phase, name: step.name, round: step.round }),
+            },
         );
 
         assert.equal(output, '成功');
         assert.equal(requests.length, 2);
+        assert.deepEqual(toolSteps, [
+            { phase: 'started', name: 'echo_test', round: 1 },
+            { phase: 'completed', name: 'echo_test', round: 1 },
+        ]);
     } finally {
         await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
     }
+});
+
+test('DEBUG=trueでは実際のツール実行を監査ログへ記録する', async () => {
+    const previousDebug = config.DEBUG;
+    const previousLogger = Logger.info;
+    const logs: unknown[][] = [];
+    config.DEBUG = 'true';
+    Logger.info = (...args: unknown[]) => { logs.push(args); };
+
+    try {
+        const client = new ChatGPTClient({
+            apiEndpoint: 'http://127.0.0.1:1',
+            apiKey: 'test-key',
+            defaultModel: 'test-model',
+        });
+        client.registerTool({
+            type: 'function',
+            function: {
+                name: 'debug_test',
+                description: 'デバッグ登録確認',
+                parameters: { type: 'object', properties: {} },
+            },
+        }, async () => 'ok');
+
+        assert.ok(logs.some(entry => String(entry[0]).includes('[DEBUG][ChatGPTClient][ToolCall][registered]')));
+        assert.ok(logs.some(entry => JSON.stringify(entry[1]).includes('debug_test')));
+    } finally {
+        config.DEBUG = previousDebug;
+        Logger.info = previousLogger;
+    }
+});
+
+test('中断済みsignalではAIリクエストやツール処理を開始しない', async () => {
+    const client = new ChatGPTClient({
+        apiEndpoint: 'http://127.0.0.1:1',
+        apiKey: 'test-key',
+        defaultModel: 'test-model',
+    });
+    const controller = new AbortController();
+    controller.abort(new DOMException('Newer message arrived.', 'AbortError'));
+
+    await assert.rejects(
+        client.streamResponse(
+            [{ role: 'user', content: '古い質問' }],
+            () => undefined,
+            { model: 'test-model', strictModel: true, signal: controller.signal },
+        ),
+        (error: unknown) => error instanceof DOMException && error.name === 'AbortError',
+    );
 });

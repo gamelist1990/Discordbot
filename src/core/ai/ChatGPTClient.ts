@@ -25,6 +25,15 @@ export interface ChatOptions {
     apiKey?: string;
     requestLabel?: string;
     onRateLimitWait?: (info: RateLimitWaitInfo) => void | Promise<void>;
+    onToolStep?: (step: ToolExecutionStep) => void | Promise<void>;
+    signal?: AbortSignal;
+}
+
+export interface ToolExecutionStep {
+    phase: 'started' | 'completed' | 'failed';
+    name: string;
+    round: number;
+    error?: string;
 }
 
 export interface ChatGPTClientOptions {
@@ -121,6 +130,10 @@ export class ChatGPTClient {
 
     public registerTool(definition: OpenAITool, handler: ToolHandler): void {
         this.tools.set(definition.function.name, { definition, handler });
+        this.debugToolCall('registered', {
+            name: definition.function.name,
+            totalRegisteredTools: this.tools.size,
+        });
     }
 
     public setToolContext(context: any): void {
@@ -128,6 +141,7 @@ export class ChatGPTClient {
     }
 
     public clearTools(): void {
+        this.debugToolCall('cleared', { totalRegisteredTools: this.tools.size });
         this.tools.clear();
         this.toolContext = null;
     }
@@ -247,6 +261,7 @@ export class ChatGPTClient {
         toolRound: number,
         rateLimitRound: number
     ): Promise<OpenAIChatCompletionResponse> {
+        this.throwIfAborted(options?.signal);
         if (toolRound > this.maxToolRounds) {
             throw new Error('Tool call recursion limit reached.');
         }
@@ -269,12 +284,16 @@ export class ChatGPTClient {
             for (const model of modelCandidates) {
                 try {
                     const payload = this.buildRequestPayload(messages, options, model, false);
-                    const response = await client.chat.completions.create(payload as OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming);
+                    const response = await client.chat.completions.create(
+                        payload as OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming,
+                        { signal: options?.signal },
+                    );
+                    this.throwIfAborted(options?.signal);
                     const typedResponse = response as unknown as OpenAIChatCompletionResponse;
 
                     const toolCalls = typedResponse.choices[0]?.message?.tool_calls ?? [];
                     if (toolCalls.length > 0) {
-                        const nextMessages = await this.executeToolCalls(toolCalls, messages);
+                        const nextMessages = await this.executeToolCalls(toolCalls, messages, options, toolRound + 1);
                         return this.sendMessageInternal(nextMessages, options, toolRound + 1, 0);
                     }
 
@@ -308,6 +327,7 @@ export class ChatGPTClient {
         toolRound: number,
         rateLimitRound: number
     ): Promise<void> {
+        this.throwIfAborted(options?.signal);
         if (toolRound > this.maxToolRounds) {
             throw new Error('Tool call recursion limit reached.');
         }
@@ -334,9 +354,13 @@ export class ChatGPTClient {
 
                 try {
                     const payload = this.buildRequestPayload(messages, options, model, true, toolDefinitions);
-                    const stream = await client.chat.completions.create(payload as OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming);
+                    const stream = await client.chat.completions.create(
+                        payload as OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming,
+                        { signal: options?.signal },
+                    );
 
                     for await (const chunk of stream as AsyncIterable<unknown>) {
+                        this.throwIfAborted(options?.signal);
                         emittedChunk = true;
 
                         const typedChunk = chunk as OpenAIChatCompletionChunk;
@@ -356,7 +380,7 @@ export class ChatGPTClient {
                     }
 
                     if (toolCallsBuffer.size > 0) {
-                        const nextMessages = await this.executeToolCallsFromBuffer(toolCallsBuffer, messages);
+                        const nextMessages = await this.executeToolCallsFromBuffer(toolCallsBuffer, messages, options, toolRound + 1);
                         await this.streamMessageInternal(nextMessages, onChunkReceive, options, toolRound + 1, 0);
                     }
 
@@ -396,6 +420,7 @@ export class ChatGPTClient {
         previousResponseId?: string,
         responseInput?: any[]
     ): Promise<void> {
+        this.throwIfAborted(options?.signal);
         if (toolRound > this.maxToolRounds) {
             throw new Error('Response API tool call recursion limit reached.');
         }
@@ -427,13 +452,31 @@ export class ChatGPTClient {
                         toolDefinitions,
                         previousResponseId,
                     );
+                    this.debugToolCall('request', {
+                        api: 'responses',
+                        requestLabel: options?.requestLabel || 'chatgpt-request',
+                        model,
+                        round: toolRound,
+                        registeredTools: toolDefinitions.map(tool => tool.function.name),
+                        toolChoice: toolDefinitions.length > 0 ? 'auto' : 'none',
+                    });
                     const result = await this.streamResponseApiPayload(auth, payload, (delta) => {
                         emittedDelta = true;
                         onDeltaReceive(delta);
-                    });
+                    }, options?.signal);
+                    this.throwIfAborted(options?.signal);
 
                     if (result.functionCalls.length > 0) {
-                        const toolOutputs = await this.executeResponseFunctionCalls(result.functionCalls);
+                        this.debugToolCall('model-requested', {
+                            api: 'responses',
+                            round: toolRound + 1,
+                            calls: result.functionCalls.map(call => ({
+                                callId: call.callId,
+                                name: call.name,
+                                arguments: this.debugPreview(call.arguments),
+                            })),
+                        });
+                        const toolOutputs = await this.executeResponseFunctionCalls(result.functionCalls, options, toolRound + 1);
                         if (toolOutputs.length > 0) {
                             // 一部のOpenAI互換APIは previous_response_id だけでは元の
                             // function_call名を復元できない。SDKが返した出力項目を含む
@@ -443,6 +486,11 @@ export class ChatGPTClient {
                                 ...result.outputItems,
                                 ...toolOutputs,
                             ];
+                            this.debugToolCall('continuation', {
+                                api: 'responses',
+                                round: toolRound + 1,
+                                outputCount: toolOutputs.length,
+                            });
                             await this.streamResponseInternal(
                                 messages,
                                 onDeltaReceive,
@@ -453,6 +501,12 @@ export class ChatGPTClient {
                                 continuationInput,
                             );
                         }
+                    } else {
+                        this.debugToolCall('model-finished-without-tool', {
+                            api: 'responses',
+                            requestLabel: options?.requestLabel || 'chatgpt-request',
+                            round: toolRound,
+                        });
                     }
 
                     return;
@@ -618,11 +672,14 @@ export class ChatGPTClient {
     private async streamResponseApiPayload(
         auth: ClientAuth,
         payload: Record<string, unknown>,
-        onDeltaReceive: (delta: ResponseApiStreamDelta) => void
+        onDeltaReceive: (delta: ResponseApiStreamDelta) => void,
+        signal?: AbortSignal,
     ): Promise<{ responseId: string | null; functionCalls: ResponseFunctionCallItem[]; outputItems: any[] }> {
+        this.throwIfAborted(signal);
         const client = this.createClient(auth);
         const stream = await client.responses.create(
             payload as unknown as OpenAI.Responses.ResponseCreateParamsStreaming,
+            { signal },
         );
         let responseId: string | null = null;
         const functionCallsByKey = new Map<string, ResponseFunctionCallItem>();
@@ -690,6 +747,7 @@ export class ChatGPTClient {
         };
 
         for await (const event of stream as AsyncIterable<OpenAI.Responses.ResponseStreamEvent>) {
+            this.throwIfAborted(signal);
             handleEvent(event);
         }
 
@@ -767,12 +825,28 @@ export class ChatGPTClient {
         }
     }
 
-    private async executeResponseFunctionCalls(functionCalls: ResponseFunctionCallItem[]): Promise<any[]> {
+    private async executeResponseFunctionCalls(
+        functionCalls: ResponseFunctionCallItem[],
+        options?: ChatOptions,
+        round = 1,
+    ): Promise<any[]> {
         const outputs: any[] = [];
 
         for (const functionCall of functionCalls) {
             const toolEntry = this.tools.get(functionCall.name);
             if (!toolEntry) {
+                this.debugToolCall('not-found', {
+                    api: 'responses',
+                    name: functionCall.name,
+                    callId: functionCall.callId,
+                    round,
+                });
+                await this.notifyToolStep(options, {
+                    phase: 'failed',
+                    name: functionCall.name,
+                    round,
+                    error: `Tool not found: ${functionCall.name}`,
+                });
                 outputs.push({
                     type: 'function_call_output',
                     call_id: functionCall.callId,
@@ -782,14 +856,45 @@ export class ChatGPTClient {
             }
 
             try {
+                this.throwIfAborted(options?.signal);
+                this.debugToolCall('executing', {
+                    api: 'responses',
+                    name: functionCall.name,
+                    callId: functionCall.callId,
+                    round,
+                    arguments: this.debugPreview(functionCall.arguments),
+                });
+                await this.notifyToolStep(options, { phase: 'started', name: functionCall.name, round });
                 const args = functionCall.arguments ? JSON.parse(functionCall.arguments) : {};
                 const result = await toolEntry.handler(args, this.toolContext);
+                this.throwIfAborted(options?.signal);
+                this.debugToolCall('executed', {
+                    api: 'responses',
+                    name: functionCall.name,
+                    callId: functionCall.callId,
+                    round,
+                    result: this.debugPreview(result),
+                });
+                await this.notifyToolStep(options, { phase: 'completed', name: functionCall.name, round });
                 outputs.push({
                     type: 'function_call_output',
                     call_id: functionCall.callId,
                     output: typeof result === 'string' ? result : JSON.stringify(result),
                 });
             } catch (error) {
+                this.debugToolCall('failed', {
+                    api: 'responses',
+                    name: functionCall.name,
+                    callId: functionCall.callId,
+                    round,
+                    error: error instanceof Error ? error.message : String(error),
+                });
+                await this.notifyToolStep(options, {
+                    phase: 'failed',
+                    name: functionCall.name,
+                    round,
+                    error: error instanceof Error ? error.message : String(error),
+                });
                 outputs.push({
                     type: 'function_call_output',
                     call_id: functionCall.callId,
@@ -971,6 +1076,14 @@ export class ChatGPTClient {
         stream: boolean,
         tools: OpenAITool[] = []
     ): OpenAIChatCompletionRequest {
+        this.debugToolCall('request', {
+            api: 'chat-completions',
+            requestLabel: options?.requestLabel || 'chatgpt-request',
+            model,
+            stream,
+            registeredTools: tools.map(tool => tool.function.name),
+            toolChoice: tools.length > 0 ? 'auto' : 'none',
+        });
         return {
             model,
             messages,
@@ -988,7 +1101,9 @@ export class ChatGPTClient {
 
     private async executeToolCalls(
         toolCalls: OpenAIToolCall[],
-        originalMessages: OpenAIChatCompletionMessage[]
+        originalMessages: OpenAIChatCompletionMessage[],
+        options?: ChatOptions,
+        round = 1,
     ): Promise<OpenAIChatCompletionMessage[]> {
         const assistantMessage: OpenAIChatCompletionMessage = {
             role: 'assistant',
@@ -997,12 +1112,23 @@ export class ChatGPTClient {
         };
 
         const nextMessages = [...originalMessages, assistantMessage];
-        return this.appendToolResults(nextMessages, toolCalls);
+        this.debugToolCall('model-requested', {
+            api: 'chat-completions',
+            round,
+            calls: toolCalls.map(call => ({
+                callId: call.id,
+                name: call.function.name,
+                arguments: this.debugPreview(call.function.arguments),
+            })),
+        });
+        return this.appendToolResults(nextMessages, toolCalls, options, round);
     }
 
     private async executeToolCallsFromBuffer(
         toolCallsBuffer: Map<number, ToolCallBufferItem>,
-        originalMessages: OpenAIChatCompletionMessage[]
+        originalMessages: OpenAIChatCompletionMessage[],
+        options?: ChatOptions,
+        round = 1,
     ): Promise<OpenAIChatCompletionMessage[]> {
         const toolCalls = Array.from(toolCallsBuffer.values())
             .filter(call => call.id && call.name)
@@ -1019,12 +1145,14 @@ export class ChatGPTClient {
             return originalMessages;
         }
 
-        return this.executeToolCalls(toolCalls, originalMessages);
+        return this.executeToolCalls(toolCalls, originalMessages, options, round);
     }
 
     private async appendToolResults(
         messages: OpenAIChatCompletionMessage[],
-        toolCalls: OpenAIToolCall[]
+        toolCalls: OpenAIToolCall[],
+        options?: ChatOptions,
+        round = 1,
     ): Promise<OpenAIChatCompletionMessage[]> {
         const nextMessages = [...messages];
 
@@ -1032,6 +1160,18 @@ export class ChatGPTClient {
             const toolEntry = this.tools.get(toolCall.function.name);
             if (!toolEntry) {
                 console.error(`Tool not found: ${toolCall.function.name}`);
+                this.debugToolCall('not-found', {
+                    api: 'chat-completions',
+                    name: toolCall.function.name,
+                    callId: toolCall.id,
+                    round,
+                });
+                await this.notifyToolStep(options, {
+                    phase: 'failed',
+                    name: toolCall.function.name,
+                    round,
+                    error: `Tool not found: ${toolCall.function.name}`,
+                });
                 continue;
             }
 
@@ -1040,6 +1180,15 @@ export class ChatGPTClient {
             let timerInterval: ReturnType<typeof setInterval> | undefined;
 
             try {
+                this.throwIfAborted(options?.signal);
+                this.debugToolCall('executing', {
+                    api: 'chat-completions',
+                    name: toolCall.function.name,
+                    callId: toolCall.id,
+                    round,
+                    arguments: this.debugPreview(toolCall.function.arguments),
+                });
+                await this.notifyToolStep(options, { phase: 'started', name: toolCall.function.name, round });
                 const args = JSON.parse(toolCall.function.arguments);
 
                 if (discordClient?.user && typeof discordClient.user.setPresence === 'function') {
@@ -1070,7 +1219,16 @@ export class ChatGPTClient {
                 }
 
                 const result = await toolEntry.handler(args, this.toolContext);
+                this.throwIfAborted(options?.signal);
                 const resultStr = typeof result === 'string' ? result : JSON.stringify(result);
+                this.debugToolCall('executed', {
+                    api: 'chat-completions',
+                    name: toolCall.function.name,
+                    callId: toolCall.id,
+                    round,
+                    result: this.debugPreview(resultStr),
+                });
+                await this.notifyToolStep(options, { phase: 'completed', name: toolCall.function.name, round });
 
                 nextMessages.push({
                     role: 'tool',
@@ -1079,6 +1237,19 @@ export class ChatGPTClient {
                 });
             } catch (error) {
                 console.error(`Error executing tool ${toolCall.function.name}:`, error);
+                this.debugToolCall('failed', {
+                    api: 'chat-completions',
+                    name: toolCall.function.name,
+                    callId: toolCall.id,
+                    round,
+                    error: error instanceof Error ? error.message : String(error),
+                });
+                await this.notifyToolStep(options, {
+                    phase: 'failed',
+                    name: toolCall.function.name,
+                    round,
+                    error: error instanceof Error ? error.message : String(error),
+                });
                 nextMessages.push({
                     role: 'tool',
                     content: `Error: ${error instanceof Error ? error.message : String(error)}`,
@@ -1112,5 +1283,39 @@ export class ChatGPTClient {
         }
 
         return nextMessages;
+    }
+
+    private async notifyToolStep(options: ChatOptions | undefined, step: ToolExecutionStep): Promise<void> {
+        try {
+            await options?.onToolStep?.(step);
+        } catch (error) {
+            Logger.debug('[ChatGPTClient] onToolStep callback failed:', error);
+        }
+    }
+
+    private throwIfAborted(signal?: AbortSignal): void {
+        if (!signal?.aborted) return;
+        const reason = signal.reason;
+        if (reason instanceof Error) throw reason;
+        throw new DOMException(typeof reason === 'string' ? reason : 'The operation was aborted.', 'AbortError');
+    }
+
+    private debugToolCall(event: string, details: Record<string, unknown>): void {
+        if (String(config.DEBUG).toLowerCase() !== 'true') return;
+        Logger.info(`[DEBUG][ChatGPTClient][ToolCall][${event}]`, details);
+    }
+
+    private debugPreview(value: unknown, maxLength = 1_000): string {
+        let serialized: string;
+        try {
+            serialized = typeof value === 'string' ? value : JSON.stringify(value);
+        } catch {
+            serialized = String(value);
+        }
+
+        const masked = serialized
+            .replace(/("?(?:api[_-]?key|token|authorization|password|secret)"?\s*[:=]\s*")([^"]+)(")/gi, '$1***$3')
+            .replace(/Bearer\s+[A-Za-z0-9._~+\/-]+/gi, 'Bearer ***');
+        return masked.length > maxLength ? `${masked.slice(0, maxLength)}…` : masked;
     }
 }

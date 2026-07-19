@@ -14,6 +14,11 @@ export interface ChatAIUserMemory {
     profile: string;
     likes: string[];
     notes: string[];
+    conversationTone?: string;
+    cautions?: string[];
+    relationshipTone?: 'friendly' | 'neutral' | 'firm';
+    relationshipContext?: string;
+    boundaryState?: 'clear' | 'awaiting-apology';
     suspectedAltOf?: string;
     updatedAt: string;
 }

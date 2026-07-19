@@ -51,7 +51,6 @@ export class Database {
         try {
             await this.writeJson(this.dataDir, resolved.primaryRelativePath, data);
             this.cache.set(resolved.cacheKey, data);
-            console.log(`💾 データを保存: ${resolved.primaryRelativePath}`);
         } catch (error) {
             console.error(`データ保存エラー [${resolved.primaryRelativePath}]:`, error);
             throw error;

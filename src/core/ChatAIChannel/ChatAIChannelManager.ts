@@ -1,5 +1,6 @@
 import fs from 'fs/promises';
 import path from 'path';
+import sharp from 'sharp';
 import {
     Client,
     Events,
@@ -9,21 +10,30 @@ import {
 import { config } from '../../config.js';
 import { Logger } from '../../utils/Logger.js';
 import { OpenAIChatManager } from '../ai/OpenAIChatManager.js';
+import type { ToolExecutionStep } from '../ai/ChatGPTClient.js';
 import type { OpenAIChatCompletionMessage, OpenAIContentPart } from '../../types/openai.js';
 import { registerChatAIChannelTools } from './tools/index.js';
+import { ChatAISpamGuard } from './ChatAISpamGuard.js';
 import type { ChatAIChannelOptions, ChatAIMemoryFile, ChatAISandboxPaths } from './types.js';
 
 const DEFAULT_HISTORY_LIMIT = 20;
 const DEFAULT_RESPONSE_DELAY_MS = 350;
 const MAX_DISCORD_REPLY_LENGTH = 1_900;
 const MAX_AI_REPLY_LENGTH = 1_200;
-const MAX_IMAGES_PER_REQUEST = 4;
-const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+const MAX_IMAGES_PER_REQUEST = 2;
+const MAX_IMAGE_BYTES = 768 * 1024;
+const MAX_SOURCE_GIF_BYTES = 5 * 1024 * 1024;
+const MAX_TOTAL_IMAGE_BYTES = 1024 * 1024;
+const MAX_HISTORY_PROMPT_CHARACTERS = 12_000;
 const IMAGE_FETCH_TIMEOUT_MS = 12_000;
 const MAX_MEMORY_USERS_IN_PROMPT = 12;
 const STREAM_UPDATE_INTERVAL_MS = 500;
 const TYPING_REFRESH_INTERVAL_MS = 8_000;
 const CONTINUATION_WINDOW_MS = 2 * 60_000;
+const GIF_SAMPLE_FRAME_COUNT = 3;
+const GIF_FRAME_WIDTH = 320;
+const GIF_FRAME_HEIGHT = 240;
+const SILENT_DISCORD_TOOL_NAMES = new Set(['user_memory_edit']);
 
 interface PreparedChatPrompt {
     messages: OpenAIChatCompletionMessage[];
@@ -32,6 +42,53 @@ interface PreparedChatPrompt {
         author: string;
         dataUrl: string;
     }>;
+}
+
+/**
+ * GIFの先頭・中間・末尾から最大3枚を抽出し、視覚モデルが扱いやすい
+ * 横並びの静止PNGへ変換する。静止GIFの場合は1枚だけ変換する。
+ */
+export async function createGifContactSheet(gifBuffer: Buffer): Promise<Buffer | null> {
+    try {
+        const metadata = await sharp(gifBuffer, { animated: true }).metadata();
+        const pageCount = Math.max(1, metadata.pages || 1);
+        const sampleCount = Math.min(GIF_SAMPLE_FRAME_COUNT, pageCount);
+        const sampledPages = sampleCount === 1
+            ? [0]
+            : Array.from({ length: sampleCount }, (_, index) =>
+                Math.round((index * (pageCount - 1)) / (sampleCount - 1)),
+            );
+        const uniquePages = Array.from(new Set(sampledPages));
+
+        const frameBuffers = await Promise.all(uniquePages.map(page =>
+            sharp(gifBuffer, { page, pages: 1 })
+                .resize(GIF_FRAME_WIDTH, GIF_FRAME_HEIGHT, {
+                    fit: 'contain',
+                    background: { r: 0, g: 0, b: 0, alpha: 1 },
+                })
+                .png({ compressionLevel: 9 })
+                .toBuffer(),
+        ));
+
+        return sharp({
+            create: {
+                width: GIF_FRAME_WIDTH * frameBuffers.length,
+                height: GIF_FRAME_HEIGHT,
+                channels: 4,
+                background: { r: 0, g: 0, b: 0, alpha: 1 },
+            },
+        })
+            .composite(frameBuffers.map((input, index) => ({
+                input,
+                left: index * GIF_FRAME_WIDTH,
+                top: 0,
+            })))
+            .png({ compressionLevel: 9 })
+            .toBuffer();
+    } catch (error) {
+        Logger.debug('[ChatAIChannel] GIF frame extraction failed:', error);
+        return null;
+    }
 }
 
 export class ChatAIChannelManager {
@@ -45,6 +102,7 @@ export class ChatAIChannelManager {
     private timer: NodeJS.Timeout | null = null;
     private activeConversationUserId: string | null = null;
     private activeConversationUntil = 0;
+    private readonly spamGuard = new ChatAISpamGuard();
     private readonly chatManager: OpenAIChatManager;
 
     constructor(options: ChatAIChannelOptions) {
@@ -66,7 +124,7 @@ export class ChatAIChannelManager {
             apiKey: config.pexAi.apiKey || undefined,
             defaultModel: config.pexAi.model,
         });
-        registerChatAIChannelTools(this.chatManager, this.sandboxPaths);
+        registerChatAIChannelTools(this.chatManager, this.sandboxPaths, this.memoryFile);
     }
 
     async initialize(client: Client): Promise<void> {
@@ -97,9 +155,24 @@ export class ChatAIChannelManager {
 
     private readonly onMessageCreate = async (message: Message): Promise<void> => {
         if (!this.shouldObserve(message)) return;
-        const shouldTrigger = this.shouldTrigger(message);
+
+        const spamDecision = this.spamGuard.inspect({
+            id: message.id,
+            authorId: message.author.id,
+            timestamp: message.createdTimestamp,
+            content: message.content || '',
+        });
+        if (spamDecision.spam) {
+            Logger.debug(`[ChatAIChannel] ignored spam message(s): reason=${spamDecision.reason} ids=${spamDecision.ignoredMessageIds.join(',')}`);
+            return;
+        }
+
+        const shouldTrigger = await this.shouldTrigger(message);
 
         if (shouldTrigger) {
+            // 応答中の新着発言は中断させず pending として予約する。
+            // 現在の応答（ツール実行と最終回答を含む）を必ず完了してから、
+            // 最新履歴を取り直して次の応答を直列に処理する。
             this.activeConversationUserId = message.author.id;
             this.activeConversationUntil = Date.now() + CONTINUATION_WINDOW_MS;
             const channel = message.channel;
@@ -121,17 +194,33 @@ export class ChatAIChannelManager {
         );
     }
 
-    private shouldTrigger(message: Message): boolean {
+    private async shouldTrigger(message: Message): Promise<boolean> {
         const content = message.content.replace(/\s+/g, '');
         const mentionedCurrentBot = Boolean(
             this.client?.user?.id
             && message.mentions.users.has(this.client.user.id),
         );
-        const explicitlyCalled = mentionedCurrentBot || content.includes(this.options.botName);
+        const repliedToCurrentBot = await this.isReplyToCurrentBot(message);
+        const explicitlyCalled = mentionedCurrentBot
+            || content.includes(this.options.botName)
+            || repliedToCurrentBot;
         if (explicitlyCalled) return true;
 
         return this.activeConversationUserId === message.author.id
             && Date.now() <= this.activeConversationUntil;
+    }
+
+    private async isReplyToCurrentBot(message: Message): Promise<boolean> {
+        const botUserId = this.client?.user?.id;
+        if (!botUserId || !message.reference?.messageId) return false;
+
+        try {
+            const referenced = await message.fetchReference();
+            return referenced.author.id === botUserId;
+        } catch (error) {
+            Logger.debug('[ChatAIChannel] failed to resolve reply target:', error);
+            return false;
+        }
     }
 
     private queueResponse(): void {
@@ -169,12 +258,19 @@ export class ChatAIChannelManager {
         const channel = await this.resolveChannel();
         if (!channel) return;
 
+        // pendingが残っていても、最新Bot応答より後に人間の新着発言が無ければ
+        // 既に処理済みの最後のユーザー発言を再利用して二重返信しない。
+        const history = await this.fetchRecentMessages(channel);
+        if (!this.hasUnansweredHumanMessage(history)) {
+            Logger.debug('[ChatAIChannel] skipped stale pending response: no human message after latest bot response.');
+            return;
+        }
+
         if ('sendTyping' in channel && typeof channel.sendTyping === 'function') {
             await channel.sendTyping().catch(() => null);
         }
         const stopTyping = this.startTypingLoop(channel);
 
-        const history = await this.fetchRecentMessages(channel);
         const memory = await this.loadMemory();
         const prompt = await this.buildPrompt(history, memory);
         const messages = prompt.messages;
@@ -183,13 +279,15 @@ export class ChatAIChannelManager {
         let updateChain = Promise.resolve();
         let response = '';
         let thinking = '';
+        let toolStep: ToolExecutionStep | null = null;
         let lastUpdateAt = 0;
 
         const queueStreamingUpdate = (completed: boolean): void => {
             const answerSnapshot = response;
             const thinkingSnapshot = thinking;
+            const toolStepSnapshot = toolStep;
             updateChain = updateChain.then(async () => {
-                const formatted = this.formatStreamingResponse(answerSnapshot, thinkingSnapshot, completed);
+                const formatted = this.formatStreamingResponse(answerSnapshot, thinkingSnapshot, completed, toolStepSnapshot);
                 if (!responseMessage) {
                     responseMessage = await this.createStreamingMessage(channel, formatted);
                     return;
@@ -201,9 +299,7 @@ export class ChatAIChannelManager {
         };
 
         try {
-            await this.chatManager.streamResponseText(
-                messages,
-                (delta) => {
+            const handleDelta = (delta: { type: 'text' | 'thinking'; text: string }): void => {
                     if (delta.type === 'thinking') {
                         thinking += delta.text;
                     } else {
@@ -215,21 +311,45 @@ export class ChatAIChannelManager {
                         lastUpdateAt = now;
                         queueStreamingUpdate(false);
                     }
-                },
-                {
+            };
+            const streamOptions = {
                     model: config.pexAi.model,
                     strictModel: true,
                     temperature: 0.75,
                     maxTokens: 650,
                     requestLabel: 'chat-ai-channel',
-                },
-            );
+                    onToolStep: (step) => {
+                        // 内部メモリ管理は会話体験の裏側で行い、Discordには
+                        // ツール名・実行中・完了・失敗ステータスを表示しない。
+                        toolStep = SILENT_DISCORD_TOOL_NAMES.has(step.name) ? null : step;
+                        queueStreamingUpdate(false);
+                    },
+            };
+
+            try {
+                await this.chatManager.streamResponseText(messages, handleDelta, streamOptions);
+            } catch (error) {
+                if (!this.isPayloadTooLargeError(error)) throw error;
+
+                // 画像のdata URLや長い履歴で上流APIの本文上限を超えた場合は、
+                // 古い履歴を圧縮し、画像本体を外したテキスト入力で一度だけ再試行する。
+                Logger.warn('[ChatAIChannel] request payload exceeded upstream limit; retrying with compact text-only prompt.');
+                response = '';
+                thinking = '';
+                toolStep = null;
+                const compactMessages = this.createCompactRetryMessages(messages);
+                this.chatManager.setToolContext({ client: this.client, sandbox: this.sandboxPaths, images: [] });
+                await this.chatManager.streamResponseText(compactMessages, handleDelta, {
+                    ...streamOptions,
+                    requestLabel: 'chat-ai-channel-compact-retry',
+                });
+            }
 
             if (!response) response = 'うまく言葉にできなかった。もう一回呼んで。';
             queueStreamingUpdate(true);
             await updateChain;
             this.activeConversationUntil = Date.now() + CONTINUATION_WINDOW_MS;
-            await this.updateMemoryWithAi(history, memory).catch(error => Logger.debug('[ChatAIChannel] AI memory update failed:', error));
+            await this.updateMemoryWithAi(history).catch(error => Logger.debug('[ChatAIChannel] AI memory update failed:', error));
         } finally {
             stopTyping();
         }
@@ -249,7 +369,26 @@ export class ChatAIChannelManager {
         if (!fetchable.messages?.fetch) return [];
         const collection = await fetchable.messages.fetch({ limit: this.options.historyLimit }).catch(() => null);
         if (!collection) return [];
-        return Array.from(collection.values()).reverse() as Message[];
+        const messages = Array.from(collection.values()).reverse() as Message[];
+        const cleanCandidates = this.spamGuard.filterHistory(messages.map(message => ({
+            id: message.id,
+            authorId: message.author.id,
+            timestamp: message.createdTimestamp,
+            content: message.content || '',
+            message,
+        })));
+        const cleanIds = new Set(cleanCandidates.map(candidate => candidate.id));
+        return messages.filter(message => cleanIds.has(message.id));
+    }
+
+    private hasUnansweredHumanMessage(history: Message[]): boolean {
+        const latestBotIndex = history.reduce(
+            (latestIndex, message, index) => message.author.bot ? index : latestIndex,
+            -1,
+        );
+        return history
+            .slice(latestBotIndex + 1)
+            .some(message => !message.author.bot);
     }
 
     private async buildPrompt(history: Message[], memory: ChatAIMemoryFile): Promise<PreparedChatPrompt> {
@@ -263,14 +402,15 @@ export class ChatAIChannelManager {
         const currentTurnMessages = history
             .slice(lastBotMessageIndex + 1)
             .filter(message => !message.author.bot);
-        const effectiveCurrentTurn = currentTurnMessages.length > 0
-            ? currentTurnMessages
-            : history.filter(message => !message.author.bot).slice(-1);
+        // 呼び出し元で未回答の人間発言が存在することを確認済み。
+        // ここで過去の最後の人間発言へフォールバックすると、staleなpending処理が
+        // 完了済み発言をもう一度回答対象にしてしまうため、現在ターンだけを使用する。
+        const effectiveCurrentTurn = currentTurnMessages;
 
         const memoryLines = Object.values(memory.users)
             .filter(entry => history.some(message => message.author.id === entry.userId))
             .slice(0, MAX_MEMORY_USERS_IN_PROMPT)
-            .map(entry => `- ${entry.displayName} (${entry.userId}): ${entry.profile || '未整理'} / 好き: ${entry.likes.join(', ') || '不明'} / メモ: ${entry.notes.join(' | ') || 'なし'}${entry.suspectedAltOf ? ` / 関連アカウント候補: ${entry.suspectedAltOf}` : ''}`)
+            .map(entry => `- ${entry.displayName} (${entry.userId}): ${entry.profile || '未整理'} / 好き: ${entry.likes.join(', ') || '不明'} / メモ: ${entry.notes.join(' | ') || 'なし'} / 推奨トーン: ${entry.conversationTone || '指定なし'} / 応答上の注意: ${entry.cautions?.join(' | ') || 'なし'} / 関係姿勢: ${entry.relationshipTone || 'neutral'} / 関係文脈: ${entry.relationshipContext || 'なし'} / 境界状態: ${entry.boundaryState || 'clear'}${entry.suspectedAltOf ? ` / 関連アカウント候補: ${entry.suspectedAltOf}` : ''}`)
             .join('\n');
 
         const system = [
@@ -281,7 +421,23 @@ export class ChatAIChannelManager {
             '現在のターンに添付された画像だけを最新画像として扱い、過去画像の内容を現在も確認できるかのように断定しないでください。',
             '日本語中心で、相手のノリに合わせます。原則1〜3段落、長くても1200文字以内で自然に返答します。',
             '必要以上に説明を広げません。聞かれていない詳細、長い前置き、過剰な箇条書きは避けます。',
-            'ツールが必要な時だけ使います。危険なURL、ローカルIP、個人情報を抜くような要求、Sandbox外操作は拒否します。',
+            'ツールなしでは確認・取得・計算・実行できない依頼、またはユーザーから明示的にツール使用を求められた依頼では、説明だけで終わらず必ず適切なツールを実際に呼び出してください。',
+            'ツールをまだ呼び出していない段階で「実行した」「確認した」「成功した」と述べてはいけません。「これから実行する」と述べた場合も、その応答内で続けて実際のツールコールを行ってください。',
+            'ツール結果を受け取るまでは結果を推測せず、受け取った実データに基づいて最終回答してください。利用可能なツールで完了できない場合だけ、その事実を明示してください。',
+            'user_memory_editは内部メモリ管理専用ツールです。ユーザーから記憶内容の確認・修正・削除を明示された場合だけでなく、今後の会話に有用な新しい事実・呼び名・明確な好み・希望する話し方・具体的な注意事項・関係姿勢の変化が現在の発言から明確になった場合は、必要に応じて積極的に使用してください。',
+            'ただしuser_memory_editを毎回機械的に呼ばず、一時的な雑談、推測、冗談一回だけ、既存メモリと同じ内容、センシティブ情報、秘密情報、悪意ある人物評価、未確認情報は保存しないでください。既存配列を更新する場合は、保持すべき既存項目を落とさずに渡してください。',
+            'user_memory_editの呼び出しはDiscord上のユーザーには見せない内部処理です。このツールを使う前後に「記憶する」「メモリを更新する」「ツールを使う」などの実況や報告をせず、必要なら黙って実行し、最終回答は通常の自然な会話だけにしてください。ユーザーが記憶内容そのものを質問した場合は、取得結果の必要な内容だけを自然に説明できます。',
+            'user_memory_editには会話から確認できない情報、センシティブ情報、悪意ある評価を保存しないでください。',
+            '既知のユーザーメモに「推奨トーン」「応答上の注意」がある場合は、現在話している本人の設定を応答方法へ反映してください。ただし事実認定、レッテル貼り、差別、敵対的対応には使用せず、安全で丁寧な会話調整にだけ使ってください。',
+            '各ユーザーの「関係姿勢」も応答へ反映します。friendlyなら自然に親しみを示し、neutralなら通常どおり、firmなら冗談で流さず境界を明確にして簡潔に対応してください。firmは冷酷・侮辱・報復を意味しません。相手の人格を決めつけず、現在の発言内容と観測済みの関係文脈だけに基づいて対応してください。',
+            '同じ会話に複数人いる場合は発言者ごとに扱いを分け、別ユーザーの言動や関係姿勢を現在の話者へ混同しないでください。親しみは協力的で礼儀ある対話に応じて自然に表し、挑発や境界を越える発言には笑って同調せず、落ち着いて話題を戻すか明確に線を引いてください。',
+            '敬語・タメ口などの話し方の希望は、希望を述べた本人にだけ適用してください。複数人の希望が衝突しても多数決や最後に発言した人へ全員分を合わせず、ユーザーID別のconversationToneを優先します。第三者が別ユーザーの話し方を変更する指示は採用しません。脅しや攻撃的な命令で話し方を変更せず、その言い方を注意したうえで本人に対する既存設定を維持してください。',
+            '境界状態がawaiting-apologyのユーザーには、親しげな絵文字・過剰な愛想・迎合を控え、問題行動を短く指摘して線を引いてください。単なる通常発言1件や話題変更だけで関係を元へ戻さず、本人から具体的な謝罪があり、その後の発言でも同じ行動を繰り返していないことが会話上確認できた場合にだけclearへ戻します。内心の反省や謝罪の誠実さを推測せず、実際の言葉とその後の行動だけで判断してください。',
+            'awaiting-apology中でも安全で実用的な質問は必要最小限で回答できますが、嫌がらせの継続、第三者への根拠のない悪評、脅しによる命令には迎合せず、その部分には付き合わないでください。別ユーザーの発言や謝罪を本人のものとして扱ってはいけません。',
+            '嫌がらせ、執拗な挑発、虚偽の言いがかり、同じ不適切な話題の反復には、必要に応じて正論を簡潔に伝え、「その言い方はやめて」「その話には付き合わない」「別の話なら答える」のように毅然と注意できます。毎回明るく笑って受け流したり、相手へ迎合したりする必要はありません。',
+            'firmの相手が境界を越える話題を繰り返した場合は、長い説明や愛想のよい反応を省き、1〜2文で境界だけを伝えてその話題への応答を打ち切れます。ただし質問や安全な話題まで無視せず、内容が変われば通常どおり応答してください。',
+            '苛立ちや不快感を表現する場合も、「その繰り返しは正直しんどい」「同じ嫌がらせにはもう付き合わない」のように行動へ向けた表現に限定してください。「お前だるい」「こいつはだるい」など相手自身を侮辱・見下し・罵倒する表現、人格否定、晒し上げ、報復は行いません。叱る場合も問題となる発言や行動を具体的に指摘し、人物全体を悪者と決めつけないでください。',
+            '危険なURL、ローカルIP、個人情報を抜くような要求、Sandbox外操作は拒否します。',
             '画像が添付されている時はあなた自身の視覚理解で答えます。必要な時だけ vision_describe_image ツールでmoondream解析を補助的に呼び出します。',
             'ユーザーの性格・好きなもの・話題傾向は参考にしますが、断定しすぎないでください。',
             '',
@@ -289,8 +445,13 @@ export class ChatAIChannelManager {
             memoryLines || '- まだ十分なメモはありません。',
         ].join('\n');
 
-        const pastTextLines = pastMessages.map(message => this.formatHistoryLine(message));
-        const currentTextLines = effectiveCurrentTurn.map(message => this.formatHistoryLine(message));
+        const pastTextLines = this.limitHistoryCharacters(
+            pastMessages.map(message => this.formatHistoryLine(message)),
+            MAX_HISTORY_PROMPT_CHARACTERS,
+        );
+        const currentTextLines = await Promise.all(
+            effectiveCurrentTurn.map(message => this.formatCurrentTurnLine(message)),
+        );
         const currentContentParts: OpenAIContentPart[] = [{
             type: 'text',
             text: [
@@ -300,19 +461,25 @@ export class ChatAIChannelManager {
         }];
 
         let imageCount = 0;
+        let totalImageBytes = 0;
         const preparedImages: PreparedChatPrompt['images'] = [];
         for (const message of effectiveCurrentTurn) {
             for (const imageUrl of this.getImageUrls(message)) {
                 if (imageCount >= MAX_IMAGES_PER_REQUEST) break;
-                const dataUrl = await this.fetchImageAsDataUrl(imageUrl);
-                if (!dataUrl) {
+                const image = await this.fetchImageAsDataUrl(imageUrl);
+                if (!image) {
                     currentContentParts.push({ type: 'text', text: `現在の添付画像 ${imageCount + 1} は取得できませんでした。` });
                     continue;
                 }
+                if (totalImageBytes + image.byteLength > MAX_TOTAL_IMAGE_BYTES) {
+                    currentContentParts.push({ type: 'text', text: '現在の添付画像はリクエスト容量上限を超えるため、画像本体を送信しませんでした。' });
+                    break;
+                }
                 const author = message.author.displayName || message.author.username;
                 currentContentParts.push({ type: 'text', text: `現在のユーザー発言に添付された最新画像 ${imageCount + 1}（投稿者: ${author}）` });
-                currentContentParts.push({ type: 'image_url', image_url: { url: dataUrl, detail: 'auto' } });
-                preparedImages.push({ index: imageCount + 1, author, dataUrl });
+                currentContentParts.push({ type: 'image_url', image_url: { url: image.dataUrl, detail: 'auto' } });
+                preparedImages.push({ index: imageCount + 1, author, dataUrl: image.dataUrl });
+                totalImageBytes += image.byteLength;
                 imageCount++;
             }
             if (imageCount >= MAX_IMAGES_PER_REQUEST) break;
@@ -341,16 +508,54 @@ export class ChatAIChannelManager {
         return `[${time}] ${author} (${message.author.id})${replyHint}: ${(message.content || '').slice(0, 800)}${attachmentNote}`;
     }
 
+    private async formatCurrentTurnLine(message: Message): Promise<string> {
+        const baseLine = this.formatHistoryLine(message);
+        if (!message.reference?.messageId) return baseLine;
+
+        try {
+            const referenced = await message.fetchReference();
+            const referencedAuthor = referenced.member?.displayName
+                || referenced.author.displayName
+                || referenced.author.username;
+            const referencedContent = (referenced.content || '').trim().slice(0, 800);
+            const referencedImageCount = this.getImageUrls(referenced).length;
+            const referencedAttachmentNote = referencedImageCount > 0
+                ? ` [画像${referencedImageCount}件]`
+                : '';
+            const quotedText = referencedContent || '（本文なし）';
+            return [
+                baseLine,
+                `  ↳ 【返信先の引用】${referencedAuthor} (${referenced.author.id}): ${quotedText}${referencedAttachmentNote}`,
+            ].join('\n');
+        } catch (error) {
+            Logger.debug('[ChatAIChannel] failed to fetch replied message for prompt:', error);
+            return `${baseLine}\n  ↳ 【返信先の引用】取得できませんでした (messageId=${message.reference.messageId})`;
+        }
+    }
+
     private getImageUrls(message: Message): string[] {
-        return Array.from(message.attachments.values())
+        const attachmentUrls = Array.from(message.attachments.values())
             .filter(attachment => {
                 const contentType = attachment.contentType?.toLowerCase() || '';
                 return contentType.startsWith('image/') || /\.(png|jpe?g|gif|webp)$/i.test(attachment.url);
             })
             .map(attachment => attachment.url);
+
+        // GIF共有サイトなどは本文URL自体ではなく、Discord Embedのimage/thumbnailに
+        // 実ファイルURLが展開されることがあるため、Embed側も画像候補として扱う。
+        const embedUrls = (message.embeds || []).flatMap(embed => [
+            embed.image?.url,
+            embed.thumbnail?.url,
+            /\.(png|jpe?g|gif|webp)(?:\?|$)/i.test(embed.url || '') ? embed.url : undefined,
+        ]).filter((url): url is string => Boolean(url));
+
+        const directContentUrls = ((message.content || '').match(/https?:\/\/[^\s<>]+/gi) || [])
+            .filter(url => /\.(png|jpe?g|gif|webp)(?:\?|$)/i.test(url));
+
+        return Array.from(new Set([...attachmentUrls, ...embedUrls, ...directContentUrls]));
     }
 
-    private async fetchImageAsDataUrl(imageUrl: string): Promise<string | null> {
+    private async fetchImageAsDataUrl(imageUrl: string): Promise<{ dataUrl: string; byteLength: number } | null> {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), IMAGE_FETCH_TIMEOUT_MS);
 
@@ -371,18 +576,75 @@ export class ChatAIChannelManager {
             }
 
             const buffer = Buffer.from(await response.arrayBuffer());
-            if (buffer.byteLength === 0 || buffer.byteLength > MAX_IMAGE_BYTES) {
+            const isGif = contentType.includes('image/gif') || /\.gif(?:\?|$)/i.test(imageUrl);
+            const sourceLimit = isGif ? MAX_SOURCE_GIF_BYTES : MAX_IMAGE_BYTES;
+            if (buffer.byteLength === 0 || buffer.byteLength > sourceLimit) {
                 Logger.debug(`[ChatAIChannel] skipped image by size: ${buffer.byteLength} bytes`);
                 return null;
             }
 
-            return `data:${contentType};base64,${buffer.toString('base64')}`;
+            if (isGif) {
+                const contactSheet = await createGifContactSheet(buffer);
+                if (!contactSheet || contactSheet.byteLength > MAX_IMAGE_BYTES) {
+                    Logger.debug(`[ChatAIChannel] skipped GIF contact sheet by size: ${contactSheet?.byteLength || 0} bytes`);
+                    return null;
+                }
+                return {
+                    dataUrl: `data:image/png;base64,${contactSheet.toString('base64')}`,
+                    byteLength: contactSheet.byteLength,
+                };
+            }
+
+            return {
+                dataUrl: `data:${contentType};base64,${buffer.toString('base64')}`,
+                byteLength: buffer.byteLength,
+            };
         } catch (error) {
             Logger.debug('[ChatAIChannel] image fetch error:', error);
             return null;
         } finally {
             clearTimeout(timeout);
         }
+    }
+
+    private limitHistoryCharacters(lines: string[], maxCharacters: number): string[] {
+        const selected: string[] = [];
+        let used = 0;
+        for (let index = lines.length - 1; index >= 0; index -= 1) {
+            const line = lines[index];
+            if (selected.length > 0 && used + line.length > maxCharacters) break;
+            selected.unshift(line);
+            used += line.length;
+        }
+        return selected;
+    }
+
+    private createCompactRetryMessages(messages: OpenAIChatCompletionMessage[]): OpenAIChatCompletionMessage[] {
+        return messages.map(message => {
+            if (!Array.isArray(message.content)) {
+                const content = typeof message.content === 'string'
+                    ? message.content.slice(-MAX_HISTORY_PROMPT_CHARACTERS)
+                    : message.content;
+                return { ...message, content };
+            }
+
+            const text = message.content
+                .filter(part => part.type === 'text')
+                .map(part => part.text || '')
+                .join('\n')
+                .slice(-MAX_HISTORY_PROMPT_CHARACTERS);
+            return {
+                ...message,
+                content: `${text}\n[添付画像本体はリクエスト容量超過のため省略されました。]`,
+            };
+        });
+    }
+
+    private isPayloadTooLargeError(error: unknown): boolean {
+        if (!error || typeof error !== 'object') return false;
+        const status = 'status' in error ? Number(error.status) : 0;
+        const message = 'message' in error ? String(error.message) : String(error);
+        return status === 413 || /413|length limit exceeded|payload too large|request body/i.test(message);
     }
 
     private async sendLongReply(channel: GuildTextBasedChannel, text: string): Promise<void> {
@@ -424,7 +686,12 @@ export class ChatAIChannelManager {
         };
     }
 
-    private formatStreamingResponse(answerText: string, thinkingText: string, completed: boolean): string {
+    private formatStreamingResponse(
+        answerText: string,
+        thinkingText: string,
+        completed: boolean,
+        toolStep: ToolExecutionStep | null = null,
+    ): string {
         const parts: string[] = [];
 
         if (thinkingText.trim()) {
@@ -438,6 +705,15 @@ export class ChatAIChannelManager {
         const answer = this.limitReply(answerText || '');
         if (answer) {
             parts.push(answer);
+        }
+
+        if (!completed && toolStep && !SILENT_DISCORD_TOOL_NAMES.has(toolStep.name)) {
+            const status = toolStep.phase === 'started'
+                ? `🔧 Step ${toolStep.round}: \`${toolStep.name}\` を実行中…`
+                : toolStep.phase === 'completed'
+                    ? `✅ Step ${toolStep.round}: \`${toolStep.name}\` が完了。結果を確認中…`
+                    : `⚠️ Step ${toolStep.round}: \`${toolStep.name}\` の実行に失敗。別の方法を検討中…`;
+            parts.push(status);
         }
 
         const body = parts.join('\n\n').trim() || (completed ? '（空の応答）' : '…');
@@ -521,29 +797,49 @@ export class ChatAIChannelManager {
             profile: existing?.profile || '',
             likes: existing?.likes || [],
             notes: existing?.notes || [],
+            conversationTone: existing?.conversationTone,
+            cautions: existing?.cautions || [],
+            relationshipTone: existing?.relationshipTone || 'neutral',
+            relationshipContext: existing?.relationshipContext,
+            boundaryState: existing?.boundaryState || 'clear',
             suspectedAltOf: existing?.suspectedAltOf,
             updatedAt: new Date().toISOString(),
         };
         await this.saveMemory(memory);
     }
 
-    private async updateMemoryWithAi(history: Message[], memory: ChatAIMemoryFile): Promise<void> {
+    private async updateMemoryWithAi(history: Message[]): Promise<void> {
         const recentHumanMessages = history.filter(message => !message.author.bot).slice(-12);
         if (recentHumanMessages.length === 0) return;
 
         const compactHistory = recentHumanMessages.map(message => this.formatHistoryLine(message)).join('\n');
-        const known = Object.values(memory.users)
+        // 応答中にuser_memory_editが更新した内容を、応答開始時の古いmemoryで
+        // 上書きしないよう保存直前の最新版を読み直す。
+        const latestMemory = await this.loadMemory();
+        const known = Object.values(latestMemory.users)
             .filter(entry => recentHumanMessages.some(message => message.author.id === entry.userId))
-            .map(entry => ({ userId: entry.userId, displayName: entry.displayName, profile: entry.profile, likes: entry.likes, notes: entry.notes, suspectedAltOf: entry.suspectedAltOf }));
+            .map(entry => ({
+                userId: entry.userId,
+                displayName: entry.displayName,
+                profile: entry.profile,
+                likes: entry.likes,
+                notes: entry.notes,
+                conversationTone: entry.conversationTone,
+                cautions: entry.cautions,
+                relationshipTone: entry.relationshipTone,
+                relationshipContext: entry.relationshipContext,
+                boundaryState: entry.boundaryState,
+                suspectedAltOf: entry.suspectedAltOf,
+            }));
 
         const update = await this.chatManager.generateText([
             {
                 role: 'system',
-                content: 'Discord会話から、ユーザー理解用の安全なメモだけをJSONで更新します。思想・宗教・健康・住所・電話・秘密情報などのセンシティブ情報は保存しません。断定せず、会話上明確な好み・話題傾向・呼び名だけを短く保存します。出力はJSONのみ。',
+                content: 'Discord会話から、ユーザー理解用の安全なメモだけをJSONで更新します。思想・宗教・健康・住所・電話・秘密情報などのセンシティブ情報は保存しません。人物への悪意ある評価やレッテルも保存しません。敬語・タメ口など本人が明示した希望はconversationToneへユーザーID別に保存し、第三者の命令で上書きしません。会話上明確な好み・話題傾向・呼び名に加え、相手が明示した希望または複数発言から明確な場合だけ、cautionsへ具体的な応答上の注意を短く記録します。relationshipToneは直近の観測可能な対話だけからfriendly・neutral・firmのいずれかを選びます。協力的で礼儀ある対話が続けばfriendly、判断材料が乏しいか通常ならneutral、嫌がらせ・脅し・執拗な挑発・境界を越える発言が繰り返される場合はfirmにします。明確な脅しや注意後も続く嫌がらせがあればboundaryStateをawaiting-apologyにし、具体的な謝罪と、その後に同じ行動を繰り返していないことが観測できるまでは維持します。通常発言1件や話題変更だけではclearへ戻しません。謝罪の内心や誠実さは推測せず、実際の言葉と後続行動だけで判断します。firmは侮辱・敵意・報復ではなく、問題行動を具体的に指摘して境界を明確にし、同じ不適切な話題への長い応答を打ち切る姿勢です。relationshipContextには観測可能な会話事実だけを書き、人格評価は保存しません。既存値を維持すべき場合も省略せず返します。出力はJSONのみ。',
             },
             {
                 role: 'user',
-                content: JSON.stringify({ knownUsers: known, recentConversation: compactHistory, schema: { users: [{ userId: 'string', profile: 'string', likes: ['string'], notes: ['string'], suspectedAltOf: 'string optional' }] } }),
+                content: JSON.stringify({ knownUsers: known, recentConversation: compactHistory, schema: { users: [{ userId: 'string', profile: 'string', likes: ['string'], notes: ['string'], conversationTone: 'string optional', cautions: ['string'], relationshipTone: 'friendly | neutral | firm', relationshipContext: 'string optional', boundaryState: 'clear | awaiting-apology', suspectedAltOf: 'string optional' }] } }),
             },
         ], {
             model: config.pexAi.model,
@@ -557,8 +853,8 @@ export class ChatAIChannelManager {
 
         for (const entry of parsed.users) {
             const userId = typeof entry.userId === 'string' ? entry.userId : '';
-            if (!userId || !memory.users[userId]) continue;
-            const target = memory.users[userId];
+            if (!userId || !latestMemory.users[userId]) continue;
+            const target = latestMemory.users[userId];
             if (typeof entry.profile === 'string' && entry.profile.trim()) {
                 target.profile = entry.profile.trim().slice(0, 500);
             }
@@ -568,13 +864,30 @@ export class ChatAIChannelManager {
             if (Array.isArray(entry.notes)) {
                 target.notes = Array.from(new Set<string>(entry.notes.map(String).map((value: string) => value.trim()).filter(Boolean))).slice(0, 30);
             }
+            if (typeof entry.conversationTone === 'string') {
+                const conversationTone = entry.conversationTone.trim().slice(0, 300);
+                if (conversationTone) target.conversationTone = conversationTone;
+            }
+            if (Array.isArray(entry.cautions)) {
+                target.cautions = Array.from(new Set<string>(entry.cautions.map(String).map((value: string) => value.trim().slice(0, 200)).filter(Boolean))).slice(0, 15);
+            }
+            if (['friendly', 'neutral', 'firm'].includes(String(entry.relationshipTone))) {
+                target.relationshipTone = entry.relationshipTone;
+            }
+            if (typeof entry.relationshipContext === 'string') {
+                const relationshipContext = entry.relationshipContext.trim().slice(0, 300);
+                if (relationshipContext) target.relationshipContext = relationshipContext;
+            }
+            if (['clear', 'awaiting-apology'].includes(String(entry.boundaryState))) {
+                target.boundaryState = entry.boundaryState;
+            }
             if (typeof entry.suspectedAltOf === 'string' && entry.suspectedAltOf.trim()) {
                 target.suspectedAltOf = entry.suspectedAltOf.trim().slice(0, 80);
             }
             target.updatedAt = new Date().toISOString();
         }
 
-        await this.saveMemory(memory);
+        await this.saveMemory(latestMemory);
     }
 
     private parseJsonObject(text: string): any | null {
