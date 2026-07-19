@@ -9,7 +9,7 @@ import {
     Role,
     TextChannel
 } from 'discord.js';
-import { database } from '../../Database.js';
+import { database } from '../../persistence/Database.js';
 import {
     CLEANUP_DELAY_MS,
     INACTIVITY_TIMEOUT_MS,

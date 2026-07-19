@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { SessionController } from '../controllers/SessionController.js';
 import { SettingsSession } from '../types/index.js';
-import { BotClient } from '../../core/BotClient.js';
+import { BotClient } from '../../core/platform/BotClient.js';
 import { AuthMiddleware } from '../middleware/auth.js';
 
 /**

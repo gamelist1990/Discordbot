@@ -1,8 +1,8 @@
 import { Router, Request, Response } from 'express';
-import { BotClient } from '../../core/BotClient.js';
+import { BotClient } from '../../core/platform/BotClient.js';
 import { verifyAuth, getCurrentUser, getSessionGuildPermissionLevel, isGuildAccessible } from '../middleware/auth.js';
 import { SettingsSession } from '../types';
-import { database } from '../../core/Database.js';
+import { database } from '../../core/persistence/Database.js';
 import { PermissionLevel } from '../types/permission.js';
 
 export function createModRoutes(sessions: Map<string, SettingsSession>, botClient: BotClient) {

@@ -2,8 +2,8 @@ import { randomUUID } from 'crypto';
 import { SettingsSession } from '../types';
 import fs from 'fs';
 import path from 'path';
-import { BotClient } from '../../core/BotClient.js';
-import { database } from '../../core/Database.js';
+import { BotClient } from '../../core/platform/BotClient.js';
+import { database } from '../../core/persistence/Database.js';
 
 /**
  * セッション管理サービス

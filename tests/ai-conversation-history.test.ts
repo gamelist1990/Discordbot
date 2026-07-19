@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {
     AIConversationEntry,
     buildConversationHistory,
-} from '../src/core/AIConversationHistory.ts';
+} from '../src/core/ai/AIConversationHistory.ts';
 
 const dataset: AIConversationEntry[] = [
     {

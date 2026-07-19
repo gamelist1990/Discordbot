@@ -1,12 +1,12 @@
 import { Events, Interaction, StringSelectMenuInteraction, ButtonInteraction } from 'discord.js';
 import { BotClient } from './BotClient.js';
-import { CommandRegistry } from './CommandRegistry.js';
-import { EnhancedSlashCommand } from '../types/enhanced-command.js';
-import { cooldownManager } from '../utils/CooldownManager.js';
-import { Logger } from '../utils/Logger.js';
-import { Event } from '../types/events.js';
-import { executeModalHandler } from '../utils/Modal.js';
-import { handleTodoSelectInteraction } from './todo/TodoMessageManager.js';
+import { CommandRegistry } from '../commands/CommandRegistry.js';
+import { EnhancedSlashCommand } from '../../types/enhanced-command.js';
+import { cooldownManager } from '../../utils/CooldownManager.js';
+import { Logger } from '../../utils/Logger.js';
+import { Event } from '../../types/events.js';
+import { executeModalHandler } from '../../utils/Modal.js';
+import { handleTodoSelectInteraction } from '../todo/TodoMessageManager.js';
 
 /**
  * Discord イベントハンドラー
@@ -81,7 +81,7 @@ export class EventHandler {
         this.botClient.client.on(Events.GuildMemberRemove, async (member) => {
             try {
                 // 遅延インポートで PrivateChatManager を取得
-                const { PrivateChatManager } = await import('./PrivateChatManager.js');
+                const { PrivateChatManager } = await import('../private-chat/PrivateChatManager.js');
 
                 // そのギルドのすべてのチャットを検索し、該当ユーザーがメンバーであれば削除
                 const chats = await PrivateChatManager.getChatsByGuild(member.guild.id);
@@ -104,7 +104,7 @@ export class EventHandler {
 
         this.botClient.client.on(Events.GuildMemberAdd, async (member) => {
             try {
-                const { antiCheatManager } = await import('./anticheat/AntiCheatManager.js');
+                const { antiCheatManager } = await import('../anticheat/AntiCheatManager.js');
                 await antiCheatManager.onGuildMemberAdd(member);
             } catch (error) {
                 Logger.debug('Failed to handle AntiCheat on guildMemberAdd:', error);
@@ -116,7 +116,7 @@ export class EventHandler {
                 if (oldMember.partial || newMember.partial) {
                     return;
                 }
-                const { antiCheatManager } = await import('./anticheat/AntiCheatManager.js');
+                const { antiCheatManager } = await import('../anticheat/AntiCheatManager.js');
                 await antiCheatManager.onGuildMemberUpdate(oldMember as any, newMember as any);
             } catch (error) {
                 Logger.debug('Failed to handle AntiCheat on guildMemberUpdate:', error);
@@ -132,7 +132,7 @@ export class EventHandler {
             // Handle Modal submissions (staff info など)
             if (interaction.isModalSubmit()) {
                 if (interaction.customId.startsWith('corefeature:')) {
-                    const { default: corePanelCommand } = await import('../commands/staff/subcommands/corepanel.js');
+                    const { default: corePanelCommand } = await import('../../commands/staff/subcommands/corepanel.js');
                     await corePanelCommand.handleModalInteraction(interaction);
                     return;
                 }
@@ -253,13 +253,13 @@ export class EventHandler {
     private async handleInteraction(interaction: Interaction): Promise<void> {
         if (!interaction.isStringSelectMenu() && !interaction.isButton()) return;
         if (interaction.customId.startsWith('rolepanel:')) {
-            const { default: rolePanelCommand } = await import('../commands/staff/subcommands/rolepanel.js');
+            const { default: rolePanelCommand } = await import('../../commands/staff/subcommands/rolepanel.js');
             await rolePanelCommand.handleInteraction(interaction as StringSelectMenuInteraction | ButtonInteraction);
             return;
         }
 
         if (interaction.customId.startsWith('corefeature:')) {
-            const { default: corePanelCommand } = await import('../commands/staff/subcommands/corepanel.js');
+            const { default: corePanelCommand } = await import('../../commands/staff/subcommands/corepanel.js');
             await corePanelCommand.handleInteraction(interaction as StringSelectMenuInteraction | ButtonInteraction);
             return;
         }
@@ -295,7 +295,7 @@ export class EventHandler {
             if (!message.guild) return;
 
             try {
-                const { coreFeatureManager } = await import('./corepanel/CoreFeatureManager.js');
+                const { coreFeatureManager } = await import('../corepanel/CoreFeatureManager.js');
                 const handled = await coreFeatureManager.onMessage(message);
                 if (handled) {
                     return;
@@ -305,7 +305,7 @@ export class EventHandler {
             }
 
             try {
-                const { interviewRoomManager } = await import('./interview/InterviewRoomManager.js');
+                const { interviewRoomManager } = await import('../interview/InterviewRoomManager.js');
                 const handled = await interviewRoomManager.onMessage(message);
                 if (handled) {
                     return;
@@ -316,7 +316,7 @@ export class EventHandler {
 
             try {
                 // Rank XP 処理
-                const { rankManager } = await import('./RankManager.js');
+                const { rankManager } = await import('../ranking/RankManager.js');
                 const member = message.member;
                 if (member) {
                     const roleIds = Array.from(member.roles.cache.keys());
@@ -333,7 +333,7 @@ export class EventHandler {
             }
             // AntiCheat 処理
             try {
-                const { antiCheatManager } = await import('./anticheat/AntiCheatManager.js');
+                const { antiCheatManager } = await import('../anticheat/AntiCheatManager.js');
                 await antiCheatManager.onMessage(message);
             } catch (error) {
                 Logger.debug('Failed to handle AntiCheat on messageCreate:', error);
@@ -342,7 +342,7 @@ export class EventHandler {
 
         this.botClient.client.on(Events.MessageDelete, async (message) => {
             try {
-                const { antiCheatManager } = await import('./anticheat/AntiCheatManager.js');
+                const { antiCheatManager } = await import('../anticheat/AntiCheatManager.js');
                 await antiCheatManager.onMessageDelete(message as any);
             } catch (error) {
                 Logger.debug('Failed to handle AntiCheat on messageDelete:', error);
@@ -351,7 +351,7 @@ export class EventHandler {
 
         this.botClient.client.on(Events.MessageUpdate, async (oldMessage, newMessage) => {
             try {
-                const { antiCheatManager } = await import('./anticheat/AntiCheatManager.js');
+                const { antiCheatManager } = await import('../anticheat/AntiCheatManager.js');
                 await antiCheatManager.onMessageUpdate(oldMessage as any, newMessage as any);
             } catch (error) {
                 Logger.debug('Failed to handle AntiCheat on messageUpdate:', error);
@@ -368,7 +368,7 @@ export class EventHandler {
             if (newState.member?.user.bot) return;
 
             try {
-                const { rankManager } = await import('./RankManager.js');
+                const { rankManager } = await import('../ranking/RankManager.js');
 
                 // VC参加
                 if (!oldState.channel && newState.channel) {
@@ -399,7 +399,7 @@ export class EventHandler {
                 if (('partial' in oldUser && oldUser.partial) || ('partial' in newUser && newUser.partial)) {
                     return;
                 }
-                const { antiCheatManager } = await import('./anticheat/AntiCheatManager.js');
+                const { antiCheatManager } = await import('../anticheat/AntiCheatManager.js');
                 await antiCheatManager.onUserAvatarUpdate(oldUser as any, newUser as any);
             } catch (error) {
                 Logger.debug('Failed to handle AntiCheat on userUpdate:', error);

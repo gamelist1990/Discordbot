@@ -1,4 +1,4 @@
-import { ChatGPTClient, RateLimitWaitInfo } from '../ChatGPTClient.js';
+import { ChatGPTClient, RateLimitWaitInfo } from '../ai/ChatGPTClient.js';
 import { CORE_FEATURE_API_ENDPOINT, CORE_FEATURE_MODEL_FALLBACKS } from './constants.js';
 import { clamp, extractJsonObject, pickAiPersonaName } from './helpers.js';
 

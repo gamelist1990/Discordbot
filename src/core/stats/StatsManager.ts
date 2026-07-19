@@ -1,5 +1,5 @@
 import { Client, Message } from 'discord.js';
-import { database } from './Database.js';
+import { database } from '../persistence/Database.js';
 
 interface UserCounts {
     totalMessages: number;

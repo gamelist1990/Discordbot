@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { BotClient } from '../../core/BotClient.js';
+import { BotClient } from '../../core/platform/BotClient.js';
 import { verifyAuth, getCurrentUser } from '../middleware/auth.js';
 import { userHasAdminOrManageFlag } from './permissionsUtils.js';
 import { PermissionFlagsBits } from 'discord.js';
@@ -7,7 +7,7 @@ import { SettingsSession } from '../types';
 import { PermissionLevel } from '../types/permission.js';
 import { ProfileService } from '../services/ProfileService.js';
 import { UserCustomProfile } from '../types/profile.js';
-import { database } from '../../core/Database.js';
+import { database } from '../../core/persistence/Database.js';
 import fs from 'fs';
 import path from 'path';
 
@@ -278,7 +278,7 @@ export function createUserRoutes(
 
             // Build userGuilds only for mutual guilds (where both user and bot are present)
             const userGuilds: GuildInfo[] = [];
-            const statsMgr = (await import('../../core/StatsManager.js')).statsManagerSingleton.instance;
+            const statsMgr = (await import('../../core/stats/StatsManager.js')).statsManagerSingleton.instance;
 
             for (const g of botGuilds) {
                 // If we have user's guild list, ensure the user is actually in this guild
@@ -487,7 +487,7 @@ export function createUserRoutes(
             const guildIds = botGuilds.map(g => g.id as string);
 
             // Get stats manager
-            const statsMgr = (await import('../../core/StatsManager.js')).statsManagerSingleton.instance;
+            const statsMgr = (await import('../../core/stats/StatsManager.js')).statsManagerSingleton.instance;
 
             if (!statsMgr) {
                 res.status(503).json({ error: 'Stats manager not available' });

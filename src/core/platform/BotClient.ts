@@ -1,7 +1,7 @@
 import { Client, Collection, GatewayIntentBits, Partials, REST, Routes } from 'discord.js';
-import { SlashCommand } from '../types/command.js';
-import { database } from './Database.js';
-import { Logger } from '../utils/Logger.js';
+import { SlashCommand } from '../../types/command.js';
+import { database } from '../persistence/Database.js';
+import { Logger } from '../../utils/Logger.js';
 import { EventManager } from './EventManager.js';
 
 /**

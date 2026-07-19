@@ -1,5 +1,5 @@
 import { SlashCommandBuilder, ChatInputCommandInteraction, EmbedBuilder } from 'discord.js';
-import { CommandRegistry } from '../../core/CommandRegistry.js';
+import { CommandRegistry } from '../../core/commands/CommandRegistry.js';
 import { SlashCommand } from '../../types/command.js';
 import { PermissionLevel } from '../../web/types/permission.js';
 

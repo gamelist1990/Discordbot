@@ -1,7 +1,7 @@
 import { Client, Guild, TextChannel, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
-import { Database } from './Database.js';
-import { Logger } from '../utils/Logger.js';
-import { config } from '../config.js';
+import { Database } from '../persistence/Database.js';
+import { Logger } from '../../utils/Logger.js';
+import { config } from '../../config.js';
 
 /**
  * ランク帯の定義

@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
-import { BotClient } from '../../core/BotClient.js';
-import { database } from '../../core/Database.js';
+import { BotClient } from '../../core/platform/BotClient.js';
+import { database } from '../../core/persistence/Database.js';
 import { SettingsSession } from '../types';
 
 /**

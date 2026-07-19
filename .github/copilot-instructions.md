@@ -5,7 +5,7 @@ _See also `CLAUDE.md` for complementary AI guidance and style preferences._
 This document highlights repo-specific conventions and actionable patterns for AI coding agents. Keep small, focused edits and prefer following existing patterns rather than introducing new architecture.
 
 ## Quick Runtime & Setup
-- **Runtime**: Bun or Node.js (ESM + TypeScript). Imports must end with `.js` at runtime (e.g., `import { BotClient } from './core/BotClient.js';`).
+- **Runtime**: Bun or Node.js (ESM + TypeScript). Imports must end with `.js` at runtime (e.g., `import { BotClient } from './core/platform/BotClient.js';`).
 - **Entry Points**: `src/index.ts` (full bot + web), `src/web/webDebug.ts` (web-only debug server).
 - **Config**: `config.json` in project root; it is not committed. Avoid leaking secrets — the repo uses `config.json` for local configuration and `config.js` import in some runtime code.
 
@@ -13,11 +13,11 @@ This document highlights repo-specific conventions and actionable patterns for A
 - **Bot Core**: `BotClient` (discord.js) manages the REST client, command registration and guild lifecycle. `EventHandler` wires command handling and lifecycle events; `EventManager` emits custom events.
 - **Command System**: `CommandLoader` loads files recursively from `src/commands/`, handles both legacy `SlashCommand` objects and new `DynamicCommandOptions`. Commands may be `.ts` in source, we import them at runtime with `file:///` URL and `.js` extension.
 - **Web UI**: `SettingsServer` (Express) + `src/web/client/` (Vite + React). The server serves static files from `dist/web` and provides API endpoints under `/api`. Web debug mode and Vite dev server are supported.
-- **Persistence**: `Database` (src/core/Database.ts) persists to `Data/` as JSON files. Writes must use `database.set()`; `database.getAll(guildId)` understands both legacy flat keys (`<guildId>_key.json`) and new `Guild/<guildId>/<key>.json` layouts.
+- **Persistence**: `Database` (`src/core/persistence/Database.ts`) persists to JSON files. Writes must use `database.set()`; `database.getAll(guildId)` understands both legacy flat keys (`<guildId>_key.json`) and new `Guild/<guildId>/<key>.json` layouts.
 - **Key Managers**: `RankManager`, `TriggerManager`, `AntiCheatManager`, `StatsManager`, `TodoManager`, `PrivateChatManager` and `RolePresetManager` are created/initialized in `src/index.ts` or lazy-imported as needed.
 
 ## Implementation notes & common patterns
-- Lazy/dynamic imports are used throughout to reduce startup time and avoid circular dependencies (e.g., `import('./core/RankManager.js')` inside handlers). If adding heavy dependencies, prefer lazy imports inside event handlers.
+- Lazy/dynamic imports are used throughout to reduce startup time and avoid circular dependencies (e.g., `import('./core/ranking/RankManager.js')` inside handlers). If adding heavy dependencies, prefer lazy imports inside event handlers.
 - Rule for Windows path -> URL conversion are used before import: `fileUrl = 'file:///${path.replace(/\\/g, '/')}'`.
 - The backend prefers guild-specific REST commands (not global), and `BotClient` includes logic to skip deploy when unchanged.
 
@@ -54,10 +54,10 @@ This document highlights repo-specific conventions and actionable patterns for A
 
 ## Key files to reference
 - `src/index.ts` — bootstrap: initializes managers, deploys commands, starts `SettingsServer`.
-- `src/core/CommandLoader.ts` — recursive loading and conversion rules.
-- `src/core/Database.ts` — JSON persistence, `Data/` layout and `Guild/<guildId>/` support.
-- `src/core/BotClient.ts` — registration, deployment, and guild limit handling.
-- `src/core/EventHandler.ts` — event wiring, permission checks and cooldown behavior.
+- `src/core/commands/CommandLoader.ts` — recursive loading and conversion rules.
+- `src/core/persistence/Database.ts` — JSON persistence and guild-scoped storage support.
+- `src/core/platform/BotClient.ts` — registration, deployment, and guild limit handling.
+- `src/core/platform/EventHandler.ts` — event wiring, permission checks and cooldown behavior.
 - `src/web/SettingsServer.ts`, `src/web/webDebug.ts` — web UI server, debug routes, cookie helpers.
 
 ## Examples & Common snippets
@@ -81,7 +81,7 @@ export default {
 ```
 - Database read/write:
 ```ts
-import { database } from './core/Database.js';
+import { database } from './core/persistence/Database.js';
 await database.set(guildId, 'settings', { enabled: true });
 const settings = await database.get(guildId, 'settings');
 const all = await database.getAll(guildId); // returns both legacy and Guild/ layout

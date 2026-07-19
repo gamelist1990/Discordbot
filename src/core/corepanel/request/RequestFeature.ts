@@ -20,7 +20,7 @@ import { CoreFeatureApi, CoreFeatureModule } from '../registry.js';
 import { CoreFeaturePanelKind } from '../types.js';
 import { isStaffMember } from '../guildUtils.js';
 import { requestCoreFeatureModelText } from '../model.js';
-import { database } from '../../Database.js';
+import { database } from '../../persistence/Database.js';
 
 type RequestStatus = 'undecided' | 'waiting' | 'planned' | 'working' | 'done' | 'closed';
 type RequestItem = {

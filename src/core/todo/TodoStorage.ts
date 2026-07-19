@@ -1,4 +1,4 @@
-import { database } from '../Database.js';
+import { database } from '../persistence/Database.js';
 
 export type TodoItemStatus = 'todo' | 'doing' | 'review' | 'blocked' | 'done';
 export type TodoItemPriority = 'low' | 'medium' | 'high' | 'critical';

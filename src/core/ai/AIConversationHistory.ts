@@ -1,4 +1,4 @@
-import { OpenAIChatCompletionMessage } from '../types/openai.js';
+import { OpenAIChatCompletionMessage } from '../../types/openai.js';
 
 export interface AIConversationEntry {
     id: string;

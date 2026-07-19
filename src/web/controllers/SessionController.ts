@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { SettingsSession } from '../types/index.js';
-import { BotClient } from '../../core/BotClient.js';
+import { BotClient } from '../../core/platform/BotClient.js';
 
 /**
  * セッションコントローラー

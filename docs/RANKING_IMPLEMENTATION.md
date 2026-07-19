@@ -6,7 +6,7 @@ A complete ranking system has been implemented for the Discord bot, providing XP
 
 ## What Was Implemented
 
-### 1. Core System (`src/core/RankManager.ts`)
+### 1. Core System (`src/core/ranking/RankManager.ts`)
 
 **RankManager Class** - Main ranking system manager with:
 - Database operations for guild-specific ranking data
@@ -75,7 +75,7 @@ REST endpoints for staff management:
 
 ### 4. Event Integration
 
-**File:** `src/core/EventHandler.ts`
+**File:** `src/core/platform/EventHandler.ts`
 
 Automatic XP tracking via Discord events:
 - `MessageCreate` - Awards XP for messages (with cooldown)
@@ -240,7 +240,7 @@ Includes:
 
 **New Files Created (12):**
 ```
-src/core/RankManager.ts                    (560 lines)
+src/core/ranking/RankManager.ts            (560 lines)
 src/commands/any/rank.ts                   (150 lines)
 src/commands/staff/subcommands/rank.ts     (460 lines)
 src/web/controllers/RankController.ts      (530 lines)
@@ -252,7 +252,7 @@ docs/RANKING_SYSTEM.md                     (140 lines)
 
 **Modified Files (4):**
 ```
-src/core/EventHandler.ts       (added message/VC events)
+src/core/platform/EventHandler.ts (added message/VC events)
 src/index.ts                   (added RankManager init)
 src/web/SettingsServer.ts      (added rank routes)
 src/web/routes/index.ts        (exported rank routes)

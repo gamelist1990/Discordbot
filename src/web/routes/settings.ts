@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { SettingsController } from '../controllers/SettingsController.js';
 import { SettingsSession } from '../types/index.js';
 import { AuthMiddleware, verifyAuth } from '../middleware/auth.js';
-import { BotClient } from '../../core/BotClient.js';
+import { BotClient } from '../../core/platform/BotClient.js';
 
 /**
  * 設定ルート

@@ -12,7 +12,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 import cors from 'cors';
 import { Logger } from '../utils/Logger.js';
-import { BotClient } from '../core/BotClient.js';
+import { BotClient } from '../core/platform/BotClient.js';
 import { SessionService } from './services/SessionService.js';
 import { ProfileService } from './services/ProfileService.js';
 import { createStatusRoutes, createSessionRoutes, createSettingsRoutes, createStaffRoutes, createAuthRoutes, createUserRoutes, createModRoutes, createRolePresetRoutes, createRankRoutes, createWebRankRoutes, createPublicRankRoutes, createAntiCheatRoutes, createCorePanelRoutes, createChannelManagerRoutes, createTodoRoutes } from './routes/index.js';
@@ -21,8 +21,8 @@ import { createProfileController } from './controllers/ProfileController.js';
 import { setupWebSocketServer } from './routes/websocket.js';
 import { previewHandler } from './preview/PreviewController.js';
 // 開発時に Vite dev server へプロキシするためのミドルウェア（optional）
-import { statsManagerSingleton } from '../core/StatsManager.js';
-import { database } from '../core/Database.js';
+import { statsManagerSingleton } from '../core/stats/StatsManager.js';
+import { database } from '../core/persistence/Database.js';
 // config.json を読み込む
 
 // 型定義を型として再エクスポート（実行時には存在しないため type を使用）

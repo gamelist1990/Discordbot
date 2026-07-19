@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
-import { database } from '../../../core/Database.js';
+import { database } from '../../../core/persistence/Database.js';
 
 /**
  * Discord OAuth2 認証情報

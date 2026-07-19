@@ -6,7 +6,7 @@ import {
     SlashCommandSubcommandBuilder,
     TextChannel
 } from 'discord.js';
-import { rankManager } from '../../../core/RankManager.js';
+import { rankManager } from '../../../core/ranking/RankManager.js';
 import { Logger } from '../../../utils/Logger.js';
 
 /**

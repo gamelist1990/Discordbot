@@ -156,7 +156,7 @@ Data/Guild/<guildId>/rankings.json
 ## 開発情報 (Development)
 
 ### コアファイル
-- `src/core/RankManager.ts` - メインロジック
+- `src/core/ranking/RankManager.ts` - メインロジック
 - `src/commands/any/rank.ts` - ユーザーコマンド
 - `src/commands/staff/subcommands/rank.ts` - スタッフコマンド
 - `src/web/controllers/RankController.ts` - Web API

@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { BotClient } from '../../../core/BotClient.js';
+import { BotClient } from '../../../core/platform/BotClient.js';
 import { antiCheatManager } from '../../../core/anticheat/AntiCheatManager.js';
 import { interviewRoomManager } from '../../../core/interview/InterviewRoomManager.js';
 import { PunishmentExecutor } from '../../../core/anticheat/PunishmentExecutor.js';

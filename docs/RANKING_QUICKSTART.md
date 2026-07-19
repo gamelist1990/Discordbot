@@ -5,7 +5,7 @@
 ### 1. Enable Ranking in a Guild
 
 ```typescript
-import { rankManager } from './core/RankManager.js';
+import { rankManager } from './core/ranking/RankManager.js';
 
 // Initialize ranking data (happens automatically on first use)
 const data = await rankManager.getRankingData(guildId);
@@ -273,7 +273,7 @@ Check:
 ## TypeScript Tips
 
 ```typescript
-import { RankManager, RankingData, UserXpData } from './core/RankManager.js';
+import { RankManager, RankingData, UserXpData } from './core/ranking/RankManager.js';
 
 // Full type safety
 const data: RankingData = await rankManager.getRankingData(guildId);
@@ -292,11 +292,11 @@ if (user) {
 1. Read the full documentation: `docs/RANKING_SYSTEM.md`
 2. Check implementation details: `docs/RANKING_IMPLEMENTATION.md`
 3. Run validation: `node test/validate-rank-system.cjs`
-4. Explore the code: `src/core/RankManager.ts`
+4. Explore the code: `src/core/ranking/RankManager.ts`
 
 ## Support
 
 For issues or questions:
 1. Check the troubleshooting section in `docs/RANKING_SYSTEM.md`
-2. Review the implementation in `src/core/RankManager.ts`
+2. Review the implementation in `src/core/ranking/RankManager.ts`
 3. Run the validation script to ensure everything is set up correctly

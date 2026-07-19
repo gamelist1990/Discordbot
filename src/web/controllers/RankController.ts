@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
-import { rankManager, RankPreset } from '../../core/RankManager.js';
+import { rankManager, RankPreset } from '../../core/ranking/RankManager.js';
 import { SettingsSession } from '../types/index.js';
-import { BotClient } from '../../core/BotClient.js';
+import { BotClient } from '../../core/platform/BotClient.js';
 import { Logger } from '../../utils/Logger.js';
 import { PermissionManager } from '../../utils/PermissionManager.js';
 import { CacheManager } from '../../utils/CacheManager.js';

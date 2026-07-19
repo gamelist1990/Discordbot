@@ -1,9 +1,9 @@
 import { Request, Response } from 'express';
 import { SettingsSession, GuildSettings } from '../types';
-import { database } from '../../core/Database.js';
+import { database } from '../../core/persistence/Database.js';
 import { PermissionManager } from '../../utils/PermissionManager.js';
 import { CacheManager } from '../../utils/CacheManager.js';
-import { BotClient } from '../../core/BotClient.js';
+import { BotClient } from '../../core/platform/BotClient.js';
 import { Guild, PermissionFlagsBits } from 'discord.js';
 import { getSessionGuildPermissionLevel } from '../middleware/auth.js';
 

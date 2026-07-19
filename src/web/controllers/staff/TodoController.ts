@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { ChannelType, PermissionFlagsBits } from 'discord.js';
-import { BotClient } from '../../../core/BotClient.js';
+import { BotClient } from '../../../core/platform/BotClient.js';
 import { SettingsSession } from '../../types/index.js';
 import { buildTodoMessagePayload } from '../../../core/todo/TodoMessageManager.js';
 import {

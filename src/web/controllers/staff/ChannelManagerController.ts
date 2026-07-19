@@ -8,7 +8,7 @@ import {
     PermissionsBitField,
     Role
 } from 'discord.js';
-import { BotClient } from '../../../core/BotClient.js';
+import { BotClient } from '../../../core/platform/BotClient.js';
 import { SettingsSession } from '../../types/index.js';
 
 type SessionLike = SettingsSession & {

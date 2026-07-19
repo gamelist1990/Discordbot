@@ -2,9 +2,9 @@
 import path from 'path';
 import { fileURLToPath } from 'url';
 import type { Client } from 'discord.js';
-import { BotClient } from './core/BotClient.js';
-import { EventHandler } from './core/EventHandler.js';
-import { CommandLoader } from './core/CommandLoader.js';
+import { BotClient } from './core/platform/BotClient.js';
+import { EventHandler } from './core/platform/EventHandler.js';
+import { CommandLoader } from './core/commands/CommandLoader.js';
 import { Logger } from './utils/Logger.js';
 // 互換性のため global.Logger にエクスポートされた Logger を設定
 (global as any).Logger = Logger;
@@ -105,7 +105,7 @@ async function main() {
         eventHandler.registerAll();
 
         // RankManager を初期化
-        const { rankManager } = await import('./core/RankManager.js');
+        const { rankManager } = await import('./core/ranking/RankManager.js');
         rankManager.setClient(botClient.client);
         Logger.info('📊 RankManager を初期化しました');
 
@@ -113,7 +113,7 @@ async function main() {
         await rankManager.restorePanelUpdateTimers();
 
         // StatsManager を初期化
-        const { statsManagerSingleton } = await import('./core/StatsManager.js');
+        const { statsManagerSingleton } = await import('./core/stats/StatsManager.js');
         statsManagerSingleton.init(botClient.client);
         Logger.info('📊 StatsManager を初期化しました');
 

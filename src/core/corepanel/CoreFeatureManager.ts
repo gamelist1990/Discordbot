@@ -6,7 +6,7 @@ import {
     ModalSubmitInteraction,
     StringSelectMenuInteraction
 } from 'discord.js';
-import { database } from '../Database.js';
+import { database } from '../persistence/Database.js';
 import { createDebateFeature } from './debate/index.js';
 import { createPersonalityFeature } from './personality/index.js';
 import { createRequestFeature } from './request/index.js';

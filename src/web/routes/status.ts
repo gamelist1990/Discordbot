@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { StatusController } from '../controllers/StatusController.js';
-import { BotClient } from '../../core/BotClient.js';
+import { BotClient } from '../../core/platform/BotClient.js';
 
 /**
  * ステータスルート

@@ -20,7 +20,7 @@ import {
     ModalSubmitInteraction
 } from 'discord.js';
 
-import { RolePresetManager } from '../../../core/RolePresetManager.js';
+import { RolePresetManager } from '../../../core/roles/RolePresetManager.js';
 import config from '../../../config.js';
 import { registerModalHandler } from '../../../utils/Modal.js';
 

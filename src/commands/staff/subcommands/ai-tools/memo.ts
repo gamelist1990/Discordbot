@@ -1,6 +1,6 @@
 import { OpenAITool, ToolHandler } from '../../../../types/openai';
 import { ChatInputCommandInteraction } from 'discord.js';
-import { database } from '../../../../core/Database.js';
+import { database } from '../../../../core/persistence/Database.js';
 
 /**
  * ギルド内メモ（memo）ツール

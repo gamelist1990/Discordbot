@@ -1,4 +1,4 @@
-import { Database } from '../../core/Database.js';
+import { Database } from '../../core/persistence/Database.js';
 import { UserCustomProfile } from '../types/profile.js';
 
 /**

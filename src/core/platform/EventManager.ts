@@ -5,8 +5,8 @@
 
 import { Client } from 'discord.js';
 import { randomUUID } from 'crypto';
-import { Event, EventHandler, EventListener, EventPayloads } from '../types/events.js';
-import { Logger } from '../utils/Logger.js';
+import { Event, EventHandler, EventListener, EventPayloads } from '../../types/events.js';
+import { Logger } from '../../utils/Logger.js';
 
 
 export class EventManager {

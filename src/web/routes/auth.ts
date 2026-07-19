@@ -1,12 +1,12 @@
 import { Router, Request, Response } from 'express';
-import { BotClient } from '../../core/BotClient.js';
+import { BotClient } from '../../core/platform/BotClient.js';
 import crypto from 'crypto';
 import config from '../../config.js';
 // import { Logger } from '../../utils/Logger.js';
 import { SettingsSession } from '../types';
 import { parsePermissionBitfield, userHasAdminOrManageFlag } from './permissionsUtils.js';
 import { PermissionFlagsBits } from 'discord.js';
-import { database } from '../../core/Database.js';
+import { database } from '../../core/persistence/Database.js';
 import fs from 'fs';
 import path from 'path';
 

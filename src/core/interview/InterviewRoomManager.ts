@@ -9,8 +9,8 @@ import {
     PermissionFlagsBits,
     TextChannel
 } from 'discord.js';
-import { OpenAIChatManager } from '../OpenAIChatManager.js';
-import { database } from '../Database.js';
+import { OpenAIChatManager } from '../ai/OpenAIChatManager.js';
+import { database } from '../persistence/Database.js';
 import { antiCheatManager } from '../anticheat/AntiCheatManager.js';
 import { DetectionLog, UserTrustData } from '../anticheat/types.js';
 import { Logger } from '../../utils/Logger.js';

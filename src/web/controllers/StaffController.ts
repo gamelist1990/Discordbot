@@ -1,8 +1,8 @@
 import { Request, Response } from 'express';
 import { SettingsSession } from '../types/index.js';
-import { BotClient } from '../../core/BotClient.js';
+import { BotClient } from '../../core/platform/BotClient.js';
 import { userHasAdminOrManageFlag } from '../routes/permissionsUtils.js';
-import { database } from '../../core/Database.js';
+import { database } from '../../core/persistence/Database.js';
 
 /**
  * スタッフコントローラー
@@ -139,7 +139,7 @@ export class StaffController {
                 return;
             }
 
-            const { PrivateChatManager } = await import('../../core/PrivateChatManager.js');
+            const { PrivateChatManager } = await import('../../core/private-chat/PrivateChatManager.js');
             const chats = await PrivateChatManager.getChatsByGuild(targetGuildId);
 
             // ユーザー情報を付加
@@ -218,7 +218,7 @@ export class StaffController {
                 return;
             }
 
-            const { PrivateChatManager } = await import('../../core/PrivateChatManager.js');
+            const { PrivateChatManager } = await import('../../core/private-chat/PrivateChatManager.js');
             let chat;
 
             if (roomName) {
@@ -266,7 +266,7 @@ export class StaffController {
                 return;
             }
 
-            const { PrivateChatManager } = await import('../../core/PrivateChatManager.js');
+            const { PrivateChatManager } = await import('../../core/private-chat/PrivateChatManager.js');
             const deleted = await PrivateChatManager.deleteChat(guild, chatId);
 
             if (deleted) {
@@ -303,7 +303,7 @@ export class StaffController {
                 return;
             }
 
-            const { PrivateChatManager } = await import('../../core/PrivateChatManager.js');
+            const { PrivateChatManager } = await import('../../core/private-chat/PrivateChatManager.js');
             const stats = await PrivateChatManager.getStats(targetGuildId);
 
             res.json(stats);
@@ -350,7 +350,7 @@ export class StaffController {
                     return;
                 }
 
-            const { PrivateChatManager } = await import('../../core/PrivateChatManager.js');
+            const { PrivateChatManager } = await import('../../core/private-chat/PrivateChatManager.js');
                 const guild = this.botClient.client.guilds.cache.get(targetGuildId as string);
 
             if (!guild) {
@@ -425,7 +425,7 @@ export class StaffController {
             // PrivateChatEvents の emitter を購読して即時通知を送る
             let eventListener: ((payload: any) => void) | undefined;
             try {
-                const { getPrivateChatEmitter } = await import('../../core/PrivateChatEvents.js');
+                const { getPrivateChatEmitter } = await import('../../core/private-chat/PrivateChatEvents.js');
                 const emitter = getPrivateChatEmitter();
                 eventListener = (payload: any) => {
                     try {
@@ -466,7 +466,7 @@ export class StaffController {
                 clearInterval(keepAliveId);
                 if (eventListener) {
                     try {
-                        const { getPrivateChatEmitter } = await import('../../core/PrivateChatEvents.js');
+                        const { getPrivateChatEmitter } = await import('../../core/private-chat/PrivateChatEvents.js');
                         const emitter = getPrivateChatEmitter();
                         emitter.removeListener('privateChatEvent', eventListener as any);
                     } catch (e) {
@@ -513,7 +513,7 @@ export class StaffController {
                 return;
             }
 
-            const { PrivateChatManager } = await import('../../core/PrivateChatManager.js');
+            const { PrivateChatManager } = await import('../../core/private-chat/PrivateChatManager.js');
             const memberIds = await PrivateChatManager.getMembers(guild, chatId);
 
             // メンバー情報を取得
@@ -597,7 +597,7 @@ export class StaffController {
                 return;
             }
 
-            const { PrivateChatManager } = await import('../../core/PrivateChatManager.js');
+            const { PrivateChatManager } = await import('../../core/private-chat/PrivateChatManager.js');
             await PrivateChatManager.addMember(guild, chatId, member.id);
 
             console.log(`メンバー追加: ${userName} (${member.id}) to ${chatId}`);
@@ -638,7 +638,7 @@ export class StaffController {
                 return;
             }
 
-            const { PrivateChatManager } = await import('../../core/PrivateChatManager.js');
+            const { PrivateChatManager } = await import('../../core/private-chat/PrivateChatManager.js');
             await PrivateChatManager.removeMember(guild, chatId, userId);
 
             console.log(`メンバー削除: ${userId} from ${chatId}`);
@@ -687,7 +687,7 @@ export class StaffController {
             // 既に追加済みのメンバーを取得（chatIdが指定されている場合）
             let existingMemberIds: string[] = [];
             if (chatId && typeof chatId === 'string') {
-                const { PrivateChatManager } = await import('../../core/PrivateChatManager.js');
+                const { PrivateChatManager } = await import('../../core/private-chat/PrivateChatManager.js');
                 existingMemberIds = await PrivateChatManager.getMembers(guild, chatId);
             }
 

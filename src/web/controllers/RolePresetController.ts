@@ -1,8 +1,8 @@
 import { Request, Response } from 'express';
-import { RolePresetManager, RolePreset } from '../../core/RolePresetManager.js';
+import { RolePresetManager, RolePreset } from '../../core/roles/RolePresetManager.js';
 import { SettingsSession } from '../types/index.js';
 import { getSessionGuildPermissionLevel, isGuildAccessible } from '../middleware/auth.js';
-import { BotClient } from '../../core/BotClient.js';
+import { BotClient } from '../../core/platform/BotClient.js';
 import { Logger } from '../../utils/Logger.js';
 import { PermissionManager } from '../../utils/PermissionManager.js';
 import { CacheManager } from '../../utils/CacheManager.js';

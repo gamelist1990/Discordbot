@@ -1,5 +1,5 @@
-import { database } from './Database.js';
-import { Logger } from '../utils/Logger.js';
+import { database } from '../persistence/Database.js';
+import { Logger } from '../../utils/Logger.js';
 
 /**
  * ロールプリセットの型定義

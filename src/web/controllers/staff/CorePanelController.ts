@@ -1,10 +1,10 @@
 import { Request, Response } from 'express';
 import { ChannelType, TextChannel } from 'discord.js';
-import { BotClient } from '../../../core/BotClient.js';
+import { BotClient } from '../../../core/platform/BotClient.js';
 import { coreFeatureManager } from '../../../core/corepanel/CoreFeatureManager.js';
 import { buildCorePanelEmbed } from '../../../core/corepanel/panelMessage.js';
 import { CoreFeaturePanelKind } from '../../../core/corepanel/types.js';
-import { database } from '../../../core/Database.js';
+import { database } from '../../../core/persistence/Database.js';
 
 type SessionLike = {
     userId: string;

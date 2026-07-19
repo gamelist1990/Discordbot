@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { AntiCheatController } from '../../controllers/staff/AntiCheatController.js';
 import { SettingsSession } from '../../types/index.js';
-import { BotClient } from '../../../core/BotClient.js';
+import { BotClient } from '../../../core/platform/BotClient.js';
 import { verifyAuth } from '../../middleware/auth.js';
 
 /**

@@ -1,7 +1,7 @@
 import { SlashCommandBuilder, ChatInputCommandInteraction, EmbedBuilder } from 'discord.js';
 import { SlashCommand } from '../../types/command.js';
 import { PermissionLevel } from '../../web/types/permission.js';
-import { rankManager } from '../../core/RankManager.js';
+import { rankManager } from '../../core/ranking/RankManager.js';
 
 /**
  * /rank コマンド

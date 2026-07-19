@@ -1,4 +1,4 @@
-// src/core/ChatGPTModels.ts
+// src/core/ai/ChatGPTModels.ts
 // AUTO-GENERATED FILE. DO NOT EDIT MANUALLY.
 // Source: https://capi.voids.top/v2/models
 

@@ -1,8 +1,8 @@
-// src/core/ChatGPTClient.ts
+// src/core/ai/ChatGPTClient.ts
 import OpenAI from 'openai';
-import { config } from '../config.js';
+import { config } from '../../config.js';
 import { ChatGPTModel } from './ChatGPTModels.js';
-import { Logger } from '../utils/Logger.js';
+import { Logger } from '../../utils/Logger.js';
 import {
     OpenAIChatCompletionChunk,
     OpenAIChatCompletionMessage,
@@ -11,7 +11,7 @@ import {
     OpenAITool,
     OpenAIToolCall,
     ToolHandler,
-} from '../types/openai.js';
+} from '../../types/openai.js';
 
 export interface ChatOptions {
     model?: ModelSelectionInput;

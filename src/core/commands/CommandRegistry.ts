@@ -1,13 +1,13 @@
 import { SlashCommandBuilder, ChatInputCommandInteraction, Collection } from 'discord.js';
-import { BotClient } from './BotClient.js';
+import { BotClient } from '../platform/BotClient.js';
 import {
     DynamicCommandOptions,
     EnhancedSlashCommand
-} from '../types/enhanced-command.js';
-import { SlashCommand } from '../types/command.js';
-import { database } from './Database.js';
-import { Logger } from '../utils/Logger.js';
-import { PermissionLevel } from '../web/types/permission.js';
+} from '../../types/enhanced-command.js';
+import { SlashCommand } from '../../types/command.js';
+import { database } from '../persistence/Database.js';
+import { Logger } from '../../utils/Logger.js';
+import { PermissionLevel } from '../../web/types/permission.js';
 
 /**
  * コマンドレジストリ

@@ -1,15 +1,15 @@
 // src/commands/staff/subcommands/ai.ts
 import { ChatInputCommandInteraction, MessageFlags, DiscordAPIError } from 'discord.js';
-import { OpenAIChatManager } from '../../../core/OpenAIChatManager.js';
+import { OpenAIChatManager } from '../../../core/ai/OpenAIChatManager.js';
 import { OpenAIChatCompletionMessage } from '../../../types/openai.js';
 import { statusToolDefinition, statusToolHandler, weatherToolDefinition, weatherToolHandler, timeToolDefinition, timeToolHandler, countPhraseToolDefinition, countPhraseToolHandler, userInfoToolDefinition, userInfoToolHandler, antiCheatUserProfileDefinition, antiCheatUserProfileHandler, createAntiCheatInterviewDefinition, createAntiCheatInterviewHandler, memoListDefinition, memoListHandler, memoGetDefinition, memoGetHandler, memoCreateDefinition, memoCreateHandler, memoUpdateDefinition, memoUpdateHandler, memoDeleteDefinition, memoDeleteHandler, memoSearchDefinition, memoSearchHandler, collectHistoryDefinition, collectHistoryHandler, fetchMessageLinkDefinition, fetchMessageLinkHandler } from './ai-tools/index.js';
-import { PdfRAGManager } from '../../../core/PdfRAGManager.js';
-import { database } from '../../../core/Database.js';
+import { PdfRAGManager } from '../../../core/ai/PdfRAGManager.js';
+import { database } from '../../../core/persistence/Database.js';
 import {
     AIConversationEntry,
     ChannelConversationMessage,
     buildConversationHistory,
-} from '../../../core/AIConversationHistory.js';
+} from '../../../core/ai/AIConversationHistory.js';
 
 // レート制限の設定
 const userRateLimits = new Map<string, { lastUsed: number, count: number }>();

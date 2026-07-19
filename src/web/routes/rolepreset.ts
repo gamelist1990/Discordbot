@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { RolePresetController } from '../controllers/RolePresetController.js';
 import { SettingsSession } from '../types/index.js';
-import { BotClient } from '../../core/BotClient.js';
+import { BotClient } from '../../core/platform/BotClient.js';
 import { verifyAuth } from '../middleware/auth.js';
 
 /**

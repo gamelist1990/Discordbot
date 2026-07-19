@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { BotClient } from '../../core/BotClient.js';
+import { BotClient } from '../../core/platform/BotClient.js';
 import { SettingsSession } from '../types/index.js';
 
 /**
@@ -95,7 +95,7 @@ export function createToolRoutes(
             }
 
             // TODO: バックエンドでもプリセット保存したい場合はここで Database に保存
-            // const database = await import('../../core/Database.js').then(m => m.database);
+            // const database = await import('../../core/persistence/Database.js').then(m => m.database);
             // database.set(_session.userId, `tools/minecraft/presets/${preset.name}`, preset);
 
             res.json({

@@ -1,5 +1,5 @@
 import { CategoryChannel, ChannelType, Client, Guild, PermissionFlagsBits, Role } from 'discord.js';
-import { database } from '../Database.js';
+import { database } from '../persistence/Database.js';
 import { Logger } from '../../utils/Logger.js';
 
 export async function ensureCategory(guild: Guild, name: string): Promise<CategoryChannel> {

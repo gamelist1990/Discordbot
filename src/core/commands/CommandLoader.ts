@@ -1,11 +1,11 @@
 import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { SlashCommand } from '../types/command.js';
-import { BotClient } from './BotClient.js';
+import { SlashCommand } from '../../types/command.js';
+import { BotClient } from '../platform/BotClient.js';
 import { CommandRegistry } from './CommandRegistry.js';
-import { DynamicCommandOptions } from '../types/enhanced-command.js';
-import { Logger } from '../utils/Logger.js';
+import { DynamicCommandOptions } from '../../types/enhanced-command.js';
+import { Logger } from '../../utils/Logger.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

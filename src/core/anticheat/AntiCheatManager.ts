@@ -12,7 +12,7 @@ import {
     User,
     type PartialMessage
 } from 'discord.js';
-import { database } from '../Database.js';
+import { database } from '../persistence/Database.js';
 import { CacheManager } from '../../utils/CacheManager.js';
 import { Logger } from '../../utils/Logger.js';
 import {

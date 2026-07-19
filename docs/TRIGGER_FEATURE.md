@@ -49,7 +49,7 @@ Discord の各種イベントに応じて、プリセットで定義したアク
    - DELETE `/api/triggers/live-buffer` - 実行履歴クリア
    - すべてのエンドポイントは STAFF 権限必須
 
-5. **Discord イベントハンドラ統合** (`src/core/EventHandler.ts`)
+5. **Discord イベントハンドラ統合** (`src/core/platform/EventHandler.ts`)
    - messageCreate: メッセージ送信時にトリガー処理
    - guildMemberAdd: メンバー参加時にトリガー処理
    - guildMemberRemove: メンバー退出時にトリガー処理
@@ -257,7 +257,7 @@ Discord の各種イベントに応じて、プリセットで定義したアク
 - **型定義**: `src/types/trigger.ts`
 - **コア**: `src/core/TriggerManager.ts`
 - **API**: `src/web/controllers/TriggerController.ts`, `src/web/routes/triggers.ts`
-- **イベント**: `src/core/EventHandler.ts`
+- **イベント**: `src/core/platform/EventHandler.ts`
 - **WebSocket**: `src/web/routes/websocket.ts`
 - **フロントエンド**: `src/web/client/src/pages/TriggerManager/`
 - **ルーティング**: `src/web/client/src/App.tsx`

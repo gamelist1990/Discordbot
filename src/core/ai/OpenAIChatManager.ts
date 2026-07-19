@@ -1,14 +1,14 @@
-// src/core/OpenAIChatManager.ts
+// src/core/ai/OpenAIChatManager.ts
 import {
     AvailableModel,
     ChatGPTClient,
     ChatGPTClientOptions,
     ChatOptions,
 } from './ChatGPTClient.js';
-import { OpenAIChatCompletionMessage } from '../types/openai.js';
+import { OpenAIChatCompletionMessage } from '../../types/openai.js';
 
 export const PEX_AI_ENDPOINT = 'http://api.pexserver.com:9000/v1';
-export const PEX_AI_MODEL = 'gemma4:e2b-it-qat';
+export const PEX_AI_MODEL = 'gemma4-agent';
 
 export interface GenerateTextOptions extends Omit<ChatOptions, 'stream'> {}
 
