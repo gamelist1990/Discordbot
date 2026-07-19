@@ -42,6 +42,17 @@ export const userMemoryEditDefinition: OpenAITool = {
                     items: { type: 'string' },
                     description: '置換する安全なメモ一覧。省略時は変更しません。',
                 },
+                appendNotes: {
+                    type: 'array',
+                    items: { type: 'string' },
+                    description: '既存メモを消さず、重要な会話履歴を追記します。重複は除外されます。',
+                },
+                trustScore: {
+                    type: 'number',
+                    minimum: 0,
+                    maximum: 100,
+                    description: '観測済みの対話に基づく会話上の信頼スコア。通常は50、協力的な対話で徐々に上げ、嫌がらせで下げます。',
+                },
                 conversationTone: {
                     type: 'string',
                     description: 'このユーザーへ話す際の望ましい会話トーン。例: 簡潔でフレンドリー。空文字で削除します。',
@@ -124,6 +135,7 @@ export function createUserMemoryEditHandler(memoryFile: string): ToolHandler {
                     profile: user.profile,
                     likes: user.likes,
                     notes: user.notes,
+                    trustScore: user.trustScore,
                     conversationTone: user.conversationTone,
                     cautions: user.cautions,
                     relationshipTone: user.relationshipTone,
@@ -176,6 +188,13 @@ export function createUserMemoryEditHandler(memoryFile: string): ToolHandler {
         if (likes) next.likes = likes;
         const notes = cleanList(args?.notes, MAX_NOTES, 200);
         if (notes) next.notes = notes;
+        const appendNotes = cleanList(args?.appendNotes, MAX_NOTES, 200);
+        if (appendNotes?.length) {
+            next.notes = Array.from(new Set([...(next.notes || []), ...appendNotes])).slice(-MAX_NOTES);
+        }
+        if (Number.isFinite(Number(args?.trustScore))) {
+            next.trustScore = Math.max(0, Math.min(100, Math.round(Number(args.trustScore))));
+        }
         if (typeof args?.conversationTone === 'string') {
             const conversationTone = cleanString(args.conversationTone, 300);
             if (conversationTone) next.conversationTone = conversationTone;

@@ -25,6 +25,7 @@ export interface AppConfig {
     pexAi?: {
         endpoint: string;
         model: string;
+        fallbackModel: string;
         visionModel: string;
         apiKey: string;
     };
@@ -75,6 +76,7 @@ export const config: Required<AppConfig> = {
     pexAi: {
         endpoint: raw.pexAi?.endpoint || 'http://api.pexserver.com:9000/v1',
         model: raw.pexAi?.model || 'gemma4-agent',
+        fallbackModel: raw.pexAi?.fallbackModel || '@cf/google/gemma-4-26b-a4b-it',
         visionModel: raw.pexAi?.visionModel || 'moondream:1.8b-v2-q2_K',
         apiKey: raw.pexAi?.apiKey || '',
     },

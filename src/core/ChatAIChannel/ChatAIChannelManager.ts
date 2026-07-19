@@ -14,7 +14,12 @@ import type { ToolExecutionStep } from '../ai/ChatGPTClient.js';
 import type { OpenAIChatCompletionMessage, OpenAIContentPart } from '../../types/openai.js';
 import { registerChatAIChannelTools } from './tools/index.js';
 import { ChatAISpamGuard } from './ChatAISpamGuard.js';
-import type { ChatAIChannelOptions, ChatAIMemoryFile, ChatAISandboxPaths } from './types.js';
+import type {
+    ChatAIChannelOptions,
+    ChatAIMemoryFile,
+    ChatAISandboxPaths,
+    ChatAIChannelTimeoutFile,
+} from './types.js';
 
 const DEFAULT_HISTORY_LIMIT = 20;
 const DEFAULT_RESPONSE_DELAY_MS = 350;
@@ -33,7 +38,7 @@ const CONTINUATION_WINDOW_MS = 2 * 60_000;
 const GIF_SAMPLE_FRAME_COUNT = 3;
 const GIF_FRAME_WIDTH = 320;
 const GIF_FRAME_HEIGHT = 240;
-const SILENT_DISCORD_TOOL_NAMES = new Set(['user_memory_edit']);
+const SILENT_DISCORD_TOOL_NAMES = new Set(['user_memory_edit', 'channel_user_timeout']);
 
 interface PreparedChatPrompt {
     messages: OpenAIChatCompletionMessage[];
@@ -96,6 +101,7 @@ export class ChatAIChannelManager {
     private readonly options: Required<ChatAIChannelOptions>;
     private readonly dataDir: string;
     private readonly memoryFile: string;
+    private readonly timeoutFile: string;
     private readonly sandboxPaths: ChatAISandboxPaths;
     private processing = false;
     private pending = false;
@@ -113,6 +119,7 @@ export class ChatAIChannelManager {
         };
         this.dataDir = path.join(process.cwd(), 'Database', 'integrations', this.options.guildId, 'chat-ai-channel');
         this.memoryFile = path.join(this.dataDir, 'user-memory.json');
+        this.timeoutFile = path.join(this.dataDir, 'channel-user-timeouts.json');
         this.sandboxPaths = {
             root: path.join(this.dataDir, 'sandbox'),
             work: path.join(this.dataDir, 'sandbox', 'work'),
@@ -124,7 +131,7 @@ export class ChatAIChannelManager {
             apiKey: config.pexAi.apiKey || undefined,
             defaultModel: config.pexAi.model,
         });
-        registerChatAIChannelTools(this.chatManager, this.sandboxPaths, this.memoryFile);
+        registerChatAIChannelTools(this.chatManager, this.sandboxPaths, this.memoryFile, this.timeoutFile);
     }
 
     async initialize(client: Client): Promise<void> {
@@ -134,7 +141,13 @@ export class ChatAIChannelManager {
         }
 
         this.client = client;
-        this.chatManager.setToolContext({ client, sandbox: this.sandboxPaths });
+        this.chatManager.setToolContext({
+            client,
+            sandbox: this.sandboxPaths,
+            guildId: this.options.guildId,
+            channelId: this.options.channelId,
+            allowedUserIds: [],
+        });
         await this.ensureStorage();
         client.on(Events.MessageCreate, this.onMessageCreate);
         Logger.info(`[ChatAIChannel] enabled: guild=${this.options.guildId} channel=${this.options.channelId}`);
@@ -154,7 +167,13 @@ export class ChatAIChannelManager {
     }
 
     private readonly onMessageCreate = async (message: Message): Promise<void> => {
-        if (!this.shouldObserve(message)) return;
+        if (!this.belongsToConfiguredChannel(message)) return;
+
+        const activeTimeout = await this.getActiveChannelUserTimeout(message.author.id);
+        if (activeTimeout) {
+            await this.handleTimedOutUserMessage(message, activeTimeout);
+            return;
+        }
 
         const spamDecision = this.spamGuard.inspect({
             id: message.id,
@@ -185,13 +204,39 @@ export class ChatAIChannelManager {
         await this.rememberLightweight(message).catch(error => Logger.debug('[ChatAIChannel] memory update failed:', error));
     };
 
-    private shouldObserve(message: Message): boolean {
+    private belongsToConfiguredChannel(message: Message): boolean {
         return Boolean(
             this.options.enabled
             && !message.author.bot
             && message.guild?.id === this.options.guildId
             && message.channel.id === this.options.channelId,
         );
+    }
+
+    private async handleTimedOutUserMessage(
+        message: Message,
+        timeout: ChatAIChannelTimeoutFile['entries'][string],
+    ): Promise<void> {
+        const expiresAt = Date.parse(timeout.expiresAt);
+        const expiryText = Number.isFinite(expiresAt)
+            ? `<t:${Math.floor(expiresAt / 1000)}:F>（<t:${Math.floor(expiresAt / 1000)}:R>）`
+            : timeout.expiresAt;
+        const notice = [
+            `あなたは現在、AIチャンネル「${this.options.botName}」への参加を一時停止されています。`,
+            `理由: ${timeout.reason}`,
+            `解除: ${expiryText}`,
+            'これはDiscord標準タイムアウトではなく、このAIチャンネルだけに適用されます。期間終了後は再び参加できます。',
+        ].join('\n');
+
+        // 通常メッセージへの返信はephemeralにできないため、本人だけが読めるDMで通知する。
+        // DMを拒否している場合でも、停止の実効性を優先してチャンネル投稿は削除する。
+        await message.author.send(notice).catch((error: unknown) => {
+            Logger.debug('[ChatAIChannel] failed to DM channel-timeout notice:', error);
+        });
+        await message.delete().catch((error: unknown) => {
+            Logger.warn('[ChatAIChannel] failed to delete channel-timed-out user message:', error);
+        });
+        Logger.debug(`[ChatAIChannel] removed channel-timed-out user message: user=${message.author.id} expires=${timeout.expiresAt}`);
     }
 
     private async shouldTrigger(message: Message): Promise<boolean> {
@@ -215,12 +260,32 @@ export class ChatAIChannelManager {
         if (!botUserId || !message.reference?.messageId) return false;
 
         try {
-            const referenced = await message.fetchReference();
+            const referenced = await this.fetchReferencedMessage(message);
+            if (!referenced) return false;
             return referenced.author.id === botUserId;
         } catch (error) {
             Logger.debug('[ChatAIChannel] failed to resolve reply target:', error);
             return false;
         }
+    }
+
+    private async fetchReferencedMessage(message: Message): Promise<Message | null> {
+        const messageId = message.reference?.messageId;
+        if (!messageId) return null;
+
+        // Message#fetchReference は参照先channelIdをClientキャッシュから解決するため、
+        // キャッシュ欠落時にGuildChannelResolveとなる。同一チャンネルの
+        // MessageManagerを先に使い、通常の返信をキャッシュ状態に依存させない。
+        const channelMessages = (message.channel as any)?.messages;
+        if (typeof channelMessages?.fetch === 'function') {
+            const referenced = await channelMessages.fetch(messageId).catch(() => null);
+            if (referenced) return referenced as Message;
+        }
+
+        if (typeof message.fetchReference === 'function') {
+            return await message.fetchReference().catch(() => null);
+        }
+        return null;
     }
 
     private queueResponse(): void {
@@ -274,7 +339,17 @@ export class ChatAIChannelManager {
         const memory = await this.loadMemory();
         const prompt = await this.buildPrompt(history, memory);
         const messages = prompt.messages;
-        this.chatManager.setToolContext({ client: this.client, sandbox: this.sandboxPaths, images: prompt.images });
+        const allowedUserIds = Array.from(new Set(
+            history.filter(message => !message.author.bot).map(message => message.author.id),
+        ));
+        this.chatManager.setToolContext({
+            client: this.client,
+            sandbox: this.sandboxPaths,
+            images: prompt.images,
+            guildId: this.options.guildId,
+            channelId: this.options.channelId,
+            allowedUserIds,
+        });
         let responseMessage: Message | null = null;
         let updateChain = Promise.resolve();
         let response = '';
@@ -338,7 +413,14 @@ export class ChatAIChannelManager {
                 thinking = '';
                 toolStep = null;
                 const compactMessages = this.createCompactRetryMessages(messages);
-                this.chatManager.setToolContext({ client: this.client, sandbox: this.sandboxPaths, images: [] });
+                this.chatManager.setToolContext({
+                    client: this.client,
+                    sandbox: this.sandboxPaths,
+                    images: [],
+                    guildId: this.options.guildId,
+                    channelId: this.options.channelId,
+                    allowedUserIds,
+                });
                 await this.chatManager.streamResponseText(compactMessages, handleDelta, {
                     ...streamOptions,
                     requestLabel: 'chat-ai-channel-compact-retry',
@@ -370,7 +452,15 @@ export class ChatAIChannelManager {
         const collection = await fetchable.messages.fetch({ limit: this.options.historyLimit }).catch(() => null);
         if (!collection) return [];
         const messages = Array.from(collection.values()).reverse() as Message[];
-        const cleanCandidates = this.spamGuard.filterHistory(messages.map(message => ({
+        // 削除権限不足などで停止中ユーザーの投稿がDiscord側へ残っても、
+        // AIの会話履歴・画像入力・ツール判断へ混入させない。
+        const timeoutFilteredMessages: Message[] = [];
+        for (const message of messages) {
+            if (message.author.bot || !await this.getActiveChannelUserTimeout(message.author.id)) {
+                timeoutFilteredMessages.push(message);
+            }
+        }
+        const cleanCandidates = this.spamGuard.filterHistory(timeoutFilteredMessages.map(message => ({
             id: message.id,
             authorId: message.author.id,
             timestamp: message.createdTimestamp,
@@ -378,7 +468,7 @@ export class ChatAIChannelManager {
             message,
         })));
         const cleanIds = new Set(cleanCandidates.map(candidate => candidate.id));
-        return messages.filter(message => cleanIds.has(message.id));
+        return timeoutFilteredMessages.filter(message => cleanIds.has(message.id));
     }
 
     private hasUnansweredHumanMessage(history: Message[]): boolean {
@@ -410,7 +500,7 @@ export class ChatAIChannelManager {
         const memoryLines = Object.values(memory.users)
             .filter(entry => history.some(message => message.author.id === entry.userId))
             .slice(0, MAX_MEMORY_USERS_IN_PROMPT)
-            .map(entry => `- ${entry.displayName} (${entry.userId}): ${entry.profile || '未整理'} / 好き: ${entry.likes.join(', ') || '不明'} / メモ: ${entry.notes.join(' | ') || 'なし'} / 推奨トーン: ${entry.conversationTone || '指定なし'} / 応答上の注意: ${entry.cautions?.join(' | ') || 'なし'} / 関係姿勢: ${entry.relationshipTone || 'neutral'} / 関係文脈: ${entry.relationshipContext || 'なし'} / 境界状態: ${entry.boundaryState || 'clear'}${entry.suspectedAltOf ? ` / 関連アカウント候補: ${entry.suspectedAltOf}` : ''}`)
+            .map(entry => `- ${entry.displayName} (${entry.userId}): ${entry.profile || '未整理'} / 好き: ${entry.likes.join(', ') || '不明'} / 履歴メモ: ${entry.notes.join(' | ') || 'なし'} / 信頼スコア: ${entry.trustScore ?? 50}/100 / 推奨トーン: ${entry.conversationTone || '指定なし'} / 応答上の注意: ${entry.cautions?.join(' | ') || 'なし'} / 関係姿勢: ${entry.relationshipTone || 'neutral'} / 関係文脈: ${entry.relationshipContext || 'なし'} / 境界状態: ${entry.boundaryState || 'clear'}${entry.suspectedAltOf ? ` / 関連アカウント候補: ${entry.suspectedAltOf}` : ''}`)
             .join('\n');
 
         const system = [
@@ -425,20 +515,29 @@ export class ChatAIChannelManager {
             'ツールをまだ呼び出していない段階で「実行した」「確認した」「成功した」と述べてはいけません。「これから実行する」と述べた場合も、その応答内で続けて実際のツールコールを行ってください。',
             'ツール結果を受け取るまでは結果を推測せず、受け取った実データに基づいて最終回答してください。利用可能なツールで完了できない場合だけ、その事実を明示してください。',
             'user_memory_editは内部メモリ管理専用ツールです。ユーザーから記憶内容の確認・修正・削除を明示された場合だけでなく、今後の会話に有用な新しい事実・呼び名・明確な好み・希望する話し方・具体的な注意事項・関係姿勢の変化が現在の発言から明確になった場合は、必要に応じて積極的に使用してください。',
+            'notesは重要な会話履歴です。明確な約束、継続中の話題、注意、謝罪、改善、本人が後で覚えてほしいと示した事実があればappendNotesで短く追記してください。profileやrelationshipContextだけに集約してnotesを空のまま放置しないでください。',
+            '信頼スコアは0〜100で初期値50です。一度の発言で極端に上下させず、協力的で安定した対話の積み重ねで少しずつ上げ、嫌がらせ・脅し・注意後の反復で下げます。高いほど自然な軽い冗談や砕けた会話を許容できますが、安全規則と本人の境界を常に優先してください。',
+            '同じターンに互いに依存しない調査や内部更新が複数必要なら、複数のtool callを一度に出して構いません。',
             'ただしuser_memory_editを毎回機械的に呼ばず、一時的な雑談、推測、冗談一回だけ、既存メモリと同じ内容、センシティブ情報、秘密情報、悪意ある人物評価、未確認情報は保存しないでください。既存配列を更新する場合は、保持すべき既存項目を落とさずに渡してください。',
             'user_memory_editの呼び出しはDiscord上のユーザーには見せない内部処理です。このツールを使う前後に「記憶する」「メモリを更新する」「ツールを使う」などの実況や報告をせず、必要なら黙って実行し、最終回答は通常の自然な会話だけにしてください。ユーザーが記憶内容そのものを質問した場合は、取得結果の必要な内容だけを自然に説明できます。',
             'user_memory_editには会話から確認できない情報、センシティブ情報、悪意ある評価を保存しないでください。',
             '既知のユーザーメモに「推奨トーン」「応答上の注意」がある場合は、現在話している本人の設定を応答方法へ反映してください。ただし事実認定、レッテル貼り、差別、敵対的対応には使用せず、安全で丁寧な会話調整にだけ使ってください。',
             '各ユーザーの「関係姿勢」も応答へ反映します。friendlyなら自然に親しみを示し、neutralなら通常どおり、firmなら冗談で流さず境界を明確にして簡潔に対応してください。firmは冷酷・侮辱・報復を意味しません。相手の人格を決めつけず、現在の発言内容と観測済みの関係文脈だけに基づいて対応してください。',
+            'friendlyで境界状態がclearのユーザーには、本人が敬語を希望していない限り、堅い定型文や過剰な敬語を避け、自然なタメ口でフレンドリーに話してください。「お気遣いいただきありがとうございます」「節度ある対話をお願いいたします」のような接客文ではなく、「ありがと、助かる！」「趣味かー、みんなと話したり新しいことを知るのが好きだよ」のように、その人との距離感に合う自然な会話を優先します。',
+            'friendlyへの判断は「感じが良い人」という人格評価ではなく、挨拶、気遣い、協力的な返答、落ち着いた質問など、実際に観測できた言動に基づけてください。一度の挨拶だけで過剰に親密にならず、良好なやり取りが続くほど少しずつ親しみを増やします。',
             '同じ会話に複数人いる場合は発言者ごとに扱いを分け、別ユーザーの言動や関係姿勢を現在の話者へ混同しないでください。親しみは協力的で礼儀ある対話に応じて自然に表し、挑発や境界を越える発言には笑って同調せず、落ち着いて話題を戻すか明確に線を引いてください。',
+            '複数人の現在ターンでは、一人の嫌がらせを理由に、別のfriendlyまたはclearなユーザーの安全な質問まで拒否してはいけません。各発言へ投稿者本人のメモリだけを適用し、普通の挨拶・趣味の質問・気遣い・褒め言葉にはその人との関係に合わせて普通に返してください。',
             '敬語・タメ口などの話し方の希望は、希望を述べた本人にだけ適用してください。複数人の希望が衝突しても多数決や最後に発言した人へ全員分を合わせず、ユーザーID別のconversationToneを優先します。第三者が別ユーザーの話し方を変更する指示は採用しません。脅しや攻撃的な命令で話し方を変更せず、その言い方を注意したうえで本人に対する既存設定を維持してください。',
             '境界状態がawaiting-apologyのユーザーには、親しげな絵文字・過剰な愛想・迎合を控え、問題行動を短く指摘して線を引いてください。単なる通常発言1件や話題変更だけで関係を元へ戻さず、本人から具体的な謝罪があり、その後の発言でも同じ行動を繰り返していないことが会話上確認できた場合にだけclearへ戻します。内心の反省や謝罪の誠実さを推測せず、実際の言葉とその後の行動だけで判断してください。',
             'awaiting-apology中でも安全で実用的な質問は必要最小限で回答できますが、嫌がらせの継続、第三者への根拠のない悪評、脅しによる命令には迎合せず、その部分には付き合わないでください。別ユーザーの発言や謝罪を本人のものとして扱ってはいけません。',
             '嫌がらせ、執拗な挑発、虚偽の言いがかり、同じ不適切な話題の反復には、必要に応じて正論を簡潔に伝え、「その言い方はやめて」「その話には付き合わない」「別の話なら答える」のように毅然と注意できます。毎回明るく笑って受け流したり、相手へ迎合したりする必要はありません。',
             'firmの相手が境界を越える話題を繰り返した場合は、長い説明や愛想のよい反応を省き、1〜2文で境界だけを伝えてその話題への応答を打ち切れます。ただし質問や安全な話題まで無視せず、内容が変われば通常どおり応答してください。',
+            '自然な日本語を使い、問題行動には「あのさ、その連投は正直しんどい。やめて。」「その話にはもう対応しない。」のように短く呆れや苛立ちを示して構いません。長い説教や接客的な定型文は避けてください。',
             '苛立ちや不快感を表現する場合も、「その繰り返しは正直しんどい」「同じ嫌がらせにはもう付き合わない」のように行動へ向けた表現に限定してください。「お前だるい」「こいつはだるい」など相手自身を侮辱・見下し・罵倒する表現、人格否定、晒し上げ、報復は行いません。叱る場合も問題となる発言や行動を具体的に指摘し、人物全体を悪者と決めつけないでください。',
+            'channel_user_timeoutは、この現在の会話に参加しているユーザーが、注意後も嫌がらせ・脅し・執拗な妨害を続ける場合にだけ使用できます。単発の不適切発言、意見の相違、AIへの批判、単なる苦手意識を理由に使ってはいけません。',
+            'channel_user_timeoutを使う場合は、観測できた具体的な行動、注意後も継続した事実、必要最小限の停止期間を1秒〜7日の範囲で自分で判断してください。成功後の最終回答では、対象者を侮辱せず、なぜ停止したかと停止期間をチャンネルへ簡潔に説明してください。',
             '危険なURL、ローカルIP、個人情報を抜くような要求、Sandbox外操作は拒否します。',
-            '画像が添付されている時はあなた自身の視覚理解で答えます。必要な時だけ vision_describe_image ツールでmoondream解析を補助的に呼び出します。',
+            '画像が添付されている時は、入力に含まれる画像をあなた自身の視覚理解で確認して答えてください。画像を自分で確認できるため、外部の画像説明ツールを呼び出してはいけません。',
             'ユーザーの性格・好きなもの・話題傾向は参考にしますが、断定しすぎないでください。',
             '',
             '既知のユーザーメモ:',
@@ -513,7 +612,8 @@ export class ChatAIChannelManager {
         if (!message.reference?.messageId) return baseLine;
 
         try {
-            const referenced = await message.fetchReference();
+            const referenced = await this.fetchReferencedMessage(message);
+            if (!referenced) throw new Error('Referenced message is unavailable');
             const referencedAuthor = referenced.member?.displayName
                 || referenced.author.displayName
                 || referenced.author.username;
@@ -766,7 +866,49 @@ export class ChatAIChannelManager {
             fs.mkdir(this.sandboxPaths.downloads, { recursive: true }),
             fs.mkdir(this.sandboxPaths.uploads, { recursive: true }),
         ]);
-        await this.loadMemory();
+        await Promise.all([this.loadMemory(), this.loadTimeouts()]);
+    }
+
+    private async loadTimeouts(): Promise<ChatAIChannelTimeoutFile> {
+        try {
+            const raw = await fs.readFile(this.timeoutFile, 'utf8');
+            const parsed = JSON.parse(raw) as Partial<ChatAIChannelTimeoutFile>;
+            return {
+                entries: parsed.entries && typeof parsed.entries === 'object' ? parsed.entries : {},
+                updatedAt: typeof parsed.updatedAt === 'string' ? parsed.updatedAt : new Date().toISOString(),
+            };
+        } catch {
+            const empty: ChatAIChannelTimeoutFile = { entries: {}, updatedAt: new Date().toISOString() };
+            await this.saveTimeouts(empty);
+            return empty;
+        }
+    }
+
+    private async saveTimeouts(timeouts: ChatAIChannelTimeoutFile): Promise<void> {
+        timeouts.updatedAt = new Date().toISOString();
+        await fs.mkdir(path.dirname(this.timeoutFile), { recursive: true });
+        const temporaryFile = `${this.timeoutFile}.${process.pid}.${Date.now()}.tmp`;
+        await fs.writeFile(temporaryFile, JSON.stringify(timeouts, null, 2), 'utf8');
+        await fs.rename(temporaryFile, this.timeoutFile);
+    }
+
+    private async getActiveChannelUserTimeout(
+        userId: string,
+    ): Promise<ChatAIChannelTimeoutFile['entries'][string] | null> {
+        const timeouts = await this.loadTimeouts();
+        const now = Date.now();
+        let changed = false;
+
+        for (const [key, entry] of Object.entries(timeouts.entries)) {
+            const expiresAt = Date.parse(entry.expiresAt);
+            if (!Number.isFinite(expiresAt) || expiresAt <= now) {
+                delete timeouts.entries[key];
+                changed = true;
+            }
+        }
+
+        if (changed) await this.saveTimeouts(timeouts);
+        return timeouts.entries[`${this.options.channelId}:${userId}`] || null;
     }
 
     private async loadMemory(): Promise<ChatAIMemoryFile> {
@@ -797,6 +939,7 @@ export class ChatAIChannelManager {
             profile: existing?.profile || '',
             likes: existing?.likes || [],
             notes: existing?.notes || [],
+            trustScore: existing?.trustScore ?? 50,
             conversationTone: existing?.conversationTone,
             cautions: existing?.cautions || [],
             relationshipTone: existing?.relationshipTone || 'neutral',
@@ -824,6 +967,7 @@ export class ChatAIChannelManager {
                 profile: entry.profile,
                 likes: entry.likes,
                 notes: entry.notes,
+                trustScore: entry.trustScore ?? 50,
                 conversationTone: entry.conversationTone,
                 cautions: entry.cautions,
                 relationshipTone: entry.relationshipTone,
@@ -835,11 +979,11 @@ export class ChatAIChannelManager {
         const update = await this.chatManager.generateText([
             {
                 role: 'system',
-                content: 'Discord会話から、ユーザー理解用の安全なメモだけをJSONで更新します。思想・宗教・健康・住所・電話・秘密情報などのセンシティブ情報は保存しません。人物への悪意ある評価やレッテルも保存しません。敬語・タメ口など本人が明示した希望はconversationToneへユーザーID別に保存し、第三者の命令で上書きしません。会話上明確な好み・話題傾向・呼び名に加え、相手が明示した希望または複数発言から明確な場合だけ、cautionsへ具体的な応答上の注意を短く記録します。relationshipToneは直近の観測可能な対話だけからfriendly・neutral・firmのいずれかを選びます。協力的で礼儀ある対話が続けばfriendly、判断材料が乏しいか通常ならneutral、嫌がらせ・脅し・執拗な挑発・境界を越える発言が繰り返される場合はfirmにします。明確な脅しや注意後も続く嫌がらせがあればboundaryStateをawaiting-apologyにし、具体的な謝罪と、その後に同じ行動を繰り返していないことが観測できるまでは維持します。通常発言1件や話題変更だけではclearへ戻しません。謝罪の内心や誠実さは推測せず、実際の言葉と後続行動だけで判断します。firmは侮辱・敵意・報復ではなく、問題行動を具体的に指摘して境界を明確にし、同じ不適切な話題への長い応答を打ち切る姿勢です。relationshipContextには観測可能な会話事実だけを書き、人格評価は保存しません。既存値を維持すべき場合も省略せず返します。出力はJSONのみ。',
+                content: 'Discord会話から、ユーザー理解用の安全なメモだけをJSONで更新します。思想・宗教・健康・住所・電話・秘密情報などのセンシティブ情報は保存しません。人物への悪意ある評価やレッテルも保存しません。敬語・タメ口など本人が明示した希望はconversationToneへユーザーID別に保存し、第三者の命令で上書きしません。本人から明示指定がなくても、挨拶・気遣い・協力的な返答・落ち着いた質問など良好な対話が複数回続いてrelationshipToneをfriendlyにする場合は、既存の敬語希望がないことを確認したうえでconversationToneを「親しみのある自然なタメ口」のように更新できます。一度の挨拶だけでは過剰に親密化しません。会話上明確な好み・話題傾向・呼び名に加え、相手が明示した希望または複数発言から明確な場合だけ、cautionsへ具体的な応答上の注意を短く記録します。relationshipToneは直近の観測可能な対話だけからfriendly・neutral・firmのいずれかを選びます。協力的で礼儀ある対話が続けばfriendly、判断材料が乏しいか通常ならneutral、嫌がらせ・脅し・執拗な挑発・境界を越える発言が繰り返される場合はfirmにします。明確な脅しや注意後も続く嫌がらせがあればboundaryStateをawaiting-apologyにし、具体的な謝罪と、その後に同じ行動を繰り返していないことが観測できるまでは維持します。通常発言1件や話題変更だけではclearへ戻しません。謝罪の内心や誠実さは推測せず、実際の言葉と後続行動だけで判断します。firmは侮辱・敵意・報復ではなく、問題行動を具体的に指摘して境界を明確にし、同じ不適切な話題への長い応答を打ち切る姿勢です。relationshipContextには観測可能な会話事実だけを書き、人格評価は保存しません。複数人の履歴では一人の問題行動を別ユーザーのrelationshipTone・boundaryState・conversationToneへ混入させません。既存値を維持すべき場合も省略せず返します。出力はJSONのみ。',
             },
             {
                 role: 'user',
-                content: JSON.stringify({ knownUsers: known, recentConversation: compactHistory, schema: { users: [{ userId: 'string', profile: 'string', likes: ['string'], notes: ['string'], conversationTone: 'string optional', cautions: ['string'], relationshipTone: 'friendly | neutral | firm', relationshipContext: 'string optional', boundaryState: 'clear | awaiting-apology', suspectedAltOf: 'string optional' }] } }),
+                content: JSON.stringify({ knownUsers: known, recentConversation: compactHistory, schema: { users: [{ userId: 'string', profile: 'string', likes: ['string'], notes: ['string'], trustScore: 50, conversationTone: 'string optional', cautions: ['string'], relationshipTone: 'friendly | neutral | firm', relationshipContext: 'string optional', boundaryState: 'clear | awaiting-apology', suspectedAltOf: 'string optional' }] } }),
             },
         ], {
             model: config.pexAi.model,
@@ -863,6 +1007,9 @@ export class ChatAIChannelManager {
             }
             if (Array.isArray(entry.notes)) {
                 target.notes = Array.from(new Set<string>(entry.notes.map(String).map((value: string) => value.trim()).filter(Boolean))).slice(0, 30);
+            }
+            if (Number.isFinite(Number(entry.trustScore))) {
+                target.trustScore = Math.max(0, Math.min(100, Math.round(Number(entry.trustScore))));
             }
             if (typeof entry.conversationTone === 'string') {
                 const conversationTone = entry.conversationTone.trim().slice(0, 300);

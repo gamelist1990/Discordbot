@@ -166,3 +166,42 @@ test('中断済みsignalではAIリクエストやツール処理を開始しな
         (error: unknown) => error instanceof DOMException && error.name === 'AbortError',
     );
 });
+
+test('Chat Completionsの同一ターンにある複数ツールを並列実行する', async () => {
+    const client = new ChatGPTClient({
+        apiEndpoint: 'http://127.0.0.1:1', apiKey: 'test-key', defaultModel: 'test-model',
+    });
+    const starts: number[] = [];
+    const makeHandler = (index: number) => async () => {
+        starts[index] = Date.now();
+        await new Promise(resolve => setTimeout(resolve, 80));
+        return `result-${index}`;
+    };
+    for (const index of [0, 1]) {
+        client.registerTool({
+            type: 'function',
+            function: { name: `parallel_${index}`, description: '並列実行テスト', parameters: { type: 'object', properties: {} } },
+        }, makeHandler(index));
+    }
+
+    const result = await (client as any).appendToolResults([], [
+        { id: 'call-0', type: 'function', function: { name: 'parallel_0', arguments: '{}' } },
+        { id: 'call-1', type: 'function', function: { name: 'parallel_1', arguments: '{}' } },
+    ], undefined, 1);
+
+    assert.equal(result.length, 2);
+    assert.ok(Math.abs(starts[0] - starts[1]) < 60, `tools did not start together: ${starts.join(',')}`);
+    assert.deepEqual(result.map((message: any) => message.content), ['result-0', 'result-1']);
+});
+
+test('制限系エラーでは次モデルへフォールバックし、一般エラーでは切り替えない', async () => {
+    const client = new ChatGPTClient({
+        apiEndpoint: 'http://127.0.0.1:1', apiKey: 'test-key', defaultModel: 'primary-model',
+    });
+    const limitError = Object.assign(new Error('resource exhausted'), { status: 429 });
+    const ordinaryError = Object.assign(new Error('bad request'), { status: 400 });
+
+    assert.equal((client as any).isModelLimitError(limitError), true);
+    assert.equal((client as any).isModelLimitError(new Error('quota exceeded')), true);
+    assert.equal((client as any).isModelLimitError(ordinaryError), false);
+});

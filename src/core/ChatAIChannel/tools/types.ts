@@ -4,6 +4,7 @@ import type { ChatAISandboxPaths } from '../types.js';
 export interface ChatAIToolRegisterContext {
     sandboxPaths: ChatAISandboxPaths;
     memoryFile: string;
+    timeoutFile: string;
 }
 
 export type ChatAIToolRegistrar = (

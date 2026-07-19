@@ -11,6 +11,7 @@ import { config } from '../../config.js';
 
 export const PEX_AI_ENDPOINT = config.pexAi.endpoint;
 export const PEX_AI_MODEL = config.pexAi.model;
+export const PEX_AI_FALLBACK_MODEL = config.pexAi.fallbackModel;
 
 export interface GenerateTextOptions extends Omit<ChatOptions, 'stream'> {}
 
@@ -29,7 +30,7 @@ export class OpenAIChatManager extends ChatGPTClient {
         messages: OpenAIChatCompletionMessage[],
         options?: GenerateTextOptions
     ): Promise<string> {
-        const response = await this.sendMessage(messages, options);
+        const response = await this.sendMessage(messages, this.withPexModelFallback(options));
         const content = response.choices[0]?.message?.content;
         return typeof content === 'string' ? content : '';
     }
@@ -45,7 +46,7 @@ export class OpenAIChatManager extends ChatGPTClient {
             if (content) {
                 onText(content);
             }
-        }, options);
+        }, this.withPexModelFallback(options));
     }
 
     /** Responses API のストリームを使い、通常出力と API レベルの thinking/reasoning を分けて返す。 */
@@ -54,7 +55,30 @@ export class OpenAIChatManager extends ChatGPTClient {
         onDelta: (delta: ResponseApiStreamDelta) => void,
         options?: GenerateTextOptions
     ): Promise<void> {
-        await this.streamResponse(messages, onDelta, options);
+        await this.streamResponse(messages, onDelta, this.withPexModelFallback(options));
+    }
+
+    private withPexModelFallback(options?: GenerateTextOptions): GenerateTextOptions {
+        const requestedModels = Array.isArray(options?.model)
+            ? options.model
+            : options?.model
+                ? [options.model]
+                : [config.pexAi.model];
+        const primaryRequested = requestedModels.length === 1
+            && String(requestedModels[0]) === config.pexAi.model;
+
+        if (!primaryRequested || !config.pexAi.fallbackModel) {
+            return { ...options };
+        }
+
+        return {
+            ...options,
+            model: Array.from(new Set([
+                config.pexAi.model,
+                config.pexAi.fallbackModel,
+            ])),
+            fallbackOnLimitOnly: true,
+        };
     }
 
     /** GET /v1/models 相当のモデルカタログを返す。 */

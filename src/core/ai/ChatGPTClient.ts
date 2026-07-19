@@ -16,6 +16,7 @@ import {
 export interface ChatOptions {
     model?: ModelSelectionInput;
     strictModel?: boolean;
+    fallbackOnLimitOnly?: boolean;
     temperature?: number;
     maxTokens?: number;
     topP?: number;
@@ -304,6 +305,9 @@ export class ChatGPTClient {
                     if (rateLimitInfo) {
                         rateLimitWaits.push(rateLimitInfo);
                     }
+                    if (options?.fallbackOnLimitOnly && !this.isModelLimitError(error)) {
+                        break;
+                    }
                 }
             }
         }
@@ -394,6 +398,9 @@ export class ChatGPTClient {
                     const rateLimitInfo = this.buildRateLimitWaitInfo(error, options, auth.apiEndpoint, model);
                     if (rateLimitInfo) {
                         rateLimitWaits.push(rateLimitInfo);
+                    }
+                    if (options?.fallbackOnLimitOnly && !this.isModelLimitError(error)) {
+                        break;
                     }
                 }
             }
@@ -519,6 +526,9 @@ export class ChatGPTClient {
                     const rateLimitInfo = this.buildRateLimitWaitInfo(error, options, auth.apiEndpoint, model);
                     if (rateLimitInfo) {
                         rateLimitWaits.push(rateLimitInfo);
+                    }
+                    if (options?.fallbackOnLimitOnly && !this.isModelLimitError(error)) {
+                        break;
                     }
                 }
             }
@@ -1018,6 +1028,13 @@ export class ChatGPTClient {
         return /rate limit|too many requests|429/i.test(message);
     }
 
+    private isModelLimitError(error: unknown): boolean {
+        const status = this.extractErrorStatus(error);
+        if (status === 429 || status === 503) return true;
+        const message = error instanceof Error ? error.message : String(error ?? '');
+        return /rate limit|too many requests|resource exhausted|quota|capacity|overloaded|temporarily unavailable|429|503/i.test(message);
+    }
+
     private async sleep(ms: number): Promise<void> {
         await new Promise<void>((resolve) => {
             const timer = setTimeout(resolve, Math.max(0, ms));
@@ -1154,9 +1171,7 @@ export class ChatGPTClient {
         options?: ChatOptions,
         round = 1,
     ): Promise<OpenAIChatCompletionMessage[]> {
-        const nextMessages = [...messages];
-
-        for (const toolCall of toolCalls) {
+        const toolResultMessages = await Promise.all(toolCalls.map(async toolCall => {
             const toolEntry = this.tools.get(toolCall.function.name);
             if (!toolEntry) {
                 console.error(`Tool not found: ${toolCall.function.name}`);
@@ -1172,7 +1187,11 @@ export class ChatGPTClient {
                     round,
                     error: `Tool not found: ${toolCall.function.name}`,
                 });
-                continue;
+                return {
+                    role: 'tool' as const,
+                    content: `Error: Tool not found: ${toolCall.function.name}`,
+                    tool_call_id: toolCall.id,
+                };
             }
 
             const discordClient = this.toolContext?.client;
@@ -1230,11 +1249,11 @@ export class ChatGPTClient {
                 });
                 await this.notifyToolStep(options, { phase: 'completed', name: toolCall.function.name, round });
 
-                nextMessages.push({
+                return {
                     role: 'tool',
                     content: resultStr,
                     tool_call_id: toolCall.id,
-                });
+                } as OpenAIChatCompletionMessage;
             } catch (error) {
                 console.error(`Error executing tool ${toolCall.function.name}:`, error);
                 this.debugToolCall('failed', {
@@ -1250,11 +1269,11 @@ export class ChatGPTClient {
                     round,
                     error: error instanceof Error ? error.message : String(error),
                 });
-                nextMessages.push({
+                return {
                     role: 'tool',
                     content: `Error: ${error instanceof Error ? error.message : String(error)}`,
                     tool_call_id: toolCall.id,
-                });
+                } as OpenAIChatCompletionMessage;
             } finally {
                 try {
                     if (timerInterval) {
@@ -1280,9 +1299,9 @@ export class ChatGPTClient {
                     // ignore restore errors
                 }
             }
-        }
+        }));
 
-        return nextMessages;
+        return [...messages, ...toolResultMessages];
     }
 
     private async notifyToolStep(options: ChatOptions | undefined, step: ToolExecutionStep): Promise<void> {

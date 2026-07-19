@@ -14,12 +14,27 @@ export interface ChatAIUserMemory {
     profile: string;
     likes: string[];
     notes: string[];
+    trustScore?: number;
     conversationTone?: string;
     cautions?: string[];
     relationshipTone?: 'friendly' | 'neutral' | 'firm';
     relationshipContext?: string;
     boundaryState?: 'clear' | 'awaiting-apology';
     suspectedAltOf?: string;
+    updatedAt: string;
+}
+
+export interface ChatAIChannelTimeoutEntry {
+    userId: string;
+    channelId: string;
+    guildId: string;
+    reason: string;
+    createdAt: string;
+    expiresAt: string;
+}
+
+export interface ChatAIChannelTimeoutFile {
+    entries: Record<string, ChatAIChannelTimeoutEntry>;
     updatedAt: string;
 }
 
