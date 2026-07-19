@@ -419,8 +419,9 @@ export class ChatGPTClient {
                 let emittedDelta = false;
 
                 try {
+                    const currentInput = responseInput ?? this.convertChatMessagesToResponseInput(messages);
                     const payload = this.buildResponseApiPayload(
-                        responseInput ?? this.convertChatMessagesToResponseInput(messages),
+                        currentInput,
                         options,
                         model,
                         toolDefinitions,
@@ -433,15 +434,23 @@ export class ChatGPTClient {
 
                     if (result.functionCalls.length > 0) {
                         const toolOutputs = await this.executeResponseFunctionCalls(result.functionCalls);
-                        if (toolOutputs.length > 0 && result.responseId) {
+                        if (toolOutputs.length > 0) {
+                            // 一部のOpenAI互換APIは previous_response_id だけでは元の
+                            // function_call名を復元できない。SDKが返した出力項目を含む
+                            // 完全な会話入力を再送し、call_id/nameの対応を確実に保つ。
+                            const continuationInput = [
+                                ...currentInput,
+                                ...result.outputItems,
+                                ...toolOutputs,
+                            ];
                             await this.streamResponseInternal(
                                 messages,
                                 onDeltaReceive,
                                 options,
                                 toolRound + 1,
                                 0,
-                                result.responseId,
-                                toolOutputs,
+                                undefined,
+                                continuationInput,
                             );
                         }
                     }
@@ -610,29 +619,14 @@ export class ChatGPTClient {
         auth: ClientAuth,
         payload: Record<string, unknown>,
         onDeltaReceive: (delta: ResponseApiStreamDelta) => void
-    ): Promise<{ responseId: string | null; functionCalls: ResponseFunctionCallItem[] }> {
-        const response = await fetch(`${auth.apiEndpoint}/responses`, {
-            method: 'POST',
-            headers: {
-                'content-type': 'application/json',
-                authorization: `Bearer ${auth.apiKey}`,
-            },
-            body: JSON.stringify(payload),
-        });
-
-        if (!response.ok || !response.body) {
-            const errorText = await response.text().catch(() => '');
-            const error = new Error(`Response API request failed: HTTP ${response.status} ${errorText}`);
-            (error as any).status = response.status;
-            (error as any).headers = response.headers;
-            throw error;
-        }
-
-        const decoder = new TextDecoder();
-        const reader = response.body.getReader();
-        let buffer = '';
+    ): Promise<{ responseId: string | null; functionCalls: ResponseFunctionCallItem[]; outputItems: any[] }> {
+        const client = this.createClient(auth);
+        const stream = await client.responses.create(
+            payload as unknown as OpenAI.Responses.ResponseCreateParamsStreaming,
+        );
         let responseId: string | null = null;
         const functionCallsByKey = new Map<string, ResponseFunctionCallItem>();
+        const outputItemsByIndex = new Map<number, any>();
         const textDeltaItems = new Set<string>();
         const thinkingDeltaItems = new Set<string>();
 
@@ -685,47 +679,27 @@ export class ChatGPTClient {
                 }
             }
 
+            if (eventType === 'response.output_item.done' && data?.item) {
+                const outputIndex = typeof data.output_index === 'number'
+                    ? data.output_index
+                    : outputItemsByIndex.size;
+                outputItemsByIndex.set(outputIndex, data.item);
+            }
+
             this.collectResponseFunctionCall(data, eventType, functionCallsByKey);
         };
 
-        try {
-            while (true) {
-                const { value, done } = await reader.read();
-                if (done) break;
-
-                buffer += decoder.decode(value, { stream: true });
-                let separatorIndex = buffer.indexOf('\n\n');
-
-                while (separatorIndex >= 0) {
-                    const rawEvent = buffer.slice(0, separatorIndex);
-                    buffer = buffer.slice(separatorIndex + 2);
-                    separatorIndex = buffer.indexOf('\n\n');
-
-                    const dataLines = rawEvent
-                        .split(/\r?\n/)
-                        .filter(line => line.startsWith('data:'))
-                        .map(line => line.slice(5).trim());
-                    const dataText = dataLines.join('\n');
-
-                    if (!dataText || dataText === '[DONE]') {
-                        continue;
-                    }
-
-                    try {
-                        handleEvent(JSON.parse(dataText));
-                    } catch (error) {
-                        Logger.debug('[ChatGPTClient] Failed to parse Response API stream event:', error);
-                    }
-                }
-            }
-        } finally {
-            reader.releaseLock();
+        for await (const event of stream as AsyncIterable<OpenAI.Responses.ResponseStreamEvent>) {
+            handleEvent(event);
         }
 
         return {
             responseId,
             functionCalls: Array.from(functionCallsByKey.values())
                 .filter(call => call.callId && call.name),
+            outputItems: Array.from(outputItemsByIndex.entries())
+                .sort(([left], [right]) => left - right)
+                .map(([, item]) => item),
         };
     }
 
@@ -802,7 +776,6 @@ export class ChatGPTClient {
                 outputs.push({
                     type: 'function_call_output',
                     call_id: functionCall.callId,
-                    name: functionCall.name,
                     output: `Error: Tool not found: ${functionCall.name}`,
                 });
                 continue;
@@ -814,14 +787,12 @@ export class ChatGPTClient {
                 outputs.push({
                     type: 'function_call_output',
                     call_id: functionCall.callId,
-                    name: functionCall.name,
                     output: typeof result === 'string' ? result : JSON.stringify(result),
                 });
             } catch (error) {
                 outputs.push({
                     type: 'function_call_output',
                     call_id: functionCall.callId,
-                    name: functionCall.name,
                     output: `Error: ${error instanceof Error ? error.message : String(error)}`,
                 });
             }

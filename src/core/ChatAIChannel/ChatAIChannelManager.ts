@@ -253,6 +253,20 @@ export class ChatAIChannelManager {
     }
 
     private async buildPrompt(history: Message[], memory: ChatAIMemoryFile): Promise<PreparedChatPrompt> {
+        // 最後のBot発言より後だけを「現在のターン」とする。
+        // それ以前は参照用の過去履歴であり、古い画像を現在の添付として再送しない。
+        const lastBotMessageIndex = history.reduce(
+            (latestIndex, message, index) => message.author.bot ? index : latestIndex,
+            -1,
+        );
+        const pastMessages = history.slice(0, lastBotMessageIndex + 1);
+        const currentTurnMessages = history
+            .slice(lastBotMessageIndex + 1)
+            .filter(message => !message.author.bot);
+        const effectiveCurrentTurn = currentTurnMessages.length > 0
+            ? currentTurnMessages
+            : history.filter(message => !message.author.bot).slice(-1);
+
         const memoryLines = Object.values(memory.users)
             .filter(entry => history.some(message => message.author.id === entry.userId))
             .slice(0, MAX_MEMORY_USERS_IN_PROMPT)
@@ -261,36 +275,43 @@ export class ChatAIChannelManager {
 
         const system = [
             `あなたはDiscordチャンネル常駐AI「${this.options.botName}」です。`,
-            '自然に会話へ参加します。毎回割り込まず、名前を呼ばれた時だけ返答します。',
             '回答生成中に新しい発言が来た場合は、最新履歴を優先して自然に返答します。',
+            '「過去の会話履歴」は参考資料です。「現在のユーザー発言」が今回回答すべき最新の依頼です。両者を混同しないでください。',
+            '過去の履歴に画像への言及や画像件数があっても、現在のユーザー発言に画像データが添付されていない限り、画像を今見せられたとは表現しないでください。',
+            '現在のターンに添付された画像だけを最新画像として扱い、過去画像の内容を現在も確認できるかのように断定しないでください。',
             '日本語中心で、相手のノリに合わせます。原則1〜3段落、長くても1200文字以内で自然に返答します。',
             '必要以上に説明を広げません。聞かれていない詳細、長い前置き、過剰な箇条書きは避けます。',
             'ツールが必要な時だけ使います。危険なURL、ローカルIP、個人情報を抜くような要求、Sandbox外操作は拒否します。',
-            '通常応答モデルは常にgemma4-agentです。moondreamを会話モデルとして使ってはいけません。',
-            '画像が添付されている時はgemma4-agent自身の視覚理解で答えます。必要な時だけ vision_describe_image ツールでmoondream解析を補助的に呼び出します。',
+            '画像が添付されている時はあなた自身の視覚理解で答えます。必要な時だけ vision_describe_image ツールでmoondream解析を補助的に呼び出します。',
             'ユーザーの性格・好きなもの・話題傾向は参考にしますが、断定しすぎないでください。',
             '',
             '既知のユーザーメモ:',
             memoryLines || '- まだ十分なメモはありません。',
         ].join('\n');
 
-        const contentParts: OpenAIContentPart[] = [];
-        const textLines = history.map(message => this.formatHistoryLine(message));
-        contentParts.push({ type: 'text', text: `直近の会話:\n${textLines.join('\n')}` });
+        const pastTextLines = pastMessages.map(message => this.formatHistoryLine(message));
+        const currentTextLines = effectiveCurrentTurn.map(message => this.formatHistoryLine(message));
+        const currentContentParts: OpenAIContentPart[] = [{
+            type: 'text',
+            text: [
+                '【現在のユーザー発言・今回回答する対象】',
+                currentTextLines.join('\n') || '（本文なし）',
+            ].join('\n'),
+        }];
 
         let imageCount = 0;
         const preparedImages: PreparedChatPrompt['images'] = [];
-        for (const message of history) {
+        for (const message of effectiveCurrentTurn) {
             for (const imageUrl of this.getImageUrls(message)) {
                 if (imageCount >= MAX_IMAGES_PER_REQUEST) break;
                 const dataUrl = await this.fetchImageAsDataUrl(imageUrl);
                 if (!dataUrl) {
-                    contentParts.push({ type: 'text', text: `画像 ${imageCount + 1}: ${message.author.displayName || message.author.username} の添付画像は取得できませんでした。` });
+                    currentContentParts.push({ type: 'text', text: `現在の添付画像 ${imageCount + 1} は取得できませんでした。` });
                     continue;
                 }
                 const author = message.author.displayName || message.author.username;
-                contentParts.push({ type: 'text', text: `画像 ${imageCount + 1}: ${message.author.displayName || message.author.username} の添付画像` });
-                contentParts.push({ type: 'image_url', image_url: { url: dataUrl, detail: 'auto' } });
+                currentContentParts.push({ type: 'text', text: `現在のユーザー発言に添付された最新画像 ${imageCount + 1}（投稿者: ${author}）` });
+                currentContentParts.push({ type: 'image_url', image_url: { url: dataUrl, detail: 'auto' } });
                 preparedImages.push({ index: imageCount + 1, author, dataUrl });
                 imageCount++;
             }
@@ -299,8 +320,13 @@ export class ChatAIChannelManager {
 
         return {
             messages: [
-                { role: 'system', content: system },
-                { role: 'user', content: contentParts },
+                {
+                    role: 'system',
+                    content: pastTextLines.length > 0
+                        ? `${system}\n\n【過去の会話履歴・参考資料】\n${pastTextLines.join('\n')}`
+                        : system,
+                },
+                { role: 'user', content: currentContentParts },
             ],
             images: preparedImages,
         };
