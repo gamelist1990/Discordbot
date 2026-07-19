@@ -10,9 +10,24 @@ function createManager(): ChatAIChannelManager {
         enabled: true,
         botName: 'ぺぺちゃん',
     });
-    (manager as any).client = { user: { id: 'bot-1' } };
+    (manager as any).client = { user: { id: 'bot-1' }, off: () => undefined };
     return manager;
 }
+
+test('ChatAIChannelのtypingループはdestroyで必ず停止する', async () => {
+    const manager = createManager();
+    let typingCalls = 0;
+    const channel = {
+        sendTyping: async () => { typingCalls += 1; },
+    };
+
+    const stop = (manager as any).startTypingLoop(channel);
+    (manager as any).activeTypingStop = stop;
+    assert.equal(typingCalls, 1);
+
+    await manager.destroy();
+    assert.equal((manager as any).activeTypingStop, null);
+});
 
 test('Bot自身へのリプライは名前やメンションがなくても応答対象になる', async () => {
     const manager = createManager();

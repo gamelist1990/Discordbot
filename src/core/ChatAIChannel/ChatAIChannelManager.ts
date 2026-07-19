@@ -112,6 +112,7 @@ export class ChatAIChannelManager {
     private processing = false;
     private pending = false;
     private timer: NodeJS.Timeout | null = null;
+    private activeTypingStop: (() => void) | null = null;
     private activeConversationUserId: string | null = null;
     private activeConversationUntil = 0;
     private readonly spamGuard = new ChatAISpamGuard();
@@ -167,6 +168,7 @@ export class ChatAIChannelManager {
             clearTimeout(this.timer);
             this.timer = null;
         }
+        this.stopActiveTyping();
         this.client = null;
         this.processing = false;
         this.pending = false;
@@ -200,10 +202,6 @@ export class ChatAIChannelManager {
             // 最新履歴を取り直して次の応答を直列に処理する。
             this.activeConversationUserId = message.author.id;
             this.activeConversationUntil = Date.now() + CONTINUATION_WINDOW_MS;
-            const channel = message.channel;
-            if ('sendTyping' in channel && typeof channel.sendTyping === 'function') {
-                void channel.sendTyping().catch(() => null);
-            }
             this.queueResponse();
         }
 
@@ -337,33 +335,35 @@ export class ChatAIChannelManager {
             return;
         }
 
-        if ('sendTyping' in channel && typeof channel.sendTyping === 'function') {
-            await channel.sendTyping().catch(() => null);
-        }
+        this.stopActiveTyping();
         const stopTyping = this.startTypingLoop(channel);
+        this.activeTypingStop = stopTyping;
 
-        const memory = await this.loadMemory();
-        const prompt = await this.buildPrompt(history, memory);
-        const messages = prompt.messages;
-        const allowedUserIds = Array.from(new Set(
-            history.filter(message => !message.author.bot).map(message => message.author.id),
-        ));
-        this.chatManager.setToolContext({
-            client: this.client,
-            sandbox: this.sandboxPaths,
-            images: prompt.images,
-            generatedImages: [],
-            uploadedImageIndices: new Set<number>(),
-            guildId: this.options.guildId,
-            channelId: this.options.channelId,
-            allowedUserIds,
-        });
-        let responseMessage: Message | null = null;
-        let updateChain = Promise.resolve();
-        let response = '';
-        let thinking = '';
-        let toolStep: ToolExecutionStep | null = null;
-        let lastUpdateAt = 0;
+        // プロンプト構築やメモリ読込も失敗し得るため、typing開始直後から
+        // finallyの保護下へ入れる。以前はこの区間で例外になるとintervalが残った。
+        try {
+            const memory = await this.loadMemory();
+            const prompt = await this.buildPrompt(history, memory);
+            const messages = prompt.messages;
+            const allowedUserIds = Array.from(new Set(
+                history.filter(message => !message.author.bot).map(message => message.author.id),
+            ));
+            this.chatManager.setToolContext({
+                client: this.client,
+                sandbox: this.sandboxPaths,
+                images: prompt.images,
+                generatedImages: [],
+                uploadedImageIndices: new Set<number>(),
+                guildId: this.options.guildId,
+                channelId: this.options.channelId,
+                allowedUserIds,
+            });
+            let responseMessage: Message | null = null;
+            let updateChain = Promise.resolve();
+            let response = '';
+            let thinking = '';
+            let toolStep: ToolExecutionStep | null = null;
+            let lastUpdateAt = 0;
 
         const queueStreamingUpdate = (completed: boolean): void => {
             const answerSnapshot = response;
@@ -381,7 +381,6 @@ export class ChatAIChannelManager {
             });
         };
 
-        try {
             const handleDelta = (delta: { type: 'text' | 'thinking'; text: string }): void => {
                     if (delta.type === 'thinking') {
                         thinking += delta.text;
@@ -448,6 +447,9 @@ export class ChatAIChannelManager {
             await this.updateMemoryWithAi(history).catch(error => Logger.debug('[ChatAIChannel] AI memory update failed:', error));
         } finally {
             stopTyping();
+            if (this.activeTypingStop === stopTyping) {
+                this.activeTypingStop = null;
+            }
         }
     }
 
@@ -797,10 +799,17 @@ export class ChatAIChannelManager {
 
         tick();
         const interval = setInterval(tick, TYPING_REFRESH_INTERVAL_MS);
+        interval.unref?.();
         return () => {
             active = false;
             clearInterval(interval);
         };
+    }
+
+    private stopActiveTyping(): void {
+        const stop = this.activeTypingStop;
+        this.activeTypingStop = null;
+        stop?.();
     }
 
     private formatStreamingResponse(
