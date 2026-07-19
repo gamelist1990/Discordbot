@@ -40,6 +40,12 @@ const GIF_FRAME_WIDTH = 320;
 const GIF_FRAME_HEIGHT = 240;
 const SILENT_DISCORD_TOOL_NAMES = new Set(['user_memory_edit', 'channel_user_timeout']);
 
+export function resolveChatAIChannelModels(primaryModel: string, fallbackModel?: string): string[] {
+    return Array.from(new Set([primaryModel, fallbackModel]
+        .map(model => String(model ?? '').trim())
+        .filter(Boolean)));
+}
+
 interface PreparedChatPrompt {
     messages: OpenAIChatCompletionMessage[];
     images: Array<{
@@ -346,6 +352,8 @@ export class ChatAIChannelManager {
             client: this.client,
             sandbox: this.sandboxPaths,
             images: prompt.images,
+            generatedImages: [],
+            uploadedImageIndices: new Set<number>(),
             guildId: this.options.guildId,
             channelId: this.options.channelId,
             allowedUserIds,
@@ -388,8 +396,12 @@ export class ChatAIChannelManager {
                     }
             };
             const streamOptions = {
-                    model: config.pexAi.model,
+                    // strictModelを維持しつつ、明示した2モデル以外へは広げない。
+                    // primaryが429・quota/resource exhausted等の制限系エラーになった場合だけ、
+                    // ChatGPTClientが次候補のfallbackModelを直ちに試す。
+                    model: resolveChatAIChannelModels(config.pexAi.model, config.pexAi.fallbackModel),
                     strictModel: true,
+                    fallbackOnLimitOnly: true,
                     temperature: 0.75,
                     maxTokens: 650,
                     requestLabel: 'chat-ai-channel',
@@ -417,6 +429,8 @@ export class ChatAIChannelManager {
                     client: this.client,
                     sandbox: this.sandboxPaths,
                     images: [],
+                    generatedImages: [],
+                    uploadedImageIndices: new Set<number>(),
                     guildId: this.options.guildId,
                     channelId: this.options.channelId,
                     allowedUserIds,
@@ -514,6 +528,9 @@ export class ChatAIChannelManager {
             'ツールなしでは確認・取得・計算・実行できない依頼、またはユーザーから明示的にツール使用を求められた依頼では、説明だけで終わらず必ず適切なツールを実際に呼び出してください。',
             'ツールをまだ呼び出していない段階で「実行した」「確認した」「成功した」と述べてはいけません。「これから実行する」と述べた場合も、その応答内で続けて実際のツールコールを行ってください。',
             'ツール結果を受け取るまでは結果を推測せず、受け取った実データに基づいて最終回答してください。利用可能なツールで完了できない場合だけ、その事実を明示してください。',
+            'YouTube動画の「名シーン」「この場面」「画像がほしい」など、動画内の静止画を求められた場合は、youtube_detailsのcaptureで該当時間帯を抽出し、続けてupload_imageでDiscordへ画像を添付してください。画像を用意しただけで完了扱いにせず、upload_imageの成功結果を確認してから回答してください。',
+            'upload_imageはyoutube_detailsが抽出した画像とimage_editorが作成した画像を送信できます。画像番号は現在の応答中にアップロード候補へ追加された順番の1始まりです。Discordへ同じ画像を重複送信しないでください。',
+            'ユーザーが画像編集、切り抜き、文字・図形追加、回転、エフェクト、複数素材の合成、CSS風の編集、背景透過を依頼した場合は、添付画像を視覚的に確認してimage_editorを呼び出してください。CSS宣言はcss操作、AIによる被写体の背景除去はremove_background操作を使用できます。現在の添付画像はsource_imageまたはoverlayのimage番号で参照できます。完成後は必ずupload_imageを呼び出し、送信成功を確認してから回答してください。',
             'user_memory_editは内部メモリ管理専用ツールです。ユーザーから記憶内容の確認・修正・削除を明示された場合だけでなく、今後の会話に有用な新しい事実・呼び名・明確な好み・希望する話し方・具体的な注意事項・関係姿勢の変化が現在の発言から明確になった場合は、必要に応じて積極的に使用してください。',
             'notesは重要な会話履歴です。明確な約束、継続中の話題、注意、謝罪、改善、本人が後で覚えてほしいと示した事実があればappendNotesで短く追記してください。profileやrelationshipContextだけに集約してnotesを空のまま放置しないでください。',
             '信頼スコアは0〜100で初期値50です。一度の発言で極端に上下させず、協力的で安定した対話の積み重ねで少しずつ上げ、嫌がらせ・脅し・注意後の反復で下げます。高いほど自然な軽い冗談や砕けた会話を許容できますが、安全規則と本人の境界を常に優先してください。',
@@ -987,6 +1004,7 @@ export class ChatAIChannelManager {
             },
         ], {
             model: config.pexAi.model,
+            strictModel: true,
             temperature: 0.2,
             maxTokens: 500,
             requestLabel: 'chat-ai-channel-memory',

@@ -67,7 +67,10 @@ export class OpenAIChatManager extends ChatGPTClient {
         const primaryRequested = requestedModels.length === 1
             && String(requestedModels[0]) === config.pexAi.model;
 
-        if (!primaryRequested || !config.pexAi.fallbackModel) {
+        // strictModelは「指定モデル以外を呼ばない」という呼び出し側の明示指定。
+        // ここでfallbackModelを配列へ追加すると、ChatGPTClient側では両方が
+        // 明示候補になり、Gemini失敗時に意図せずGemmaへ進んでしまう。
+        if (options?.strictModel || !primaryRequested || !config.pexAi.fallbackModel) {
             return { ...options };
         }
 

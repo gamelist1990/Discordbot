@@ -519,6 +519,18 @@ export class ChatGPTClient {
                     return;
                 } catch (error) {
                     lastError = error;
+                    const modelLimitError = this.isModelLimitError(error);
+                    this.debugToolCall('model-failed', {
+                        api: 'responses',
+                        requestLabel: options?.requestLabel || 'chatgpt-request',
+                        model,
+                        round: toolRound,
+                        status: this.extractErrorStatus(error),
+                        emittedDelta,
+                        classifiedAsLimit: modelLimitError,
+                        willFallback: !emittedDelta && (!options?.fallbackOnLimitOnly || modelLimitError),
+                        error: error instanceof Error ? error.message : String(error),
+                    });
                     if (emittedDelta) {
                         break;
                     }
@@ -527,7 +539,7 @@ export class ChatGPTClient {
                     if (rateLimitInfo) {
                         rateLimitWaits.push(rateLimitInfo);
                     }
-                    if (options?.fallbackOnLimitOnly && !this.isModelLimitError(error)) {
+                    if (options?.fallbackOnLimitOnly && !modelLimitError) {
                         break;
                     }
                 }
