@@ -361,16 +361,14 @@ export class ChatAIChannelManager {
             let responseMessage: Message | null = null;
             let updateChain = Promise.resolve();
             let response = '';
-            let thinking = '';
             let toolStep: ToolExecutionStep | null = null;
             let lastUpdateAt = 0;
 
         const queueStreamingUpdate = (completed: boolean): void => {
             const answerSnapshot = response;
-            const thinkingSnapshot = thinking;
             const toolStepSnapshot = toolStep;
             updateChain = updateChain.then(async () => {
-                const formatted = this.formatStreamingResponse(answerSnapshot, thinkingSnapshot, completed, toolStepSnapshot);
+                const formatted = this.formatStreamingResponse(answerSnapshot, completed, toolStepSnapshot);
                 if (!responseMessage) {
                     responseMessage = await this.createStreamingMessage(channel, formatted);
                     return;
@@ -382,11 +380,9 @@ export class ChatAIChannelManager {
         };
 
             const handleDelta = (delta: { type: 'text' | 'thinking'; text: string }): void => {
-                    if (delta.type === 'thinking') {
-                        thinking += delta.text;
-                    } else {
-                        response += delta.text;
-                    }
+                    // ChatAIChannelでは推論過程を利用・表示せず、回答本文だけを受け取る。
+                    if (delta.type !== 'text') return;
+                    response += delta.text;
 
                     const now = Date.now();
                     if (now - lastUpdateAt >= STREAM_UPDATE_INTERVAL_MS) {
@@ -401,6 +397,7 @@ export class ChatAIChannelManager {
                     model: resolveChatAIChannelModels(config.pexAi.model, config.pexAi.fallbackModel),
                     strictModel: true,
                     fallbackOnLimitOnly: true,
+                    reasoningEffort: 'None' as const,
                     temperature: 0.75,
                     maxTokens: 650,
                     requestLabel: 'chat-ai-channel',
@@ -421,7 +418,6 @@ export class ChatAIChannelManager {
                 // 古い履歴を圧縮し、画像本体を外したテキスト入力で一度だけ再試行する。
                 Logger.warn('[ChatAIChannel] request payload exceeded upstream limit; retrying with compact text-only prompt.');
                 response = '';
-                thinking = '';
                 toolStep = null;
                 const compactMessages = this.createCompactRetryMessages(messages);
                 this.chatManager.setToolContext({
@@ -814,19 +810,10 @@ export class ChatAIChannelManager {
 
     private formatStreamingResponse(
         answerText: string,
-        thinkingText: string,
         completed: boolean,
         toolStep: ToolExecutionStep | null = null,
     ): string {
         const parts: string[] = [];
-
-        if (thinkingText.trim()) {
-            const thinking = this.limitThinkingText(thinkingText);
-            parts.push(thinking
-                .split('\n')
-                .map(line => `> *${line || ' '}*`)
-                .join('\n'));
-        }
 
         const answer = this.limitReply(answerText || '');
         if (answer) {
@@ -844,13 +831,6 @@ export class ChatAIChannelManager {
 
         const body = parts.join('\n\n').trim() || (completed ? '（空の応答）' : '…');
         return this.chunkText(body, MAX_DISCORD_REPLY_LENGTH)[0] || body.slice(0, MAX_DISCORD_REPLY_LENGTH);
-    }
-
-    private limitThinkingText(text: string): string {
-        const compact = text
-            .replace(/\s+/g, ' ')
-            .trim();
-        return compact.length > 350 ? `${compact.slice(0, 350).trim()}...` : compact;
     }
 
     private chunkText(text: string, maxLength: number): string[] {

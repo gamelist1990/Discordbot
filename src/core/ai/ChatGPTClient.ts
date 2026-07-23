@@ -17,6 +17,7 @@ export interface ChatOptions {
     model?: ModelSelectionInput;
     strictModel?: boolean;
     fallbackOnLimitOnly?: boolean;
+    reasoningEffort?: 'None' | 'minimal' | 'low' | 'medium' | 'high';
     temperature?: number;
     maxTokens?: number;
     topP?: number;
@@ -645,6 +646,9 @@ export class ChatGPTClient {
                 : options?.maxTokens ?? 1024,
             top_p: options?.topP ?? 1,
             stream: true,
+            ...(options?.reasoningEffort
+                ? { reasoning: { effort: options.reasoningEffort } }
+                : {}),
             ...(previousResponseId ? { previous_response_id: previousResponseId } : {}),
             ...(tools.length > 0 ? { tools: this.convertToolsToResponseTools(tools), tool_choice: 'auto' } : {}),
         };
