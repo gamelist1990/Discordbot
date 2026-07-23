@@ -5,7 +5,7 @@ import {
 } from 'discord.js';
 import fs from 'fs/promises';
 import path from 'path';
-import { fileURLToPath } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
 import { SlashCommand } from '../../types/command.js';
 import { PermissionLevel } from '../../web/types/permission.js';
 
@@ -42,7 +42,7 @@ async function loadSubcommands(): Promise<void> {
         for (const file of files) {
             if (file.endsWith('.ts') || file.endsWith('.js')) {
                 const filePath = path.join(subcommandsDir, file);
-                const fileUrl = `file:///${filePath.replace(/\\/g, '/')}`;
+                const fileUrl = pathToFileURL(filePath).href;
                 
                 try {
                     const module = await import(fileUrl);

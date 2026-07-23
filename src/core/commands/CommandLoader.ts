@@ -1,6 +1,6 @@
 import fs from 'fs/promises';
 import path from 'path';
-import { fileURLToPath } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
 import { SlashCommand } from '../../types/command.js';
 import { BotClient } from '../platform/BotClient.js';
 import { CommandRegistry } from './CommandRegistry.js';
@@ -23,7 +23,8 @@ export class CommandLoader {
     constructor(botClient: BotClient, commandsDir?: string) {
         this.botClient = botClient;
         this.registry = new CommandRegistry(botClient);
-        this.commandsDir = commandsDir || path.join(path.dirname(__dirname), 'commands');
+        // __dirname は src/core/commands なので、実コマンドがある src/commands まで2階層戻る
+        this.commandsDir = commandsDir || path.resolve(__dirname, '../../commands');
     }
 
     /**
@@ -46,6 +47,12 @@ export class CommandLoader {
 
             for (const file of files) {
                 await this.loadCommandFile(file);
+            }
+
+            if (this.botClient.commands.size === 0) {
+                throw new Error(
+                    `コマンドが1件も読み込まれませんでした。探索先を確認してください: ${this.commandsDir}`
+                );
             }
 
             Logger.success(`✅ ${this.botClient.commands.size} 個のコマンドを読み込みました`);
@@ -87,8 +94,8 @@ export class CommandLoader {
      */
     private async loadCommandFile(filePath: string): Promise<void> {
         try {
-            // Windows パスを URL 形式に変換
-            const fileUrl = `file:///${filePath.replace(/\\/g, '/')}`;
+            // 空白や # などを含むWindowsパスも安全にimportできるURLへ変換
+            const fileUrl = pathToFileURL(filePath).href;
             const module = await import(fileUrl);
             
             const commandExport = module.default || module.command;

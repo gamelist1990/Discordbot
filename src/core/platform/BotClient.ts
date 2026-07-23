@@ -171,6 +171,15 @@ export class BotClient {
         try {
             const clientId = this.getClientId();
             const commandData = Array.from(this.commands.values()).map(cmd => cmd.data.toJSON());
+
+            // Discordの一括更新APIへ空配列を渡すと既存コマンドが全削除されるため、
+            // ローダーの異常時にはデプロイを必ず中止する。
+            if (commandData.length === 0) {
+                throw new Error(
+                    'デプロイ対象のコマンドが0件です。既存コマンドを保護するためデプロイを中止しました。'
+                );
+            }
+
             const guilds = this.client.guilds.cache;
 
             Logger.info(`🚀 全サーバー (${guilds.size}個) にスラッシュコマンドをデプロイ中...`);
