@@ -17,7 +17,8 @@ export interface ChatOptions {
     model?: ModelSelectionInput;
     strictModel?: boolean;
     fallbackOnLimitOnly?: boolean;
-    reasoningEffort?: 'None' | 'minimal' | 'low' | 'medium' | 'high';
+    level?: 0 | 1 | 2 | 3;
+    reasoningEffort?: 'none' | 'minimal' | 'low' | 'medium' | 'high';
     temperature?: number;
     maxTokens?: number;
     topP?: number;
@@ -640,6 +641,7 @@ export class ChatGPTClient {
         return {
             model,
             input,
+            ...(options?.level !== undefined ? { level: options.level } : {}),
             temperature: options?.temperature ?? 0.7,
             max_output_tokens: model === 'gemma4:e2b-it-qat'
                 ? Math.max(options?.maxTokens ?? 2048, 512)

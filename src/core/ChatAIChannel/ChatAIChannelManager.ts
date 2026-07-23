@@ -29,7 +29,19 @@ const MAX_IMAGES_PER_REQUEST = 2;
 const MAX_IMAGE_BYTES = 768 * 1024;
 const MAX_SOURCE_GIF_BYTES = 5 * 1024 * 1024;
 const MAX_TOTAL_IMAGE_BYTES = 1024 * 1024;
-const MAX_HISTORY_PROMPT_CHARACTERS = 12_000;
+const LEVEL_HISTORY_CHARACTER_LIMITS: Record<0 | 1 | 2 | 3, number> = {
+    0: 4_000,
+    1: 32_000,
+    2: 80_000,
+    3: 320_000,
+};
+const LEVEL_TOTAL_CHARACTER_LIMITS: Record<0 | 1 | 2 | 3, number> = {
+    // 日本語やコードを含んでも概ね5,000入力トークン以内へ収まるよう保守的に制限する。
+    0: 16_000,
+    1: 64_000,
+    2: 160_000,
+    3: 640_000,
+};
 const IMAGE_FETCH_TIMEOUT_MS = 12_000;
 const MAX_MEMORY_USERS_IN_PROMPT = 12;
 const STREAM_UPDATE_INTERVAL_MS = 500;
@@ -44,6 +56,20 @@ export function resolveChatAIChannelModels(primaryModel: string, fallbackModel?:
     return Array.from(new Set([primaryModel, fallbackModel]
         .map(model => String(model ?? '').trim())
         .filter(Boolean)));
+}
+
+interface ChatAIChannelStep {
+    model: string;
+    level: 0 | 1 | 2 | 3;
+}
+
+export function resolveChatAIChannelSteps(): ChatAIChannelStep[] {
+    if (config.pexAi.steps && config.pexAi.steps.length > 0) {
+        return config.pexAi.steps;
+    }
+
+    return resolveChatAIChannelModels(config.pexAi.model, config.pexAi.fallbackModel)
+        .map(model => ({ model, level: config.pexAi.level }));
 }
 
 interface PreparedChatPrompt {
@@ -336,22 +362,23 @@ export class ChatAIChannelManager {
         }
 
         this.stopActiveTyping();
-        const stopTyping = this.startTypingLoop(channel);
+        const stopTyping = await this.startTypingLoop(channel);
         this.activeTypingStop = stopTyping;
 
         // プロンプト構築やメモリ読込も失敗し得るため、typing開始直後から
         // finallyの保護下へ入れる。以前はこの区間で例外になるとintervalが残った。
         try {
             const memory = await this.loadMemory();
-            const prompt = await this.buildPrompt(history, memory);
-            const messages = prompt.messages;
+            const steps = resolveChatAIChannelSteps();
+            const initialPrompt = await this.buildPrompt(history, memory, steps[0].level);
+            let messages = initialPrompt.messages;
             const allowedUserIds = Array.from(new Set(
                 history.filter(message => !message.author.bot).map(message => message.author.id),
             ));
             this.chatManager.setToolContext({
                 client: this.client,
                 sandbox: this.sandboxPaths,
-                images: prompt.images,
+                images: initialPrompt.images,
                 generatedImages: [],
                 uploadedImageIndices: new Set<number>(),
                 guildId: this.options.guildId,
@@ -390,14 +417,12 @@ export class ChatAIChannelManager {
                         queueStreamingUpdate(false);
                     }
             };
-            const streamOptions = {
-                    // strictModelを維持しつつ、明示した2モデル以外へは広げない。
-                    // primaryが429・quota/resource exhausted等の制限系エラーになった場合だけ、
-                    // ChatGPTClientが次候補のfallbackModelを直ちに試す。
-                    model: resolveChatAIChannelModels(config.pexAi.model, config.pexAi.fallbackModel),
+                const streamOptions = {
+                    model: steps[0].model,
+                    level: steps[0].level,
                     strictModel: true,
-                    fallbackOnLimitOnly: true,
-                    reasoningEffort: 'None' as const,
+                    fallbackOnLimitOnly: false,
+                    reasoningEffort: 'none' as const,
                     temperature: 0.75,
                     maxTokens: 650,
                     requestLabel: 'chat-ai-channel',
@@ -409,34 +434,81 @@ export class ChatAIChannelManager {
                     },
             };
 
-            try {
-                await this.chatManager.streamResponseText(messages, handleDelta, streamOptions);
-            } catch (error) {
-                if (!this.isPayloadTooLargeError(error)) throw error;
-
-                // 画像のdata URLや長い履歴で上流APIの本文上限を超えた場合は、
-                // 古い履歴を圧縮し、画像本体を外したテキスト入力で一度だけ再試行する。
-                Logger.warn('[ChatAIChannel] request payload exceeded upstream limit; retrying with compact text-only prompt.');
+            let lastError: unknown = null;
+            for (let index = 0; index < steps.length; index += 1) {
+                const step = steps[index];
+                const prompt = index === 0
+                    ? initialPrompt
+                    : await this.buildPrompt(history, memory, step.level);
+                messages = prompt.messages;
                 response = '';
                 toolStep = null;
-                const compactMessages = this.createCompactRetryMessages(messages);
                 this.chatManager.setToolContext({
                     client: this.client,
                     sandbox: this.sandboxPaths,
-                    images: [],
+                    images: prompt.images,
                     generatedImages: [],
                     uploadedImageIndices: new Set<number>(),
                     guildId: this.options.guildId,
                     channelId: this.options.channelId,
                     allowedUserIds,
                 });
-                await this.chatManager.streamResponseText(compactMessages, handleDelta, {
-                    ...streamOptions,
-                    requestLabel: 'chat-ai-channel-compact-retry',
-                });
+
+                try {
+                    await this.chatManager.streamResponseText(messages, handleDelta, {
+                        ...streamOptions,
+                        model: step.model,
+                        level: step.level,
+                        requestLabel: `chat-ai-channel-step-${index + 1}`,
+                    });
+                    lastError = null;
+                    break;
+                } catch (error) {
+                    lastError = error;
+                    Logger.warn(`[ChatAIChannel] step ${index + 1} failed: model=${step.model} level=${step.level}`);
+
+                    if (this.isPayloadTooLargeError(error)) {
+                        response = '';
+                        toolStep = null;
+                        const compactMessages = this.createCompactRetryMessages(messages, step.level);
+                        this.chatManager.setToolContext({
+                            client: this.client,
+                            sandbox: this.sandboxPaths,
+                            images: [],
+                            generatedImages: [],
+                            uploadedImageIndices: new Set<number>(),
+                            guildId: this.options.guildId,
+                            channelId: this.options.channelId,
+                            allowedUserIds,
+                        });
+                        try {
+                            await this.chatManager.streamResponseText(compactMessages, handleDelta, {
+                                ...streamOptions,
+                                model: step.model,
+                                level: step.level,
+                                requestLabel: `chat-ai-channel-step-${index + 1}-compact`,
+                            });
+                            lastError = null;
+                            break;
+                        } catch (compactError) {
+                            lastError = compactError;
+                        }
+                    }
+                }
             }
 
+            if (lastError) throw lastError;
+
             if (!response) response = 'うまく言葉にできなかった。もう一回呼んで。';
+
+            // AI回答の生成が完了した時点でtypingの定期更新を止める。
+            // 最終メッセージの反映後に行うメモリ更新まで待つと、その処理中も
+            // DiscordへsendTypingが送られ続け、回答後も入力中に見えてしまう。
+            stopTyping();
+            if (this.activeTypingStop === stopTyping) {
+                this.activeTypingStop = null;
+            }
+
             queueStreamingUpdate(true);
             await updateChain;
             this.activeConversationUntil = Date.now() + CONTINUATION_WINDOW_MS;
@@ -493,7 +565,11 @@ export class ChatAIChannelManager {
             .some(message => !message.author.bot);
     }
 
-    private async buildPrompt(history: Message[], memory: ChatAIMemoryFile): Promise<PreparedChatPrompt> {
+    private async buildPrompt(
+        history: Message[],
+        memory: ChatAIMemoryFile,
+        level: 0 | 1 | 2 | 3,
+    ): Promise<PreparedChatPrompt> {
         // 最後のBot発言より後だけを「現在のターン」とする。
         // それ以前は参照用の過去履歴であり、古い画像を現在の添付として再送しない。
         const lastBotMessageIndex = history.reduce(
@@ -515,7 +591,7 @@ export class ChatAIChannelManager {
             .map(entry => `- ${entry.displayName} (${entry.userId}): ${entry.profile || '未整理'} / 好き: ${entry.likes.join(', ') || '不明'} / 履歴メモ: ${entry.notes.join(' | ') || 'なし'} / 信頼スコア: ${entry.trustScore ?? 50}/100 / 推奨トーン: ${entry.conversationTone || '指定なし'} / 応答上の注意: ${entry.cautions?.join(' | ') || 'なし'} / 関係姿勢: ${entry.relationshipTone || 'neutral'} / 関係文脈: ${entry.relationshipContext || 'なし'} / 境界状態: ${entry.boundaryState || 'clear'}${entry.suspectedAltOf ? ` / 関連アカウント候補: ${entry.suspectedAltOf}` : ''}`)
             .join('\n');
 
-        const system = [
+        const fullSystem = [
             `あなたはDiscordチャンネル常駐AI「${this.options.botName}」です。`,
             '回答生成中に新しい発言が来た場合は、最新履歴を優先して自然に返答します。',
             '「過去の会話履歴」は参考資料です。「現在のユーザー発言」が今回回答すべき最新の依頼です。両者を混同しないでください。',
@@ -559,9 +635,19 @@ export class ChatAIChannelManager {
             memoryLines || '- まだ十分なメモはありません。',
         ].join('\n');
 
+        const minimalSystem = [
+            `あなたはDiscordチャンネル常駐AI「${this.options.botName}」です。`,
+            '日本語で簡潔に、原則1〜3段落で回答してください。',
+            '現在のユーザー発言を回答対象とし、過去履歴は参考情報としてのみ扱ってください。',
+            '必要な場合だけツールを実際に使い、結果を確認する前に成功したと述べないでください。',
+            '危険なURL、個人情報の取得、Sandbox外の操作は拒否してください。',
+            '添付画像がある場合は入力画像を直接確認してください。',
+        ].join('\n');
+        const system = level === 0 ? minimalSystem : fullSystem;
+
         const pastTextLines = this.limitHistoryCharacters(
             pastMessages.map(message => this.formatHistoryLine(message)),
-            MAX_HISTORY_PROMPT_CHARACTERS,
+            LEVEL_HISTORY_CHARACTER_LIMITS[level],
         );
         const currentTextLines = await Promise.all(
             effectiveCurrentTurn.map(message => this.formatCurrentTurnLine(message)),
@@ -600,7 +686,7 @@ export class ChatAIChannelManager {
         }
 
         return {
-            messages: [
+            messages: this.limitPromptCharacters([
                 {
                     role: 'system',
                     content: pastTextLines.length > 0
@@ -608,7 +694,7 @@ export class ChatAIChannelManager {
                         : system,
                 },
                 { role: 'user', content: currentContentParts },
-            ],
+            ], LEVEL_TOTAL_CHARACTER_LIMITS[level]),
             images: preparedImages,
         };
     }
@@ -734,11 +820,30 @@ export class ChatAIChannelManager {
         return selected;
     }
 
-    private createCompactRetryMessages(messages: OpenAIChatCompletionMessage[]): OpenAIChatCompletionMessage[] {
+    private limitPromptCharacters(
+        messages: OpenAIChatCompletionMessage[],
+        maxCharacters: number,
+    ): OpenAIChatCompletionMessage[] {
+        let remaining = maxCharacters;
+        return [...messages].reverse().map(message => {
+            if (typeof message.content === 'string') {
+                const content = message.content.slice(-remaining);
+                remaining = Math.max(0, remaining - content.length);
+                return { ...message, content };
+            }
+            return message;
+        }).reverse();
+    }
+
+    private createCompactRetryMessages(
+        messages: OpenAIChatCompletionMessage[],
+        level: 0 | 1 | 2 | 3,
+    ): OpenAIChatCompletionMessage[] {
+        const maxCharacters = LEVEL_HISTORY_CHARACTER_LIMITS[level];
         return messages.map(message => {
             if (!Array.isArray(message.content)) {
                 const content = typeof message.content === 'string'
-                    ? message.content.slice(-MAX_HISTORY_PROMPT_CHARACTERS)
+                    ? message.content.slice(-maxCharacters)
                     : message.content;
                 return { ...message, content };
             }
@@ -747,7 +852,7 @@ export class ChatAIChannelManager {
                 .filter(part => part.type === 'text')
                 .map(part => part.text || '')
                 .join('\n')
-                .slice(-MAX_HISTORY_PROMPT_CHARACTERS);
+                .slice(-maxCharacters);
             return {
                 ...message,
                 content: `${text}\n[添付画像本体はリクエスト容量超過のため省略されました。]`,
@@ -780,21 +885,26 @@ export class ChatAIChannelManager {
         });
     }
 
-    private startTypingLoop(channel: GuildTextBasedChannel): () => void {
+    private async startTypingLoop(channel: GuildTextBasedChannel): Promise<() => void> {
         if (!('sendTyping' in channel) || typeof channel.sendTyping !== 'function') {
             return () => {};
         }
 
         let active = true;
-        const tick = () => {
+        const tick = async (): Promise<void> => {
             if (!active) return;
-            void channel.sendTyping().catch((error: unknown) => {
+            await channel.sendTyping().catch((error: unknown) => {
                 Logger.debug('[ChatAIChannel] sendTyping failed:', error);
             });
         };
 
-        tick();
-        const interval = setInterval(tick, TYPING_REFRESH_INTERVAL_MS);
+        // 最初のTyping通知がDiscordへ到達してからAIリクエスト処理へ進む。
+        // fire-and-forgetだと高速な後続処理や通信タイミングによって、
+        // リクエスト中にもかかわらずTypingが表示されない場合がある。
+        await tick();
+        const interval = setInterval(() => {
+            void tick();
+        }, TYPING_REFRESH_INTERVAL_MS);
         interval.unref?.();
         return () => {
             active = false;

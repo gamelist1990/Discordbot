@@ -26,8 +26,13 @@ export interface AppConfig {
         endpoint: string;
         model: string;
         fallbackModel: string;
+        steps?: Array<{
+            model: string;
+            level: 0 | 1 | 2 | 3;
+        }>;
         visionModel: string;
         apiKey: string;
+        level: 0 | 1 | 2 | 3;
     };
 }
 
@@ -77,8 +82,27 @@ export const config: Required<AppConfig> = {
         endpoint: raw.pexAi?.endpoint || 'http://api.pexserver.com:9000/v1',
         model: raw.pexAi?.model || 'gemma4-agent',
         fallbackModel: raw.pexAi?.fallbackModel || '@cf/google/gemma-4-26b-a4b-it',
+        steps: Array.isArray(raw.pexAi?.steps)
+            ? raw.pexAi.steps
+                .filter(step =>
+                    step
+                    && typeof step.model === 'string'
+                    && step.model.trim().length > 0
+                    && [0, 1, 2, 3].includes(step.level),
+                )
+                .map(step => ({
+                    model: step.model.trim(),
+                    level: step.level,
+                }))
+            : [],
         visionModel: raw.pexAi?.visionModel || 'moondream:1.8b-v2-q2_K',
         apiKey: raw.pexAi?.apiKey || '',
+        level: raw.pexAi?.level === 0
+            || raw.pexAi?.level === 1
+            || raw.pexAi?.level === 2
+            || raw.pexAi?.level === 3
+            ? raw.pexAi.level
+            : 1,
     },
 };
 
