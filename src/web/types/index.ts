@@ -18,6 +18,10 @@ export interface SettingsSession {
     expiresAt: number;
     token?: string;
     createdAt?: number;
+    /** 開発用Web Debugで作成されたゲストセッション */
+    isGuest?: boolean;
+    /** セッションの発行元。OAuthユーザーとMock Guestを明確に区別する */
+    authType?: 'discord' | 'guest';
 }
 
 export interface GuildSettings {

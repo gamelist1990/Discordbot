@@ -1,5 +1,10 @@
 import { SettingsServer } from './SettingsServer.js';
 
+// Web Debug起動時だけMock認証を有効化する。
+// 本番エントリーポイント（src/index.ts）では設定されないため、Discord OAuthは従来どおり使用される。
+process.env.WEB_DEBUG_MOCK_AUTH = '1';
+process.env.WEB_DEBUG_NO_PERSIST ??= '1';
+
 // スタブLogger
 global.Logger = {
     info: console.log,
@@ -20,9 +25,22 @@ class StubBotClient {
     constructor(token = 'stub-token') {
         this.token = token;
         this.commands = new Map();
+        const mockGuild = {
+            id: 'debug-guild',
+            name: 'Mock Development Guild',
+            icon: null,
+            ownerId: 'guest-user',
+            memberCount: 3,
+            members: {
+                cache: new Map(),
+                fetch: async () => undefined
+            },
+            roles: { cache: new Map() },
+            channels: { cache: new Map() }
+        };
         this.client = {
             guilds: {
-                cache: new Map()
+                cache: new Map([[mockGuild.id, mockGuild]])
             },
             user: {
                 id: 'stub-user-id',
@@ -61,7 +79,12 @@ class StubBotClient {
     }
 
     getGuildList() {
-        return [];
+        return Array.from(this.client.guilds.cache.values()).map((guild: any) => ({
+            id: guild.id,
+            name: guild.name,
+            icon: guild.icon,
+            memberCount: guild.memberCount
+        }));
     }
 
     async login() {

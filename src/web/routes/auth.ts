@@ -147,7 +147,9 @@ export function createAuthRoutes(
                     permissions: session.permissions || [],
                     permissionLevel: maxPermissionLevel,
                     isOwner,
-                    owners
+                    owners,
+                    isGuest: session.isGuest === true,
+                    authType: session.authType || 'discord'
                 }
             });
 
@@ -166,6 +168,41 @@ export function createAuthRoutes(
             // Prefer explicit guildId query param（今後の拡張用に残すが、Refererパースは削除）
             let guildId = req.query.guildId as string || '';
             if (!guildId) guildId = 'default';
+
+            // Web Debug（Mock）では外部Discord OAuthへ遷移せず、Guestとしてログインする。
+            // この環境変数はwebDebug.tsだけが設定するため、本番環境には影響しない。
+            if (process.env.WEB_DEBUG_MOCK_AUTH === '1') {
+                const mockGuildId = guildId === 'default' ? 'debug-guild' : guildId;
+                const sessionId = crypto.randomUUID();
+                const now = Date.now();
+
+                sessions.set(sessionId, {
+                    token: sessionId,
+                    guildId: mockGuildId,
+                    guildIds: [mockGuildId],
+                    userId: 'guest-user',
+                    username: 'Guest',
+                    avatar: null,
+                    permissions: [{ guildId: mockGuildId, level: 3 }],
+                    permissionLevel: 3,
+                    isOwner: false,
+                    isGuest: true,
+                    authType: 'guest',
+                    createdAt: now,
+                    expiresAt: now + 30 * 60 * 1000
+                });
+
+                res.cookie('sessionId', sessionId, {
+                    httpOnly: true,
+                    maxAge: 30 * 60 * 1000,
+                    sameSite: 'lax',
+                    secure: false
+                });
+
+                safeLogger.info(`[Mock OAuth] Guest session created for guild=${mockGuildId}`);
+                res.redirect(redirectPath.startsWith('/') ? redirectPath : '/');
+                return;
+            }
 
             // 環境変数または設定からOAuth2情報を取得
             const clientId = botClient.getClientId();

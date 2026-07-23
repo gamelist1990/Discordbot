@@ -13,3 +13,4 @@ export * from './staff/anticheat.js';
 export * from './staff/corepanel.js';
 export * from './staff/channel-manager.js';
 export * from './staff/todo.js';
+export * from './staff/join-log.js';

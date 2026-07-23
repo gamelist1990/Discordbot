@@ -80,6 +80,13 @@ export class EventHandler {
         // メンバー退出時: 参加していたプライベートチャットから削除し、通知を行う
         this.botClient.client.on(Events.GuildMemberRemove, async (member) => {
             try {
+                const { joinLogManager } = await import('../join/JoinLogManager.js');
+                await joinLogManager.handleMemberLeave(member);
+            } catch (error) {
+                Logger.debug('Failed to send member leave log:', error);
+            }
+
+            try {
                 // 遅延インポートで PrivateChatManager を取得
                 const { PrivateChatManager } = await import('../private-chat/PrivateChatManager.js');
 
@@ -103,6 +110,13 @@ export class EventHandler {
         });
 
         this.botClient.client.on(Events.GuildMemberAdd, async (member) => {
+            try {
+                const { joinLogManager } = await import('../join/JoinLogManager.js');
+                await joinLogManager.handleMemberJoin(member);
+            } catch (error) {
+                Logger.debug('Failed to send member join log:', error);
+            }
+
             try {
                 const { antiCheatManager } = await import('../anticheat/AntiCheatManager.js');
                 await antiCheatManager.onGuildMemberAdd(member);

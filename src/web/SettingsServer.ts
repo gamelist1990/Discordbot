@@ -15,7 +15,7 @@ import { Logger } from '../utils/Logger.js';
 import { BotClient } from '../core/platform/BotClient.js';
 import { SessionService } from './services/SessionService.js';
 import { ProfileService } from './services/ProfileService.js';
-import { createStatusRoutes, createSessionRoutes, createSettingsRoutes, createStaffRoutes, createAuthRoutes, createUserRoutes, createModRoutes, createRolePresetRoutes, createRankRoutes, createWebRankRoutes, createPublicRankRoutes, createAntiCheatRoutes, createCorePanelRoutes, createChannelManagerRoutes, createTodoRoutes } from './routes/index.js';
+import { createStatusRoutes, createSessionRoutes, createSettingsRoutes, createStaffRoutes, createAuthRoutes, createUserRoutes, createModRoutes, createRolePresetRoutes, createRankRoutes, createWebRankRoutes, createPublicRankRoutes, createAntiCheatRoutes, createCorePanelRoutes, createChannelManagerRoutes, createTodoRoutes, createJoinLogRoutes } from './routes/index.js';
 import { createGuildRoutes } from './routes/guild.js';
 import { createProfileController } from './controllers/ProfileController.js';
 import { setupWebSocketServer } from './routes/websocket.js';
@@ -148,6 +148,7 @@ export class SettingsServer {
         this.app.use('/api/staff/corepanel', createCorePanelRoutes(sessions, this.botClient));
         this.app.use('/api/staff/channel-manager', createChannelManagerRoutes(sessions, this.botClient));
         this.app.use('/api/staff/todo', createTodoRoutes(sessions, this.botClient));
+        this.app.use('/api/staff/join-log', createJoinLogRoutes(sessions, this.botClient));
 
     // Temporary debug route to inspect StatsManager buffer
         this.app.get('/__debug/stats-buffer', (_req, res) => {
