@@ -304,6 +304,15 @@ export class EventHandler {
             await handleTodoSelectInteraction(interaction as StringSelectMenuInteraction);
             return;
         }
+
+        if (
+            (interaction.isButton() || interaction.isStringSelectMenu()) &&
+            interaction.customId.startsWith('xmedia:')
+        ) {
+            const { handleXMediaInteraction } = await import('../../commands/any/x-media.js');
+            await handleXMediaInteraction(interaction as ButtonInteraction | StringSelectMenuInteraction);
+            return;
+        }
     }
 
     /**
