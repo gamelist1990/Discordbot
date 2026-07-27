@@ -24,7 +24,22 @@ interface VideoMetadata {
 
 export function extractXStatusUrl(content: string): string | null {
     const match = content.match(X_STATUS_URL)?.[0];
-    return match ? match.replace(/[),.;!?]+$/u, '') : null;
+    return match ? normalizeXStatusUrl(match) : null;
+}
+
+function normalizeXStatusUrl(sourceUrl: string): string {
+    const parsed = new URL(sourceUrl.replace(/[),.;!?]+$/u, ''));
+    parsed.protocol = 'https:';
+    parsed.hostname = 'twitter.com';
+    parsed.search = '';
+    parsed.hash = '';
+    return parsed.toString();
+}
+
+function getXStatusUrlCandidates(sourceUrl: string): string[] {
+    const twitterUrl = normalizeXStatusUrl(sourceUrl);
+    const xUrl = twitterUrl.replace('https://twitter.com/', 'https://x.com/');
+    return [twitterUrl, xUrl];
 }
 
 function executable(name: 'yt-dlp' | 'ffmpeg' | 'ffprobe'): string {
@@ -153,12 +168,30 @@ export async function downloadXMedia(sourceUrl: string, attachmentLimit: number)
     const cleanup = async (): Promise<void> => { await rm(directory, { recursive: true, force: true }); };
 
     try {
-        await runProcess(executable('yt-dlp'), [
-            '--no-warnings', '--write-info-json', '--write-thumbnail',
-            '--format', 'bestvideo*+bestaudio/best', '--merge-output-format', 'mp4',
-            '--output', path.join(directory, '%(id)s-%(playlist_index|0)s.%(ext)s'),
-            sourceUrl,
-        ]);
+        const candidates = getXStatusUrlCandidates(sourceUrl);
+        let lastError: unknown = null;
+        let downloaded = false;
+
+        for (const candidate of candidates) {
+            try {
+                await runProcess(executable('yt-dlp'), [
+                    '--no-warnings', '--no-playlist', '--write-info-json', '--write-thumbnail',
+                    '--format', 'bestvideo*+bestaudio/best', '--merge-output-format', 'mp4',
+                    '--output', path.join(directory, '%(id)s-%(playlist_index|0)s.%(ext)s'),
+                    candidate,
+                ]);
+                downloaded = true;
+                break;
+            } catch (error) {
+                lastError = error;
+            }
+        }
+
+        if (!downloaded) {
+            throw lastError instanceof Error
+                ? lastError
+                : new Error('X（Twitter）の投稿を取得できませんでした。');
+        }
 
         let files = await listMediaFiles(directory);
         if (!files.some(file => !file.includes('.info.') && !file.endsWith('.webp'))) {
@@ -178,7 +211,7 @@ export async function downloadXMedia(sourceUrl: string, attachmentLimit: number)
             }
         }
         if (uploadFiles.length === 0) throw new Error('取得したメディアがDiscordの添付上限を超えています。');
-        return { directory, sourceUrl, files: uploadFiles, cleanup };
+        return { directory, sourceUrl: normalizeXStatusUrl(sourceUrl), files: uploadFiles, cleanup };
     } catch (error) {
         await cleanup();
         throw error;

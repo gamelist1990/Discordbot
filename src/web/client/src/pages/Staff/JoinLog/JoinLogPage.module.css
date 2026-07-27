@@ -1,0 +1,239 @@
+.page {
+  width: min(var(--app-content-wide), calc(100% - 32px));
+  margin: 0 auto;
+  padding: var(--app-page-y) 0 44px;
+  display: grid;
+  gap: 20px;
+}
+
+.hero,
+.selectorCard,
+.settingsCard,
+.statePanel,
+.errorBox {
+  border: 1px solid var(--app-border);
+  background: var(--app-surface);
+  box-shadow: var(--app-shadow-sm);
+  border-radius: var(--radius-md);
+}
+
+.hero {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 24px;
+  padding: 28px;
+  background: linear-gradient(180deg, var(--app-surface-strong), var(--app-surface));
+}
+
+.hero h1 {
+  margin: 8px 0 0;
+  font-size: clamp(2rem, 4vw, 3rem);
+  line-height: 1.08;
+}
+
+.hero p,
+.helpText {
+  margin: 10px 0 0;
+  color: var(--app-ink-soft);
+  line-height: 1.7;
+}
+
+.eyebrow,
+.sectionEyebrow {
+  display: inline-flex;
+  width: fit-content;
+  padding: 6px 10px;
+  border-radius: var(--radius-xs);
+  color: var(--app-accent-strong);
+  background: color-mix(in srgb, var(--app-accent) 8%, var(--app-surface));
+  font-size: .78rem;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.heroActions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.primaryButton,
+.secondaryButton {
+  padding: 11px 16px;
+  border-radius: var(--radius-xs);
+  font-weight: 700;
+  border: 1px solid var(--app-border);
+}
+
+.primaryButton {
+  color: white;
+  background: var(--app-accent);
+  border-color: var(--app-accent);
+}
+
+.secondaryButton {
+  color: var(--app-ink);
+  background: var(--app-surface-soft);
+}
+
+.primaryButton:disabled,
+.secondaryButton:disabled {
+  opacity: .55;
+  cursor: not-allowed;
+}
+
+.selectorCard {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, .5fr);
+  gap: 18px;
+  align-items: end;
+  padding: 22px;
+}
+
+.guildInfo {
+  display: grid;
+  gap: 4px;
+  padding: 11px 14px;
+  border-radius: var(--radius-xs);
+  background: var(--app-surface-soft);
+  border: 1px solid var(--app-border);
+}
+
+.guildInfo span {
+  color: var(--app-ink-soft);
+  font-size: .82rem;
+  overflow-wrap: anywhere;
+}
+
+.settingsCard {
+  display: grid;
+  gap: 18px;
+  padding: 22px;
+}
+
+.sectionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.sectionHeader h2 {
+  margin: 7px 0 0;
+}
+
+.formGrid,
+.messageGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.field {
+  display: grid;
+  gap: 8px;
+}
+
+.field > span {
+  font-weight: 700;
+}
+
+.field textarea {
+  min-height: 150px;
+  resize: vertical;
+  line-height: 1.65;
+}
+
+.switchLabel,
+.checkboxCard {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.switchLabel {
+  padding: 10px 14px;
+  border-radius: var(--radius-xs);
+  background: var(--app-surface-soft);
+  border: 1px solid var(--app-border);
+  font-weight: 700;
+}
+
+.checkboxCard {
+  padding: 14px;
+  border-radius: var(--radius-xs);
+  background: var(--app-surface-soft);
+  border: 1px solid var(--app-border);
+}
+
+.checkboxCard span,
+.checkboxCard small {
+  display: block;
+}
+
+.checkboxCard small {
+  margin-top: 3px;
+  color: var(--app-ink-soft);
+}
+
+.colorInput {
+  width: 52px;
+  height: 42px;
+  padding: 3px;
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+}
+
+.placeholderList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+}
+
+.placeholderList code {
+  padding: 8px 11px;
+  border-radius: var(--radius-xs);
+  color: var(--app-accent-strong);
+  background: color-mix(in srgb, var(--app-accent) 8%, var(--app-surface));
+  border: 1px solid color-mix(in srgb, var(--app-accent) 18%, var(--app-border));
+}
+
+.statePanel,
+.errorBox {
+  padding: 22px;
+}
+
+.statePanel {
+  color: var(--app-ink-soft);
+}
+
+.errorBox {
+  color: #c93838;
+  border-color: color-mix(in srgb, #c93838 40%, var(--app-border));
+  background: color-mix(in srgb, #c93838 7%, var(--app-surface));
+}
+
+@media (max-width: 800px) {
+  .page {
+    width: min(100% - 24px, var(--app-content-wide));
+    padding-top: 18px;
+  }
+
+  .hero,
+  .sectionHeader {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .selectorCard,
+  .formGrid,
+  .messageGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .heroActions button {
+    flex: 1;
+  }
+}

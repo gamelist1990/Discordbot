@@ -48,6 +48,12 @@ const services = [
     path: '/staff/todo',
     icon: 'checklist',
   },
+  {
+    title: '参加・退出ログ',
+    description: 'メンバー参加・退出通知の送信先とEmbedテンプレートを設定します。',
+    path: '/staff/join-log',
+    icon: 'login',
+  },
 ];
 
 const StaffHelpPage: React.FC = () => {

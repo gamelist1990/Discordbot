@@ -17,6 +17,7 @@ import AntiCheatSelector from './pages/Staff/AntiCheatSelector';
 import CorePanelPage from './pages/Staff/CorePanel';
 import ChannelManagerPage from './pages/Staff/ChannelManager';
 import TodoPage from './pages/Staff/Todo';
+import JoinLogPage from './pages/Staff/JoinLog';
 const MinecraftViewer = React.lazy(() => import('./pages/Tools/MinecraftViewer/MinecraftViewer'));
 import { useAuthGuard } from './hooks/useAuthGuard';
 import HomePage from './pages/Home';
@@ -70,6 +71,8 @@ const App: React.FC = () => {
           <Route path="/staff/corepanel" element={<StaffGuard><CorePanelPage /></StaffGuard>} />
           <Route path="/staff/channel-manager" element={<StaffGuard><ChannelManagerPage /></StaffGuard>} />
           <Route path="/staff/todo" element={<StaffGuard><TodoPage /></StaffGuard>} />
+          <Route path="/staff/join-log" element={<StaffGuard><JoinLogPage /></StaffGuard>} />
+          <Route path="/staff/join-log/:guildId" element={<StaffGuard><JoinLogPage /></StaffGuard>} />
           <Route path="/staff/anticheat" element={<StaffGuard><AntiCheatSelector /></StaffGuard>} />
           <Route path="/staff/anticheat/:guildId" element={<StaffGuard><AntiCheatPage /></StaffGuard>} />
           <Route path="/todo" element={<StaffGuard><TodoPage /></StaffGuard>} />
