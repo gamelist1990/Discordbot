@@ -2,6 +2,8 @@
     Message, 
     Client, 
     ChatInputCommandInteraction,
+    MessageContextMenuCommandInteraction,
+    ContextMenuCommandBuilder,
     SlashCommandBuilder,
     SlashCommandSubcommandsOnlyBuilder
 } from 'discord.js';
@@ -23,8 +25,8 @@ export interface Command {
  * スラッシュコマンドの型定義
  */
 export interface SlashCommand {
-    data: SlashCommandBuilder | SlashCommandSubcommandsOnlyBuilder | Omit<SlashCommandBuilder, "addSubcommand" | "addSubcommandGroup">;
-    execute: (interaction: ChatInputCommandInteraction) => Promise<void>;
+    data: SlashCommandBuilder | SlashCommandSubcommandsOnlyBuilder | Omit<SlashCommandBuilder, "addSubcommand" | "addSubcommandGroup"> | ContextMenuCommandBuilder;
+    execute(interaction: ChatInputCommandInteraction | MessageContextMenuCommandInteraction): Promise<void>;
     cooldown?: number; // クールダウン時間（秒）
     permissions?: bigint[]; // 必要な権限
     guildOnly?: boolean; // ギルド専用コマンドか

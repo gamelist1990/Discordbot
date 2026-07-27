@@ -58,10 +58,12 @@ const helpCommand: SlashCommand = {
         pageCommands.forEach((cmd) => {
             const guildOnlyText = cmd.guildOnly ? ' 🏠' : '';
             const adminText = cmd.data.default_member_permissions ? ' 🛡️' : '';
+            const commandData = cmd.data.toJSON();
+            const isChatInputCommand = 'description' in commandData;
             
             embed.addFields({
-                name: `\`/${cmd.data.name}\`${guildOnlyText}${adminText}`,
-                value: cmd.data.description,
+                name: `${isChatInputCommand ? '`/' : '`アプリ: '}${cmd.data.name}\`${guildOnlyText}${adminText}`,
+                value: isChatInputCommand ? commandData.description : 'メッセージから実行するアプリコマンド',
                 inline: false
             });
         });

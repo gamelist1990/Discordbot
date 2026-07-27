@@ -160,6 +160,28 @@ export class EventHandler {
                 return;
             }
 
+            if (interaction.isMessageContextMenuCommand()) {
+                const command = this.botClient.commands.get(interaction.commandName);
+                if (!command) {
+                    Logger.warn(`⚠️ 未登録のメッセージコマンド: ${interaction.commandName}`);
+                    return;
+                }
+
+                try {
+                    Logger.command(interaction.commandName, interaction.user.id, interaction.guildId || undefined);
+                    await command.execute(interaction);
+                } catch (error) {
+                    Logger.error(`❌ メッセージコマンド実行エラー [${interaction.commandName}]:`, error);
+                    const errorMessage = 'メディアの取得中にエラーが発生しました。';
+                    if (interaction.replied || interaction.deferred) {
+                        await interaction.editReply({ content: errorMessage, files: [] }).catch(() => {});
+                    } else {
+                        await interaction.reply({ content: errorMessage, ephemeral: true }).catch(() => {});
+                    }
+                }
+                return;
+            }
+
             // ...existing code...
             if (!interaction.isChatInputCommand()) return;
 

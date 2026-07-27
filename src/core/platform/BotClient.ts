@@ -1,4 +1,4 @@
-import { Client, Collection, GatewayIntentBits, Partials, REST, Routes } from 'discord.js';
+import { ApplicationCommandType, Client, Collection, GatewayIntentBits, Partials, REST, Routes } from 'discord.js';
 import { SlashCommand } from '../../types/command.js';
 import { database } from '../persistence/Database.js';
 import { Logger } from '../../utils/Logger.js';
@@ -11,6 +11,7 @@ interface DiscordCommand {
     id: string;
     name: string;
     description: string;
+    type?: ApplicationCommandType;
     version?: string;
 }
 
@@ -258,8 +259,9 @@ export class BotClient {
             const existingCmd = existingMap.get(name);
             if (!existingCmd) return false;
 
-            // 名前・説明の比較
-            if (existingCmd.description !== newCmd.description) {
+            // 名前・種類・説明の比較。コンテキストメニューには説明がない。
+            if ((existingCmd.type ?? ApplicationCommandType.ChatInput) !== (newCmd.type ?? ApplicationCommandType.ChatInput) ||
+                existingCmd.description !== (newCmd.description ?? '')) {
                 return false;
             }
 

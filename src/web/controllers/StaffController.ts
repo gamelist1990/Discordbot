@@ -782,7 +782,9 @@ export class StaffController {
 
             res.json({
                 name: commandData.name,
-                description: commandData.description,
+                description: 'description' in commandData
+                    ? commandData.description
+                    : 'メッセージコンテキストメニューコマンド',
                 subcommands
             });
         } catch (error) {
