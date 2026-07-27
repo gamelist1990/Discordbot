@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdtemp, readdir, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -30,20 +30,23 @@ export function extractXStatusUrl(content: string): string | null {
 function normalizeXStatusUrl(sourceUrl: string): string {
     const parsed = new URL(sourceUrl.replace(/[),.;!?]+$/u, ''));
     parsed.protocol = 'https:';
-    parsed.hostname = 'twitter.com';
+    parsed.hostname = 'x.com';
     parsed.search = '';
     parsed.hash = '';
     return parsed.toString();
 }
 
 function getXStatusUrlCandidates(sourceUrl: string): string[] {
-    const twitterUrl = normalizeXStatusUrl(sourceUrl);
-    const xUrl = twitterUrl.replace('https://twitter.com/', 'https://x.com/');
-    return [twitterUrl, xUrl];
+    return [normalizeXStatusUrl(sourceUrl)];
 }
 
-function executable(name: 'yt-dlp' | 'ffmpeg' | 'ffprobe'): string {
-    const configured = process.env[name === 'yt-dlp' ? 'YT_DLP_PATH' : name.toUpperCase() + '_PATH'];
+function executable(name: 'gallery-dl' | 'yt-dlp' | 'ffmpeg' | 'ffprobe'): string {
+    const environmentName = name === 'gallery-dl'
+        ? 'GALLERY_DL_PATH'
+        : name === 'yt-dlp'
+            ? 'YT_DLP_PATH'
+            : `${name.toUpperCase()}_PATH`;
+    const configured = process.env[environmentName];
     return configured?.trim() || name;
 }
 
@@ -78,6 +81,28 @@ async function listMediaFiles(directory: string): Promise<string[]> {
     return (await readdir(directory, { withFileTypes: true }))
         .filter(entry => entry.isFile() && MEDIA_EXTENSIONS.has(path.extname(entry.name).toLowerCase()))
         .map(entry => path.join(directory, entry.name));
+}
+
+function galleryDlAuthenticationArgs(): string[] {
+    const cookiePath = process.env.X_COOKIES_PATH?.trim();
+    if (cookiePath) return ['--cookies', cookiePath];
+
+    const browser = process.env.X_COOKIES_BROWSER?.trim();
+    if (browser) return ['--cookies-from-browser', browser];
+
+    return [];
+}
+
+async function downloadWithGalleryDl(sourceUrl: string, directory: string): Promise<string[]> {
+    await runProcess(executable('gallery-dl'), [
+        '--config-ignore',
+        '--no-mtime',
+        '--directory', directory,
+        '--filename', '{tweet_id}_{num}.{extension}',
+        ...galleryDlAuthenticationArgs(),
+        sourceUrl,
+    ]);
+    return await listMediaFiles(directory);
 }
 
 async function getVideoMetadata(file: string): Promise<VideoMetadata> {
@@ -134,68 +159,47 @@ async function compressVideo(input: string, limitBytes: number, directory: strin
     throw new Error('動画をDiscordのアップロード上限まで圧縮できませんでした。');
 }
 
-async function downloadPhotoUrlsFromMetadata(directory: string): Promise<string[]> {
-    const infoFiles = (await readdir(directory)).filter(name => name.endsWith('.info.json'));
-    const urls = new Set<string>();
-    for (const name of infoFiles) {
-        const info = JSON.parse(await readFile(path.join(directory, name), 'utf8')) as {
-            entries?: Array<{ url?: string; thumbnails?: Array<{ url?: string }> }>;
-            thumbnails?: Array<{ url?: string }>;
-        };
-        for (const thumbnail of info.thumbnails ?? []) if (thumbnail.url) urls.add(thumbnail.url);
-        for (const entry of info.entries ?? []) {
-            if (entry.url && /\.(?:jpe?g|png|webp)(?:\?|$)/iu.test(entry.url)) urls.add(entry.url);
-            for (const thumbnail of entry.thumbnails ?? []) if (thumbnail.url) urls.add(thumbnail.url);
-        }
-    }
-
-    const downloaded: string[] = [];
-    let index = 1;
-    for (const url of urls) {
-        const response = await fetch(url);
-        if (!response.ok || !response.headers.get('content-type')?.startsWith('image/')) continue;
-        const extension = response.headers.get('content-type')?.includes('png') ? '.png' : '.jpg';
-        const destination = path.join(directory, `image-${index++}${extension}`);
-        await writeFile(destination, Buffer.from(await response.arrayBuffer()));
-        downloaded.push(destination);
-        if (downloaded.length >= 4) break;
-    }
-    return downloaded;
-}
-
 export async function downloadXMedia(sourceUrl: string, attachmentLimit: number): Promise<DownloadedXMedia> {
     const directory = await mkdtemp(path.join(tmpdir(), 'discord-x-media-'));
     const cleanup = async (): Promise<void> => { await rm(directory, { recursive: true, force: true }); };
 
     try {
-        const candidates = getXStatusUrlCandidates(sourceUrl);
-        let lastError: unknown = null;
-        let downloaded = false;
-
-        for (const candidate of candidates) {
+        let files: string[] = [];
+        let galleryError: unknown = null;
+        for (const candidate of getXStatusUrlCandidates(sourceUrl)) {
             try {
-                await runProcess(executable('yt-dlp'), [
-                    '--no-warnings', '--no-playlist', '--write-info-json', '--write-thumbnail',
-                    '--format', 'bestvideo*+bestaudio/best', '--merge-output-format', 'mp4',
-                    '--output', path.join(directory, '%(id)s-%(playlist_index|0)s.%(ext)s'),
-                    candidate,
-                ]);
-                downloaded = true;
-                break;
+                files = await downloadWithGalleryDl(candidate, directory);
+                if (files.length > 0) break;
             } catch (error) {
-                lastError = error;
+                galleryError = error;
             }
         }
 
-        if (!downloaded) {
-            throw lastError instanceof Error
-                ? lastError
-                : new Error('X（Twitter）の投稿を取得できませんでした。');
+        // gallery-dlは画像と動画の両方を扱う。利用不能または抽出失敗時のみ、
+        // 動画に強いyt-dlpを後方互換のフォールバックとして使用する。
+        let ytDlpError: unknown = null;
+        if (files.length === 0) {
+            for (const candidate of getXStatusUrlCandidates(sourceUrl)) {
+                try {
+                    await runProcess(executable('yt-dlp'), [
+                    '--no-warnings', '--no-playlist', '--write-info-json', '--write-thumbnail',
+                    '--format', 'bestvideo*+bestaudio/best', '--merge-output-format', 'mp4',
+                    '--output', path.join(directory, '%(id)s-%(playlist_index|0)s.%(ext)s'),
+                    ...galleryDlAuthenticationArgs(),
+                    candidate,
+                    ]);
+                    files = await listMediaFiles(directory);
+                    if (files.length > 0) break;
+                } catch (error) {
+                    ytDlpError = error;
+                }
+            }
         }
 
-        let files = await listMediaFiles(directory);
-        if (!files.some(file => !file.includes('.info.') && !file.endsWith('.webp'))) {
-            files.push(...await downloadPhotoUrlsFromMetadata(directory));
+        if (files.length === 0) {
+            const galleryMessage = galleryError instanceof Error ? galleryError.message : String(galleryError ?? '取得結果なし');
+            const ytDlpMessage = ytDlpError instanceof Error ? ytDlpError.message : String(ytDlpError ?? '取得結果なし');
+            throw new Error(`gallery-dlで取得できませんでした: ${galleryMessage}\nyt-dlpでも取得できませんでした: ${ytDlpMessage}`);
         }
         files = [...new Set(files)].filter(file => !file.endsWith('.webp') || files.length === 1);
 

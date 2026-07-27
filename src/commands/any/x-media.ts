@@ -35,7 +35,7 @@ const xMediaCommand: SlashCommand = {
         const result = await downloadXMedia(sourceUrl, attachmentLimit);
         try {
             await interaction.editReply({
-                content: `メディアを取得しました。\n${sourceUrl}`,
+                content: 'メディアを取得しました。',
                 files: result.files,
             });
         } finally {
