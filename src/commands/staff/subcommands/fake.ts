@@ -79,10 +79,10 @@ const fakeSubcommand = {
 
         // 添付ファイルをメモリ上の AttachmentBuilder に変換
         // （Webhook は URL か Buffer を受け付けるので、Discord CDN URL をそのまま渡す）
-        const attachmentUrls: string[] = [];
+        const attachments: Array<{ url: string; name: string }> = [];
         for (const key of ['file1', 'file2', 'file3', 'file4'] as const) {
             const att = interaction.options.getAttachment(key);
-            if (att) attachmentUrls.push(att.url);
+            if (att) attachments.push({ url: att.url, name: att.name });
         }
 
         // AttachmentBuilder に変換して Webhook 経由で送信
@@ -101,8 +101,8 @@ const fakeSubcommand = {
 
             const client = new WebhookClient({ id: webhook.id, token: webhook.token });
             try {
-                const files: AttachmentBuilder[] = attachmentUrls.map(
-                    (url, i) => new AttachmentBuilder(url, { name: `file${i + 1}` })
+                const files: AttachmentBuilder[] = attachments.map(
+                    ({ url, name }) => new AttachmentBuilder(url, { name })
                 );
                 await client.send({
                     username: username.slice(0, 80),
