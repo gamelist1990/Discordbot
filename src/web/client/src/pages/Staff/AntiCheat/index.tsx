@@ -1,5 +1,3 @@
-import AntiCheatUnified from './AntiCheat';
-
-const AntiCheatPage = AntiCheatUnified;
+import AntiCheatPage from './AntiCheatPage';
 
 export default AntiCheatPage;

@@ -2,7 +2,7 @@
 import { ChatInputCommandInteraction, MessageFlags, DiscordAPIError } from 'discord.js';
 import { OpenAIChatManager } from '../../../core/ai/OpenAIChatManager.js';
 import { OpenAIChatCompletionMessage } from '../../../types/openai.js';
-import { statusToolDefinition, statusToolHandler, weatherToolDefinition, weatherToolHandler, timeToolDefinition, timeToolHandler, countPhraseToolDefinition, countPhraseToolHandler, userInfoToolDefinition, userInfoToolHandler, antiCheatUserProfileDefinition, antiCheatUserProfileHandler, createAntiCheatInterviewDefinition, createAntiCheatInterviewHandler, memoListDefinition, memoListHandler, memoGetDefinition, memoGetHandler, memoCreateDefinition, memoCreateHandler, memoUpdateDefinition, memoUpdateHandler, memoDeleteDefinition, memoDeleteHandler, memoSearchDefinition, memoSearchHandler, collectHistoryDefinition, collectHistoryHandler, fetchMessageLinkDefinition, fetchMessageLinkHandler } from './ai-tools/index.js';
+import { statusToolDefinition, statusToolHandler, weatherToolDefinition, weatherToolHandler, timeToolDefinition, timeToolHandler, countPhraseToolDefinition, countPhraseToolHandler, userInfoToolDefinition, userInfoToolHandler, antiCheatUserProfileDefinition, antiCheatUserProfileHandler, memoListDefinition, memoListHandler, memoGetDefinition, memoGetHandler, memoCreateDefinition, memoCreateHandler, memoUpdateDefinition, memoUpdateHandler, memoDeleteDefinition, memoDeleteHandler, memoSearchDefinition, memoSearchHandler, collectHistoryDefinition, collectHistoryHandler, fetchMessageLinkDefinition, fetchMessageLinkHandler } from './ai-tools/index.js';
 import { PdfRAGManager } from '../../../core/ai/PdfRAGManager.js';
 import { database } from '../../../core/persistence/Database.js';
 import {
@@ -237,7 +237,6 @@ export const subcommandHandler = {
         chatManager.registerTool(userInfoToolDefinition, userInfoToolHandler);
         // AntiCheat 情報取得 / 面接室作成
         chatManager.registerTool(antiCheatUserProfileDefinition, antiCheatUserProfileHandler);
-        chatManager.registerTool(createAntiCheatInterviewDefinition, createAntiCheatInterviewHandler);
 
         // メモ管理ツール（create, list, get, update, delete, search）
         chatManager.registerTool(memoListDefinition, memoListHandler);

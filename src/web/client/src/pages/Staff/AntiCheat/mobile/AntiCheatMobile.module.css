@@ -1,0 +1,322 @@
+.shell {
+  width: 100%;
+  padding: 12px 12px 94px;
+  color: var(--app-ink);
+}
+.hero,
+.row,
+.actions,
+.saveBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.hero {
+  padding: 12px;
+  border: 1px solid var(--app-border);
+  border-radius: var(--radius-md);
+  background: var(--app-surface);
+}
+h1,
+h2,
+h3,
+p {
+  margin: 0;
+}
+.hero h1 {
+  font-size: 1.05rem;
+}
+.hero span,
+.heading span {
+  color: var(--app-accent-strong);
+  font-size: 0.7rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+.iconButton {
+  width: 44px;
+  height: 44px;
+  border: 1px solid var(--app-border);
+  border-radius: var(--radius-xs);
+  background: var(--app-surface-soft);
+  color: var(--app-ink);
+  font-size: 1.25rem;
+}
+.status {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 10px 0;
+  padding: 12px;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--app-accent) 8%, var(--app-surface));
+  font-size: 0.82rem;
+}
+.tabs {
+  position: sticky;
+  top: var(--header-height, 0);
+  z-index: 8;
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 4px;
+  padding: 8px 0;
+  background: var(--app-bg);
+}
+.tabs button,
+.settingTabs button {
+  min-height: 44px;
+  border: 1px solid var(--app-border);
+  border-radius: var(--radius-xs);
+  background: var(--app-surface);
+  color: var(--app-ink-soft);
+  font-weight: 800;
+}
+.tabs .active,
+.settingTabs .active {
+  border-color: var(--app-accent-strong);
+  background: var(--app-accent-strong);
+  color: #fff;
+}
+.stack,
+.editorGrid,
+.notices {
+  display: grid;
+  gap: 12px;
+}
+.heading {
+  padding: 12px 2px;
+}
+.heading p,
+.card p,
+small {
+  display: block;
+  margin-top: 6px;
+  color: var(--app-ink-soft);
+  line-height: 1.5;
+}
+.card,
+.empty {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--app-border);
+  border-radius: var(--radius-md);
+  background: var(--app-surface);
+  box-shadow: var(--app-shadow-sm);
+}
+.actions > * {
+  flex: 1;
+}
+.formGrid {
+  display: grid;
+  gap: 12px;
+}
+.card label {
+  display: grid;
+  gap: 6px;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+.check {
+  position: relative;
+  display: flex !important;
+  align-items: center;
+  min-height: 44px;
+  gap: 10px;
+  color: var(--app-ink);
+  white-space: nowrap;
+}
+.check input {
+  appearance: none;
+  width: 42px;
+  height: 24px;
+  min-height: 0;
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--app-border-strong);
+  border-radius: 999px;
+  background: var(--app-surface-soft);
+  cursor: pointer;
+  transition: background-color 160ms ease, border-color 160ms ease;
+}
+.check input::before {
+  display: block;
+  width: 18px;
+  height: 18px;
+  margin: 2px;
+  border-radius: 50%;
+  background: var(--app-ink-soft);
+  content: "";
+  transition: transform 160ms ease, background-color 160ms ease;
+}
+.check input:checked {
+  border-color: var(--app-accent-strong);
+  background: var(--app-accent-strong);
+}
+.check input:checked::before {
+  background: #fff;
+  transform: translateX(18px);
+}
+.check input:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--app-accent) 28%, transparent);
+  outline-offset: 2px;
+}
+.check input:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+.wide {
+  grid-column: 1/-1;
+}
+input,
+textarea,
+select {
+  width: 100%;
+  min-height: 44px;
+  padding: 10px;
+  border: 1px solid var(--app-border-strong);
+  border-radius: var(--radius-xs);
+  background: var(--app-surface);
+  color: var(--app-ink);
+  font: inherit;
+}
+textarea {
+  min-height: 100px;
+}
+.primary,
+.secondary,
+.danger {
+  min-height: 44px;
+  padding: 0 12px;
+  border-radius: var(--radius-xs);
+  font: inherit;
+  font-weight: 800;
+}
+.primary {
+  border: 0;
+  background: var(--app-accent-strong);
+  color: #fff;
+}
+.secondary {
+  border: 1px solid var(--app-border-strong);
+  background: var(--app-surface-soft);
+  color: var(--app-ink);
+}
+.danger {
+  border: 1px solid color-mix(in srgb, var(--app-danger) 24%, var(--app-border));
+  background: color-mix(in srgb, var(--app-danger) 9%, var(--app-surface));
+  color: var(--app-danger);
+}
+button:disabled {
+  opacity: 0.55;
+}
+.settingTabs {
+  position: sticky;
+  top: 60px;
+  z-index: 7;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 5px;
+  padding: 6px 0;
+  background: var(--app-bg);
+}
+details.card summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 44px;
+  cursor: pointer;
+}
+details.card summary small {
+  margin-top: 3px;
+}
+.subCard {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--app-border);
+  border-radius: var(--radius-sm);
+  background: var(--app-surface-soft);
+}
+.exclusionList {
+  display: grid;
+  gap: 8px;
+}
+.exclusionListHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.exclusionRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 40px;
+  gap: 6px;
+}
+.exclusionAdd,
+.exclusionRemove {
+  width: 40px;
+  min-height: 40px;
+  border: 1px solid var(--app-border-strong);
+  border-radius: var(--radius-xs);
+  background: var(--app-surface-soft);
+  color: var(--app-ink);
+  font-size: 1.1rem;
+  font-weight: 800;
+}
+.exclusionRemove { color: var(--app-danger); }
+.exclusionEmpty {
+  min-height: 42px;
+  border: 1px dashed var(--app-border-strong);
+  background: transparent;
+  color: var(--app-ink-soft);
+  font-weight: 700;
+}
+.saveBar {
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  bottom: 10px;
+  z-index: 10;
+  padding: 10px 12px;
+  border: 1px solid var(--app-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--app-surface-strong);
+  box-shadow: var(--app-shadow-lg);
+}
+.saveBar button {
+  min-width: 120px;
+}
+.unsaved {
+  color: var(--app-warning);
+  font-weight: 800;
+}
+.saved {
+  color: var(--app-success);
+  font-weight: 800;
+}
+.success,
+.error {
+  padding: 12px;
+  border-radius: var(--radius-sm);
+  font-weight: 700;
+}
+.success {
+  color: var(--app-success);
+  background: color-mix(in srgb, var(--app-success) 10%, var(--app-surface));
+}
+.error {
+  color: var(--app-danger);
+  background: color-mix(in srgb, var(--app-danger) 10%, var(--app-surface));
+}
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+summary:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--app-accent) 30%, transparent);
+  outline-offset: 2px;
+}

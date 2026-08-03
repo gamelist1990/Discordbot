@@ -100,36 +100,6 @@ export interface ActiveTimeoutEntry {
     sourceReason: string | null;
 }
 
-export interface InterviewDecision {
-    verdict: 'approved' | 'rejected' | 'terminated';
-    reason: string;
-    decidedAt: string;
-    scoreBefore: number;
-    scoreAfter: number;
-}
-
-export interface InterviewRoomSession {
-    sessionId: string;
-    guildId: string;
-    channelId: string;
-    categoryId: string;
-    roleId: string | null;
-    userId: string;
-    staffId: string;
-    title: string;
-    status: 'active' | 'approved' | 'rejected' | 'terminated' | 'closed';
-    createdAt: string;
-    updatedAt: string;
-    cooldownUntil: string;
-    decision: InterviewDecision | null;
-    warnings: string[];
-    userName: string;
-    userDisplayName: string;
-    staffName: string;
-    channelExists: boolean;
-    channelUrl: string;
-}
-
 export interface AntiCheatApiResponse {
     settings: AntiCheatSettings;
     userTrustCount: number;
