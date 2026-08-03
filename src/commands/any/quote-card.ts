@@ -28,18 +28,19 @@ const quoteCardCommand: SlashCommand = {
             return;
         }
 
-        await interaction.deferReply();
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
         try {
             const author = message.author;
             const member = message.member;
             const authorName = member?.displayName ?? author.displayName ?? author.username;
 
-            const image = renderQuoteCard({
+            const image = await renderQuoteCard({
                 quote,
                 authorName,
                 authorHandle: author.username,
-                style: 'random',
+                avatarUrl: author.displayAvatarURL({ extension: 'png', size: 1024 }),
+                style: 'mono',
                 seed: message.id,
             });
 

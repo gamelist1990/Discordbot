@@ -3,8 +3,10 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
     createCanvas,
+    loadImage,
     registerFont,
     type CanvasRenderingContext2D,
+    type Image,
 } from 'canvas';
 
 const WIDTH = 1200;
@@ -110,28 +112,6 @@ function hash(value: string): number {
 function resolveStyle(style: QuoteCardStyle, seed: string): Exclude<QuoteCardStyle, 'random'> {
     if (style !== 'random') return style;
     return STYLE_ORDER[hash(seed) % STYLE_ORDER.length];
-}
-
-function roundedRect(
-    ctx: CanvasRenderingContext2D,
-    x: number,
-    y: number,
-    width: number,
-    height: number,
-    radius: number,
-): void {
-    const r = Math.min(radius, width / 2, height / 2);
-    ctx.beginPath();
-    ctx.moveTo(x + r, y);
-    ctx.lineTo(x + width - r, y);
-    ctx.quadraticCurveTo(x + width, y, x + width, y + r);
-    ctx.lineTo(x + width, y + height - r);
-    ctx.quadraticCurveTo(x + width, y + height, x + width - r, y + height);
-    ctx.lineTo(x + r, y + height);
-    ctx.quadraticCurveTo(x, y + height, x, y + height - r);
-    ctx.lineTo(x, y + r);
-    ctx.quadraticCurveTo(x, y, x + r, y);
-    ctx.closePath();
 }
 
 function setFont(ctx: CanvasRenderingContext2D, size: number, weight = 500): void {
@@ -257,29 +237,23 @@ function drawBackground(
     }
 }
 
-function drawAvatarMark(
+function drawCoverImage(
     ctx: CanvasRenderingContext2D,
-    authorName: string,
+    image: Image,
     x: number,
     y: number,
-    palette: Palette,
+    width: number,
+    height: number,
 ): void {
-    ctx.save();
-    ctx.beginPath();
-    ctx.arc(x, y, 32, 0, Math.PI * 2);
-    ctx.fillStyle = palette.accent;
-    ctx.fill();
-
-    const initial = [...authorName.trim()][0]?.toUpperCase() ?? '?';
-    ctx.fillStyle = palette.backgroundA;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    setFont(ctx, 26, 800);
-    ctx.fillText(initial, x, y + 1);
-    ctx.restore();
+    const scale = Math.max(width / image.width, height / image.height);
+    const sourceWidth = width / scale;
+    const sourceHeight = height / scale;
+    const sourceX = (image.width - sourceWidth) / 2;
+    const sourceY = (image.height - sourceHeight) / 2;
+    ctx.drawImage(image, sourceX, sourceY, sourceWidth, sourceHeight, x, y, width, height);
 }
 
-export function renderQuoteCard(options: QuoteCardOptions): Buffer {
+export async function renderQuoteCard(options: QuoteCardOptions): Promise<Buffer> {
     ensureFont();
 
     const seedText = options.seed ?? `${options.authorHandle}:${options.quote}`;
@@ -289,52 +263,67 @@ export function renderQuoteCard(options: QuoteCardOptions): Buffer {
     const canvas = createCanvas(WIDTH, HEIGHT);
     const ctx = canvas.getContext('2d');
 
-    drawBackground(ctx, palette, style, seed);
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(0, 0, WIDTH, HEIGHT);
 
-    ctx.fillStyle = palette.panel;
-    roundedRect(ctx, 56, 52, WIDTH - 112, HEIGHT - 104, 34);
-    ctx.fill();
+    const imageWidth = 570;
+    if (options.avatarUrl) {
+        try {
+            const avatar = await loadImage(options.avatarUrl);
+            drawCoverImage(ctx, avatar, 0, 0, imageWidth, HEIGHT);
 
-    ctx.fillStyle = palette.accent;
-    roundedRect(ctx, 88, 86, 72, 8, 4);
-    ctx.fill();
+            const monochrome = ctx.getImageData(0, 0, imageWidth, HEIGHT);
+            for (let index = 0; index < monochrome.data.length; index += 4) {
+                const gray = Math.round(
+                    monochrome.data[index] * 0.299 +
+                    monochrome.data[index + 1] * 0.587 +
+                    monochrome.data[index + 2] * 0.114,
+                );
+                monochrome.data[index] = gray;
+                monochrome.data[index + 1] = gray;
+                monochrome.data[index + 2] = gray;
+            }
+            ctx.putImageData(monochrome, 0, 0);
+        } catch {
+            drawBackground(ctx, palette, style, seed);
+        }
+    } else {
+        drawBackground(ctx, palette, style, seed);
+    }
 
-    ctx.globalAlpha = style === 'editorial' ? 0.15 : 0.12;
-    ctx.fillStyle = palette.foreground;
-    setFont(ctx, 180, 800);
-    ctx.fillText('“', 78, 225);
-    ctx.globalAlpha = 1;
+    const fade = ctx.createLinearGradient(250, 0, 650, 0);
+    fade.addColorStop(0, 'rgba(0,0,0,0)');
+    fade.addColorStop(0.72, 'rgba(0,0,0,0.88)');
+    fade.addColorStop(1, '#000000');
+    ctx.fillStyle = fade;
+    ctx.fillRect(250, 0, 400, HEIGHT);
 
     const sanitizedQuote = options.quote.trim().slice(0, 850);
-    const fitted = fitQuote(ctx, sanitizedQuote, 920, 350);
-    setFont(ctx, fitted.size, style === 'editorial' ? 700 : 600);
-    ctx.fillStyle = palette.foreground;
+    const fitted = fitQuote(ctx, sanitizedQuote, 520, 330);
+    setFont(ctx, fitted.size, 500);
+    ctx.fillStyle = '#ffffff';
     ctx.textBaseline = 'alphabetic';
+    ctx.textAlign = 'center';
 
     const totalHeight = fitted.lines.length * fitted.lineHeight;
-    let y = 160 + Math.max(0, (330 - totalHeight) / 2) + fitted.size;
+    let y = 115 + Math.max(0, (330 - totalHeight) / 2) + fitted.size;
     for (const line of fitted.lines) {
-        ctx.fillText(line, 132, y);
+        ctx.fillText(line, 875, y);
         y += fitted.lineHeight;
     }
 
-    ctx.fillStyle = palette.muted;
-    ctx.fillRect(92, 536, WIDTH - 184, 1);
+    ctx.fillStyle = '#ffffff';
+    setFont(ctx, 26, 600);
+    ctx.fillText(`- ${options.authorName.slice(0, 40)}`, 875, 500);
 
-    drawAvatarMark(ctx, options.authorName, 126, 590, palette);
-
-    ctx.fillStyle = palette.foreground;
-    setFont(ctx, 25, 700);
-    ctx.fillText(options.authorName.slice(0, 40), 176, 584);
-
-    ctx.fillStyle = palette.muted;
-    setFont(ctx, 18, 500);
-    ctx.fillText(`@${options.authorHandle.slice(0, 32)}`, 176, 614);
+    ctx.fillStyle = '#777777';
+    setFont(ctx, 19, 500);
+    ctx.fillText(`@${options.authorHandle.slice(0, 32)}`, 875, 534);
 
     ctx.textAlign = 'right';
-    ctx.fillStyle = palette.muted;
-    setFont(ctx, 15, 600);
-    ctx.fillText(`QUOTE / ${style.toUpperCase()}`, WIDTH - 92, 603);
+    ctx.fillStyle = '#666666';
+    setFont(ctx, 16, 500);
+    ctx.fillText('Make by pexserver.com', WIDTH - 32, HEIGHT - 25);
 
     return canvas.toBuffer('image/png');
 }
