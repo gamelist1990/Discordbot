@@ -12,6 +12,9 @@ export function getCorePanelKindLabel(panelKind: CoreFeaturePanelKind): string {
     if (panelKind === 'request') {
         return 'リクエスト';
     }
+    if (panelKind === 'othello') {
+        return 'オセロ';
+    }
     if (panelKind !== 'combined') {
         return panelKind;
     }
@@ -82,11 +85,29 @@ export function buildCorePanelEmbed(panelKind: CoreFeaturePanelKind, spectatorRo
             .setTimestamp();
     }
 
+    if (panelKind === 'othello') {
+        return new EmbedBuilder()
+            .setTitle('⚫ オセロパネル')
+            .setColor(0x1b9b67)
+            .setDescription([
+                '番号付きの盤面画像を見ながら、Discord のボタンでオセロを遊べます。',
+                '',
+                '**Bot戦**',
+                'Easy・Normal・Hard の3段階から難易度を選択できます。',
+                '',
+                '**ランクマッチ**',
+                '人間同士でマッチングし、勝敗に応じてオセロレーティングが変動します。',
+                '盤面画像の番号と操作ボタンの番号は対応しています。'
+            ].join('\n'))
+            .setFooter({ text: '対戦ルームは1時間で自動的に期限切れになります。' })
+            .setTimestamp();
+    }
+
     return new EmbedBuilder()
         .setTitle('Core機能パネル')
         .setColor(0x5865f2)
         .setDescription([
-            'このパネルでは、AI 性格診断・レスバ・リクエスト をまとめて利用できます。',
+            'このパネルでは、AI 性格診断・レスバ・オセロ・リクエストをまとめて利用できます。',
             '',
             '**性格診断**',
             `AI と1対1で面談し、${Object.keys(PERSONALITY_ARCHETYPES).length}種類の性格ロールから1つを判定します。`,
@@ -98,6 +119,10 @@ export function buildCorePanelEmbed(panelKind: CoreFeaturePanelKind, spectatorRo
             'スタッフは観戦用の AI vs AI レスバも作成できます。',
             '勝つと論破スコアが加算され、一定成績で論破王になれます。',
             spectatorRoleId ? `観戦ロール: <@&${spectatorRoleId}>` : '観戦ロール: 未設定',
+            '',
+            '**オセロ**',
+            'Easy・Normal・Hard のBot戦と、人間同士のランクマッチを遊べます。',
+            '番号付き盤面画像とボタンで、置く場所を分かりやすく操作できます。',
             '',
             '**リクエスト**',
             '機能追加、改善案、バグ報告などを送信できます。',

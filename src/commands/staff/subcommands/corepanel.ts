@@ -2,6 +2,7 @@ import {
     ButtonInteraction,
     ChannelType,
     ChatInputCommandInteraction,
+    MessageFlags,
     ModalSubmitInteraction,
     SlashCommandSubcommandBuilder,
     StringSelectMenuInteraction
@@ -13,6 +14,8 @@ import { CoreFeaturePanelKind } from '../../../core/corepanel/types.js';
 function isTextChannel(targetChannel: any): boolean {
     return targetChannel?.type !== ChannelType.GuildVoice && targetChannel?.type !== ChannelType.GuildCategory;
 }
+
+const handledComponentInteractions = new Set<string>();
 
 export default {
     name: 'corepanel',
@@ -39,7 +42,9 @@ export default {
                     .addChoices(
                         { name: '統合', value: 'combined' },
                         { name: '性格診断だけ', value: 'personality' },
-                        { name: 'レスバだけ', value: 'debate' }
+                        { name: 'レスバだけ', value: 'debate' },
+                        { name: 'オセロだけ', value: 'othello' },
+                        { name: 'リクエストだけ', value: 'request' }
                     )
             )
             .addChannelOption((opt: any) =>
@@ -69,6 +74,13 @@ export default {
             return;
         }
 
+        if (handledComponentInteractions.has(interaction.id)) {
+            return;
+        }
+        handledComponentInteractions.add(interaction.id);
+        const cleanupTimer = setTimeout(() => handledComponentInteractions.delete(interaction.id), 60_000);
+        cleanupTimer.unref?.();
+
         try {
             const handled = interaction.isStringSelectMenu()
                 ? await coreFeatureManager.handleSelectMenuInteraction(interaction)
@@ -76,17 +88,17 @@ export default {
             if (!handled) {
                 await interaction.reply({
                     content: '❌ このボタンは無効か、現在は利用できません。',
-                    ephemeral: true
+                    flags: MessageFlags.Ephemeral
                 });
             }
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : '処理に失敗しました。';
-            if (interaction.deferred) {
+            if (interaction.deferred || interaction.replied) {
                 await interaction.editReply(`❌ ${errorMessage}`);
             } else {
                 await interaction.reply({
                     content: `❌ ${errorMessage}`,
-                    ephemeral: true
+                    flags: MessageFlags.Ephemeral
                 });
             }
         }

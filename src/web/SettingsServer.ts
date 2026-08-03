@@ -15,7 +15,7 @@ import { Logger } from '../utils/Logger.js';
 import { BotClient } from '../core/platform/BotClient.js';
 import { SessionService } from './services/SessionService.js';
 import { ProfileService } from './services/ProfileService.js';
-import { createStatusRoutes, createSessionRoutes, createSettingsRoutes, createStaffRoutes, createAuthRoutes, createUserRoutes, createModRoutes, createRolePresetRoutes, createRankRoutes, createWebRankRoutes, createPublicRankRoutes, createAntiCheatRoutes, createCorePanelRoutes, createChannelManagerRoutes, createTodoRoutes, createJoinLogRoutes } from './routes/index.js';
+import { createStatusRoutes, createSessionRoutes, createSettingsRoutes, createStaffRoutes, createAuthRoutes, createUserRoutes, createModRoutes, createRolePresetRoutes, createRankRoutes, createWebRankRoutes, createPublicRankRoutes, createGameRankingRoutes, createAntiCheatRoutes, createCorePanelRoutes, createChannelManagerRoutes, createTodoRoutes, createJoinLogRoutes } from './routes/index.js';
 import { createGuildRoutes } from './routes/guild.js';
 import { createProfileController } from './controllers/ProfileController.js';
 import { setupWebSocketServer } from './routes/websocket.js';
@@ -139,6 +139,7 @@ export class SettingsServer {
         this.app.use('/api/staff/rankmanager', createRankRoutes(sessions, this.botClient));
         this.app.use('/api/rank', createPublicRankRoutes(sessions, this.botClient));
         this.app.use('/api/rank', createWebRankRoutes(sessions, this.botClient));
+        this.app.use('/api/game-rankings', createGameRankingRoutes(sessions, this.botClient.client));
         this.app.use('/api/auth', createAuthRoutes(sessions, this.botClient));
         this.app.use('/api/user', createUserRoutes(sessions, this.botClient, this.profileService));
         this.app.use('/api/user/profile', createProfileController(sessions, this.profileService));

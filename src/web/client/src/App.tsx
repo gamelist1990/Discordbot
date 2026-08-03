@@ -15,6 +15,7 @@ import UserProfile from './pages/Profile';
 import AntiCheatPage from './pages/Staff/AntiCheat';
 import AntiCheatSelector from './pages/Staff/AntiCheatSelector';
 import CorePanelPage from './pages/Staff/CorePanel';
+import OthelloPage from './pages/Othello';
 import ChannelManagerPage from './pages/Staff/ChannelManager';
 import TodoPage from './pages/Staff/Todo';
 import JoinLogPage from './pages/Staff/JoinLog';
@@ -64,6 +65,7 @@ const App: React.FC = () => {
           <Route path="/rank" element={<RankBoardHome />} />
           <Route path="/rank/:guildId" element={<RankBoardGuild />} />
           <Route path="/rank/:guildId/:panelId" element={<RankBoard />} />
+          <Route path="/games/othello/:guildId" element={<OthelloPage />} />
           <Route path="/staff" element={<StaffGuard><StaffHelpPage /></StaffGuard>} />
           <Route path="/staff/privatechat" element={<StaffGuard><PrivateChatPage /></StaffGuard>} />
           <Route path="/staff/rolemanager" element={<StaffGuard><RoleManagerPage /></StaffGuard>} />

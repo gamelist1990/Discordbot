@@ -99,6 +99,9 @@ const AppHeader: React.FC<AppHeaderProps> = ({ user: userProp, onLogout }) => {
     if (location.pathname.startsWith('/staff/corepanel')) {
       return 'Core Panel';
     }
+    if (location.pathname.startsWith('/games/othello')) {
+      return 'Othello Arena';
+    }
     if (location.pathname.startsWith('/staff/rolemanager')) {
       return 'Role Manager';
     }

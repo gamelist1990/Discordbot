@@ -8,6 +8,7 @@ export * from './user.js';
 export * from './mod.js';
 export * from './rolepreset.js';
 export * from './rank.js';
+export * from './game-ranking.js';
 
 export * from './staff/anticheat.js';
 export * from './staff/corepanel.js';

@@ -8,6 +8,7 @@ import {
 } from 'discord.js';
 import { database } from '../persistence/Database.js';
 import { createDebateFeature } from './debate/index.js';
+import { createOthelloFeature } from './othello/index.js';
 import { createPersonalityFeature } from './personality/index.js';
 import { createRequestFeature } from './request/index.js';
 import {
@@ -71,6 +72,7 @@ export class CoreFeatureManager implements CoreFeatureApi {
     constructor() {
         this.registerFeature(createPersonalityFeature());
         this.registerFeature(createDebateFeature());
+        this.registerFeature(createOthelloFeature());
         this.registerFeature(createRequestFeature());
     }
 
