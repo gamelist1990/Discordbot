@@ -1,10 +1,8 @@
 import {
     AttachmentBuilder,
     ChatInputCommandInteraction,
-    NewsChannel,
     PermissionFlagsBits,
     SlashCommandSubcommandBuilder,
-    TextChannel,
 } from 'discord.js';
 /**
  * /staff fake
@@ -62,8 +60,14 @@ const fakeSubcommand = {
         const targetChannel =
             interaction.options.getChannel('channel') ?? interaction.channel;
 
-        if (!targetChannel || !(targetChannel instanceof TextChannel || targetChannel instanceof NewsChannel)) {
-            await interaction.editReply('❌ テキストチャンネルを指定してください。');
+        if (
+            !targetChannel
+            || !targetChannel.isTextBased()
+            || !('permissionsFor' in targetChannel)
+            || !('fetchWebhooks' in targetChannel)
+            || !('createWebhook' in targetChannel)
+        ) {
+            await interaction.editReply('❌ メッセージとWebhookを送信できるチャンネルを指定してください。');
             return;
         }
 

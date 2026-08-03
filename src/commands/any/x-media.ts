@@ -17,7 +17,7 @@ import {
 } from 'discord.js';
 import path from 'node:path';
 import { SlashCommand } from '../../types/command.js';
-import { downloadXMedia, extractXStatusUrl } from '../../core/media/XMediaDownloader.js';
+import { downloadXMedia, extractSupportedMediaUrl } from '../../core/media/XMediaDownloader.js';
 import { sendViaChannelWebhook } from '../../core/media/WebhookSender.js';
 
 // ---------------------------------------------------------------------------
@@ -201,17 +201,17 @@ export async function handleXMediaInteraction(
 // ---------------------------------------------------------------------------
 const xMediaCommand: SlashCommand = {
     data: new ContextMenuCommandBuilder()
-        .setName('Xのメディアを取得')
+        .setName('X・YouTube Shortsを取得')
         .setType(ApplicationCommandType.Message),
 
     async execute(baseInteraction): Promise<void> {
         if (!baseInteraction.isMessageContextMenuCommand()) return;
         const interaction = baseInteraction as MessageContextMenuCommandInteraction;
-        const sourceUrl = extractXStatusUrl(interaction.targetMessage.content);
+        const sourceUrl = extractSupportedMediaUrl(interaction.targetMessage.content);
 
         if (!sourceUrl) {
             await interaction.reply({
-                content: '選択したメッセージにX（Twitter）の投稿リンクがありません。',
+                content: '選択したメッセージにXの投稿またはYouTubeショート動画のリンクがありません。通常のYouTube動画には対応していません。',
                 flags: MessageFlags.Ephemeral,
             });
             return;

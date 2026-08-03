@@ -4,9 +4,42 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 const X_STATUS_URL = /https?:\/\/(?:www\.)?(?:x\.com|twitter\.com)\/[A-Za-z0-9_]+\/status\/\d+(?:\?[^\s<>]*)?/giu;
+const YOUTUBE_SHORTS_URL = /https?:\/\/(?:www\.|m\.)?youtube\.com\/shorts\/[A-Za-z0-9_-]+(?:\?[^\s<>]*)?/giu;
 const MEDIA_EXTENSIONS = new Set(['.mp4', '.webm', '.mov', '.mkv', '.jpg', '.jpeg', '.png', '.webp', '.gif']);
 const VIDEO_EXTENSIONS = new Set(['.mp4', '.webm', '.mov', '.mkv']);
 const PROCESS_TIMEOUT_MS = 5 * 60 * 1000;
+const FFMPEG_MAX_CONCURRENCY = 1;
+
+type CompressionJob = {
+    run: () => Promise<string>;
+    resolve: (value: string) => void;
+    reject: (reason: unknown) => void;
+};
+
+const compressionQueue: CompressionJob[] = [];
+let activeCompressionCount = 0;
+
+function processCompressionQueue(): void {
+    if (activeCompressionCount >= FFMPEG_MAX_CONCURRENCY) return;
+
+    const job = compressionQueue.shift();
+    if (!job) return;
+
+    activeCompressionCount++;
+    void job.run()
+        .then(job.resolve, job.reject)
+        .finally(() => {
+            activeCompressionCount--;
+            processCompressionQueue();
+        });
+}
+
+function enqueueCompression(run: () => Promise<string>): Promise<string> {
+    return new Promise((resolve, reject) => {
+        compressionQueue.push({ run, resolve, reject });
+        processCompressionQueue();
+    });
+}
 
 export interface DownloadedXMedia {
     directory: string;
@@ -27,6 +60,14 @@ export function extractXStatusUrl(content: string): string | null {
     return match ? normalizeXStatusUrl(match) : null;
 }
 
+export function extractSupportedMediaUrl(content: string): string | null {
+    const xUrl = extractXStatusUrl(content);
+    if (xUrl) return xUrl;
+
+    const shortsMatch = content.match(YOUTUBE_SHORTS_URL)?.[0];
+    return shortsMatch ? normalizeYouTubeShortsUrl(shortsMatch) : null;
+}
+
 function normalizeXStatusUrl(sourceUrl: string): string {
     const parsed = new URL(sourceUrl.replace(/[),.;!?]+$/u, ''));
     parsed.protocol = 'https:';
@@ -34,6 +75,23 @@ function normalizeXStatusUrl(sourceUrl: string): string {
     parsed.search = '';
     parsed.hash = '';
     return parsed.toString();
+}
+
+function normalizeYouTubeShortsUrl(sourceUrl: string): string {
+    const parsed = new URL(sourceUrl.replace(/[),.;!?]+$/u, ''));
+    const shortsId = parsed.pathname.match(/^\/shorts\/([A-Za-z0-9_-]+)\/?$/u)?.[1];
+    if (!shortsId) throw new Error('YouTubeはショート動画のURLのみ対応しています。');
+    return `https://www.youtube.com/shorts/${shortsId}`;
+}
+
+function isYouTubeShortsUrl(sourceUrl: string): boolean {
+    try {
+        const parsed = new URL(sourceUrl);
+        return /^(?:www\.|m\.)?youtube\.com$/iu.test(parsed.hostname)
+            && /^\/shorts\/[A-Za-z0-9_-]+\/?$/u.test(parsed.pathname);
+    } catch {
+        return false;
+    }
 }
 
 function getXStatusUrlCandidates(sourceUrl: string): string[] {
@@ -125,7 +183,7 @@ async function getVideoMetadata(file: string): Promise<VideoMetadata> {
     };
 }
 
-async function compressVideo(input: string, limitBytes: number, directory: string): Promise<string> {
+async function compressVideoNow(input: string, limitBytes: number, directory: string): Promise<string> {
     const metadata = await getVideoMetadata(input);
     const output = path.join(directory, `${path.parse(input).name}-discord.mp4`);
     const targetBits = Math.floor(limitBytes * 0.96 * 8);
@@ -145,11 +203,15 @@ async function compressVideo(input: string, limitBytes: number, directory: strin
     for (const dimension of dimensions) {
         const scale = `scale='min(${dimension.width},iw)':'min(${dimension.height},ih)':force_original_aspect_ratio=decrease:force_divisible_by=2`;
         await runProcess(executable('ffmpeg'), [
-            '-y', '-i', input,
+            '-y',
+            '-threads', '1',
+            '-filter_threads', '1',
+            '-filter_complex_threads', '1',
+            '-i', input,
             '-map', '0:v:0', '-map', '0:a?',
             '-vf', scale,
-            '-r', String(Math.min(Math.max(metadata.frameRate, 1), 60)),
-            '-c:v', 'libx264', '-preset', 'medium', '-profile:v', 'high', '-pix_fmt', 'yuv420p',
+            '-r', String(Math.min(Math.max(metadata.frameRate, 1), 30)),
+            '-c:v', 'libx264', '-preset', 'ultrafast', '-profile:v', 'high', '-pix_fmt', 'yuv420p',
             '-b:v', `${videoKbps}k`, '-maxrate', `${Math.floor(videoKbps * 1.08)}k`, '-bufsize', `${videoKbps * 2}k`,
             '-c:a', 'aac', '-b:a', `${audioKbps}k`, '-movflags', '+faststart', output,
         ]);
@@ -159,11 +221,41 @@ async function compressVideo(input: string, limitBytes: number, directory: strin
     throw new Error('動画をDiscordのアップロード上限まで圧縮できませんでした。');
 }
 
+async function compressVideo(input: string, limitBytes: number, directory: string): Promise<string> {
+    return await enqueueCompression(() => compressVideoNow(input, limitBytes, directory));
+}
+
 export async function downloadXMedia(sourceUrl: string, attachmentLimit: number): Promise<DownloadedXMedia> {
     const directory = await mkdtemp(path.join(tmpdir(), 'discord-x-media-'));
     const cleanup = async (): Promise<void> => { await rm(directory, { recursive: true, force: true }); };
 
     try {
+        if (isYouTubeShortsUrl(sourceUrl)) {
+            const normalizedShortsUrl = normalizeYouTubeShortsUrl(sourceUrl);
+            await runProcess(executable('yt-dlp'), [
+                '--no-warnings', '--no-playlist',
+                '--format', 'bestvideo*+bestaudio/best',
+                '--merge-output-format', 'mp4',
+                '--output', path.join(directory, '%(id)s.%(ext)s'),
+                normalizedShortsUrl,
+            ]);
+
+            const downloadedFiles = await listMediaFiles(directory);
+            const videoFiles = downloadedFiles.filter(file => VIDEO_EXTENSIONS.has(path.extname(file).toLowerCase()));
+            if (videoFiles.length === 0) throw new Error('YouTubeショート動画を取得できませんでした。');
+
+            const video = videoFiles[0];
+            const size = (await stat(video)).size;
+            const uploadFile = size <= attachmentLimit
+                ? video
+                : await compressVideo(video, attachmentLimit, directory);
+            return { directory, sourceUrl: normalizedShortsUrl, files: [uploadFile], cleanup };
+        }
+
+        if (!extractXStatusUrl(sourceUrl)) {
+            throw new Error('対応しているのはXの投稿またはYouTubeショート動画のURLのみです。');
+        }
+
         let files: string[] = [];
         let galleryError: unknown = null;
         for (const candidate of getXStatusUrlCandidates(sourceUrl)) {
