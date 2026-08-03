@@ -62,6 +62,8 @@ const fakeSubcommand = {
 
         if (
             !targetChannel
+            || !('isTextBased' in targetChannel)
+            || typeof targetChannel.isTextBased !== 'function'
             || !targetChannel.isTextBased()
             || !('permissionsFor' in targetChannel)
             || !('fetchWebhooks' in targetChannel)
