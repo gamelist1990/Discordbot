@@ -26,6 +26,19 @@ export const DETECTORS: DetectorDefinition[] = [
     { kind: 'number', key: 'deleteFrom', label: '削除開始回数', defaultValue: 2, min: 1 },
     { kind: 'number', key: 'scoreFrom', label: 'スコア開始回数', defaultValue: 4, min: 1 },
   ] },
+  { key: 'gifFlash', title: '点滅GIF保護', description: '強い明暗変化を繰り返すGIFを検知して削除します。', icon: 'visibility_off', fields: [
+    { kind: 'number', key: 'maxFileSizeMb', label: '解析上限(MB)', defaultValue: 8, min: 1, max: 25 },
+    { kind: 'number', key: 'maxSampleFrames', label: '解析フレーム数', defaultValue: 12, min: 2, max: 20 },
+    { kind: 'number', key: 'luminanceDeltaThreshold', label: '明暗差しきい値', defaultValue: 80, min: 20, max: 255 },
+    { kind: 'number', key: 'minimumTransitions', label: '危険な変化回数', defaultValue: 2, min: 1 },
+  ] },
+  { key: 'duplicateImage', title: '重複画像', description: '同一画像と軽微に加工された酷似画像の連投を止めます。', icon: 'image_not_supported', fields: [
+    { kind: 'number', key: 'windowSeconds', label: '監視秒数', defaultValue: 300, min: 1 },
+    { kind: 'number', key: 'deleteFrom', label: '削除開始回数', defaultValue: 2, min: 2 },
+    { kind: 'number', key: 'scoreFrom', label: 'スコア開始回数', defaultValue: 3, min: 2 },
+    { kind: 'number', key: 'perceptualDistance', label: '類似許容値', defaultValue: 5, min: 0, max: 16 },
+    { kind: 'number', key: 'maxFileSizeMb', label: '解析上限(MB)', defaultValue: 8, min: 1, max: 25 },
+  ] },
   { key: 'mentionSpam', title: 'メンションスパム', description: '連続メンション攻撃を止めます。', icon: 'record_voice_over', fields: [
     { kind: 'number', key: 'windowSeconds', label: '監視秒数', defaultValue: 30, min: 1 },
     { kind: 'number', key: 'sameUserMentionThreshold', label: '同一ユーザー上限', defaultValue: 5, min: 1 },

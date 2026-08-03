@@ -193,6 +193,36 @@ export const DEFAULT_ANTICHEAT_SETTINGS: GuildAntiCheatSettings = {
                 scoreFrom: 4
             }
         },
+        gifFlash: {
+            enabled: true,
+            score: 3,
+            deleteMessage: true,
+            notifyChannel: true,
+            config: {
+                maxFileSizeMb: 8,
+                timeoutMs: 3000,
+                maxSampleFrames: 12,
+                luminanceDeltaThreshold: 80,
+                pixelDeltaThreshold: 70,
+                minimumTransitions: 2,
+                minimumFlashScore: 0.55
+            }
+        },
+        duplicateImage: {
+            enabled: true,
+            score: 2,
+            deleteMessage: true,
+            notifyChannel: false,
+            config: {
+                windowSeconds: 300,
+                deleteFrom: 2,
+                scoreFrom: 3,
+                perceptualDistance: 5,
+                maxFileSizeMb: 8,
+                timeoutMs: 3000,
+                serverWide: false
+            }
+        },
         mentionSpam: {
             enabled: true,
             score: 2,

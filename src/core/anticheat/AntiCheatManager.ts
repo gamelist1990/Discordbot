@@ -36,6 +36,8 @@ import { MentionSpamDetector } from './detectors/MentionSpamDetector.js';
 import { MentionLimitDetector } from './detectors/MentionLimitDetector.js';
 import { MaxLinesDetector } from './detectors/MaxLinesDetector.js';
 import { WordFilterDetector } from './detectors/WordFilterDetector.js';
+import { GifFlashDetector } from './detectors/GifFlashDetector.js';
+import { DuplicateImageDetector } from './detectors/DuplicateImageDetector.js';
 import { PunishmentExecutor } from './PunishmentExecutor.js';
 import { hasMeaningfulDetection } from './utils.js';
 
@@ -46,6 +48,12 @@ export class AntiCheatManager {
     private readonly detectionCooldownMs = 150;
     private lastDetectionTimestamps: Map<string, number> = new Map();
     private logChannelCache: Map<string, TextChannel> = new Map();
+    private messageProcessingQueues: Map<string, Promise<void>> = new Map();
+    private settingsCache: Map<string, GuildAntiCheatSettings> = new Map();
+    private settingsLoads: Map<string, Promise<GuildAntiCheatSettings>> = new Map();
+    private settingsWriteQueues: Map<string, Promise<void>> = new Map();
+    private processedMessageCount = 0;
+    private readonly runtimeCleanupInterval = 10_000;
 
     constructor() {
         this.registerDetector(new TextSpamDetector());
@@ -58,6 +66,8 @@ export class AntiCheatManager {
         this.registerDetector(new MentionLimitDetector());
         this.registerDetector(new MaxLinesDetector());
         this.registerDetector(new WordFilterDetector());
+        this.registerDetector(new GifFlashDetector());
+        this.registerDetector(new DuplicateImageDetector());
     }
 
     setClient(client: Client): void {
@@ -73,6 +83,47 @@ export class AntiCheatManager {
         void task.catch((error) => {
             Logger.error(`Detached AntiCheat task failed (${context}):`, error);
         });
+    }
+    private enqueueMessageProcessing(key: string, task: () => Promise<void>): Promise<void> {
+        const previous = this.messageProcessingQueues.get(key) || Promise.resolve();
+        const next = previous
+            .catch(() => undefined)
+            .then(task)
+            .finally(() => {
+                if (this.messageProcessingQueues.get(key) === next) {
+                    this.messageProcessingQueues.delete(key);
+                }
+            });
+
+        this.messageProcessingQueues.set(key, next);
+        return next;
+    }
+
+    private cleanupRuntimeState(now: number): void {
+        for (const [key, timestamp] of this.lastDetectionTimestamps) {
+            if (now - timestamp > this.detectionCooldownMs * 4) {
+                this.lastDetectionTimestamps.delete(key);
+            }
+        }
+    }
+
+    private enqueueSettingsWrite(guildId: string, settings: GuildAntiCheatSettings): Promise<void> {
+        const previous = this.settingsWriteQueues.get(guildId) || Promise.resolve();
+        const next = previous
+            .catch(() => undefined)
+            .then(async () => {
+                const latest = this.settingsCache.get(guildId) || settings;
+                const key = `Guild/${guildId}/anticheat`;
+                await database.set(guildId, key, this.normalizeSettings(latest));
+            })
+            .finally(() => {
+                if (this.settingsWriteQueues.get(guildId) === next) {
+                    this.settingsWriteQueues.delete(guildId);
+                }
+            });
+
+        this.settingsWriteQueues.set(guildId, next);
+        return next;
     }
 
     mergeSettings(
@@ -127,7 +178,10 @@ export class AntiCheatManager {
         }
 
         try {
-            await this.processMessage(message, settings);
+            await this.enqueueMessageProcessing(
+                `${guildId}:${message.author.id}`,
+                () => this.processMessage(message, settings)
+            );
         } catch (error) {
             Logger.error(`AntiCheat error processing message ${message.id}:`, error);
         }
@@ -320,7 +374,11 @@ export class AntiCheatManager {
     private async processMessage(message: Message, settings: GuildAntiCheatSettings): Promise<void> {
         const guildId = message.guild!.id;
         const userId = message.author.id;
-        const currentTrust = await this.getUserTrust(guildId, userId);
+        const currentTrust = settings.userTrust[userId] || {
+            score: 0,
+            lastUpdated: new Date().toISOString(),
+            history: []
+        };
         const context = {
             guildId,
             userId,
@@ -328,11 +386,12 @@ export class AntiCheatManager {
             userTrustScore: currentTrust.score,
             settings
         };
-
-        let totalScoreDelta = 0;
-        let messageDeleted = false;
-        let autoTimeoutExecuted = false;
-        const detectionResults: Array<{ detector: string; result: DetectionResult }> = [];
+        const detectionStartedAt = Date.now();
+        this.processedMessageCount += 1;
+        if (this.processedMessageCount % this.runtimeCleanupInterval === 0) {
+            this.cleanupRuntimeState(detectionStartedAt);
+        }
+        const detectorTasks: Array<Promise<{ detector: string; result: DetectionResult } | null>> = [];
 
         for (const [name, detector] of this.detectors) {
             const detectorConfig = settings.detectors[name];
@@ -341,78 +400,89 @@ export class AntiCheatManager {
             }
 
             const cooldownKey = `${guildId}:${userId}:${name}`;
-            const now = Date.now();
             const last = this.lastDetectionTimestamps.get(cooldownKey) || 0;
-            if (now - last < this.detectionCooldownMs) {
+            if (detectionStartedAt - last < this.detectionCooldownMs) {
                 continue;
             }
 
-            try {
-                const result = await detector.detect(message, context);
-                const triggered = hasMeaningfulDetection(result);
-                if (!triggered) {
-                    continue;
-                }
+            detectorTasks.push(
+                detector.detect(message, context)
+                    .then((result) => {
+                        if (!hasMeaningfulDetection(result)) {
+                            return null;
+                        }
 
-                this.lastDetectionTimestamps.set(cooldownKey, now);
-                totalScoreDelta += result.scoreDelta;
-                detectionResults.push({ detector: name, result });
-
-                if (settings.autoDelete.enabled && result.deleteMessage && !messageDeleted) {
-                    await message.delete().then(() => {
-                        messageDeleted = true;
-                    }).catch(() => null);
-                }
-
-                this.appendLog(settings, {
-                    userId,
-                    messageId: message.id,
-                    detector: name,
-                    scoreDelta: result.scoreDelta,
-                    reason: result.reasons.join('; ') || '検知',
-                    timestamp: new Date().toISOString(),
-                    status: 'active',
-                    metadata: {
-                        channelId: message.channel.id,
-                        deletedMessage: messageDeleted,
-                        contentPreview: message.content.slice(0, 160),
-                        ...(result.metadata || {})
-                    }
-                });
-
-                if (result.scoreDelta > 0) {
-                    await this.applyTrustAdjustment(
-                        settings,
-                        guildId,
-                        userId,
-                        result.scoreDelta,
-                        result.reasons.join('; ') || name
-                    );
-
-                    if (settings.autoTimeout.enabled && !autoTimeoutExecuted) {
-                        autoTimeoutExecuted = await this.executeAutoTimeout(message.guild!, userId, settings, message.id);
-                    }
-                }
-
-                if (result.publicNotice && detectorConfig.notifyChannel) {
-                    this.runDetached(
-                        this.sendPublicNotice(message, result.publicNotice),
-                        `public-notice:${guildId}:${message.id}:${name}`
-                    );
-                }
-            } catch (error) {
-                Logger.error(`Detector ${name} failed:`, error);
-            }
+                        this.lastDetectionTimestamps.set(cooldownKey, Date.now());
+                        return { detector: name, result };
+                    })
+                    .catch((error) => {
+                        Logger.error(`Detector ${name} failed:`, error);
+                        return null;
+                    })
+            );
         }
+
+        const detectionResults = (await Promise.all(detectorTasks))
+            .filter((entry): entry is { detector: string; result: DetectionResult } => entry !== null);
 
         if (detectionResults.length === 0) {
             return;
         }
 
-        const autoDeleteEnabled = settings.autoDelete.enabled;
+        const totalScoreDelta = detectionResults.reduce(
+            (sum, { result }) => sum + Math.max(0, result.scoreDelta),
+            0
+        );
+        const shouldDeleteMessage = settings.autoDelete.enabled
+            && detectionResults.some(({ result }) => result.deleteMessage);
+        const messageDeleted = shouldDeleteMessage
+            ? await message.delete().then(() => true).catch(() => false)
+            : false;
+        const detectedAt = new Date().toISOString();
+        const detectionLatencyMs = Date.now() - detectionStartedAt;
+
+        for (const { detector, result } of detectionResults) {
+            this.appendLog(settings, {
+                userId,
+                messageId: message.id,
+                detector,
+                scoreDelta: result.scoreDelta,
+                reason: result.reasons.join('; ') || '検知',
+                timestamp: detectedAt,
+                status: 'active',
+                metadata: {
+                    channelId: message.channel.id,
+                    deletedMessage: messageDeleted,
+                    contentPreview: message.content.slice(0, 160),
+                    detectionLatencyMs,
+                    ...(result.metadata || {})
+                }
+            });
+
+            if (result.publicNotice && settings.detectors[detector]?.notifyChannel) {
+                this.runDetached(
+                    this.sendPublicNotice(message, result.publicNotice),
+                    `public-notice:${guildId}:${message.id}:${detector}`
+                );
+            }
+        }
 
         if (totalScoreDelta > 0) {
-            if (autoDeleteEnabled) {
+            await this.applyTrustAdjustment(
+                settings,
+                guildId,
+                userId,
+                totalScoreDelta,
+                detectionResults
+                    .flatMap(({ detector, result }) => result.reasons.length ? result.reasons : [detector])
+                    .join('; ')
+            );
+
+            if (settings.autoTimeout.enabled) {
+                await this.executeAutoTimeout(message.guild!, userId, settings, message.id);
+            }
+
+            if (settings.autoDelete.enabled) {
                 this.runDetached(
                     this.deleteRecentMessages(message.guild!, userId, settings.autoDelete.windowSeconds)
                         .then((deleted) => {
@@ -429,7 +499,6 @@ export class AntiCheatManager {
             `detection-summary:${guildId}:${message.id}`
         );
     }
-
     private async sendDetectionSummary(
         guild: Guild,
         message: Message,
@@ -672,21 +741,39 @@ export class AntiCheatManager {
     }
 
     async getSettings(guildId: string): Promise<GuildAntiCheatSettings> {
-        const key = `Guild/${guildId}/anticheat`;
-        const storedSettings = await database.get<GuildAntiCheatSettings>(guildId, key);
-        const normalized = this.normalizeSettings(storedSettings);
-
-        if (!storedSettings || JSON.stringify(storedSettings) !== JSON.stringify(normalized)) {
-            await database.set(guildId, key, normalized);
+        const cached = this.settingsCache.get(guildId);
+        if (cached) {
+            return cached;
         }
 
-        return normalized;
+        const pending = this.settingsLoads.get(guildId);
+        if (pending) {
+            return pending;
+        }
+
+        const load = (async () => {
+            const key = `Guild/${guildId}/anticheat`;
+            const storedSettings = await database.get<GuildAntiCheatSettings>(guildId, key);
+            const normalized = this.normalizeSettings(storedSettings);
+            this.settingsCache.set(guildId, normalized);
+
+            if (!storedSettings || JSON.stringify(storedSettings) !== JSON.stringify(normalized)) {
+                await this.enqueueSettingsWrite(guildId, normalized);
+            }
+
+            return normalized;
+        })().finally(() => {
+            this.settingsLoads.delete(guildId);
+        });
+
+        this.settingsLoads.set(guildId, load);
+        return load;
     }
 
     async setSettings(guildId: string, settings: GuildAntiCheatSettings): Promise<void> {
         const normalized = this.normalizeSettings(settings);
-        const key = `Guild/${guildId}/anticheat`;
-        await database.set(guildId, key, normalized);
+        this.settingsCache.set(guildId, normalized);
+        await this.enqueueSettingsWrite(guildId, normalized);
         Logger.info(`Updated AntiCheat settings for guild ${guildId}`);
     }
 

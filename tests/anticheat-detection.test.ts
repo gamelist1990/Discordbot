@@ -8,6 +8,12 @@ import { TextSpamDetector } from '../src/core/anticheat/detectors/TextSpamDetect
 import { MentionSpamDetector } from '../src/core/anticheat/detectors/MentionSpamDetector.ts';
 import { hasMeaningfulDetection } from '../src/core/anticheat/utils.ts';
 import { CacheManager } from '../src/utils/CacheManager.ts';
+import sharp from 'sharp';
+import {
+    analyzeGifFlash,
+    calculateHashDistance,
+    createImageFingerprint
+} from '../src/core/anticheat/detectors/MediaSafetyUtils.ts';
 
 (globalThis as any)._cacheCleanupInterval?.unref?.();
 
@@ -501,4 +507,111 @@ test('messageUpdate ignores partial cache updates without editedTimestamp', asyn
     );
 
     assert.equal(sendChatLogCalls, 0);
+});
+
+test('flash analysis detects alternating single-color GIF frames', async () => {
+    const width = 32;
+    const height = 32;
+    const frameCount = 6;
+    const frameSize = width * height * 4;
+    const raw = Buffer.alloc(frameSize * frameCount);
+
+    for (let frame = 0; frame < frameCount; frame += 1) {
+        const value = frame % 2 === 0 ? 0 : 255;
+        for (
+            let offset = frame * frameSize;
+            offset < (frame + 1) * frameSize;
+            offset += 4
+        ) {
+            raw[offset] = value;
+            raw[offset + 1] = value;
+            raw[offset + 2] = value;
+            raw[offset + 3] = 255;
+        }
+    }
+
+    const gif = await sharp(raw, {
+        raw: {
+            width,
+            height: height * frameCount,
+            channels: 4
+        },
+        pageHeight: height
+    }).gif({
+        delay: Array(frameCount).fill(60),
+        loop: 0
+    }).toBuffer();
+
+    const analysis = await analyzeGifFlash(gif);
+
+    assert.equal(analysis.animated, true);
+    assert.equal(analysis.hazardous, true);
+    assert.ok(analysis.transitionCount >= 2);
+    assert.ok(analysis.maxLuminanceDelta >= 200);
+    assert.ok(analysis.flashScore >= 0.55);
+});
+
+test('flash analysis allows static GIF images', async () => {
+    const staticGif = await sharp({
+        create: {
+            width: 32,
+            height: 32,
+            channels: 4,
+            background: '#707070'
+        }
+    }).gif().toBuffer();
+
+    const analysis = await analyzeGifFlash(staticGif);
+
+    assert.equal(analysis.animated, false);
+    assert.equal(analysis.hazardous, false);
+    assert.equal(analysis.transitionCount, 0);
+});
+
+test('image fingerprints identify exact and recompressed duplicate images', async () => {
+    const original = await sharp({
+        create: {
+            width: 96,
+            height: 96,
+            channels: 4,
+            background: '#3366cc'
+        }
+    })
+        .composite([{
+            input: {
+                create: {
+                    width: 32,
+                    height: 32,
+                    channels: 4,
+                    background: '#ffffff'
+                }
+            },
+            left: 32,
+            top: 32
+        }])
+        .png()
+        .toBuffer();
+
+    const recompressed = await sharp(original)
+        .jpeg({ quality: 90 })
+        .toBuffer();
+
+    const originalFingerprint = await createImageFingerprint(original);
+    const identicalFingerprint = await createImageFingerprint(Buffer.from(original));
+    const recompressedFingerprint = await createImageFingerprint(recompressed);
+
+    assert.equal(originalFingerprint.sha256, identicalFingerprint.sha256);
+    assert.equal(
+        calculateHashDistance(
+            originalFingerprint.perceptualHash,
+            identicalFingerprint.perceptualHash
+        ),
+        0
+    );
+    assert.ok(
+        calculateHashDistance(
+            originalFingerprint.perceptualHash,
+            recompressedFingerprint.perceptualHash
+        ) <= 5
+    );
 });
