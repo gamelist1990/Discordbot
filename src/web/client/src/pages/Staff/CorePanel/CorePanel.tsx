@@ -23,7 +23,21 @@ type GuildRole = {
   position: number;
 };
 
-type CoreFeaturePanelKind = 'combined' | 'personality' | 'debate' | 'request';
+type CoreFeaturePanelKind = string;
+
+type CoreFeatureDescriptor = {
+  key: string;
+  label: string;
+  description: string;
+  category: 'game' | 'utility' | 'community' | 'other';
+  emoji: string;
+  color: number;
+  order: number;
+  webSettings: {
+    spectatorRole: boolean;
+    requestSettings: boolean;
+  };
+};
 
 type CorePanelConfig = {
   panelKind: CoreFeaturePanelKind;
@@ -39,13 +53,6 @@ type CorePanelConfig = {
   updatedBy: string;
   updatedAt: string;
 };
-
-const panelKindOptions: Array<{ value: CoreFeaturePanelKind; label: string; description: string }> = [
-  { value: 'combined', label: '統合パネル', description: '性格診断・レスバ・リクエスト をまとめて投稿します。' },
-  { value: 'personality', label: '性格診断だけ', description: '性格診断ボタンだけを投稿します。' },
-  { value: 'debate', label: 'レスバだけ', description: 'レスバボタンだけを投稿します。' },
-  { value: 'request', label: 'リクエストだけ', description: 'リクエストボタンだけを投稿します。' },
-];
 
 const CorePanelPage: React.FC = () => {
   const navigate = useNavigate();
@@ -64,6 +71,7 @@ const CorePanelPage: React.FC = () => {
   const [roles, setRoles] = useState<GuildRole[]>([]);
   const [config, setConfig] = useState<CorePanelConfig | null>(null);
   const [panelUrl, setPanelUrl] = useState<string | null>(null);
+  const [features, setFeatures] = useState<CoreFeatureDescriptor[]>([]);
 
   const [panelKind, setPanelKind] = useState<CoreFeaturePanelKind>('combined');
   const [channelId, setChannelId] = useState('');
@@ -86,9 +94,23 @@ const CorePanelPage: React.FC = () => {
     () => guilds.find((guild) => guild.id === selectedGuildId) || null,
     [guilds, selectedGuildId]
   );
+  const panelKindOptions = useMemo(() => [
+    {
+      value: 'combined',
+      label: '統合パネル',
+      description: `登録済みの ${features.length} 機能をまとめて投稿します。`,
+      emoji: '🧩',
+    },
+    ...features.map((feature) => ({
+      value: feature.key,
+      label: feature.label,
+      description: feature.description,
+      emoji: feature.emoji,
+    })),
+  ], [features]);
   const panelKindMeta = useMemo(
     () => panelKindOptions.find((option) => option.value === panelKind) || panelKindOptions[0],
-    [panelKind]
+    [panelKind, panelKindOptions]
   );
   const currentChannelName = useMemo(() => {
     const activeChannelId = channelId || config?.channelId || '';
@@ -126,8 +148,16 @@ const CorePanelPage: React.FC = () => {
     const trackingChannel = channels.find((channel) => channel.id === trackingChannelId);
     return trackingChannel?.name ? `#${trackingChannel.name}` : trackingChannelId;
   }, [channels, config?.requestTrackingChannelId, requestTrackingChannelId]);
-  const usesRequestSettings = panelKind === 'combined' || panelKind === 'request';
-  const usesSpectatorRole = panelKind === 'combined' || panelKind === 'debate';
+  const selectedFeature = useMemo(
+    () => features.find((feature) => feature.key === panelKind) || null,
+    [features, panelKind]
+  );
+  const usesRequestSettings = panelKind === 'combined'
+    ? features.some((feature) => feature.webSettings.requestSettings)
+    : selectedFeature?.webSettings.requestSettings === true;
+  const usesSpectatorRole = panelKind === 'combined'
+    ? features.some((feature) => feature.webSettings.spectatorRole)
+    : selectedFeature?.webSettings.spectatorRole === true;
 
   useEffect(() => {
     const loadGuilds = async () => {
@@ -161,6 +191,7 @@ const CorePanelPage: React.FC = () => {
   useEffect(() => {
     if (!selectedGuildId) {
       setConfig(null);
+      setFeatures([]);
       setChannels([]);
       setRoles([]);
       setPanelUrl(null);
@@ -201,6 +232,7 @@ const CorePanelPage: React.FC = () => {
         const nextRoles = (rolesData.roles || []) as GuildRole[];
 
         setConfig(nextConfig);
+        setFeatures((configData.features || []) as CoreFeatureDescriptor[]);
         setPanelUrl(configData.panelUrl || null);
         setChannels(nextChannels);
         setRoles(nextRoles);
@@ -365,12 +397,17 @@ const CorePanelPage: React.FC = () => {
               <h2>パネル設定</h2>
               <p className={styles.hint}>{panelKindMeta.description}</p>
 
+              <div className={styles.infoItem}>
+                <span>登録済み機能</span>
+                <strong>{features.length} 件</strong>
+              </div>
+
               <div className={styles.field}>
                 <label htmlFor="corepanel-kind">パネル種類</label>
                 <select id="corepanel-kind" value={panelKind} onChange={(event) => setPanelKind(event.target.value as CoreFeaturePanelKind)}>
                   {panelKindOptions.map((option) => (
                     <option key={option.value} value={option.value}>
-                      {option.label}
+                      {option.emoji} {option.label}{option.value === 'combined' ? '' : 'だけ'}
                     </option>
                   ))}
                 </select>

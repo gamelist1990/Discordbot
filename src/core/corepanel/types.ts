@@ -27,10 +27,11 @@ export interface PersonalityArchetypeDefinition {
     summary: string;
 }
 
-export type CoreFeaturePanelKind = 'combined' | 'personality' | 'debate' | 'request';
+export type CoreFeaturePanelKind = string;
 
 export interface CoreFeaturePanelConfig {
     panelKind: CoreFeaturePanelKind;
+    featureKeys?: string[];
     guildId: string;
     channelId: string;
     messageId: string | null;

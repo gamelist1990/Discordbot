@@ -22,6 +22,12 @@ export class DebateFeature implements CoreFeatureModule {
 
     readonly key = 'debate';
     readonly order = 20;
+    readonly label = 'レスバ';
+    readonly description = 'AIや論破王との対戦、AI同士の観戦ゲームを開始できます。';
+    readonly category = 'game' as const;
+    readonly emoji = '⚔️';
+    readonly color = 0xd9534f;
+    readonly webSettings = { spectatorRole: true };
     private readonly service = new DebateService();
     private api: CoreFeatureApi | null = null;
     private readonly entryTokens = new Map<string, {

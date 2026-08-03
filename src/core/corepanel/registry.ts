@@ -33,6 +33,15 @@ export interface CoreFeatureResetResult {
 export interface CoreFeatureModule {
     key: string;
     order?: number;
+    label?: string;
+    description?: string;
+    category?: 'game' | 'utility' | 'community' | 'other';
+    emoji?: string;
+    color?: number;
+    webSettings?: {
+        spectatorRole?: boolean;
+        requestSettings?: boolean;
+    };
     register?(api: CoreFeatureApi): void | Promise<void>;
     setClient?(client: Client): void;
     buildPanelButton(guildId: string, panelKind: CoreFeaturePanelKind): ButtonBuilder;
@@ -42,6 +51,20 @@ export interface CoreFeatureModule {
     handleSelectMenuInteraction?(interaction: StringSelectMenuInteraction, panelKind: CoreFeaturePanelKind, action: string, parts: string[]): Promise<boolean>;
     handleMessage?(message: Message): Promise<boolean>;
     handleModalSubmit?(interaction: ModalSubmitInteraction, customId: string): Promise<boolean>;
+}
+
+export interface CoreFeatureDescriptor {
+    key: string;
+    label: string;
+    description: string;
+    category: 'game' | 'utility' | 'community' | 'other';
+    emoji: string;
+    color: number;
+    order: number;
+    webSettings: {
+        spectatorRole: boolean;
+        requestSettings: boolean;
+    };
 }
 
 export function buildPanelRowsFromFeatures(

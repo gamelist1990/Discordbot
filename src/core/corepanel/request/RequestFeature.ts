@@ -94,6 +94,12 @@ function generateRequestId(): string {
 export class RequestFeature implements CoreFeatureModule {
     readonly key = 'request';
     readonly order = 30;
+    readonly label = 'リクエスト';
+    readonly description = '機能追加、改善案、バグ報告などの要望を受付・追跡します。';
+    readonly category = 'community' as const;
+    readonly emoji = '📝';
+    readonly color = 0x2f9e44;
+    readonly webSettings = { requestSettings: true };
     private api: CoreFeatureApi | null = null;
 
     register(api: CoreFeatureApi): void {

@@ -12,7 +12,27 @@ export function getCorePanelKindLabel(panelKind: CoreFeaturePanelKind): string {
     if (panelKind === 'request') {
         return 'リクエスト';
     }
+    if (panelKind !== 'combined') {
+        return panelKind;
+    }
     return '統合';
+}
+
+export function buildRegisteredCorePanelEmbed(
+    panelKind: CoreFeaturePanelKind,
+    spectatorRoleId: string | null,
+    feature?: { label: string; description: string; emoji: string; color: number }
+): EmbedBuilder {
+    if (!feature || ['combined', 'personality', 'debate', 'request'].includes(panelKind)) {
+        return buildCorePanelEmbed(panelKind, spectatorRoleId);
+    }
+
+    return new EmbedBuilder()
+        .setTitle(`${feature.emoji} ${feature.label}パネル`)
+        .setColor(feature.color)
+        .setDescription(feature.description)
+        .setFooter({ text: 'CorePanel feature registry' })
+        .setTimestamp();
 }
 
 export function buildCorePanelEmbed(panelKind: CoreFeaturePanelKind, spectatorRoleId: string | null): EmbedBuilder {

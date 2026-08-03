@@ -6,6 +6,11 @@ import { CoreFeaturePanelKind } from '../types.js';
 export class PersonalityFeature implements CoreFeatureModule {
     readonly key = 'personality';
     readonly order = 10;
+    readonly label = '性格診断';
+    readonly description = 'AIとの面談から性格タイプを判定します。';
+    readonly category = 'game' as const;
+    readonly emoji = '🧠';
+    readonly color = 0x4f8cff;
     private readonly service = new PersonalityService();
 
     setClient(client: Client): void {

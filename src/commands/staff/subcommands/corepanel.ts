@@ -7,7 +7,7 @@ import {
     StringSelectMenuInteraction
 } from 'discord.js';
 import { coreFeatureManager } from '../../../core/corepanel/CoreFeatureManager.js';
-import { buildCorePanelEmbed, getCorePanelKindLabel } from '../../../core/corepanel/panelMessage.js';
+import { buildRegisteredCorePanelEmbed, getCorePanelKindLabel } from '../../../core/corepanel/panelMessage.js';
 import { CoreFeaturePanelKind } from '../../../core/corepanel/types.js';
 
 function isTextChannel(targetChannel: any): boolean {
@@ -195,7 +195,11 @@ export default {
                 : selectedRole?.id || existingConfig?.spectatorRoleId || null;
 
             const sentMessage = await (targetChannel as any).send({
-                embeds: [buildCorePanelEmbed(panelKind, spectatorRoleId)],
+                embeds: [buildRegisteredCorePanelEmbed(
+                    panelKind,
+                    spectatorRoleId,
+                    coreFeatureManager.getFeatureDescriptors().find((feature) => feature.key === panelKind)
+                )],
                 components: coreFeatureManager.buildPanelRows(interaction.guild.id, panelKind)
             });
 

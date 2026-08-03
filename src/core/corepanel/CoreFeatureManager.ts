@@ -14,6 +14,7 @@ import {
     buildPanelRowsFromFeatures,
     CoreFeatureApi,
     CoreFeatureCloseResult,
+    CoreFeatureDescriptor,
     CoreFeatureModule,
     CoreFeatureResetResult
 } from './registry.js';
@@ -30,7 +31,7 @@ function getPanelMapKey(guildId: string): string {
 }
 
 function isPanelKind(value: string): value is CoreFeaturePanelKind {
-    return ['combined', 'personality', 'debate', 'request'].includes(value);
+    return /^[a-z0-9][a-z0-9_-]{0,63}$/i.test(value);
 }
 
 function normalizePanelConfig(
@@ -43,6 +44,9 @@ function normalizePanelConfig(
 
     return {
         panelKind,
+        featureKeys: Array.isArray(config.featureKeys)
+            ? config.featureKeys.filter((entry): entry is string => typeof entry === 'string')
+            : undefined,
         guildId: config.guildId,
         channelId: config.channelId,
         messageId: typeof config.messageId === 'string' ? config.messageId : null,
@@ -82,11 +86,39 @@ export class CoreFeatureManager implements CoreFeatureApi {
     }
 
     registerFeature(feature: CoreFeatureModule): void {
+        if (!isPanelKind(feature.key) || feature.key === 'combined') {
+            throw new Error(`Invalid CorePanel feature key: ${feature.key}`);
+        }
+        if (this.features.has(feature.key)) {
+            throw new Error(`CorePanel feature is already registered: ${feature.key}`);
+        }
         this.features.set(feature.key, feature);
         feature.register?.(this);
         if (this.client) {
             feature.setClient?.(this.client);
         }
+    }
+
+    getFeatureDescriptors(): CoreFeatureDescriptor[] {
+        return Array.from(this.features.values())
+            .map((feature) => ({
+                key: feature.key,
+                label: feature.label || feature.key,
+                description: feature.description || `${feature.label || feature.key}機能`,
+                category: feature.category || 'other',
+                emoji: feature.emoji || 'extension',
+                color: feature.color ?? 0x5865f2,
+                order: feature.order ?? 100,
+                webSettings: {
+                    spectatorRole: feature.webSettings?.spectatorRole === true,
+                    requestSettings: feature.webSettings?.requestSettings === true
+                }
+            }))
+            .sort((left, right) => left.order - right.order || left.key.localeCompare(right.key));
+    }
+
+    isRegisteredPanelKind(value: string): value is CoreFeaturePanelKind {
+        return value === 'combined' || this.features.has(value);
     }
 
     registerModalRoute(customId: string, handler: (interaction: ModalSubmitInteraction) => Promise<void>): void {
@@ -112,7 +144,7 @@ export class CoreFeatureManager implements CoreFeatureApi {
         const stored = await database.get<Partial<Record<CoreFeaturePanelKind, CoreFeaturePanelConfig>> | null>(guildId, getPanelMapKey(guildId), null);
         const result: Partial<Record<CoreFeaturePanelKind, CoreFeaturePanelConfig>> = {};
 
-        for (const panelKind of ['combined', 'personality', 'debate', 'request'] as CoreFeaturePanelKind[]) {
+        for (const panelKind of ['combined', ...this.features.keys()] as CoreFeaturePanelKind[]) {
             const normalized = normalizePanelConfig(panelKind, stored?.[panelKind]);
             if (normalized) {
                 result[panelKind] = normalized;

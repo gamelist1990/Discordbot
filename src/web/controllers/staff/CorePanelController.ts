@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import { ChannelType, TextChannel } from 'discord.js';
 import { BotClient } from '../../../core/platform/BotClient.js';
 import { coreFeatureManager } from '../../../core/corepanel/CoreFeatureManager.js';
-import { buildCorePanelEmbed } from '../../../core/corepanel/panelMessage.js';
+import { buildRegisteredCorePanelEmbed } from '../../../core/corepanel/panelMessage.js';
 import { CoreFeaturePanelKind } from '../../../core/corepanel/types.js';
 import { database } from '../../../core/persistence/Database.js';
 
@@ -31,6 +31,7 @@ export class CorePanelController {
             const requestConfig = supportsRequestSettings(panelKind) ? await getRequestConfig(guildId) : null;
             res.json({
                 panelKind,
+                features: coreFeatureManager.getFeatureDescriptors(),
                 config: mergeRequestSettings(config, requestConfig),
                 panelUrl: buildPanelUrl(guildId, config?.channelId || null, config?.messageId || null)
             });
@@ -164,7 +165,11 @@ export class CorePanelController {
             }
 
             const payload = {
-                embeds: [buildCorePanelEmbed(panelKind, nextSpectatorRoleId)],
+                embeds: [buildRegisteredCorePanelEmbed(
+                    panelKind,
+                    nextSpectatorRoleId,
+                    coreFeatureManager.getFeatureDescriptors().find((feature) => feature.key === panelKind)
+                )],
                 components: coreFeatureManager.buildPanelRows(guildId, panelKind)
             };
 
@@ -219,7 +224,7 @@ export class CorePanelController {
 }
 
 function readPanelKind(value: unknown): CoreFeaturePanelKind {
-    return value === 'personality' || value === 'debate' || value === 'request' ? value : 'combined';
+    return typeof value === 'string' && coreFeatureManager.isRegisteredPanelKind(value) ? value : 'combined';
 }
 
 function resolveRequestDoneChannelId(
@@ -240,7 +245,11 @@ function resolveRequestDoneChannelId(
 }
 
 function supportsRequestSettings(panelKind: CoreFeaturePanelKind): boolean {
-    return panelKind === 'combined' || panelKind === 'request';
+    if (panelKind === 'combined' || panelKind === 'request') {
+        return true;
+    }
+    return coreFeatureManager.getFeatureDescriptors()
+        .some((feature) => feature.key === panelKind && feature.webSettings.requestSettings);
 }
 
 type StoredRequestConfig = {
