@@ -9,6 +9,8 @@ import { MentionSpamDetector } from '../src/core/anticheat/detectors/MentionSpam
 import { hasMeaningfulDetection } from '../src/core/anticheat/utils.ts';
 import { CacheManager } from '../src/utils/CacheManager.ts';
 import sharp from 'sharp';
+import GIFEncoder from 'gif-encoder-2';
+import { createCanvas } from 'canvas';
 import {
     analyzeGifFlash,
     calculateHashDistance,
@@ -513,38 +515,26 @@ test('flash analysis detects alternating single-color GIF frames', async () => {
     const width = 32;
     const height = 32;
     const frameCount = 6;
-    const frameSize = width * height * 4;
-    const raw = Buffer.alloc(frameSize * frameCount);
+    const canvas = createCanvas(width, height);
+    const context = canvas.getContext('2d');
+    const encoder = new GIFEncoder(width, height, 'neuquant', false, frameCount);
+
+    encoder.start();
+    encoder.setRepeat(0);
+    encoder.setDelay(60);
+    encoder.setQuality(1);
 
     for (let frame = 0; frame < frameCount; frame += 1) {
-        const value = frame % 2 === 0 ? 0 : 255;
-        for (
-            let offset = frame * frameSize;
-            offset < (frame + 1) * frameSize;
-            offset += 4
-        ) {
-            raw[offset] = value;
-            raw[offset + 1] = value;
-            raw[offset + 2] = value;
-            raw[offset + 3] = 255;
-        }
+        context.fillStyle = frame % 2 === 0 ? '#000000' : '#ffffff';
+        context.fillRect(0, 0, width, height);
+        encoder.addFrame(context);
     }
 
-    const gif = await sharp(raw, {
-        raw: {
-            width,
-            height: height * frameCount,
-            channels: 4
-        },
-        pageHeight: height
-    }).gif({
-        delay: Array(frameCount).fill(60),
-        loop: 0
-    }).toBuffer();
-
-    const analysis = await analyzeGifFlash(gif);
+    encoder.finish();
+    const analysis = await analyzeGifFlash(encoder.out.getData());
 
     assert.equal(analysis.animated, true);
+    assert.equal(analysis.frameCount, frameCount);
     assert.equal(analysis.hazardous, true);
     assert.ok(analysis.transitionCount >= 2);
     assert.ok(analysis.maxLuminanceDelta >= 200);

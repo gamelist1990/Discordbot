@@ -1,6 +1,7 @@
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import opentype, { type Font } from 'opentype.js';
 import {
     createCanvas,
     loadImage,
@@ -13,14 +14,32 @@ const WIDTH = 1200;
 const HEIGHT = 675;
 const FONT_FAMILY = 'QuoteCardNotoSansJP';
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
-const FONT_FILE = path.resolve(currentDirectory, '../../../assets/fonts/NotoSansJP[wght].ttf');
+const FONT_FILE = path.resolve(
+    currentDirectory,
+    '../../../assets/fonts/NotoSansJP[wght].ttf',
+);
+const QUOTE_FONT_FILE = path.resolve(
+    currentDirectory,
+    '../../../assets/fonts/YujiSyuku-Regular.ttf',
+);
 
 let fontRegistered = false;
+let quoteFont: Font | undefined;
 
 function ensureFont(): void {
-    if (fontRegistered || !existsSync(FONT_FILE)) return;
-    registerFont(FONT_FILE, { family: FONT_FAMILY });
-    fontRegistered = true;
+    if (!fontRegistered && existsSync(FONT_FILE)) {
+        registerFont(FONT_FILE, { family: FONT_FAMILY });
+        fontRegistered = true;
+    }
+
+    if (!quoteFont && existsSync(QUOTE_FONT_FILE)) {
+        const fontBuffer = readFileSync(QUOTE_FONT_FILE);
+        const arrayBuffer = fontBuffer.buffer.slice(
+            fontBuffer.byteOffset,
+            fontBuffer.byteOffset + fontBuffer.byteLength,
+        );
+        quoteFont = opentype.parse(arrayBuffer);
+    }
 }
 
 export type QuoteCardStyle =
@@ -36,6 +55,7 @@ export interface QuoteCardOptions {
     authorName: string;
     authorHandle: string;
     avatarUrl?: string;
+    contentImageUrl?: string;
     style?: QuoteCardStyle;
     seed?: string;
 }
@@ -119,13 +139,48 @@ function setFont(ctx: CanvasRenderingContext2D, size: number, weight = 500): voi
     ctx.font = `${weight} ${size}px ${family}`;
 }
 
-function splitLongToken(ctx: CanvasRenderingContext2D, token: string, maxWidth: number): string[] {
+function measureQuoteText(
+    ctx: CanvasRenderingContext2D,
+    text: string,
+    size: number,
+): number {
+    if (quoteFont) return quoteFont.getAdvanceWidth(text, size);
+    setFont(ctx, size, 500);
+    return ctx.measureText(text).width;
+}
+
+function drawQuoteText(
+    ctx: CanvasRenderingContext2D,
+    text: string,
+    centerX: number,
+    baselineY: number,
+    size: number,
+): void {
+    if (!quoteFont) {
+        setFont(ctx, size, 500);
+        ctx.fillText(text, centerX, baselineY);
+        return;
+    }
+
+    const width = quoteFont.getAdvanceWidth(text, size);
+    const glyphPath = quoteFont.getPath(text, centerX - width / 2, baselineY, size);
+    glyphPath.fill = '#ffffff';
+    // opentype.jsはブラウザー標準Canvasの型を要求するが、node-canvasの
+    // 実行時APIは描画に必要なメソッドを備えているため、期待される型へ橋渡しする。
+    glyphPath.draw(ctx as unknown as Parameters<typeof glyphPath.draw>[0]);
+}
+
+function splitLongToken(
+    token: string,
+    maxWidth: number,
+    measureText: (text: string) => number,
+): string[] {
     const pieces: string[] = [];
     let current = '';
 
     for (const character of token) {
         const candidate = current + character;
-        if (current && ctx.measureText(candidate).width > maxWidth) {
+        if (current && measureText(candidate) > maxWidth) {
             pieces.push(current);
             current = character;
         } else {
@@ -137,7 +192,11 @@ function splitLongToken(ctx: CanvasRenderingContext2D, token: string, maxWidth: 
     return pieces;
 }
 
-function wrapText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string[] {
+function wrapText(
+    text: string,
+    maxWidth: number,
+    measureText: (text: string) => number,
+): string[] {
     const lines: string[] = [];
     for (const paragraph of text.replace(/\r/g, '').split('\n')) {
         if (!paragraph) {
@@ -152,16 +211,16 @@ function wrapText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number)
         let line = '';
         for (const token of tokens) {
             const candidate = line + token;
-            if (!line || ctx.measureText(candidate).width <= maxWidth) {
+            if (!line || measureText(candidate) <= maxWidth) {
                 line = candidate;
                 continue;
             }
 
             lines.push(line.trimEnd());
-            if (ctx.measureText(token).width <= maxWidth) {
+            if (measureText(token) <= maxWidth) {
                 line = token.trimStart();
             } else {
-                const pieces = splitLongToken(ctx, token, maxWidth);
+                const pieces = splitLongToken(token, maxWidth, measureText);
                 lines.push(...pieces.slice(0, -1));
                 line = pieces.at(-1) ?? '';
             }
@@ -178,17 +237,17 @@ function fitQuote(
     maxHeight: number,
 ): { lines: string[]; size: number; lineHeight: number } {
     for (let size = 62; size >= 30; size -= 2) {
-        setFont(ctx, size, 600);
-        const lines = wrapText(ctx, quote, maxWidth);
+        const measureText = (text: string): number => measureQuoteText(ctx, text, size);
+        const lines = wrapText(quote, maxWidth, measureText);
         const lineHeight = Math.round(size * 1.38);
         if (lines.length * lineHeight <= maxHeight) return { lines, size, lineHeight };
     }
 
-    setFont(ctx, 30, 600);
-    const lines = wrapText(ctx, quote, maxWidth).slice(0, 8);
+    const measureText = (text: string): number => measureQuoteText(ctx, text, 30);
+    const lines = wrapText(quote, maxWidth, measureText).slice(0, 8);
     if (lines.length === 8) {
         let last = lines[7];
-        while (last && ctx.measureText(`${last}…`).width > maxWidth) last = last.slice(0, -1);
+        while (last && measureText(`${last}…`) > maxWidth) last = last.slice(0, -1);
         lines[7] = `${last}…`;
     }
     return { lines, size: 30, lineHeight: 42 };
@@ -253,6 +312,23 @@ function drawCoverImage(
     ctx.drawImage(image, sourceX, sourceY, sourceWidth, sourceHeight, x, y, width, height);
 }
 
+function drawContainedImage(
+    ctx: CanvasRenderingContext2D,
+    image: Image,
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+): void {
+    const scale = Math.min(width / image.width, height / image.height);
+    const targetWidth = image.width * scale;
+    const targetHeight = image.height * scale;
+    const targetX = x + (width - targetWidth) / 2;
+    const targetY = y + (height - targetHeight) / 2;
+
+    ctx.drawImage(image, targetX, targetY, targetWidth, targetHeight);
+}
+
 export async function renderQuoteCard(options: QuoteCardOptions): Promise<Buffer> {
     ensureFont();
 
@@ -267,6 +343,7 @@ export async function renderQuoteCard(options: QuoteCardOptions): Promise<Buffer
     ctx.fillRect(0, 0, WIDTH, HEIGHT);
 
     const imageWidth = 570;
+    // 左側は常に投稿者のアイコンを表示する。
     if (options.avatarUrl) {
         try {
             const avatar = await loadImage(options.avatarUrl);
@@ -298,17 +375,97 @@ export async function renderQuoteCard(options: QuoteCardOptions): Promise<Buffer
     ctx.fillStyle = fade;
     ctx.fillRect(250, 0, 400, HEIGHT);
 
+    let contentImage: Image | undefined;
+    if (options.contentImageUrl) {
+        try {
+            contentImage = await loadImage(options.contentImageUrl);
+        } catch {
+            // 添付画像を読み込めない場合でも、本文だけのカード生成は継続する。
+        }
+    }
+
+    if (contentImage) {
+        // 画像付きメッセージでは、横長の添付画像を上部へ配置し、
+        // その下に本文を表示する。画像の縦横比は変更しない。
+        const panelWidth = 520;
+        const panelX = 620;
+        const panelY = 32;
+        const maximumPanelHeight = 270;
+        const minimumPanelHeight = 120;
+        const nativePanelHeight =
+            panelWidth * (contentImage.height / contentImage.width);
+        const panelHeight = Math.max(
+            minimumPanelHeight,
+            Math.min(maximumPanelHeight, nativePanelHeight),
+        );
+        const radius = 16;
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.roundRect(panelX, panelY, panelWidth, panelHeight, radius);
+        ctx.clip();
+
+        // 余白にはブラー画像を敷かず、カード背景をそのまま使用する。
+        ctx.fillStyle = 'rgba(255,255,255,0.035)';
+        ctx.fillRect(panelX, panelY, panelWidth, panelHeight);
+
+        drawContainedImage(
+            ctx,
+            contentImage,
+            panelX,
+            panelY,
+            panelWidth,
+            panelHeight,
+        );
+        ctx.restore();
+
+        ctx.strokeStyle = 'rgba(255,255,255,0.14)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.roundRect(panelX, panelY, panelWidth, panelHeight, radius);
+        ctx.stroke();
+
+        // 本文との間に控えめな余白を確保する。
+        const separatorY = panelY + panelHeight + 14;
+        const separator = ctx.createLinearGradient(
+            panelX,
+            0,
+            panelX + panelWidth,
+            0,
+        );
+        separator.addColorStop(0, 'rgba(255,255,255,0)');
+        separator.addColorStop(0.15, 'rgba(255,255,255,0.12)');
+        separator.addColorStop(0.85, 'rgba(255,255,255,0.12)');
+        separator.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.fillStyle = separator;
+        ctx.fillRect(panelX, separatorY, panelWidth, 1);
+    }
+
     const sanitizedQuote = options.quote.trim().slice(0, 850);
-    const fitted = fitQuote(ctx, sanitizedQuote, 520, 330);
-    setFont(ctx, fitted.size, 500);
+    const quoteCenterX = 875;
+    const contentImageHeight = contentImage
+        ? Math.max(
+              120,
+              Math.min(270, 520 * (contentImage.height / contentImage.width)),
+          )
+        : 0;
+    const quoteTop = contentImage ? 32 + contentImageHeight + 30 : 115;
+    const quoteMaxHeight = contentImage
+        ? Math.max(110, 470 - quoteTop)
+        : 330;
+    const quoteMaxWidth = 500;
+    const fitted = fitQuote(ctx, sanitizedQuote, quoteMaxWidth, quoteMaxHeight);
     ctx.fillStyle = '#ffffff';
     ctx.textBaseline = 'alphabetic';
     ctx.textAlign = 'center';
 
     const totalHeight = fitted.lines.length * fitted.lineHeight;
-    let y = 115 + Math.max(0, (330 - totalHeight) / 2) + fitted.size;
+    let y =
+        quoteTop +
+        Math.max(0, (quoteMaxHeight - totalHeight) / 2) +
+        fitted.size;
     for (const line of fitted.lines) {
-        ctx.fillText(line, 875, y);
+        drawQuoteText(ctx, line, quoteCenterX, y, fitted.size);
         y += fitted.lineHeight;
     }
 

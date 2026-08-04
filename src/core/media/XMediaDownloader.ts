@@ -1,7 +1,8 @@
 import { spawn } from 'node:child_process';
-import { mkdtemp, readdir, rm, stat } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { access, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
+import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const X_STATUS_URL = /https?:\/\/(?:www\.)?(?:x\.com|twitter\.com)\/[A-Za-z0-9_]+\/status\/\d+(?:\?[^\s<>]*)?/giu;
 const YOUTUBE_SHORTS_URL = /https?:\/\/(?:www\.|m\.)?youtube\.com\/shorts\/[A-Za-z0-9_-]+(?:\?[^\s<>]*)?/giu;
@@ -9,6 +10,23 @@ const MEDIA_EXTENSIONS = new Set(['.mp4', '.webm', '.mov', '.mkv', '.jpg', '.jpe
 const VIDEO_EXTENSIONS = new Set(['.mp4', '.webm', '.mov', '.mkv']);
 const PROCESS_TIMEOUT_MS = 5 * 60 * 1000;
 const FFMPEG_MAX_CONCURRENCY = 1;
+const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
+const DEFAULT_YOUTUBE_COOKIES_FILE = path.resolve(
+    currentDirectory,
+    '../../../assets/youtube/youtube-cookies.json',
+);
+let youtubeJsRuntimeArgsPromise: Promise<string[]> | undefined;
+
+interface YoutubeCookie {
+    domain?: string;
+    expirationDate?: number;
+    httpOnly?: boolean;
+    name?: string;
+    path?: string;
+    secure?: boolean;
+    session?: boolean;
+    value?: string;
+}
 
 type CompressionJob = {
     run: () => Promise<string>;
@@ -151,6 +169,107 @@ function galleryDlAuthenticationArgs(): string[] {
     return [];
 }
 
+async function youtubeAuthenticationArgs(directory: string): Promise<string[]> {
+    const configuredPath = process.env.YOUTUBE_COOKIES_PATH?.trim();
+    let cookieSource: string;
+
+    cookieSource = configuredPath
+        ? path.resolve(configuredPath)
+        : DEFAULT_YOUTUBE_COOKIES_FILE;
+
+    try {
+        await access(cookieSource);
+    } catch {
+        return [];
+    }
+
+    // yt-dlpの--cookiesはNetscape形式を要求するため、
+    // ブラウザー拡張形式のJSON Cookieを一時ファイルへ変換する。
+    if (path.extname(cookieSource).toLowerCase() === '.json') {
+        const parsed = JSON.parse(await readFile(cookieSource, 'utf8')) as YoutubeCookie[];
+        const lines = [
+            '# Netscape HTTP Cookie File',
+            '# Generated from assets/youtube/youtube-cookies.json',
+        ];
+
+        for (const cookie of parsed) {
+            const domain = cookie.domain?.trim();
+            const name = cookie.name?.trim();
+            if (!domain || !name || cookie.value === undefined) continue;
+
+            const includeSubdomains = domain.startsWith('.') ? 'TRUE' : 'FALSE';
+            const cookiePath = cookie.path?.trim() || '/';
+            const secure = cookie.secure ? 'TRUE' : 'FALSE';
+            const expiration = cookie.session
+                ? 0
+                : Math.max(0, Math.floor(cookie.expirationDate ?? 0));
+            const netscapeDomain = cookie.httpOnly
+                ? `#HttpOnly_${domain}`
+                : domain;
+
+            lines.push([
+                netscapeDomain,
+                includeSubdomains,
+                cookiePath,
+                secure,
+                String(expiration),
+                name,
+                cookie.value,
+            ].join('\t'));
+        }
+
+        const convertedPath = path.join(directory, 'youtube-cookies.txt');
+        await writeFile(convertedPath, `${lines.join('\n')}\n`, {
+            encoding: 'utf8',
+            mode: 0o600,
+        });
+        return ['--cookies', convertedPath];
+    }
+
+    return ['--cookies', cookieSource];
+}
+
+async function canRunExecutable(command: string): Promise<boolean> {
+    try {
+        await runProcess(command, ['--version'], 15_000);
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+async function detectYoutubeJsRuntimeArgs(): Promise<string[]> {
+    if (!youtubeJsRuntimeArgsPromise) {
+        youtubeJsRuntimeArgsPromise = (async (): Promise<string[]> => {
+            const configuredDenoPath = process.env.DENO_PATH?.trim();
+            const candidates = [
+                configuredDenoPath,
+                path.join(homedir(), '.deno', 'bin', process.platform === 'win32' ? 'deno.exe' : 'deno'),
+                process.platform === 'win32'
+                    ? path.join(process.env.USERPROFILE ?? homedir(), '.deno', 'bin', 'deno.exe')
+                    : '/home/ubuntu/.deno/bin/deno',
+                'deno',
+            ].filter((candidate): candidate is string => Boolean(candidate));
+
+            for (const candidate of [...new Set(candidates)]) {
+                if (await canRunExecutable(candidate)) {
+                    return [
+                        '--js-runtimes',
+                        `deno:${candidate}`,
+                        '--remote-components',
+                        'ejs:npm',
+                    ];
+                }
+            }
+
+            // Denoが利用できない環境では従来どおり取得を試行する。
+            return [];
+        })();
+    }
+
+    return await youtubeJsRuntimeArgsPromise;
+}
+
 async function downloadWithGalleryDl(sourceUrl: string, directory: string): Promise<string[]> {
     await runProcess(executable('gallery-dl'), [
         '--config-ignore',
@@ -232,13 +351,18 @@ export async function downloadXMedia(sourceUrl: string, attachmentLimit: number)
     try {
         if (isYouTubeShortsUrl(sourceUrl)) {
             const normalizedShortsUrl = normalizeYouTubeShortsUrl(sourceUrl);
-            await runProcess(executable('yt-dlp'), [
+            const youtubeAuthArgs = await youtubeAuthenticationArgs(directory);
+            const youtubeJsRuntimeArgs = await detectYoutubeJsRuntimeArgs();
+            const args = [
+                ...youtubeAuthArgs,
+                ...youtubeJsRuntimeArgs,
                 '--no-warnings', '--no-playlist',
                 '--format', 'bestvideo*+bestaudio/best',
                 '--merge-output-format', 'mp4',
                 '--output', path.join(directory, '%(id)s.%(ext)s'),
                 normalizedShortsUrl,
-            ]);
+            ];
+            await runProcess(executable('yt-dlp'), args);
 
             const downloadedFiles = await listMediaFiles(directory);
             const videoFiles = downloadedFiles.filter(file => VIDEO_EXTENSIONS.has(path.extname(file).toLowerCase()));

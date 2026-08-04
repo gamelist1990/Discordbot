@@ -8,6 +8,8 @@ import {
 import { renderQuoteCard } from '../../core/media/QuoteCardRenderer.js';
 import { SlashCommand } from '../../types/command.js';
 
+const IMAGE_EXTENSIONS = /\.(?:avif|gif|jpe?g|png|webp)$/iu;
+
 const quoteCardCommand: SlashCommand = {
     data: new ContextMenuCommandBuilder()
         .setName('名言画像にする')
@@ -19,6 +21,10 @@ const quoteCardCommand: SlashCommand = {
         const interaction = baseInteraction as MessageContextMenuCommandInteraction;
         const message = interaction.targetMessage;
         const quote = message.content.trim();
+        const contentImage = message.attachments.find(attachment => {
+            if (attachment.contentType?.startsWith('image/')) return true;
+            return IMAGE_EXTENSIONS.test(attachment.name ?? attachment.url);
+        });
 
         if (!quote) {
             await interaction.reply({
@@ -40,6 +46,7 @@ const quoteCardCommand: SlashCommand = {
                 authorName,
                 authorHandle: author.username,
                 avatarUrl: author.displayAvatarURL({ extension: 'png', size: 1024 }),
+                contentImageUrl: contentImage?.url,
                 style: 'mono',
                 seed: message.id,
             });
