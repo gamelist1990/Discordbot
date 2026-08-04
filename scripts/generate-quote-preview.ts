@@ -3,8 +3,8 @@ import path from 'node:path';
 import { renderQuoteCard } from '../src/core/media/QuoteCardRenderer.js';
 
 const commonOptions = {
-    quote: 'できるかどうかではなく、やるかどうか。',
-    authorName: 'サンプルユーザー',
+    quote: 'できるかどうかではなく、やるかどうか。 https://youtu.be/SG8GS3nMIEg?si=uaoBQSRje0muk2YZ',
+    authorName: '𝓎𝓍𝟝#𝟚',
     authorHandle: 'sample_user',
     avatarUrl: 'https://cdn.discordapp.com/embed/avatars/0.png',
     style: 'mono',

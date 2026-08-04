@@ -13,6 +13,10 @@ import {
 const WIDTH = 1200;
 const HEIGHT = 675;
 const FONT_FAMILY = 'QuoteCardNotoSansJP';
+const MATH_FONT_FAMILY = 'QuoteCardMathUnicode';
+const FALLBACK_FONT_FAMILIES =
+    `"${MATH_FONT_FAMILY}", "Cambria Math", "Segoe UI Symbol", ` +
+    '"Segoe UI Emoji", "Noto Color Emoji", "Arial Unicode MS", sans-serif';
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
 const FONT_FILE = path.resolve(
     currentDirectory,
@@ -22,14 +26,21 @@ const QUOTE_FONT_FILE = path.resolve(
     currentDirectory,
     '../../../assets/fonts/YujiSyuku-Regular.ttf',
 );
+const WINDOWS_MATH_FONT_FILE = 'C:\\Windows\\Fonts\\cambria.ttc';
 
 let fontRegistered = false;
+let mathFontRegistered = false;
 let quoteFont: Font | undefined;
 
 function ensureFont(): void {
     if (!fontRegistered && existsSync(FONT_FILE)) {
         registerFont(FONT_FILE, { family: FONT_FAMILY });
         fontRegistered = true;
+    }
+
+    if (!mathFontRegistered && existsSync(WINDOWS_MATH_FONT_FILE)) {
+        registerFont(WINDOWS_MATH_FONT_FILE, { family: MATH_FONT_FAMILY });
+        mathFontRegistered = true;
     }
 
     if (!quoteFont && existsSync(QUOTE_FONT_FILE)) {
@@ -56,6 +67,11 @@ export interface QuoteCardOptions {
     authorHandle: string;
     avatarUrl?: string;
     contentImageUrl?: string;
+    linkPreview?: {
+        siteName: string;
+        title?: string;
+        description?: string;
+    };
     style?: QuoteCardStyle;
     seed?: string;
 }
@@ -135,8 +151,35 @@ function resolveStyle(style: QuoteCardStyle, seed: string): Exclude<QuoteCardSty
 }
 
 function setFont(ctx: CanvasRenderingContext2D, size: number, weight = 500): void {
-    const family = fontRegistered ? `"${FONT_FAMILY}"` : 'sans-serif';
+    const family = fontRegistered
+        ? `"${FONT_FAMILY}", ${FALLBACK_FONT_FAMILIES}`
+        : FALLBACK_FONT_FAMILIES;
     ctx.font = `${weight} ${size}px ${family}`;
+}
+
+function truncateUnicode(text: string, maximumCodePoints: number): string {
+    return Array.from(text).slice(0, maximumCodePoints).join('');
+}
+
+function replaceRawUrls(text: string): string {
+    return text.replace(/https?:\/\/[^\s<]+/giu, rawUrl => {
+        try {
+            const hostname = new URL(rawUrl).hostname.replace(/^www\./iu, '');
+            return `${hostname}`;
+        } catch {
+            return 'Webリンク';
+        }
+    });
+}
+
+function hasQuoteFontGlyph(character: string): boolean {
+    if (!quoteFont) return false;
+
+    return Array.from(character).every((codePoint) => {
+        // 結合文字・異体字セレクタ・ゼロ幅接合子は直前の文字と共に扱う。
+        if (/^[\p{Mark}\u200d\ufe0e\ufe0f]$/u.test(codePoint)) return true;
+        return quoteFont!.charToGlyph(codePoint).index !== 0;
+    });
 }
 
 function measureQuoteText(
@@ -144,9 +187,21 @@ function measureQuoteText(
     text: string,
     size: number,
 ): number {
-    if (quoteFont) return quoteFont.getAdvanceWidth(text, size);
-    setFont(ctx, size, 500);
-    return ctx.measureText(text).width;
+    if (!quoteFont) {
+        setFont(ctx, size, 500);
+        return ctx.measureText(text).width;
+    }
+
+    let width = 0;
+    for (const character of Array.from(text)) {
+        if (hasQuoteFontGlyph(character)) {
+            width += quoteFont.getAdvanceWidth(character, size);
+        } else {
+            setFont(ctx, size, 500);
+            width += ctx.measureText(character).width;
+        }
+    }
+    return width;
 }
 
 function drawQuoteText(
@@ -162,12 +217,36 @@ function drawQuoteText(
         return;
     }
 
-    const width = quoteFont.getAdvanceWidth(text, size);
-    const glyphPath = quoteFont.getPath(text, centerX - width / 2, baselineY, size);
-    glyphPath.fill = '#ffffff';
-    // opentype.jsはブラウザー標準Canvasの型を要求するが、node-canvasの
-    // 実行時APIは描画に必要なメソッドを備えているため、期待される型へ橋渡しする。
-    glyphPath.draw(ctx as unknown as Parameters<typeof glyphPath.draw>[0]);
+    const characters = Array.from(text);
+    const widths = characters.map((character) => {
+        if (hasQuoteFontGlyph(character)) {
+            return quoteFont!.getAdvanceWidth(character, size);
+        }
+        setFont(ctx, size, 500);
+        return ctx.measureText(character).width;
+    });
+    let x = centerX - widths.reduce((total, width) => total + width, 0) / 2;
+
+    for (let index = 0; index < characters.length; index += 1) {
+        const character = characters[index];
+        const width = widths[index];
+
+        if (hasQuoteFontGlyph(character)) {
+            const glyphPath = quoteFont.getPath(character, x, baselineY, size);
+            glyphPath.fill = '#ffffff';
+            // opentype.jsはブラウザー標準Canvasの型を要求するが、node-canvasの
+            // 実行時APIは描画に必要なメソッドを備えているため、期待される型へ橋渡しする。
+            glyphPath.draw(ctx as unknown as Parameters<typeof glyphPath.draw>[0]);
+        } else {
+            setFont(ctx, size, 500);
+            ctx.textAlign = 'left';
+            ctx.fillText(character, x, baselineY);
+        }
+
+        x += width;
+    }
+
+    ctx.textAlign = 'center';
 }
 
 function splitLongToken(
@@ -211,12 +290,15 @@ function wrapText(
         let line = '';
         for (const token of tokens) {
             const candidate = line + token;
-            if (!line || measureText(candidate) <= maxWidth) {
+            if (measureText(candidate) <= maxWidth) {
                 line = candidate;
                 continue;
             }
 
-            lines.push(line.trimEnd());
+            if (line) {
+                lines.push(line.trimEnd());
+            }
+
             if (measureText(token) <= maxWidth) {
                 line = token.trimStart();
             } else {
@@ -329,6 +411,52 @@ function drawContainedImage(
     ctx.drawImage(image, targetX, targetY, targetWidth, targetHeight);
 }
 
+function drawLinkPreview(
+    ctx: CanvasRenderingContext2D,
+    preview: NonNullable<QuoteCardOptions['linkPreview']>,
+): void {
+    const x = 620;
+    const y = 32;
+    const width = 520;
+    const height = 150;
+
+    ctx.fillStyle = 'rgba(255,255,255,0.065)';
+    ctx.beginPath();
+    ctx.roundRect(x, y, width, height, 16);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.16)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillStyle = '#b9b9c2';
+    setFont(ctx, 17, 600);
+    ctx.fillText(`${truncateUnicode(preview.siteName, 50)}`, x + 22, y + 31, width - 44);
+
+    if (preview.title) {
+        ctx.fillStyle = '#ffffff';
+        setFont(ctx, 23, 700);
+        ctx.fillText(truncateUnicode(preview.title, 55), x + 22, y + 67, width - 44);
+    }
+
+    if (preview.description) {
+        ctx.fillStyle = '#c3c3ca';
+        setFont(ctx, 17, 500);
+        const descriptionLines = wrapText(
+            truncateUnicode(preview.description, 120),
+            width - 44,
+            text => ctx.measureText(text).width,
+        ).slice(0, 2);
+        descriptionLines.forEach((line, index) => {
+            const suffix = index === 1 && descriptionLines.length > 1 ? '…' : '';
+            ctx.fillText(`${line}${suffix}`, x + 22, y + 101 + index * 24, width - 44);
+        });
+    }
+
+    ctx.textAlign = 'center';
+}
+
 export async function renderQuoteCard(options: QuoteCardOptions): Promise<Buffer> {
     ensureFont();
 
@@ -439,9 +567,18 @@ export async function renderQuoteCard(options: QuoteCardOptions): Promise<Buffer
         separator.addColorStop(1, 'rgba(255,255,255,0)');
         ctx.fillStyle = separator;
         ctx.fillRect(panelX, separatorY, panelWidth, 1);
+    } else if (options.linkPreview) {
+        drawLinkPreview(ctx, options.linkPreview);
     }
 
-    const sanitizedQuote = options.quote.trim().slice(0, 850);
+    // UTF-16の途中でサロゲートペアを切断すると特殊文字が�になるため、
+    // Unicodeコードポイント単位で文字数を制限する。
+    // 呼び出し元がURL変換を行っていない場合でも、生の長いURLを本文領域へ
+    // 描画しない。これによりURLが左側のアイコン領域へ侵入するのを防ぐ。
+    const sanitizedQuote = truncateUnicode(
+        replaceRawUrls(options.quote.trim()),
+        850,
+    );
     const quoteCenterX = 875;
     const contentImageHeight = contentImage
         ? Math.max(
@@ -449,8 +586,13 @@ export async function renderQuoteCard(options: QuoteCardOptions): Promise<Buffer
               Math.min(270, 520 * (contentImage.height / contentImage.width)),
           )
         : 0;
-    const quoteTop = contentImage ? 32 + contentImageHeight + 30 : 115;
-    const quoteMaxHeight = contentImage
+    const hasLinkPreview = Boolean(options.linkPreview && !contentImage);
+    const quoteTop = contentImage
+        ? 32 + contentImageHeight + 30
+        : hasLinkPreview
+          ? 202
+          : 115;
+    const quoteMaxHeight = contentImage || hasLinkPreview
         ? Math.max(110, 470 - quoteTop)
         : 330;
     const quoteMaxWidth = 500;
@@ -464,18 +606,44 @@ export async function renderQuoteCard(options: QuoteCardOptions): Promise<Buffer
         quoteTop +
         Math.max(0, (quoteMaxHeight - totalHeight) / 2) +
         fitted.size;
+
+    // フォントの字形や測定値に差があっても、本文が左側のアイコン領域や
+    // キャンバス外へ描画されないよう、本文領域で最終的にクリップする。
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(
+        quoteCenterX - quoteMaxWidth / 2,
+        quoteTop,
+        quoteMaxWidth,
+        quoteMaxHeight,
+    );
+    ctx.clip();
+
     for (const line of fitted.lines) {
         drawQuoteText(ctx, line, quoteCenterX, y, fitted.size);
         y += fitted.lineHeight;
     }
+    ctx.restore();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'alphabetic';
 
     ctx.fillStyle = '#ffffff';
     setFont(ctx, 26, 600);
-    ctx.fillText(`- ${options.authorName.slice(0, 40)}`, 875, 500);
+    ctx.fillText(
+        `- ${truncateUnicode(options.authorName, 40)}`,
+        875,
+        500,
+        500,
+    );
 
-    ctx.fillStyle = '#777777';
-    setFont(ctx, 19, 500);
-    ctx.fillText(`@${options.authorHandle.slice(0, 32)}`, 875, 534);
+    ctx.fillStyle = '#a8a8b0';
+    setFont(ctx, 22, 600);
+    ctx.fillText(
+        `@${truncateUnicode(options.authorHandle, 32)}`,
+        875,
+        534,
+        500,
+    );
 
     ctx.textAlign = 'right';
     ctx.fillStyle = '#666666';
