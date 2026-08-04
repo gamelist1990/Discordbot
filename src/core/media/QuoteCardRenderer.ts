@@ -26,7 +26,10 @@ const QUOTE_FONT_FILE = path.resolve(
     currentDirectory,
     '../../../assets/fonts/YujiSyuku-Regular.ttf',
 );
-const WINDOWS_MATH_FONT_FILE = 'C:\\Windows\\Fonts\\cambria.ttc';
+const MATH_FONT_FILE = path.resolve(
+    currentDirectory,
+    '../../../assets/fonts/STIXTwoMath-Regular.otf',
+);
 
 let fontRegistered = false;
 let mathFontRegistered = false;
@@ -38,8 +41,8 @@ function ensureFont(): void {
         fontRegistered = true;
     }
 
-    if (!mathFontRegistered && existsSync(WINDOWS_MATH_FONT_FILE)) {
-        registerFont(WINDOWS_MATH_FONT_FILE, { family: MATH_FONT_FAMILY });
+    if (!mathFontRegistered && existsSync(MATH_FONT_FILE)) {
+        registerFont(MATH_FONT_FILE, { family: MATH_FONT_FAMILY });
         mathFontRegistered = true;
     }
 
@@ -71,6 +74,7 @@ export interface QuoteCardOptions {
         siteName: string;
         title?: string;
         description?: string;
+        imageUrl?: string;
     };
     style?: QuoteCardStyle;
     seed?: string;
@@ -440,46 +444,117 @@ function drawContainedImage(
     ctx.drawImage(image, targetX, targetY, targetWidth, targetHeight);
 }
 
-function drawLinkPreview(
+function setPreviewFont(
+    ctx: CanvasRenderingContext2D,
+    size: number,
+    weight = 500,
+): void {
+    const family = fontRegistered
+        ? `"${FONT_FAMILY}", ${FALLBACK_FONT_FAMILIES}`
+        : FALLBACK_FONT_FAMILIES;
+    ctx.font = `${weight} ${size}px ${family}`;
+}
+
+async function drawLinkPreview(
     ctx: CanvasRenderingContext2D,
     preview: NonNullable<QuoteCardOptions['linkPreview']>,
-): void {
+): Promise<void> {
     const x = 620;
     const y = 32;
     const width = 520;
-    const height = 150;
+    const height = 184;
+    const radius = 20;
+    let previewImage: Image | undefined;
 
-    ctx.fillStyle = 'rgba(255,255,255,0.065)';
+    if (preview.imageUrl) {
+        try {
+            previewImage = await loadImage(preview.imageUrl);
+        } catch {
+            // OG画像の取得に失敗した場合は、グラデーション背景で描画を継続する。
+        }
+    }
+
+    ctx.save();
     ctx.beginPath();
-    ctx.roundRect(x, y, width, height, 16);
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(255,255,255,0.16)';
+    ctx.roundRect(x, y, width, height, radius);
+    ctx.clip();
+
+    if (previewImage) {
+        drawCoverImage(ctx, previewImage, x, y, width, height);
+
+        const shade = ctx.createLinearGradient(x, y, x, y + height);
+        shade.addColorStop(0, 'rgba(5,7,12,0.32)');
+        shade.addColorStop(0.42, 'rgba(5,7,12,0.6)');
+        shade.addColorStop(1, 'rgba(5,7,12,0.94)');
+        ctx.fillStyle = shade;
+        ctx.fillRect(x, y, width, height);
+
+        const sideShade = ctx.createLinearGradient(x, 0, x + width, 0);
+        sideShade.addColorStop(0, 'rgba(0,0,0,0.24)');
+        sideShade.addColorStop(1, 'rgba(0,0,0,0.04)');
+        ctx.fillStyle = sideShade;
+        ctx.fillRect(x, y, width, height);
+    } else {
+        const background = ctx.createLinearGradient(x, y, x + width, y + height);
+        background.addColorStop(0, 'rgba(38,40,48,0.98)');
+        background.addColorStop(1, 'rgba(14,15,20,0.98)');
+        ctx.fillStyle = background;
+        ctx.fillRect(x, y, width, height);
+
+        const glow = ctx.createRadialGradient(x + width, y, 0, x + width, y, 260);
+        glow.addColorStop(0, 'rgba(255,255,255,0.13)');
+        glow.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.fillStyle = glow;
+        ctx.fillRect(x, y, width, height);
+    }
+    ctx.restore();
+
+    ctx.beginPath();
+    ctx.roundRect(x, y, width, height, radius);
+    ctx.strokeStyle = 'rgba(255,255,255,0.2)';
     ctx.lineWidth = 1;
     ctx.stroke();
 
     ctx.textAlign = 'left';
     ctx.textBaseline = 'alphabetic';
-    ctx.fillStyle = '#b9b9c2';
-    setFont(ctx, 17, 600);
-    ctx.fillText(`${truncateUnicode(preview.siteName, 50)}`, x + 22, y + 31, width - 44);
+
+    const siteName = truncateUnicode(preview.siteName, 42);
+    setPreviewFont(ctx, 14, 700);
+    const sitePillWidth = Math.min(width - 40, ctx.measureText(siteName).width + 28);
+    ctx.fillStyle = 'rgba(0,0,0,0.48)';
+    ctx.beginPath();
+    ctx.roundRect(x + 20, y + 18, sitePillWidth, 30, 15);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.16)';
+    ctx.stroke();
+    ctx.fillStyle = '#f5f5f7';
+    ctx.fillText(siteName, x + 34, y + 39, sitePillWidth - 24);
 
     if (preview.title) {
         ctx.fillStyle = '#ffffff';
-        setFont(ctx, 23, 700);
-        ctx.fillText(truncateUnicode(preview.title, 55), x + 22, y + 67, width - 44);
+        setPreviewFont(ctx, 25, 700);
+        const titleLines = wrapText(
+            truncateUnicode(preview.title, 90),
+            width - 48,
+            text => ctx.measureText(text).width,
+        ).slice(0, 2);
+        titleLines.forEach((line, index) => {
+            const suffix = index === 1 && titleLines.length > 1 ? '…' : '';
+            ctx.fillText(`${line}${suffix}`, x + 24, y + 83 + index * 30, width - 48);
+        });
     }
 
     if (preview.description) {
-        ctx.fillStyle = '#c3c3ca';
-        setFont(ctx, 17, 500);
+        ctx.fillStyle = 'rgba(245,245,247,0.82)';
+        setPreviewFont(ctx, 15, 500);
         const descriptionLines = wrapText(
-            truncateUnicode(preview.description, 120),
-            width - 44,
+            truncateUnicode(preview.description, 130),
+            width - 48,
             text => ctx.measureText(text).width,
         ).slice(0, 2);
         descriptionLines.forEach((line, index) => {
             const suffix = index === 1 && descriptionLines.length > 1 ? '…' : '';
-            ctx.fillText(`${line}${suffix}`, x + 22, y + 101 + index * 24, width - 44);
+            ctx.fillText(`${line}${suffix}`, x + 24, y + 145 + index * 21, width - 48);
         });
     }
 
@@ -636,7 +711,7 @@ export async function renderQuoteCard(options: QuoteCardOptions): Promise<Buffer
         ctx.fillStyle = separator;
         ctx.fillRect(panelX, separatorY, panelWidth, 1);
     } else if (options.linkPreview) {
-        drawLinkPreview(ctx, options.linkPreview);
+        await drawLinkPreview(ctx, options.linkPreview);
     }
 
     // UTF-16の途中でサロゲートペアを切断すると特殊文字が�になるため、
@@ -658,7 +733,7 @@ export async function renderQuoteCard(options: QuoteCardOptions): Promise<Buffer
     const quoteTop = contentImage
         ? 32 + contentImageHeight + 30
         : hasLinkPreview
-          ? 202
+                    ? 232
           : 115;
     const quoteMaxHeight = contentImage || hasLinkPreview
         ? Math.max(110, 470 - quoteTop)

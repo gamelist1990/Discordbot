@@ -20,6 +20,7 @@ interface LinkPreview {
     siteName: string;
     title?: string;
     description?: string;
+    imageUrl?: string;
 }
 
 function cleanMetadata(value: string | undefined, maximumLength: number): string | undefined {
@@ -66,6 +67,20 @@ async function fetchLinkPreview(url: string): Promise<LinkPreview | undefined> {
             ?? $(`meta[name="${property}"]`).first().attr('content');
 
         const finalUrl = response.url || url;
+        const rawImageUrl = metadata('og:image:secure_url')
+            ?? metadata('og:image')
+            ?? metadata('twitter:image');
+        let imageUrl: string | undefined;
+        if (rawImageUrl) {
+            try {
+                const resolvedImageUrl = new URL(rawImageUrl, finalUrl).toString();
+                const safeImageUrl = await assertSafeHttpUrl(resolvedImageUrl);
+                if (safeImageUrl.ok) imageUrl = resolvedImageUrl;
+            } catch {
+                // 不正または安全でないOG画像URLは無視し、テキスト版を使用する。
+            }
+        }
+
         return {
             siteName: cleanMetadata(metadata('og:site_name'), 50) ?? getSiteName(finalUrl),
             title: cleanMetadata(metadata('og:title') ?? $('title').first().text(), 100),
@@ -73,6 +88,7 @@ async function fetchLinkPreview(url: string): Promise<LinkPreview | undefined> {
                 metadata('og:description') ?? metadata('description'),
                 180,
             ),
+            imageUrl,
         };
     } catch {
         return undefined;
