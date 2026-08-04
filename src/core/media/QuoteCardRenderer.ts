@@ -157,8 +157,35 @@ function setFont(ctx: CanvasRenderingContext2D, size: number, weight = 500): voi
     ctx.font = `${weight} ${size}px ${family}`;
 }
 
-function truncateUnicode(text: string, maximumCodePoints: number): string {
-    return Array.from(text).slice(0, maximumCodePoints).join('');
+function splitGraphemes(text: string): string[] {
+    if (typeof Intl.Segmenter === 'function') {
+        const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+        return Array.from(segmenter.segment(text), segment => segment.segment);
+    }
+
+    return Array.from(text);
+}
+
+function truncateUnicode(text: string, maximumGraphemes: number): string {
+    return splitGraphemes(text).slice(0, maximumGraphemes).join('');
+}
+
+function isMathematicalUnicode(character: string): boolean {
+    return /[\u{1d400}-\u{1d7ff}]/u.test(character);
+}
+
+function setFontForCharacter(
+    ctx: CanvasRenderingContext2D,
+    character: string,
+    size: number,
+    weight = 500,
+): void {
+    if (mathFontRegistered && isMathematicalUnicode(character)) {
+        ctx.font = `${weight} ${size}px "${MATH_FONT_FAMILY}", ${FALLBACK_FONT_FAMILIES}`;
+        return;
+    }
+
+    setFont(ctx, size, weight);
 }
 
 function replaceRawUrls(text: string): string {
@@ -193,11 +220,11 @@ function measureQuoteText(
     }
 
     let width = 0;
-    for (const character of Array.from(text)) {
+    for (const character of splitGraphemes(text)) {
         if (hasQuoteFontGlyph(character)) {
             width += quoteFont.getAdvanceWidth(character, size);
         } else {
-            setFont(ctx, size, 500);
+            setFontForCharacter(ctx, character, size, 500);
             width += ctx.measureText(character).width;
         }
     }
@@ -217,12 +244,12 @@ function drawQuoteText(
         return;
     }
 
-    const characters = Array.from(text);
+    const characters = splitGraphemes(text);
     const widths = characters.map((character) => {
         if (hasQuoteFontGlyph(character)) {
             return quoteFont!.getAdvanceWidth(character, size);
         }
-        setFont(ctx, size, 500);
+        setFontForCharacter(ctx, character, size, 500);
         return ctx.measureText(character).width;
     });
     let x = centerX - widths.reduce((total, width) => total + width, 0) / 2;
@@ -238,7 +265,7 @@ function drawQuoteText(
             // 実行時APIは描画に必要なメソッドを備えているため、期待される型へ橋渡しする。
             glyphPath.draw(ctx as unknown as Parameters<typeof glyphPath.draw>[0]);
         } else {
-            setFont(ctx, size, 500);
+            setFontForCharacter(ctx, character, size, 500);
             ctx.textAlign = 'left';
             ctx.fillText(character, x, baselineY);
         }
@@ -257,7 +284,7 @@ function splitLongToken(
     const pieces: string[] = [];
     let current = '';
 
-    for (const character of token) {
+    for (const character of splitGraphemes(token)) {
         const candidate = current + character;
         if (current && measureText(candidate) > maxWidth) {
             pieces.push(current);
@@ -285,7 +312,7 @@ function wrapText(
 
         const tokens = paragraph.includes(' ')
             ? paragraph.split(/(\s+)/u).filter(Boolean)
-            : [...paragraph];
+            : splitGraphemes(paragraph);
 
         let line = '';
         for (const token of tokens) {
@@ -329,7 +356,9 @@ function fitQuote(
     const lines = wrapText(quote, maxWidth, measureText).slice(0, 8);
     if (lines.length === 8) {
         let last = lines[7];
-        while (last && measureText(`${last}…`) > maxWidth) last = last.slice(0, -1);
+        while (last && measureText(`${last}…`) > maxWidth) {
+            last = splitGraphemes(last).slice(0, -1).join('');
+        }
         lines[7] = `${last}…`;
     }
     return { lines, size: 30, lineHeight: 42 };
@@ -454,6 +483,45 @@ function drawLinkPreview(
         });
     }
 
+    ctx.textAlign = 'center';
+}
+
+function measureUnicodeText(
+    ctx: CanvasRenderingContext2D,
+    text: string,
+    size: number,
+    weight: number,
+): number {
+    return splitGraphemes(text).reduce((width, character) => {
+        setFontForCharacter(ctx, character, size, weight);
+        return width + ctx.measureText(character).width;
+    }, 0);
+}
+
+function drawUnicodeTextCentered(
+    ctx: CanvasRenderingContext2D,
+    text: string,
+    centerX: number,
+    baselineY: number,
+    maximumWidth: number,
+    size: number,
+    weight: number,
+): void {
+    const characters = splitGraphemes(text);
+    const naturalWidth = measureUnicodeText(ctx, text, size, weight);
+    const scale = naturalWidth > maximumWidth ? maximumWidth / naturalWidth : 1;
+    let x = centerX - (naturalWidth * scale) / 2;
+
+    ctx.save();
+    ctx.translate(x, baselineY);
+    ctx.scale(scale, 1);
+    ctx.textAlign = 'left';
+    for (const character of characters) {
+        setFontForCharacter(ctx, character, size, weight);
+        ctx.fillText(character, 0, 0);
+        ctx.translate(ctx.measureText(character).width, 0);
+    }
+    ctx.restore();
     ctx.textAlign = 'center';
 }
 
@@ -628,21 +696,25 @@ export async function renderQuoteCard(options: QuoteCardOptions): Promise<Buffer
     ctx.textBaseline = 'alphabetic';
 
     ctx.fillStyle = '#ffffff';
-    setFont(ctx, 26, 600);
-    ctx.fillText(
+    drawUnicodeTextCentered(
+        ctx,
         `- ${truncateUnicode(options.authorName, 40)}`,
         875,
         500,
         500,
+        26,
+        600,
     );
 
     ctx.fillStyle = '#a8a8b0';
-    setFont(ctx, 22, 600);
-    ctx.fillText(
+    drawUnicodeTextCentered(
+        ctx,
         `@${truncateUnicode(options.authorHandle, 32)}`,
         875,
         534,
         500,
+        22,
+        600,
     );
 
     ctx.textAlign = 'right';
