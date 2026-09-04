@@ -339,6 +339,14 @@ export class EventHandler {
             // ギルド内のみ
             if (!message.guild) return;
 
+            // Run moderation before feature rooms can consume/forward a message.
+            try {
+                const { antiCheatManager } = await import('../anticheat/AntiCheatManager.js');
+                if (await antiCheatManager.onMessage(message)) return;
+            } catch (error) {
+                Logger.debug('Failed to handle AntiCheat on messageCreate:', error);
+            }
+
             try {
                 const { coreFeatureManager } = await import('../corepanel/CoreFeatureManager.js');
                 const handled = await coreFeatureManager.onMessage(message);
@@ -365,13 +373,6 @@ export class EventHandler {
             } catch (error) {
                 // XP付与エラーは無視（ログに記録のみ）
                 Logger.debug('Failed to add message XP:', error);
-            }
-            // AntiCheat 処理
-            try {
-                const { antiCheatManager } = await import('../anticheat/AntiCheatManager.js');
-                await antiCheatManager.onMessage(message);
-            } catch (error) {
-                Logger.debug('Failed to handle AntiCheat on messageCreate:', error);
             }
         });
 

@@ -14,12 +14,12 @@ export class GifFlashDetector implements Detector {
     async detect(message: Message, context: DetectionContext): Promise<DetectionResult> {
         const detectorConfig = getDetectorConfig(context, this.name);
         const config = detectorConfig.config || {};
-        const maxBytes = Math.max(256 * 1024, Number(config.maxFileSizeMb || 8) * 1024 * 1024);
         const timeoutMs = Math.max(500, Number(config.timeoutMs) || 3000);
         const gifAttachments = getMediaAttachments(message).filter(isGifAttachment);
 
         for (const attachment of gifAttachments) {
-            const buffer = await downloadAttachment(attachment, maxBytes, timeoutMs);
+            // No file-size cutoff, including for guilds with the legacy maxFileSizeMb setting.
+            const buffer = await downloadAttachment(attachment, Number.POSITIVE_INFINITY, timeoutMs);
             if (!buffer) {
                 continue;
             }

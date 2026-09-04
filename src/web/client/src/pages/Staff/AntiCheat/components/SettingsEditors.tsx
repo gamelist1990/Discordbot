@@ -161,6 +161,7 @@ function DetectorBody({
   if (!detector) return null;
   return (
     <div className={s.formGrid}>
+      {definition.key !== 'contentSafety' && <>
       <label>
         加算スコア
         <input
@@ -201,13 +202,18 @@ function DetectorBody({
         />
         公開通知
       </label>
+      </>}
       {definition.key === "wordFilter" ? (
         <WordRules detector={detector} props={props} />
       ) : (
         definition.fields?.map((field) => (
           <label key={field.key} className={field.wide ? s.wide : undefined}>
             {field.label}
-            {field.kind === "list" ? (
+            {field.kind === 'toggle' ? (
+              <input type="checkbox" checked={(detector.config?.[field.key] ?? field.defaultValue) === 1}
+                onChange={(e) => props.updateDetectorConfig(definition.key, field.key, e.target.checked ? 1 : 0)}
+                disabled={!detector.enabled} />
+            ) : field.kind === "list" ? (
               <textarea
                 value={toTextList(detector.config?.[field.key])}
                 onChange={(e) =>

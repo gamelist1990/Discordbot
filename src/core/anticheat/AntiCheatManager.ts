@@ -27,6 +27,9 @@ import {
     UserTrustData
 } from './types.js';
 import { TextSpamDetector } from './detectors/TextSpamDetector.js';
+import { ContentSafetyDetector } from './detectors/ContentSafetyDetector.js';
+import { CrossChannelSpamDetector } from './detectors/CrossChannelSpamDetector.js';
+import { repostWithSpoilers, spoilerText } from './ContentRepost.js';
 import { InviteReferralDetector } from './detectors/InviteReferralDetector.js';
 import { RedirectLinkDetector } from './detectors/RedirectLinkDetector.js';
 import { CopyPasteDetector } from './detectors/CopyPasteDetector.js';
@@ -46,6 +49,7 @@ export class AntiCheatManager {
     private client: Client | null = null;
     private readonly MAX_LOGS = 100;
     private readonly detectionCooldownMs = 150;
+    private replacedMessages = new Map<string, number>();
     private lastDetectionTimestamps: Map<string, number> = new Map();
     private logChannelCache: Map<string, TextChannel> = new Map();
     private messageProcessingQueues: Map<string, Promise<void>> = new Map();
@@ -56,6 +60,8 @@ export class AntiCheatManager {
     private readonly runtimeCleanupInterval = 10_000;
 
     constructor() {
+        this.registerDetector(new CrossChannelSpamDetector());
+        this.registerDetector(new ContentSafetyDetector());
         this.registerDetector(new TextSpamDetector());
         this.registerDetector(new InviteReferralDetector());
         this.registerDetector(new RedirectLinkDetector());
@@ -155,36 +161,47 @@ export class AntiCheatManager {
         });
     }
 
-    async onMessage(message: Message): Promise<void> {
+    async onMessage(message: Message, contentOnly = false): Promise<boolean> {
+        if (this.replacedMessages.has(message.id)) return true;
         if (message.author.bot || !message.guild) {
-            return;
+            return false;
         }
 
         const guildId = message.guild.id;
         const settings = await this.getSettings(guildId);
         if (!settings.enabled) {
-            return;
+            return false;
         }
 
         if (settings.excludedChannels.includes(message.channel.id)) {
-            return;
+            return false;
         }
 
         if (message.member) {
             const hasExcludedRole = settings.excludedRoles.some((roleId) => message.member?.roles.cache.has(roleId));
             if (hasExcludedRole) {
-                return;
+                return false;
             }
         }
 
         try {
+            // Separate queue: cross-channel bursts must be counted/handled while an earlier AI scan is pending.
+            if (settings.detectors.crossChannelSpam?.enabled) {
+                await this.enqueueMessageProcessing(`${guildId}:${message.author.id}:cross-channel`, async () => {
+                    if (!this.replacedMessages.has(message.id)) await this.processMessage(message, settings, contentOnly, true);
+                });
+                if (this.replacedMessages.has(message.id)) return true;
+            }
             await this.enqueueMessageProcessing(
                 `${guildId}:${message.author.id}`,
-                () => this.processMessage(message, settings)
+                async () => {
+                    if (!this.replacedMessages.has(message.id)) await this.processMessage(message, settings, contentOnly);
+                }
             );
         } catch (error) {
             Logger.error(`AntiCheat error processing message ${message.id}:`, error);
         }
+        return this.replacedMessages.has(message.id);
     }
 
     async onGuildMemberAdd(member: GuildMember): Promise<void> {
@@ -331,6 +348,10 @@ export class AntiCheatManager {
 
     async onMessageUpdate(oldMessage: Message | PartialMessage, newMessage: Message | PartialMessage): Promise<void> {
         const resolvedNewMessage = await this.fetchMessageIfPartial(newMessage);
+        // Includes delayed URL embeds. Content moderation must run even with chat logging disabled.
+        if (!resolvedNewMessage.partial && resolvedNewMessage.author && !resolvedNewMessage.author.bot) {
+            await this.onMessage(resolvedNewMessage as Message, true);
+        }
         const guild = resolvedNewMessage.guild || oldMessage.guild;
         if (!guild) {
             return;
@@ -371,7 +392,7 @@ export class AntiCheatManager {
         }), `chatlog-update:${guild.id}:${resolvedNewMessage.id}`);
     }
 
-    private async processMessage(message: Message, settings: GuildAntiCheatSettings): Promise<void> {
+    private async processMessage(message: Message, settings: GuildAntiCheatSettings, contentOnly = false, crossChannelOnly = false): Promise<void> {
         const guildId = message.guild!.id;
         const userId = message.author.id;
         const currentTrust = settings.userTrust[userId] || {
@@ -394,6 +415,8 @@ export class AntiCheatManager {
         const detectorTasks: Array<Promise<{ detector: string; result: DetectionResult } | null>> = [];
 
         for (const [name, detector] of this.detectors) {
+            if (crossChannelOnly ? name !== 'crossChannelSpam' : name === 'crossChannelSpam') continue;
+            if (!crossChannelOnly && contentOnly && name !== 'contentSafety') continue;
             const detectorConfig = settings.detectors[name];
             if (!detectorConfig?.enabled) {
                 continue;
@@ -401,7 +424,7 @@ export class AntiCheatManager {
 
             const cooldownKey = `${guildId}:${userId}:${name}`;
             const last = this.lastDetectionTimestamps.get(cooldownKey) || 0;
-            if (detectionStartedAt - last < this.detectionCooldownMs) {
+            if (!['contentSafety', 'crossChannelSpam'].includes(name) && detectionStartedAt - last < this.detectionCooldownMs) {
                 continue;
             }
 
@@ -417,6 +440,10 @@ export class AntiCheatManager {
                     })
                     .catch((error) => {
                         Logger.error(`Detector ${name} failed:`, error);
+                        if (name === 'contentSafety') return { detector: name, result: {
+                            scoreDelta: 0, reasons: ['AIコンテンツ検査未完了（元投稿を保持）'],
+                            metadata: { scanIncomplete: true }
+                        } };
                         return null;
                     })
             );
@@ -433,11 +460,29 @@ export class AntiCheatManager {
             (sum, { result }) => sum + Math.max(0, result.scoreDelta),
             0
         );
-        const shouldDeleteMessage = settings.autoDelete.enabled
+        const repost = detectionResults.find(({ result }) => result.spoilerRepost)?.result.spoilerRepost;
+        let replacementId: string | undefined;
+        let replacementError: string | undefined;
+        if (repost) {
+            try {
+                replacementId = await repostWithSpoilers(message, repost);
+                if (this.replacedMessages.size >= 10000) this.replacedMessages.delete(this.replacedMessages.keys().next().value!);
+                this.replacedMessages.set(message.id, Date.now());
+            }
+            catch (error) {
+                replacementError = error instanceof Error ? error.message : 'Repost failed';
+                Logger.error(`ContentSafety repost failed for ${message.id}: ${replacementError}`);
+            }
+        }
+        const shouldDeleteMessage = !repost && settings.autoDelete.enabled
             && detectionResults.some(({ result }) => result.deleteMessage);
-        const messageDeleted = shouldDeleteMessage
+        const messageDeleted = replacementId ? true : shouldDeleteMessage
             ? await message.delete().then(() => true).catch(() => false)
             : false;
+        if (crossChannelOnly && messageDeleted) {
+            if (this.replacedMessages.size >= 10000) this.replacedMessages.delete(this.replacedMessages.keys().next().value!);
+            this.replacedMessages.set(message.id, Date.now());
+        }
         const detectedAt = new Date().toISOString();
         const detectionLatencyMs = Date.now() - detectionStartedAt;
 
@@ -453,7 +498,8 @@ export class AntiCheatManager {
                 metadata: {
                     channelId: message.channel.id,
                     deletedMessage: messageDeleted,
-                    contentPreview: message.content.slice(0, 160),
+                    contentPreview: repost ? '[コンテンツ保護]' : message.content.slice(0, 160),
+                    ...(repost ? { replacementId, replacementError } : {}),
                     detectionLatencyMs,
                     ...(result.metadata || {})
                 }
@@ -482,7 +528,7 @@ export class AntiCheatManager {
                 await this.executeAutoTimeout(message.guild!, userId, settings, message.id);
             }
 
-            if (settings.autoDelete.enabled) {
+            if (settings.autoDelete.enabled && !repost) {
                 this.runDetached(
                     this.deleteRecentMessages(message.guild!, userId, settings.autoDelete.windowSeconds)
                         .then((deleted) => {
@@ -532,12 +578,13 @@ export class AntiCheatManager {
         if (message.content) {
             embed.addFields({
                 name: 'メッセージ',
-                value: message.content.slice(0, 1024),
+                value: detections.some(({ detector }) => detector === 'contentSafety')
+                    ? spoilerText(message.content.slice(0, 450)) : message.content.slice(0, 1024),
                 inline: false
             });
         }
 
-        await logChannel.send({ embeds: [embed] }).catch(() => null);
+        await logChannel.send({ embeds: [embed], allowedMentions: { parse: [] } }).catch(() => null);
     }
 
     private async sendPublicNotice(message: Message, notice: DetectionNotice): Promise<void> {
@@ -692,7 +739,15 @@ export class AntiCheatManager {
             { name: this.buildChatLogFileName(options.type, timestamp, messageId) }
         );
 
-        await logChannel.send({ embeds: [embed], files: [file] }).catch(() => null);
+        if (options.settings.detectors.contentSafety?.enabled) {
+            for (const field of embed.data.fields || []) {
+                if (['削除された内容', '変更前', '変更後', '添付ファイル'].includes(field.name)) {
+                    field.value = spoilerText(field.value.slice(0, 450));
+                }
+            }
+            file.setSpoiler(true);
+        }
+        await logChannel.send({ embeds: [embed], files: [file], allowedMentions: { parse: [] } }).catch(() => null);
     }
 
     private appendLog(settings: GuildAntiCheatSettings, log: DetectionLog): void {

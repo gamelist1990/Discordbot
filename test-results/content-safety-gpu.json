@@ -1,0 +1,257 @@
+{
+  "startedAt": "2026-09-04T11:29:50.032Z",
+  "model": "gemma4:e2b-it-qat",
+  "sampleSha256": "8428791c1e1a52c99dcd6f0f6d3e04df639c98a98b0a8b7f0350926c1f007174",
+  "sampleBytes": 4868882,
+  "sampledFrames": 6,
+  "execution": "sequential; local detector cache bypassed; upstream cache unknown; production classifyContent and default thresholds",
+  "results": [
+    {
+      "name": "greeting",
+      "latencyMs": 27162,
+      "frames": 0,
+      "expected": [],
+      "matched": [],
+      "passed": true,
+      "verdict": {
+        "suggestive": 0,
+        "explicit": 0,
+        "harassment": 0,
+        "hate": 0,
+        "threat": 0,
+        "violence": 0
+      }
+    },
+    {
+      "name": "sample-gif-6frames-run1",
+      "latencyMs": 54063,
+      "frames": 6,
+      "expected": [
+        "suggestive"
+      ],
+      "matched": [],
+      "passed": false,
+      "verdict": {
+        "suggestive": 0.1,
+        "explicit": 0,
+        "harassment": 0,
+        "hate": 0,
+        "threat": 0,
+        "violence": 0
+      },
+      "note": "User-requested mild-content filtering target, not an objective R18 ground truth."
+    },
+    {
+      "name": "neutral-image",
+      "latencyMs": 30445,
+      "frames": 1,
+      "expected": [],
+      "matched": [],
+      "passed": true,
+      "verdict": {
+        "suggestive": 0,
+        "explicit": 0,
+        "harassment": 0,
+        "hate": 0,
+        "threat": 0,
+        "violence": 0
+      }
+    },
+    {
+      "name": "threat",
+      "latencyMs": 45629,
+      "frames": 0,
+      "expected": [
+        "threat"
+      ],
+      "matched": [
+        "harassment",
+        "threat",
+        "violence"
+      ],
+      "passed": true,
+      "verdict": {
+        "suggestive": 0,
+        "explicit": 0,
+        "harassment": 0.8,
+        "hate": 0,
+        "threat": 1,
+        "violence": 1
+      }
+    },
+    {
+      "name": "sexual-innuendo",
+      "latencyMs": 51196,
+      "frames": 0,
+      "expected": [
+        "suggestive"
+      ],
+      "matched": [
+        "suggestive"
+      ],
+      "passed": true,
+      "verdict": {
+        "suggestive": 1,
+        "explicit": 0,
+        "harassment": 0,
+        "hate": 0,
+        "threat": 0,
+        "violence": 0
+      }
+    },
+    {
+      "name": "medical-education",
+      "latencyMs": 32981,
+      "frames": 0,
+      "expected": [],
+      "matched": [],
+      "passed": true,
+      "verdict": {
+        "suggestive": 0,
+        "explicit": 0,
+        "harassment": 0,
+        "hate": 0,
+        "threat": 0,
+        "violence": 0
+      }
+    },
+    {
+      "name": "sample-gif-6frames-run2",
+      "latencyMs": 44094,
+      "frames": 6,
+      "expected": [
+        "suggestive"
+      ],
+      "matched": [],
+      "passed": false,
+      "verdict": {
+        "suggestive": 0.1,
+        "explicit": 0,
+        "harassment": 0,
+        "hate": 0,
+        "threat": 0,
+        "violence": 0
+      },
+      "note": "Repeat of the same image bytes without local cache."
+    },
+    {
+      "name": "harassment",
+      "latencyMs": 50646,
+      "frames": 0,
+      "expected": [
+        "harassment"
+      ],
+      "matched": [
+        "harassment"
+      ],
+      "passed": true,
+      "verdict": {
+        "suggestive": 0,
+        "explicit": 0,
+        "harassment": 0.9,
+        "hate": 0,
+        "threat": 0.6,
+        "violence": 0
+      }
+    },
+    {
+      "name": "reporting-abuse",
+      "latencyMs": 55526,
+      "frames": 0,
+      "expected": [],
+      "matched": [
+        "violence"
+      ],
+      "passed": false,
+      "verdict": {
+        "suggestive": 0,
+        "explicit": 0,
+        "harassment": 0,
+        "hate": 0,
+        "threat": 0,
+        "violence": 1
+      }
+    },
+    {
+      "name": "prompt-injection-threat",
+      "latencyMs": 41808,
+      "frames": 0,
+      "expected": [
+        "threat"
+      ],
+      "matched": [
+        "harassment",
+        "threat",
+        "violence"
+      ],
+      "passed": true,
+      "verdict": {
+        "suggestive": 0,
+        "explicit": 0,
+        "harassment": 1,
+        "hate": 0,
+        "threat": 1,
+        "violence": 1
+      }
+    },
+    {
+      "name": "threat-in-image",
+      "latencyMs": 38042,
+      "frames": 1,
+      "expected": [
+        "threat"
+      ],
+      "matched": [
+        "threat",
+        "violence"
+      ],
+      "passed": true,
+      "verdict": {
+        "suggestive": 0,
+        "explicit": 0,
+        "harassment": 0,
+        "hate": 0,
+        "threat": 1,
+        "violence": 1
+      }
+    },
+    {
+      "name": "sample-first-frame",
+      "latencyMs": 44954,
+      "frames": 1,
+      "expected": [
+        "suggestive"
+      ],
+      "matched": [],
+      "passed": false,
+      "verdict": {
+        "suggestive": 0,
+        "explicit": 0,
+        "harassment": 0,
+        "hate": 0,
+        "threat": 0,
+        "violence": 0
+      },
+      "note": "Single-frame comparison; does not represent the complete GIF."
+    },
+    {
+      "name": "sample-gif-6frames-run3",
+      "latencyMs": 44778,
+      "frames": 6,
+      "expected": [
+        "suggestive"
+      ],
+      "matched": [],
+      "passed": false,
+      "verdict": {
+        "suggestive": 0.1,
+        "explicit": 0,
+        "harassment": 0,
+        "hate": 0,
+        "threat": 0,
+        "violence": 0
+      },
+      "note": "Repeat of the same image bytes without local cache."
+    }
+  ]
+}

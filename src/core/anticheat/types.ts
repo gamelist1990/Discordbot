@@ -24,6 +24,11 @@ export interface DetectionNotice {
 }
 
 export interface DetectionResult {
+    spoilerRepost?: {
+        files: Array<{ data: Buffer; name: string; sourceUrl?: string }>;
+        categories: string[];
+        expected?: { content: string; editedTimestamp: number | null; attachmentIds: string };
+    };
     scoreDelta: number;
     reasons: string[];
     metadata?: Record<string, any>;
@@ -123,6 +128,23 @@ export interface GuildAntiCheatSettings {
 export const DEFAULT_ANTICHEAT_SETTINGS: GuildAntiCheatSettings = {
     enabled: false,
     detectors: {
+        crossChannelSpam: {
+            enabled: true, score: 3, deleteMessage: true, notifyChannel: false,
+            config: { windowSeconds: 120, duplicateThreshold: 2, minChannels: 2, rapidWindowSeconds: 10, rapidMessageCount: 6 }
+        },
+        contentSafety: {
+            enabled: false,
+            score: 0,
+            deleteMessage: false,
+            notifyChannel: true,
+            config: {
+                imageThreshold: 0.7, textThreshold: 0.8,
+                imageSuggestiveThreshold: 0.2, textSuggestiveThreshold: 0.7,
+                suggestive: 1, explicit: 1, harassment: 1, hate: 1, threat: 1, violence: 1,
+                scanImages: 1, scanText: 1, scanUrls: 1,
+                maxSampleFrames: 6, maxFileSizeMb: 8, maxImages: 4, timeoutMs: 90000
+            }
+        },
         textSpam: {
             enabled: true,
             score: 2,
@@ -199,7 +221,6 @@ export const DEFAULT_ANTICHEAT_SETTINGS: GuildAntiCheatSettings = {
             deleteMessage: true,
             notifyChannel: true,
             config: {
-                maxFileSizeMb: 8,
                 timeoutMs: 3000,
                 maxSampleFrames: 12,
                 luminanceDeltaThreshold: 80,
