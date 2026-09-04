@@ -56,7 +56,7 @@ export async function classifyContent(text: string, frames: string[] = [], timeo
     const response = await fetch(`${config.pexAi.endpoint.replace(/\/$/, '')}/chat/completions`, {
         method: 'POST', signal: AbortSignal.timeout(timeoutMs),
         headers: { 'Content-Type': 'application/json', ...(config.pexAi.apiKey ? { Authorization: `Bearer ${config.pexAi.apiKey}` } : {}) },
-        body: JSON.stringify({ model: 'gemma4:e2b-it-qat', temperature: 0, max_tokens: 2048, stream: false,
+        body: JSON.stringify({ model: 'gemma4:e4b-it-qat', temperature: 0, max_tokens: 2048, stream: false,
             chat_template_kwargs: { enable_thinking: false },
             messages: [{ role: 'system', content: CONTENT_SAFETY_PROMPT }, { role: 'user', content: uniqueFrames.length ? [
                 ...(text ? [{ type: 'text', text }] : []),
@@ -160,7 +160,7 @@ export class ContentSafetyDetector implements Detector {
             ...(hits.size ? options.action === 'delete' ? { contentDeletion: expected } : {
                 spoilerRepost: { files, categories: [...hits].map(category => CONTENT_LABELS[category]), expected }
             } : {}),
-            metadata: { model: 'gemma4:e2b-it-qat', action: options.action === 'delete' ? 'delete' : 'spoiler', analyses, errors, stoppedAfterMatch: hits.size > 0 }
+            metadata: { model: 'gemma4:e4b-it-qat', action: options.action === 'delete' ? 'delete' : 'spoiler', analyses, errors, stoppedAfterMatch: hits.size > 0 }
         };
     }
 }

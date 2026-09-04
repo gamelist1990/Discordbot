@@ -46,7 +46,7 @@ test('text categories, thresholds, disabled categories, cache and API failure', 
     globalThis.fetch = (async (_url, options) => {
         calls++;
         const request = JSON.parse(String(options?.body));
-        assert.equal(request.model, 'gemma4:e2b-it-qat');
+        assert.equal(request.model, 'gemma4:e4b-it-qat');
         return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ ...safe, suggestive: 0.85 }) } }] }));
     }) as typeof fetch;
     try {
