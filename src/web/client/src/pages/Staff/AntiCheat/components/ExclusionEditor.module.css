@@ -1,0 +1,24 @@
+.root { display: grid; gap: 20px; min-width: 0; }
+.root section { min-width: 0; }
+.root h4 { margin: 0 0 8px; }
+.root p { font-size: 13px; line-height: 1.7; color: var(--app-ink-soft); }
+.root button, .root input, .root select { font: inherit; min-height: 44px; border: 1px solid var(--app-border-strong); border-radius: 8px; color: var(--app-ink); background: var(--app-surface); padding: 8px 12px; }
+.root button { cursor: pointer; flex-shrink: 0; }
+.root button:disabled { opacity: .55; cursor: wait; }
+.root :is(button,input,select):focus-visible { outline: 3px solid var(--app-accent-strong); outline-offset: 2px; }
+.root [role=alert] { color: var(--app-danger); }
+.row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 0; }
+.identity { display: grid; gap: 4px; min-width: 0; overflow-wrap: anywhere; }
+.identity span { font-size: 12px; color: var(--app-ink-soft); }
+.channel { padding: 12px; border: 1px solid var(--app-border); border-radius: 12px; margin-bottom: 12px; }
+.mode { display: grid; gap: 8px; }
+.mode select { width: 100%; min-width: 0; }
+.adder { margin-top: 12px; }
+.adder > label { display: block; margin-bottom: 8px; }
+.addRow { display: flex; gap: 8px; flex-wrap: wrap; }
+.addRow input { flex: 1 1 190px; min-width: 0; width: 100%; }
+.detectors { display: grid; grid-template-columns: repeat(auto-fit,minmax(190px,1fr)); gap: 8px; margin: 16px 0 0; border: 1px solid var(--app-border); border-radius: 8px; padding: 12px; min-width: 0; }
+.detectors legend { font-weight: 700; }
+.root .detectors label { display: flex; align-items: center; gap: 8px; min-height: 44px; }
+.root .detectors input { width: 18px; height: 18px; min-height: 18px; margin: 0; accent-color: var(--app-accent-strong); flex-shrink: 0; }
+@media(max-width:480px) { .detectors { grid-template-columns: 1fr; } }

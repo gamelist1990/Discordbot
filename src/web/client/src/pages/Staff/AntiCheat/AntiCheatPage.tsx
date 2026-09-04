@@ -274,7 +274,7 @@ export default function AntiCheatPage() {
     );
   }
 
-  if (error || !draft) {
+  if (!draft) {
     return (
       <div className={styles.page}>
         <div className={styles.statePanel}>
@@ -304,7 +304,7 @@ export default function AntiCheatPage() {
     logsError,
     trustError,
     timeoutsError,
-    actionError,
+    actionError: error || actionError,
     saveNotice,
     excludedRolesText,
     excludedChannelsText,

@@ -1,3 +1,4 @@
+import { ExclusionEditor } from './ExclusionEditor';
 import type { AntiCheatViewProps, DetectorDefinition } from "../viewTypes";
 import { ContentSafetyControls, SettingSwitch } from './ContentSafetyControls';
 import { formatDate, readNumber, toTextList } from "../model";
@@ -447,90 +448,17 @@ export function DetectorEditor(props: Props) {
   );
 }
 
-function ExclusionList({
-  label,
-  value,
-  onChange,
-  styles,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  styles: Styles;
-}) {
-  const entries = value.trim()
-    ? value.split(/\r?\n|,/).map((entry) => entry.trim())
-    : [];
-  const updateEntries = (next: string[]) => onChange(next.join("\n"));
-
-  return (
-    <div className={styles.exclusionList}>
-      <div className={styles.exclusionListHeader}>
-        <strong>{label}</strong>
-        <button
-          type="button"
-          className={styles.exclusionAdd}
-          onClick={() => updateEntries([...entries, ""])}
-          aria-label={`${label}を追加`}
-        >
-          +
-        </button>
-      </div>
-      {entries.length === 0 ? (
-        <button
-          type="button"
-          className={styles.exclusionEmpty}
-          onClick={() => updateEntries([""])}
-        >
-          + IDを追加
-        </button>
-      ) : (
-        entries.map((entry, index) => (
-          <div className={styles.exclusionRow} key={`${label}-${index}`}>
-            <input
-              value={entry}
-              placeholder="123456789012345678"
-              onChange={(event) => {
-                const next = [...entries];
-                next[index] = event.target.value;
-                updateEntries(next);
-              }}
-            />
-            <button
-              type="button"
-              className={styles.exclusionRemove}
-              onClick={() => updateEntries(entries.filter((_, entryIndex) => entryIndex !== index))}
-              aria-label={`${label}を削除`}
-            >
-              -
-            </button>
-          </div>
-        ))
-      )}
-    </div>
-  );
-}
-
 export function PolicyEditor(props: Props) {
   const s = props.styles;
   return (
     <div className={s.editorGrid}>
       <article className={s.card}>
         <h3>除外対象</h3>
-        <div className={s.formGrid}>
-          <ExclusionList
-            label="除外ロール"
-            value={props.excludedRolesText}
-            onChange={props.setExcludedRolesText}
-            styles={s}
-          />
-          <ExclusionList
-            label="除外チャンネル"
-            value={props.excludedChannelsText}
-            onChange={props.setExcludedChannelsText}
-            styles={s}
-          />
-        </div>
+        <ExclusionEditor key={props.guildId} guildId={props.guildId}
+          rolesText={props.excludedRolesText} channelsText={props.excludedChannelsText}
+          onRoles={props.setExcludedRolesText} onChannels={props.setExcludedChannelsText}
+          policies={props.draft.channelDetectorExclusions || {}} detectors={props.detectors}
+          onPolicies={channelDetectorExclusions => props.updateDraft(current => ({ ...current, channelDetectorExclusions }))} />
       </article>
       <article className={s.card}>
         <div className={s.row}>

@@ -2,6 +2,7 @@ import { AttachmentBuilder, EmbedBuilder, escapeMarkdown, PermissionFlagsBits, t
 import type { DetectionResult } from './types.js';
 import { fetchPublicMedia } from './ContentMedia.js';
 import { getMediaAttachments } from './detectors/MediaSafetyUtils.js';
+import { displayContentExplanation } from './ContentExplanation.js';
 
 export function spoilerText(text: string): string {
     // User supplied spoiler delimiters/backslashes must never close our wrapper.
@@ -54,6 +55,7 @@ export async function repostWithSpoilers(message: Message, repost: NonNullable<D
             { name: '検知カテゴリ（AI推定）', value: repost.categories.join('・') })
         .setFooter({ text: `元投稿ID: ${message.id} • Botによる代理投稿` })
         .setTimestamp(message.createdAt);
+    if (repost.aiExplanation) embed.addFields({ name: 'AIの判定理由（参考）', value: displayContentExplanation(repost.aiExplanation).slice(0, 1024) });
     const fresh = await message.fetch();
     if (fresh.content !== originalContent || fresh.editedTimestamp !== revision
         || [...fresh.attachments.keys()].join() !== attachmentIds) throw new Error('Message changed during analysis');

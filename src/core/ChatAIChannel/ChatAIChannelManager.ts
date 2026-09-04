@@ -14,6 +14,7 @@ import type { ToolExecutionStep } from '../ai/ChatGPTClient.js';
 import type { OpenAIChatCompletionMessage, OpenAIContentPart } from '../../types/openai.js';
 import { registerChatAIChannelTools } from './tools/index.js';
 import { ChatAISpamGuard } from './ChatAISpamGuard.js';
+import { buildEmojiPrompt } from './emojiPrompt.js';
 import type {
     ChatAIChannelOptions,
     ChatAIMemoryFile,
@@ -643,7 +644,8 @@ export class ChatAIChannelManager {
             '危険なURL、個人情報の取得、Sandbox外の操作は拒否してください。',
             '添付画像がある場合は入力画像を直接確認してください。',
         ].join('\n');
-        const system = level === 0 ? minimalSystem : fullSystem;
+        const emojiPrompt = buildEmojiPrompt(this.client?.guilds.cache.get(this.options.guildId));
+        const system = `${level === 0 ? minimalSystem : fullSystem}\n\n${emojiPrompt}`;
 
         const pastTextLines = this.limitHistoryCharacters(
             pastMessages.map(message => this.formatHistoryLine(message)),

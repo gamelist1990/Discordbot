@@ -24,10 +24,12 @@ export interface DetectionNotice {
 }
 
 export interface DetectionResult {
+    aiExplanation?: string;
     contentDeletion?: { content: string; editedTimestamp: number | null; attachmentIds: string };
     spoilerRepost?: {
         files: Array<{ data: Buffer; name: string; sourceUrl?: string }>;
         categories: string[];
+        aiExplanation?: string;
         expected?: { content: string; editedTimestamp: number | null; attachmentIds: string };
     };
     scoreDelta: number;
@@ -110,6 +112,7 @@ export interface GuildAntiCheatSettings {
     punishments: PunishmentThreshold[];
     excludedRoles: string[];
     excludedChannels: string[];
+    channelDetectorExclusions: Record<string, string[]>;
     logChannelId: string | null;
     avatarLogChannelId: string | null;
     chatLogChannelId: string | null;
@@ -303,6 +306,7 @@ export const DEFAULT_ANTICHEAT_SETTINGS: GuildAntiCheatSettings = {
     punishments: [],
     excludedRoles: [],
     excludedChannels: [],
+    channelDetectorExclusions: {},
     logChannelId: null,
     avatarLogChannelId: null,
     chatLogChannelId: null,

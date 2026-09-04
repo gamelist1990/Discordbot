@@ -1,3 +1,5 @@
+import { exclusionChannelIds, detectorExcluded, normalizeChannelExclusions } from './ExclusionPolicy.js';
+import { displayContentExplanation } from './ContentExplanation.js';
 import {
     AttachmentBuilder,
     Client,
@@ -178,7 +180,7 @@ export class AntiCheatManager {
             return false;
         }
 
-        if (settings.excludedChannels.includes(message.channel.id)) {
+        if (exclusionChannelIds(message).some(id => settings.excludedChannels.includes(id))) {
             return false;
         }
 
@@ -214,6 +216,7 @@ export class AntiCheatManager {
         if (!settings.enabled) {
             return;
         }
+        if (settings.excludedRoles.some(id => member.roles.cache.has(id))) return;
 
         const detectorConfig = settings.detectors.raidDetection;
         if (!detectorConfig?.enabled) {
@@ -422,6 +425,7 @@ export class AntiCheatManager {
         for (const [name, detector] of this.detectors) {
             if (crossChannelOnly ? name !== 'crossChannelSpam' : name === 'crossChannelSpam') continue;
             if (!crossChannelOnly && contentOnly && name !== 'contentSafety') continue;
+            if (detectorExcluded(message, settings, name)) continue;
             const detectorConfig = settings.detectors[name];
             if (!detectorConfig?.enabled) {
                 continue;
@@ -500,7 +504,7 @@ export class AntiCheatManager {
                 messageId: message.id,
                 detector,
                 scoreDelta: result.scoreDelta,
-                reason: result.reasons.join('; ') || '検知',
+                reason: [...result.reasons, ...(result.aiExplanation ? [`AI理由：${result.aiExplanation}`] : [])].join('; ') || '検知',
                 timestamp: detectedAt,
                 status: 'active',
                 metadata: {
@@ -584,6 +588,8 @@ export class AntiCheatManager {
                 }
             );
 
+        const explanation = detections.find(({ detector, result }) => detector === 'contentSafety' && result.aiExplanation)?.result.aiExplanation;
+        if (explanation) embed.addFields({ name: 'AIの判定理由（参考）', value: displayContentExplanation(explanation).slice(0, 1024) });
         if (message.content) {
             embed.addFields({
                 name: 'メッセージ',
@@ -1046,6 +1052,7 @@ export class AntiCheatManager {
             punishments: Array.isArray(settings?.punishments) ? settings!.punishments : DEFAULT_ANTICHEAT_SETTINGS.punishments,
             excludedRoles: Array.isArray(settings?.excludedRoles) ? settings!.excludedRoles : [],
             excludedChannels: Array.isArray(settings?.excludedChannels) ? settings!.excludedChannels : [],
+            channelDetectorExclusions: normalizeChannelExclusions(settings?.channelDetectorExclusions),
             logChannelId: settings?.logChannelId ?? null,
             avatarLogChannelId: settings?.avatarLogChannelId ?? null,
             chatLogChannelId: settings?.chatLogChannelId ?? null,

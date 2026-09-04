@@ -14,6 +14,7 @@ export interface AntiCheatSettings {
     punishments: PunishmentThreshold[];
     excludedRoles: string[];
     excludedChannels: string[];
+    channelDetectorExclusions: Record<string, string[]>;
     logChannelId: string | null;
     avatarLogChannelId: string | null;
     chatLogChannelId: string | null;

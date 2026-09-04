@@ -21,7 +21,7 @@ async function main() {
         return;
     }
     if (!['--file', '--text'].includes(mode) || !input) throw new Error('Usage: npx tsx scripts/test-content-safety.ts --file <path> | --text <text> | --diagnose');
-    const frames = mode === '--file' ? await sampleImageFrames(await fs.readFile(input), 6) : [];
+    const frames = mode === '--file' ? await sampleImageFrames(await fs.readFile(input)) : [];
     const start = Date.now();
     console.log(JSON.stringify({ sampledFrames: frames.length }));
     if (captionFlag && (mode !== '--file' || captionFlag !== '--caption' || !caption)) throw new Error('Use --file <path> --caption <text>');

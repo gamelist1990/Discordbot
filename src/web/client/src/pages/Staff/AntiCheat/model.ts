@@ -28,7 +28,7 @@ export const DETECTORS: DetectorDefinition[] = [
     { kind: 'number', key: 'textThreshold', label: '文章の確信度しきい値（低いほど厳格）', defaultValue: 0.8, min: 0.1, max: 1, step: 0.05 },
     { kind: 'number', key: 'imageSuggestiveThreshold', label: 'H系画像専用しきい値（低いほど軽い表現も対象）', defaultValue: 0.2, min: 0.1, max: 1, step: 0.05 },
     { kind: 'number', key: 'textSuggestiveThreshold', label: 'H系文章専用しきい値', defaultValue: 0.7, min: 0.1, max: 1, step: 0.05 },
-    { kind: 'number', key: 'maxSampleFrames', label: 'GIFの解析フレーム数', defaultValue: 6, min: 1, max: 12 },
+    { kind: 'number', key: 'maxSampleFrames', label: 'GIF・WebPの抽出枚数（初期6枚・等間隔）', defaultValue: 6, min: 1, max: 12 },
     { kind: 'number', key: 'maxImages', label: '1投稿の画像取得上限', defaultValue: 4, min: 1, max: 10 },
     { kind: 'number', key: 'maxFileSizeMb', label: '画像1件の取得上限(MB)', defaultValue: 8, min: 1, max: 10 },
     { kind: 'number', key: 'timeoutMs', label: 'AI応答の待機上限(ms)', defaultValue: 90000, min: 5000, max: 180000, step: 1000 },

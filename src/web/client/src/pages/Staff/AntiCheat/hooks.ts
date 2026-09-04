@@ -42,11 +42,13 @@ export function useAntiCheatSettings(guildId: string) {
             });
 
             if (!response.ok) {
-                throw new Error(`Failed to update settings: ${response.statusText}`);
+                const detail = await response.json().catch(() => ({}));
+                throw new Error(detail.error || `Failed to update settings: ${response.statusText}`);
             }
 
             const data = await response.json();
             setSettings(data.settings);
+            setError(null);
             return true;
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Unknown error');

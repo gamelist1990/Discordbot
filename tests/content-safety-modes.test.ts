@@ -12,6 +12,45 @@ const makeMessage = () => ({ id: '123', content: '分類用の文章', editedTim
 const context = (action: string) => ({ settings: { detectors: { contentSafety: { enabled: true, config: { action } } } } } as any);
 const response = () => new Response(JSON.stringify({ choices: [{ message: { tool_calls: [{ type: 'function', function: { name: 'submit_verdict', arguments: JSON.stringify(verdict) } }] } }] }));
 
+test('missing tool call retries once with the same input and rejects repeated malformed responses', async () => {
+    const original = globalThis.fetch;
+    const requests: any[] = [];
+    let recover = true;
+    globalThis.fetch = (async (_url, options) => {
+        requests.push(JSON.parse(String(options?.body)));
+        return recover && requests.length === 2 ? response() : new Response(JSON.stringify({ choices: [{ message: { content: 'Not a verdict' } }] }));
+    }) as typeof fetch;
+    try {
+        assert.deepEqual(await classifyContent('test content'), verdict);
+        assert.equal(requests.length, 2);
+        assert.deepEqual(requests[0].messages[1], requests[1].messages[1]);
+        assert.ok(requests[1].messages[0].content.startsWith(CONTENT_SAFETY_PROMPT));
+        recover = false;
+        requests.length = 0;
+        await assert.rejects(classifyContent('test content'), /required submit_verdict/);
+        assert.equal(requests.length, 2);
+    } finally { globalThis.fetch = original; }
+});
+
+test('URL-only GIF posts download the signed URL and preserve the original GIF for spoiler repost', async () => {
+    const original = globalThis.fetch;
+    const url = 'https://cdn.discordapp.com/attachments/1/2/image.gif?ex=abc&is=def&hm=123&';
+    const data = await sharp({ create: { width: 12, height: 12, channels: 3, background: 'red' } }).gif().toBuffer();
+    const downloaded: string[] = [];
+    const requests: any[] = [];
+    globalThis.fetch = (async (_url, options) => { requests.push(JSON.parse(String(options?.body))); return response(); }) as typeof fetch;
+    try {
+        const detector = new ContentSafetyDetector(async input => { downloaded.push(input); return { data, type: 'gif', url: input }; });
+        const message = makeMessage(); message.content = url;
+        const result = await detector.detect(message, context('spoiler'));
+        assert.deepEqual(downloaded, [url]);
+        assert.equal(requests.length, 1);
+        assert.ok(requests[0].messages[1].content[1].image_url.url.startsWith('data:image/png;base64,'));
+        assert.deepEqual(result.spoilerRepost?.files[0].data, data);
+        assert.equal(result.spoilerRepost?.files[0].sourceUrl, url);
+    } finally { globalThis.fetch = original; }
+});
+
 test('mixed posts send text with images, invalidate changed captions and respect text opt-out', async () => {
     const original = globalThis.fetch;
     const requests: any[] = [];
@@ -107,11 +146,13 @@ test('413 splits frames without altering them or losing caption; aggregates ever
         const images = parts.slice(1).map((part: any) => part.image_url.url);
         if (images.length > 1) return new Response('', { status: 413 });
         accepted.push(images[0]);
-        const scores = { ...verdict, suggestive: images[0] === 'first' ? .2 : .8 };
+        const scores = { ...verdict, suggestive: images[0] === 'first' ? .2 : .8, explanation: images[0] === 'first' ? '弱い表現' : '強い表現' };
         return new Response(JSON.stringify({ choices: [{ message: { tool_calls: [{ type: 'function', function: { name: 'submit_verdict', arguments: JSON.stringify(scores) } }] } }] }));
     }) as typeof fetch;
     try {
-        assert.equal((await classifyContent('context', ['first', 'second'])).suggestive, .8);
+        const result = await classifyContent('context', ['first', 'second']);
+        assert.equal(result.suggestive, .8);
+        assert.equal(result.explanation, '強い表現');
         assert.deepEqual(accepted, ['first', 'second']);
         globalThis.fetch = (async () => new Response('', { status: 413 })) as typeof fetch;
         await assert.rejects(classifyContent('context', ['single-too-large']), /HTTP 413/);

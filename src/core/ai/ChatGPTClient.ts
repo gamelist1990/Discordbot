@@ -3,6 +3,7 @@ import OpenAI from 'openai';
 import { config } from '../../config.js';
 import { ChatGPTModel } from './ChatGPTModels.js';
 import { Logger } from '../../utils/Logger.js';
+import { normalizeProxyError } from './normalizeProxyError.js';
 import {
     OpenAIChatCompletionChunk,
     OpenAIChatCompletionMessage,
@@ -628,7 +629,9 @@ export class ChatGPTClient {
     }
 
     private createClient(auth: ClientAuth): OpenAI {
-        return new OpenAI({ apiKey: auth.apiKey, baseURL: auth.apiEndpoint });
+        return new OpenAI({ apiKey: auth.apiKey, baseURL: auth.apiEndpoint,
+            fetch: async (input, init) => normalizeProxyError(await fetch(input, init), auth.apiKey),
+        });
     }
 
     private buildResponseApiPayload(

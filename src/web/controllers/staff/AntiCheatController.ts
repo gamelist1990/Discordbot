@@ -5,6 +5,7 @@ import { PunishmentExecutor } from '../../../core/anticheat/PunishmentExecutor.j
 import { GuildAntiCheatSettings, PunishmentAction } from '../../../core/anticheat/types.js';
 import { Logger } from '../../../utils/Logger.js';
 import { TextChannel, PermissionFlagsBits } from 'discord.js';
+import { validateExclusions } from '../../../core/anticheat/ExclusionPolicy.js';
 
 /**
  * AntiCheat Controller
@@ -12,6 +13,32 @@ import { TextChannel, PermissionFlagsBits } from 'discord.js';
  */
 export class AntiCheatController {
     constructor(private botClient: BotClient) {}
+    getExclusionTargets = async (req: Request, res: Response): Promise<void> => {
+        const guildId = String(req.params.guildId);
+        if (!hasAccessToGuild((req as any).session || {}, guildId)) { res.status(403).json({ error: 'Access denied to this guild' }); return; }
+        const targetId = req.query.targetId;
+        if (targetId !== undefined && (typeof targetId !== 'string' || !/^[1-9]\d{0,19}$/.test(targetId))) { res.status(400).json({ error: 'IDが不正です。' }); return; }
+        try {
+            const guild = await this.botClient.client.guilds.fetch(guildId);
+            const [roles, channels] = await Promise.all([guild.roles.fetch(), guild.channels.fetch()]);
+            // Include cached threads and allow an explicitly entered archived/private thread ID to be resolved.
+            const available = new Map([...guild.channels.cache, ...channels]);
+            if (typeof targetId === 'string' && !available.has(targetId) && !roles.has(targetId)) {
+                const channel = await guild.channels.fetch(targetId).catch(() => null);
+                if (channel?.guildId === guildId) available.set(channel.id, channel);
+            }
+            res.json({
+                roles: roles.map(role => ({ id: role.id, name: role.name, kind: 'role', type: 'ロール' })),
+                channels: [...available.values()].filter(channel => channel && channel.guildId === guildId).map(channel => ({
+                    id: channel!.id, name: channel!.name, kind: 'channel',
+                    type: ({ 0: 'テキスト', 2: 'ボイス', 4: 'カテゴリ', 5: 'アナウンス', 10: 'スレッド', 11: 'スレッド', 12: '非公開スレッド', 13: 'ステージ', 15: 'フォーラム', 16: 'メディア' } as Record<number, string>)[channel!.type] || 'チャンネル'
+                }))
+            });
+        } catch (error) {
+            Logger.error('Failed to load AntiCheat exclusion targets:', error);
+            res.status(503).json({ error: 'ロール・チャンネル一覧を取得できませんでした。' });
+        }
+    };
     clearContentCache = async (req: Request, res: Response): Promise<void> => {
         const guildId = String(req.params.guildId);
         const session = (req as any).session;
@@ -65,6 +92,11 @@ export class AntiCheatController {
 
             // Get current settings
             const currentSettings = await antiCheatManager.getSettings(guildId);
+            if (updates.excludedRoles !== undefined || updates.excludedChannels !== undefined || updates.channelDetectorExclusions !== undefined) {
+                const guild = await this.botClient.client.guilds.fetch(guildId);
+                const error = await validateExclusions(updates, currentSettings, guild);
+                if (error) { res.status(400).json({ error }); return; }
+            }
             const newSettings: GuildAntiCheatSettings = antiCheatManager.mergeSettings(currentSettings, {
                 ...updates,
                 userTrust: currentSettings.userTrust,

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import sharp from 'sharp';
 import { Collection, PermissionFlagsBits, PermissionsBitField } from 'discord.js';
-import { fetchPublicMedia, isPublicAddress, sampleImageFrames } from '../src/core/anticheat/ContentMedia.ts';
+import { fetchPublicMedia, isPublicAddress, sampleImageFrames, extractContentUrls } from '../src/core/anticheat/ContentMedia.ts';
 import { ContentSafetyDetector, parseContentVerdict, matchingContentCategories } from '../src/core/anticheat/detectors/ContentSafetyDetector.ts';
 import { repostWithSpoilers, spoilerText } from '../src/core/anticheat/ContentRepost.ts';
 import { AntiCheatManager } from '../src/core/anticheat/AntiCheatManager.ts';
@@ -13,6 +13,14 @@ import { DEFAULT_ANTICHEAT_SETTINGS } from '../src/core/anticheat/types.ts';
 const safe = { suggestive: 0, explicit: 0, harassment: 0, hate: 0, threat: 0, violence: 0 };
 const context = (config = {}) => ({ settings: { detectors: { contentSafety: { enabled: true, config } } } } as any);
 const textMessage = (content: string) => ({ content, attachments: new Collection(), embeds: [] } as any);
+
+test('signed GIF URLs preserve query parameters through bare, angle and Markdown forms', () => {
+    const url = 'https://cdn.discordapp.com/attachments/1/2/image.gif?ex=abc&is=def&hm=123&';
+    for (const text of [url, `<${url}>`, `||${url}||`, `[GIF](${url})`, `[${url}](${url.replaceAll('&', '\\&')})`]) {
+        assert.deepEqual(extractContentUrls(text), [url]);
+    }
+    assert.deepEqual(extractContentUrls('[link](https://example.org/a(b).gif?token=x%26y)'), ['https://example.org/a(b).gif?token=x%26y']);
+});
 
 test('strict JSON parsing rejects refusals, missing scores, strings and out-of-range scores', () => {
     assert.deepEqual(parseContentVerdict('```json\n' + JSON.stringify(safe) + '\n```'), safe);
@@ -111,7 +119,7 @@ function mockMessage({ failSend = false, failDelete = false, changed = false } =
 
 test('repost identifies author, hides media and succeeds before original deletion', async () => {
     const mock = mockMessage();
-    await repostWithSpoilers(mock.message, { categories: ['H系'], files: [{ data: Buffer.from('gif'), name: 'sample.gif' }] });
+    await repostWithSpoilers(mock.message, { categories: ['H系'], aiExplanation: '性的なポーズが強調されているため。', files: [{ data: Buffer.from('gif'), name: 'sample.gif' }] });
     assert.deepEqual(mock.operations, ['send', 'delete']);
     assert.deepEqual(mock.payload().allowedMentions.parse, []);
     assert.ok(mock.payload().files[0].name.startsWith('SPOILER_'));
@@ -119,6 +127,7 @@ test('repost identifies author, hides media and succeeds before original deletio
     assert.equal(embed.image, undefined);
     assert.ok(embed.author.name.includes('投稿者'));
     assert.ok(embed.fields[0].value.includes('456'));
+    assert.equal(embed.fields.find((field: any) => field.name === 'AIの判定理由（参考）')?.value, '性的なポーズが強調されているため。');
 });
 
 test('send failure preserves original, deletion failure rolls back, stale content is not replaced', async () => {
