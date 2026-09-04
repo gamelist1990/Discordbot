@@ -31,6 +31,15 @@ test('SSRF blocks private, link-local, mapped IPv6 and reserved destinations', a
     await assert.rejects(fetchPublicMedia('https://user:password@example.com/'));
 });
 
+test('GIF sampling preserves native dimensions and decoded pixels in PNG', async () => {
+    const gif = await sharp({ create: { width: 900, height: 16, channels: 4, background: { r: 40, g: 80, b: 160, alpha: 0 } } }).gif().toBuffer();
+    const frames = await sampleImageFrames(gif);
+    assert.ok(frames[0].startsWith('data:image/png;base64,'));
+    const bytes = Buffer.from(frames[0].split(',')[1], 'base64');
+    assert.equal((await sharp(bytes).metadata()).width, 900);
+    assert.deepEqual(await sharp(bytes).ensureAlpha().raw().toBuffer(), await sharp(gif).ensureAlpha().raw().toBuffer());
+});
+
 test('image sampling produces real resized JPEG frames', async () => {
     const png = await sharp({ create: { width: 1600, height: 800, channels: 3, background: 'blue' } }).png().toBuffer();
     const frames = await sampleImageFrames(png, 6);
@@ -47,7 +56,7 @@ test('text categories, thresholds, disabled categories, cache and API failure', 
         calls++;
         const request = JSON.parse(String(options?.body));
         assert.equal(request.model, 'gemma4:e4b-it-qat');
-        return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ ...safe, suggestive: 0.85 }) } }] }));
+        return new Response(JSON.stringify({ choices: [{ message: { tool_calls: [{ type: 'function', function: { name: 'submit_verdict', arguments: JSON.stringify({ ...safe, suggestive: 0.85 }) } }] } }] }));
     }) as typeof fetch;
     try {
         const detector = new ContentSafetyDetector();

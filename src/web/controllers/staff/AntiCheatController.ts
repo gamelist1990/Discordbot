@@ -12,6 +12,12 @@ import { TextChannel, PermissionFlagsBits } from 'discord.js';
  */
 export class AntiCheatController {
     constructor(private botClient: BotClient) {}
+    clearContentCache = async (req: Request, res: Response): Promise<void> => {
+        const guildId = String(req.params.guildId);
+        const session = (req as any).session;
+        if (!session || !hasAccessToGuild(session, guildId)) { res.status(403).json({ error: 'Access denied to this guild' }); return; }
+        res.json({ success: true, removed: antiCheatManager.clearContentCache(guildId) });
+    };
 
     /**
      * GET /api/staff/anticheat/:guildId/settings

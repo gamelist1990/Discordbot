@@ -71,7 +71,7 @@ export async function resolveImage(input: string, maxBytes: number): Promise<{ d
     return { ...result, type: metadata.format || 'png' };
 }
 
-export async function sampleImageFrames(data: Buffer, maxFrames = 6): Promise<string[]> {
+export async function sampleImageFrames(data: Buffer, maxFrames = 6, encoding: 'auto' | 'jpeg' = 'auto'): Promise<string[]> {
     const metadata = await sharp(data, { limitInputPixels: 25_000_000 }).metadata();
     const pages = metadata.pages || 1;
     if (pages > 500 || (metadata.width || 0) * (metadata.pageHeight || metadata.height || 0) * pages > 150_000_000) {
@@ -79,12 +79,37 @@ export async function sampleImageFrames(data: Buffer, maxFrames = 6): Promise<st
     }
     const count = Math.min(pages, Math.max(1, Math.min(12, Math.floor(maxFrames))));
     const frames: string[] = [];
+    const lossless = encoding === 'auto' && (metadata.format === 'gif' || pages > 1);
     for (let i = 0; i < count; i++) {
         const page = count === 1 ? 0 : Math.round(i * (pages - 1) / (count - 1));
-        const frame = await sharp(data, { page, pages: 1, limitInputPixels: 25_000_000 })
-            .rotate().resize(768, 768, { fit: 'inside', withoutEnlargement: true })
-            .flatten({ background: '#ffffff' }).jpeg({ quality: 80 }).toBuffer();
-        frames.push(`data:image/jpeg;base64,${frame.toString('base64')}`);
+        const decoder = sharp(data, { page, pages: 1, limitInputPixels: 25_000_000 });
+        const frame = lossless ? await decoder.png().toBuffer()
+            : await decoder.rotate().resize(768, 768, { fit: 'inside', withoutEnlargement: true })
+                .flatten({ background: '#ffffff' }).jpeg({ quality: 80 }).toBuffer();
+        frames.push(`data:image/${lossless ? 'png' : 'jpeg'};base64,${frame.toString('base64')}`);
     }
     return frames;
+}
+
+export async function composeFrameSheet(frames: string[]): Promise<string> {
+    if (!frames.length) throw new Error('No frames to compose');
+    if (frames.length === 1) return frames[0];
+    const tiles = frames.slice(0, 12);
+    const columns = Math.min(3, tiles.length);
+    const cell = 384;
+    const sizes = await Promise.all(tiles.map(frame => sharp(Buffer.from(frame.split(',')[1], 'base64')).metadata()));
+    const cellWidth = Math.round(cell * Math.max(.33, Math.min(1.5, Math.max(...sizes.map(size => (size.width || cell) / (size.height || cell))))));
+    const labelHeight = 24;
+    const composites: sharp.OverlayOptions[] = [];
+    for (let i = 0; i < tiles.length; i++) {
+        const left = (i % columns) * cellWidth;
+        const top = Math.floor(i / columns) * (cell + labelHeight);
+        const input = await sharp(Buffer.from(tiles[i].split(',')[1], 'base64'))
+            .resize(cellWidth, cell, { fit: 'contain', background: '#ffffff' }).jpeg({ quality: 85 }).toBuffer();
+        composites.push({ input, left, top: top + labelHeight });
+        composites.push({ input: Buffer.from(`<svg width="${cellWidth}" height="24"><rect width="${cellWidth}" height="24" fill="white"/><text x="8" y="18" font-size="16" fill="black">Frame ${i + 1}</text></svg>`), left, top });
+    }
+    const data = await sharp({ create: { width: columns * cellWidth, height: Math.ceil(tiles.length / columns) * (cell + labelHeight), channels: 3, background: '#ffffff' } })
+        .composite(composites).jpeg({ quality: 85 }).toBuffer();
+    return `data:image/jpeg;base64,${data.toString('base64')}`;
 }

@@ -14,6 +14,7 @@ export function createAntiCheatRoutes(
 ): Router {
     const router = Router();
     const controller = new AntiCheatController(botClient);
+    router.post('/:guildId/content-cache/clear', verifyAuth(sessions), controller.clearContentCache);
 
     // Get guild AntiCheat settings
     router.get('/:guildId/settings', verifyAuth(sessions), controller.getSettings.bind(controller));

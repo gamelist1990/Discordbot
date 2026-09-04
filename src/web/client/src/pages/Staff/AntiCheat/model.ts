@@ -9,8 +9,13 @@ export const DETECTORS: DetectorDefinition[] = [
     { kind: 'number', key: 'rapidWindowSeconds', label: '大量投稿の監視秒数', defaultValue: 10, min: 1, max: 60 },
     { kind: 'number', key: 'rapidMessageCount', label: '大量投稿の検知開始件数', defaultValue: 6, min: 2, max: 100 },
   ] },
-  { key: 'contentSafety', title: 'AIコンテンツフィルター', description: '画像・GIF・URL・本文のH系/R18、暴言などを検査します。検知後はネタバレ代理投稿または削除を選べます。全体の自動削除設定とは独立し、スコアは加算しません。誤検知・見逃しがあり、障害時は元投稿を残してログに記録します。', icon: 'shield', fields: [
+  { key: 'contentSafety', title: 'AIコンテンツフィルター', description: '画像・GIF・URL・本文のH系/R18、暴言などを検査します。検知後はネタバレ代理投稿または削除を選べます。全体の自動削除設定とは独立し、スコア加算は初期OFFで、有効時はAI判定値から算出します。誤検知・見逃しがあり、障害時は元投稿を残し、違反の検知通知は送りません。', icon: 'shield', fields: [
+    { kind: 'toggle', key: 'awardScore', label: 'AI判定に応じてスコア加算（既存の自動処罰にも反映）', defaultValue: 0 },
+    { kind: 'number', key: 'maxAiScore', label: 'AI判定1.0の加算点（上限）', defaultValue: 10, min: 1, max: 100 },
     { kind: 'toggle', key: 'scanImages', label: '画像・GIFを検査', defaultValue: 1 },
+    { kind: 'toggle', key: 'similarCache', label: '類似投稿の検知済み結果を再利用（ネタバレ・加算OFF時）', defaultValue: 1 },
+    { kind: 'number', key: 'similarityThreshold', label: '類似度しきい値（0.9＝90%）', defaultValue: 0.9, min: 0.9, max: 1, step: 0.01 },
+    { kind: 'number', key: 'cacheTtlMinutes', label: '判定キャッシュの保持時間（分）', defaultValue: 60, min: 1, max: 1440 },
     { kind: 'toggle', key: 'scanText', label: '文章を検査', defaultValue: 1 },
     { kind: 'toggle', key: 'scanUrls', label: 'URL・リンク先のプレビュー画像を検査', defaultValue: 1 },
     { kind: 'toggle', key: 'suggestive', label: '軽い性的表現・H系', defaultValue: 1 },

@@ -1,4 +1,7 @@
 .controlPanel { min-width: 0; width: 100%; }
+.cacheControls { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--app-border); }
+.cacheControls small { display: block; margin-top: 8px; color: var(--app-ink-soft); line-height: 1.6; }
+.cacheControls p { font-size: 13px; line-height: 1.6; }
 .modeGroup { border: 0; padding: 0; margin: 0; min-width: 0; }
 .modeGroup legend { font-weight: 750; margin-bottom: 12px; color: var(--app-ink); }
 .modeOptions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
@@ -12,7 +15,7 @@
 .modeCard strong { display: block; font-size: 15px; line-height: 1.5; }
 .modeCard small { display: block; margin-top: 6px; line-height: 1.6; font-size: 13px; color: var(--app-ink-soft); }
 .modeCard[data-selected="true"] { border-color: var(--app-accent-strong); background: color-mix(in srgb, var(--app-accent) 10%, var(--app-surface)); }
-.modeCard[data-danger="true"][data-selected="true"] { border-color: var(--app-danger); }
+.modeCard[data-danger="true"][data-selected="true"] { border-color: var(--app-danger); background: color-mix(in srgb, var(--app-danger) 8%, var(--app-surface)); }
 .modeCard:focus-within { outline: 3px solid var(--app-accent-strong); outline-offset: 3px; }
 .modeGroup:disabled { opacity: .55; }
 .modeGroup:disabled .modeCard { cursor: not-allowed; }

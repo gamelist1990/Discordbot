@@ -5,7 +5,7 @@ import { classifyContent, matchingContentCategories } from '../src/core/antichea
 import { sampleImageFrames } from '../src/core/anticheat/ContentMedia.js';
 
 async function main() {
-    const [mode, input] = process.argv.slice(2);
+    const [mode, input, captionFlag, caption] = process.argv.slice(2);
     if (mode === '--diagnose' || mode === '--diagnose-image') {
         const frames = mode === '--diagnose-image' ? await sampleImageFrames(await fs.readFile(input), 1) : [];
         const response = await fetch(`${config.pexAi.endpoint.replace(/\/$/, '')}/chat/completions`, {
@@ -24,7 +24,8 @@ async function main() {
     const frames = mode === '--file' ? await sampleImageFrames(await fs.readFile(input), 6) : [];
     const start = Date.now();
     console.log(JSON.stringify({ sampledFrames: frames.length }));
-    const verdict = await classifyContent(mode === '--text' ? input : '', frames, 180000);
+    if (captionFlag && (mode !== '--file' || captionFlag !== '--caption' || !caption)) throw new Error('Use --file <path> --caption <text>');
+    const verdict = await classifyContent(mode === '--text' ? input : caption || '', frames, 90000);
     console.log(JSON.stringify({ verdict, matchedCategories: matchingContentCategories(verdict, frames.length > 0), latencyMs: Date.now() - start }, null, 2));
 }
 main().catch(error => { console.error(error.message); process.exitCode = 1; });

@@ -1,4 +1,4 @@
-import { useId } from 'react';
+import { useId, useState } from 'react';
 import styles from './ContentSafetyControls.module.css';
 
 export function SettingSwitch({ label, checked, disabled, onChange }: {
@@ -14,10 +14,22 @@ export function SettingSwitch({ label, checked, disabled, onChange }: {
   </div>;
 }
 
-export function ContentSafetyControls({ action, disabled, onChange }: {
-  action: string; disabled: boolean; onChange: (action: string) => void;
+export function ContentSafetyControls({ action, disabled, onChange, guildId }: {
+  action: string; disabled: boolean; onChange: (action: string) => void; guildId?: string;
 }) {
   const id = useId();
+  const [clearing, setClearing] = useState(false);
+  const [notice, setNotice] = useState('');
+  const clearCache = async () => {
+    setClearing(true); setNotice('');
+    try {
+      const response = await fetch(`/api/staff/anticheat/${encodeURIComponent(guildId!)}/content-cache/clear`, { method: 'POST', credentials: 'include' });
+      if (!response.ok) throw new Error('キャッシュを削除できませんでした。');
+      const result = await response.json();
+      setNotice(`${result.removed}件の判定キャッシュを削除しました。次回は再判定します。`);
+    } catch (error) { setNotice(error instanceof Error ? error.message : 'キャッシュ削除に失敗しました。'); }
+    finally { setClearing(false); }
+  };
   return <div className={styles.controlPanel}>
     <fieldset className={styles.modeGroup} disabled={disabled}>
       <legend>検知した投稿の扱い</legend>
@@ -33,7 +45,14 @@ export function ContentSafetyControls({ action, disabled, onChange }: {
       </div>
       <p className={styles.modeHelp}>{action === 'delete'
         ? '誤検知でも元投稿は削除されます。この設定を保存すると適用されます。'
-        : '代理投稿に失敗した場合は元投稿を残します。'} スコア加算はありません。</p>
+        : '代理投稿に失敗した場合は元投稿を残します。'} スコア加算は初期OFFです。</p>
     </fieldset>
+    {guildId && <div className={styles.cacheControls}>
+      <button type="button" className={styles.switchButton} disabled={clearing} onClick={clearCache}>
+        {clearing ? 'キャッシュを削除中…' : 'このサーバーの判定キャッシュを削除'}
+      </button>
+      <small>完全一致・類似一致の判定を消去します。保存前でもすぐに反映されます。</small>
+      <p role="status" aria-live="polite">{notice}</p>
+    </div>}
   </div>;
 }

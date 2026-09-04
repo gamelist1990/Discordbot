@@ -11,6 +11,7 @@ type Styles = Record<string, string>;
 type Props = Pick<
   AntiCheatViewProps,
   | "draft"
+  | "guildId"
   | "detectors"
   | "wordFilterRules"
   | "excludedRolesText"
@@ -163,7 +164,7 @@ function DetectorBody({
   return (
     <div className={s.formGrid}>
       {definition.key === 'contentSafety' && <div className={s.wide}>
-        <ContentSafetyControls action={detector.config?.action === 'delete' ? 'delete' : 'spoiler'} disabled={!detector.enabled}
+        <ContentSafetyControls guildId={props.guildId} action={detector.config?.action === 'delete' ? 'delete' : 'spoiler'} disabled={!detector.enabled}
           onChange={(action) => props.updateDetectorConfig(definition.key, 'action', action)} />
       </div>}
       {definition.key !== 'contentSafety' && <>

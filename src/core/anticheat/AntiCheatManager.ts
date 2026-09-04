@@ -85,6 +85,10 @@ export class AntiCheatManager {
         this.detectors.set(detector.name, detector);
         Logger.debug(`Registered AntiCheat detector: ${detector.name}`);
     }
+    clearContentCache(guildId: string): number {
+        const detector = this.detectors.get('contentSafety');
+        return detector instanceof ContentSafetyDetector ? detector.clearCache(guildId) : 0;
+    }
 
     private runDetached(task: Promise<unknown>, context: string): void {
         void task.catch((error) => {
@@ -441,10 +445,6 @@ export class AntiCheatManager {
                     })
                     .catch((error) => {
                         Logger.error(`Detector ${name} failed:`, error);
-                        if (name === 'contentSafety') return { detector: name, result: {
-                            scoreDelta: 0, reasons: ['AIコンテンツ検査未完了（元投稿を保持）'],
-                            metadata: { scanIncomplete: true }
-                        } };
                         return null;
                     })
             );

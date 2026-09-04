@@ -139,7 +139,8 @@ export const DEFAULT_ANTICHEAT_SETTINGS: GuildAntiCheatSettings = {
             deleteMessage: false,
             notifyChannel: true,
             config: {
-                action: 'spoiler',
+                action: 'spoiler', awardScore: 0, maxAiScore: 10,
+                similarCache: 1, similarityThreshold: 0.9, cacheTtlMinutes: 60,
                 imageThreshold: 0.7, textThreshold: 0.8,
                 imageSuggestiveThreshold: 0.2, textSuggestiveThreshold: 0.7,
                 suggestive: 1, explicit: 1, harassment: 1, hate: 1, threat: 1, violence: 1,
