@@ -1,4 +1,5 @@
 import type { AntiCheatViewProps, DetectorDefinition } from "../viewTypes";
+import { ContentSafetyControls, SettingSwitch } from './ContentSafetyControls';
 import { formatDate, readNumber, toTextList } from "../model";
 import type {
   DetectorConfig,
@@ -161,6 +162,10 @@ function DetectorBody({
   if (!detector) return null;
   return (
     <div className={s.formGrid}>
+      {definition.key === 'contentSafety' && <div className={s.wide}>
+        <ContentSafetyControls action={detector.config?.action === 'delete' ? 'delete' : 'spoiler'} disabled={!detector.enabled}
+          onChange={(action) => props.updateDetectorConfig(definition.key, 'action', action)} />
+      </div>}
       {definition.key !== 'contentSafety' && <>
       <label>
         加算スコア
@@ -206,14 +211,13 @@ function DetectorBody({
       {definition.key === "wordFilter" ? (
         <WordRules detector={detector} props={props} />
       ) : (
-        definition.fields?.map((field) => (
+        definition.fields?.map((field) => field.kind === 'toggle' ? (
+          <SettingSwitch key={field.key} label={field.label} checked={(detector.config?.[field.key] ?? field.defaultValue) === 1}
+            onChange={(checked) => props.updateDetectorConfig(definition.key, field.key, checked ? 1 : 0)} disabled={!detector.enabled} />
+        ) : (
           <label key={field.key} className={field.wide ? s.wide : undefined}>
             {field.label}
-            {field.kind === 'toggle' ? (
-              <input type="checkbox" checked={(detector.config?.[field.key] ?? field.defaultValue) === 1}
-                onChange={(e) => props.updateDetectorConfig(definition.key, field.key, e.target.checked ? 1 : 0)}
-                disabled={!detector.enabled} />
-            ) : field.kind === "list" ? (
+            {field.kind === "list" ? (
               <textarea
                 value={toTextList(detector.config?.[field.key])}
                 onChange={(e) =>

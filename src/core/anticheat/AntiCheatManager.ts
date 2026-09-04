@@ -28,6 +28,7 @@ import {
 } from './types.js';
 import { TextSpamDetector } from './detectors/TextSpamDetector.js';
 import { ContentSafetyDetector } from './detectors/ContentSafetyDetector.js';
+import { deleteMatchedContent } from './ContentDeletion.js';
 import { CrossChannelSpamDetector } from './detectors/CrossChannelSpamDetector.js';
 import { repostWithSpoilers, spoilerText } from './ContentRepost.js';
 import { InviteReferralDetector } from './detectors/InviteReferralDetector.js';
@@ -461,6 +462,13 @@ export class AntiCheatManager {
             0
         );
         const repost = detectionResults.find(({ result }) => result.spoilerRepost)?.result.spoilerRepost;
+        const contentDeletion = detectionResults.find(({ result }) => result.contentDeletion)?.result.contentDeletion;
+        let contentDeleted = false;
+        let contentDeleteError: string | undefined;
+        if (contentDeletion) {
+            try { await deleteMatchedContent(message, contentDeletion); contentDeleted = true; }
+            catch (error) { contentDeleteError = error instanceof Error ? error.message : 'Content deletion failed'; }
+        }
         let replacementId: string | undefined;
         let replacementError: string | undefined;
         if (repost) {
@@ -474,12 +482,12 @@ export class AntiCheatManager {
                 Logger.error(`ContentSafety repost failed for ${message.id}: ${replacementError}`);
             }
         }
-        const shouldDeleteMessage = !repost && settings.autoDelete.enabled
+        const shouldDeleteMessage = !repost && !contentDeletion && settings.autoDelete.enabled
             && detectionResults.some(({ result }) => result.deleteMessage);
-        const messageDeleted = replacementId ? true : shouldDeleteMessage
+        const messageDeleted = replacementId || contentDeleted ? true : shouldDeleteMessage
             ? await message.delete().then(() => true).catch(() => false)
             : false;
-        if (crossChannelOnly && messageDeleted) {
+        if ((crossChannelOnly || contentDeletion) && messageDeleted) {
             if (this.replacedMessages.size >= 10000) this.replacedMessages.delete(this.replacedMessages.keys().next().value!);
             this.replacedMessages.set(message.id, Date.now());
         }
@@ -498,7 +506,8 @@ export class AntiCheatManager {
                 metadata: {
                     channelId: message.channel.id,
                     deletedMessage: messageDeleted,
-                    contentPreview: repost ? '[コンテンツ保護]' : message.content.slice(0, 160),
+                    contentPreview: repost || contentDeletion ? '[コンテンツ保護]' : message.content.slice(0, 160),
+                    ...(contentDeletion ? { contentDeleted, contentDeleteError } : {}),
                     ...(repost ? { replacementId, replacementError } : {}),
                     detectionLatencyMs,
                     ...(result.metadata || {})
@@ -528,7 +537,7 @@ export class AntiCheatManager {
                 await this.executeAutoTimeout(message.guild!, userId, settings, message.id);
             }
 
-            if (settings.autoDelete.enabled && !repost) {
+            if (settings.autoDelete.enabled && !repost && !contentDeletion) {
                 this.runDetached(
                     this.deleteRecentMessages(message.guild!, userId, settings.autoDelete.windowSeconds)
                         .then((deleted) => {

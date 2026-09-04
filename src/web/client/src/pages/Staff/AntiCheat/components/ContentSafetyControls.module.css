@@ -1,0 +1,36 @@
+.controlPanel { min-width: 0; width: 100%; }
+.modeGroup { border: 0; padding: 0; margin: 0; min-width: 0; }
+.modeGroup legend { font-weight: 750; margin-bottom: 12px; color: var(--app-ink); }
+.modeOptions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.modeOptions .modeCard {
+  display: flex; flex-direction: row; align-items: flex-start; gap: 12px; padding: 16px;
+  min-height: 100px; border: 2px solid var(--app-border); border-radius: 12px;
+  background: var(--app-surface-soft); color: var(--app-ink); cursor: pointer;
+  transition: border-color 160ms ease, background-color 160ms ease;
+}
+.modeOptions .modeCard input { width: 20px; height: 20px; min-height: 20px; flex: 0 0 20px; margin: 2px 0 0; accent-color: var(--app-accent-strong); }
+.modeCard strong { display: block; font-size: 15px; line-height: 1.5; }
+.modeCard small { display: block; margin-top: 6px; line-height: 1.6; font-size: 13px; color: var(--app-ink-soft); }
+.modeCard[data-selected="true"] { border-color: var(--app-accent-strong); background: color-mix(in srgb, var(--app-accent) 10%, var(--app-surface)); }
+.modeCard[data-danger="true"][data-selected="true"] { border-color: var(--app-danger); }
+.modeCard:focus-within { outline: 3px solid var(--app-accent-strong); outline-offset: 3px; }
+.modeGroup:disabled { opacity: .55; }
+.modeGroup:disabled .modeCard { cursor: not-allowed; }
+.modeHelp { margin: 12px 0 0; line-height: 1.6; color: var(--app-ink-soft); font-size: 13px; }
+.controlPanel button.switchButton {
+  display: flex; align-items: center; gap: 10px; width: 100%; min-height: 48px; padding: 10px 12px;
+  text-align: left; border: 1px solid var(--app-border-strong); border-radius: 10px;
+  color: var(--app-ink); background: var(--app-surface-soft); cursor: pointer;
+  transition: background-color 160ms ease, border-color 160ms ease;
+}
+.switchLabel { flex: 1; line-height: 1.5; font-size: 14px; font-weight: 650; }
+.switchState { font-size: 12px; font-weight: 800; color: var(--app-ink-soft); }
+.track { width: 36px; height: 22px; border-radius: 14px; flex-shrink: 0; background: var(--app-border-strong); padding: 3px; box-sizing: border-box; }
+.track span { display: block; width: 16px; height: 16px; border-radius: 50%; background: var(--app-ink-soft); transition: transform 160ms ease; }
+.switchButton[aria-checked="true"] .track { background: var(--app-accent-strong); }
+.switchButton[aria-checked="true"] .track span { background: white; transform: translateX(14px); }
+.controlPanel button.switchButton:hover:not(:disabled) { border-color: var(--app-accent-strong); }
+.controlPanel button.switchButton:focus-visible { outline: 3px solid var(--app-accent-strong); outline-offset: 3px; }
+.controlPanel button.switchButton:disabled { opacity: .5; cursor: not-allowed; }
+@media (max-width: 640px) { .modeOptions { grid-template-columns: 1fr; } }
+@media (prefers-reduced-motion: reduce) { .modeOptions .modeCard, .controlPanel button.switchButton, .track span { transition: none; } }
