@@ -1,7 +1,5 @@
 import { lookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
-import http from 'node:http';
-import https from 'node:https';
 import { setTimeout as delay } from 'node:timers/promises';
 import { createHash } from 'node:crypto';
 import { Logger } from '../../utils/Logger.js';
@@ -23,7 +21,7 @@ export function extractContentUrls(content: string): string[] {
     return [...urls];
 }
 
-// Only public IPv4 is used, pinned to the validated DNS answer for each hop.
+// Best-effort public IPv4 preflight; fetch handles connection DNS and TLS.
 export function isPublicAddress(address: string): boolean {
     if (isIP(address) !== 4) return false;
     const [a, b, c] = address.split('.').map(Number);
@@ -56,7 +54,7 @@ export async function fetchPublicMedia(input: string, maxBytes = 8 * 1024 * 1024
         const start = Date.now();
         Logger.info(`[ContentSafety] download-start source=${source} host=${new URL(input).hostname} attempt=${attempt + 1}`);
         try {
-            const result = await fetchPublicMediaOnce(input, maxBytes, timeoutMs, signal, depth, attempt);
+            const result = await fetchPublicMediaOnce(input, maxBytes, timeoutMs, signal, depth);
             Logger.info(`[ContentSafety] download-ok source=${source} attempt=${attempt + 1} bytes=${result.data.length} ms=${Date.now() - start}`);
             return result;
         } catch (error) {
@@ -67,7 +65,7 @@ export async function fetchPublicMedia(input: string, maxBytes = 8 * 1024 * 1024
 }
 
 async function fetchPublicMediaOnce(input: string, maxBytes: number, timeoutMs: number,
-    signal: AbortSignal = AbortSignal.timeout(timeoutMs), depth = 0, attempt = 0): Promise<{ data: Buffer; type: string; url: string }> {
+    signal: AbortSignal = AbortSignal.timeout(timeoutMs), depth = 0): Promise<{ data: Buffer; type: string; url: string }> {
     signal.throwIfAborted();
     const url = new URL(input);
     if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password
@@ -75,41 +73,36 @@ async function fetchPublicMediaOnce(input: string, maxBytes: number, timeoutMs: 
     const addresses = await lookup(url.hostname, { all: true, family: 4 });
     signal.throwIfAborted();
     if (!addresses.length || addresses.some(({ address }) => !isPublicAddress(address))) throw new Error('Non-public media host');
-    const pinned = addresses[attempt % addresses.length];
-    const result = await new Promise<{ data: Buffer; type: string; redirect?: string }>((resolve, reject) => {
-        const req = (url.protocol === 'https:' ? https : http).get(url, {
-            signal, agent: false, family: 4,
-            lookup: ((_host: string, opts: { all?: boolean }, cb: Function) => {
-                // Bun requests all:true and expects an array; Node may request one address.
-                // Both forms must use only the already validated, pinned DNS answer.
-                if (opts?.all) cb(null, [{ address: pinned.address, family: 4 }]);
-                else cb(null, pinned.address, 4);
-            }) as any,
-            headers: { Accept: 'image/*,text/html;q=0.8', 'User-Agent': 'PEXServer ContentSafety/1.0', 'Accept-Encoding': 'identity' }
-        }, response => {
-            response.on('error', reject);
-            if ([301, 302, 303, 307, 308].includes(response.statusCode || 0) && response.headers.location) {
-                resolve({ data: Buffer.alloc(0), type: '', redirect: response.headers.location });
-                response.destroy();
-                return;
-            }
-            if (response.statusCode !== 200 || Number(response.headers['content-length']) > maxBytes) {
-                response.destroy(); reject(new Error(response.statusCode !== 200 ? `Media HTTP ${response.statusCode}` : 'Media too large')); return;
-            }
-            const chunks: Buffer[] = [];
-            let size = 0;
-            response.on('data', (chunk: Buffer) => {
-                size += chunk.length;
-                if (size > maxBytes) { response.destroy(new Error('Media too large')); return; }
-                chunks.push(chunk);
-            });
-            response.on('aborted', () => reject(Object.assign(new Error('Media transfer interrupted'), { code: 'ECONNRESET' })));
-            response.on('end', () => resolve({ data: Buffer.concat(chunks), type: String(response.headers['content-type'] || '') }));
-        });
-        req.on('error', reject);
+    const response = await fetch(url, {
+        signal, redirect: 'manual',
+        headers: { Accept: 'image/*,text/html;q=0.8', 'User-Agent': 'PEXServer ContentSafety/1.0' },
     });
-    if (result.redirect) return fetchPublicMediaOnce(new URL(result.redirect, url).href, maxBytes, timeoutMs, signal, depth + 1, attempt);
-    return { ...result, url: url.href };
+    const location = response.headers.get('location');
+    if ([301, 302, 303, 307, 308].includes(response.status) && location) {
+        await response.body?.cancel();
+        return fetchPublicMediaOnce(new URL(location, url).href, maxBytes, timeoutMs, signal, depth + 1);
+    }
+    if (response.status !== 200 || Number(response.headers.get('content-length')) > maxBytes) {
+        await response.body?.cancel();
+        throw new Error(response.status !== 200 ? `Media HTTP ${response.status}` : 'Media too large');
+    }
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error('Empty media response');
+    const chunks: Uint8Array[] = [];
+    let size = 0;
+    try {
+        for (;;) {
+            const chunk = await reader.read();
+            if (chunk.done) break;
+            size += chunk.value.length;
+            if (size > maxBytes) throw new Error('Media too large');
+            chunks.push(chunk.value);
+        }
+    } catch (error) {
+        await reader.cancel().catch(() => {});
+        throw error;
+    } finally { reader.releaseLock(); }
+    return { data: Buffer.concat(chunks), type: response.headers.get('content-type') || '', url: url.href };
 }
 
 export async function resolveImage(input: string, maxBytes: number): Promise<{ data: Buffer; type: string; url: string }> {
