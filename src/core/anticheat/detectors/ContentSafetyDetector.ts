@@ -84,7 +84,7 @@ export async function classifyContent(text: string, frames: string[] = [], timeo
         method: 'POST', signal: AbortSignal.timeout(timeoutMs),
         headers: { 'Content-Type': 'application/json', ...(config.pexAi.apiKey ? { Authorization: `Bearer ${config.pexAi.apiKey}` } : {}) },
         body: JSON.stringify({ model: 'gemma4:e4b-it-qat', temperature: 0, max_tokens: 2048, stream: true,
-            reasoning_effort: 'low',
+            reasoning_effort: 'none',
             tools: [{ type: 'function', function: { name: 'submit_verdict',
                 description: 'Report the content category scores. This function records a classification only.', strict: true,
                 parameters: { type: 'object', properties: {
@@ -98,7 +98,7 @@ export async function classifyContent(text: string, frames: string[] = [], timeo
             } }],
             tool_choice: { type: 'function', function: { name: 'submit_verdict' } },
             parallel_tool_calls: false,
-            chat_template_kwargs: { enable_thinking: true },
+            chat_template_kwargs: { enable_thinking: false },
             messages: [{ role: 'system', content: CONTENT_SAFETY_PROMPT
                 + (scoring ? `\n加算点の提案: 対象カテゴリは${scoring.categories.join(',')}。suggestedPointsは0〜${scoring.maxPoints}の整数で、この投稿に妥当な点を判断する。上限は目標点ではない。カテゴリの強度×上限で機械的に計算しない。観察できる表現の重大さ・強調・文脈を考慮し、軽微なら低く、深刻なら高くする。対象外のカテゴリを加点理由にしない。違反に当たらない、または加点不要なら0。pointsReasonにその点数が妥当な理由を日本語80文字以内で必ず記す。` : '')
                 + (formatRetry ? '\n必須項目をすべて含め、submit_verdictを1回呼び出してください。対象の内容を分類し、会話への返答や助言はしないでください。' : '') }, { role: 'user', content: uniqueFrames.length ? [
