@@ -203,7 +203,16 @@ export class AntiCheatManager {
             await this.enqueueMessageProcessing(
                 `${guildId}:${message.author.id}`,
                 async () => {
-                    if (!this.replacedMessages.has(message.id)) await this.processMessage(message, settings, contentOnly);
+                    if (this.replacedMessages.has(message.id)) return;
+
+                    // Fast, deterministic rules must be fully handled before the slower AI scan starts.
+                    // This lets detections such as maxLines reach the log channel without waiting on AI.
+                    if (!contentOnly) {
+                        await this.processMessage(message, settings, false, false, 'standard');
+                    }
+                    if (!this.replacedMessages.has(message.id)) {
+                        await this.processMessage(message, settings, contentOnly, false, 'ai');
+                    }
                 }
             );
         } catch (error) {
@@ -401,7 +410,13 @@ export class AntiCheatManager {
         }), `chatlog-update:${guild.id}:${resolvedNewMessage.id}`);
     }
 
-    private async processMessage(message: Message, settings: GuildAntiCheatSettings, contentOnly = false, crossChannelOnly = false): Promise<void> {
+    private async processMessage(
+        message: Message,
+        settings: GuildAntiCheatSettings,
+        contentOnly = false,
+        crossChannelOnly = false,
+        phase: 'all' | 'standard' | 'ai' = 'all'
+    ): Promise<void> {
         const guildId = message.guild!.id;
         const userId = message.author.id;
         const currentTrust = settings.userTrust[userId] || {
@@ -425,6 +440,8 @@ export class AntiCheatManager {
 
         for (const [name, detector] of this.detectors) {
             if (crossChannelOnly ? name !== 'crossChannelSpam' : name === 'crossChannelSpam') continue;
+            if (phase === 'standard' && name === 'contentSafety') continue;
+            if (phase === 'ai' && name !== 'contentSafety') continue;
             if (!crossChannelOnly && contentOnly && name !== 'contentSafety') continue;
             if (detectorExcluded(message, settings, name)) continue;
             const detectorConfig = settings.detectors[name];
@@ -520,10 +537,12 @@ export class AntiCheatManager {
             });
 
             if (result.publicNotice && settings.detectors[detector]?.notifyChannel) {
-                this.runDetached(
-                    this.sendPublicNotice(message, result.publicNotice),
-                    `public-notice:${guildId}:${message.id}:${detector}`
-                );
+                const noticeTask = this.sendPublicNotice(message, result.publicNotice);
+                if (phase === 'standard') {
+                    await noticeTask;
+                } else {
+                    this.runDetached(noticeTask, `public-notice:${guildId}:${message.id}:${detector}`);
+                }
             }
         }
 
@@ -554,10 +573,13 @@ export class AntiCheatManager {
         }
 
         this.runDetached(this.setSettings(guildId, settings), `set-settings:${guildId}:${message.id}`);
-        this.runDetached(
-            this.sendDetectionSummary(message.guild!, message, settings, totalScoreDelta, detectionResults),
-            `detection-summary:${guildId}:${message.id}`
-        );
+        const summaryTask = this.sendDetectionSummary(message.guild!, message, settings, totalScoreDelta, detectionResults);
+        if (phase === 'standard') {
+            // Preserve the ordering contract: standard-rule notification first, AI inference second.
+            await summaryTask;
+        } else {
+            this.runDetached(summaryTask, `detection-summary:${guildId}:${message.id}`);
+        }
     }
     private async sendDetectionSummary(
         guild: Guild,

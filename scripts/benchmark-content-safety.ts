@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import sharp from 'sharp';
-import { classifyContent, matchingContentCategories, type ContentCategory } from '../src/core/anticheat/detectors/ContentSafetyDetector.js';
+import { classifyContent, matchingContentCategories, CONTENT_SAFETY_MODEL, type ContentCategory } from '../src/core/anticheat/detectors/ContentSafetyDetector.js';
 import { sampleImageFrames } from '../src/core/anticheat/ContentMedia.js';
 
 async function main() {
@@ -33,7 +33,7 @@ async function main() {
         { name: 'sample-gif-6frames-run3', text: '', frames: sampleFrames, expected: ['suggestive'], note: 'Repeat of the same image bytes without local cache.' }
     ];
     const report = {
-        startedAt: new Date().toISOString(), model: 'gemma4:12b-it-q4_K_M',
+        startedAt: new Date().toISOString(), model: CONTENT_SAFETY_MODEL,
         sampleSha256: createHash('sha256').update(bytes).digest('hex'),
         sampleBytes: bytes.length, sampledFrames: sampleFrames.length,
         execution: 'sequential; local detector cache bypassed; upstream cache unknown; production classifyContent and default thresholds',

@@ -63,7 +63,7 @@ test('text categories, thresholds, disabled categories, cache and API failure', 
     globalThis.fetch = (async (_url, options) => {
         calls++;
         const request = JSON.parse(String(options?.body));
-        assert.equal(request.model, 'gemma4:12b-it-q4_K_M');
+        assert.equal(request.model, 'gemma4-12b-q4ks');
         return new Response(JSON.stringify({ choices: [{ message: { tool_calls: [{ type: 'function', function: { name: 'submit_verdict', arguments: JSON.stringify({ ...safe, suggestive: 0.85, explanation: '性的な表現を含む本文。' }) } }] } }] }));
     }) as typeof fetch;
     try {

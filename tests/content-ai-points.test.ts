@@ -39,7 +39,7 @@ test('AI may propose zero for a match and scoring settings invalidate exact cach
         assert.equal((await detector.detect(message, context)).scoreDelta, 2);
         assert.equal((await detector.detect(message, context)).scoreDelta, 2);
         assert.equal(requests.length, 1);
-        assert.ok(!requests[0].messages[0].content.split('対象カテゴリは')[1].split('。')[0].includes('violence'));
+        assert.ok(!requests[0].messages[1].content.split('加点: ')[1].split('を対象')[0].includes('violence'));
         config.maxAiScore = 5;
         points = 0;
         const zero = await detector.detect(message, context);

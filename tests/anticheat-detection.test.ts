@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { antiCheatManager } from '../src/core/anticheat/AntiCheatManager.ts';
+import { AntiCheatManager, antiCheatManager } from '../src/core/anticheat/AntiCheatManager.ts';
 import { DEFAULT_ANTICHEAT_SETTINGS } from '../src/core/anticheat/types.ts';
 import { RedirectLinkDetector } from '../src/core/anticheat/detectors/RedirectLinkDetector.ts';
 import { TextSpamDetector } from '../src/core/anticheat/detectors/TextSpamDetector.ts';
@@ -18,6 +18,44 @@ import {
 } from '../src/core/anticheat/detectors/MediaSafetyUtils.ts';
 
 (globalThis as any)._cacheCleanupInterval?.unref?.();
+
+test('standard detections are notified before content-safety AI inference starts', async () => {
+    const manager = new AntiCheatManager();
+    const settings = structuredClone(DEFAULT_ANTICHEAT_SETTINGS);
+    settings.enabled = true;
+    for (const [name, config] of Object.entries(settings.detectors)) {
+        config.enabled = name === 'maxLines' || name === 'contentSafety';
+    }
+
+    const events: string[] = [];
+    manager.getSettings = async () => settings;
+    manager.setSettings = async () => undefined;
+    manager.registerDetector({
+        name: 'maxLines',
+        detect: async () => ({ scoreDelta: 0, reasons: ['最大行数を超えるメッセージを検知しました (30/20)'] })
+    });
+    manager.registerDetector({
+        name: 'contentSafety',
+        detect: async () => {
+            events.push('ai-started');
+            return { scoreDelta: 0, reasons: [] };
+        }
+    });
+    (manager as any).sendDetectionSummary = async () => {
+        events.push('standard-notified');
+    };
+
+    await manager.onMessage({
+        id: 'message-order',
+        content: Array.from({ length: 30 }, () => 'line').join('\n'),
+        author: { id: 'user-order', bot: false },
+        guild: { id: 'guild-order' },
+        channel: { id: 'channel-order' },
+        member: null
+    } as any);
+
+    assert.deepEqual(events, ['standard-notified', 'ai-started']);
+});
 
 test('textSpam does not flag a normal message only because deleteMessage is enabled', async () => {
     const detector = new TextSpamDetector();

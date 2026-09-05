@@ -1,7 +1,7 @@
 // Sends only explicitly provided text/file to the configured PEX moderation model. Never logs credentials.
 import fs from 'node:fs/promises';
 import { config } from '../src/config.js';
-import { classifyContent, matchingContentCategories, CONTENT_CATEGORIES } from '../src/core/anticheat/detectors/ContentSafetyDetector.js';
+import { classifyContent, matchingContentCategories, CONTENT_CATEGORIES, CONTENT_SAFETY_MODEL } from '../src/core/anticheat/detectors/ContentSafetyDetector.js';
 import { sampleImageFrames } from '../src/core/anticheat/ContentMedia.js';
 
 async function main() {
@@ -12,6 +12,13 @@ async function main() {
         timeoutMs = Number(args[timeoutIndex + 1]);
         if (!Number.isInteger(timeoutMs) || timeoutMs < 5000 || timeoutMs > 180000) throw new Error('--timeout-ms must be an integer from 5000 to 180000');
         args.splice(timeoutIndex, 2);
+    }
+    const modelIndex = args.indexOf('--model');
+    let model: string | undefined;
+    if (modelIndex >= 0) {
+        model = args[modelIndex + 1]?.trim();
+        if (!model) throw new Error('--model requires a model name');
+        args.splice(modelIndex, 2);
     }
     const pointsIndex = args.indexOf('--max-points');
     let maxPoints: number | undefined;
@@ -26,7 +33,7 @@ async function main() {
         const response = await fetch(`${config.pexAi.endpoint.replace(/\/$/, '')}/chat/completions`, {
             method: 'POST', signal: AbortSignal.timeout(60000),
             headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.pexAi.apiKey}` },
-            body: JSON.stringify({ model: 'gemma4:12b-it-q4_K_M', stream: false, max_tokens: 1024,
+            body: JSON.stringify({ model: model || CONTENT_SAFETY_MODEL, stream: false, max_tokens: 768,
                 messages: [{ role: 'user', content: frames.length ? [
                     { type: 'text', text: 'Briefly identify the non-explicit visual elements in this image: art style, hair color and background. Do not describe anatomy or sexual acts.' },
                     { type: 'image_url', image_url: { url: frames[0] } }
@@ -41,7 +48,7 @@ async function main() {
     console.log(JSON.stringify({ sampledFrames: frames.length }));
     if (captionFlag && (mode !== '--file' || captionFlag !== '--caption' || !caption)) throw new Error('Use --file <path> --caption <text>');
     const verdict = await classifyContent(mode === '--text' ? input : caption || '', frames, timeoutMs, false,
-        maxPoints === undefined ? undefined : { maxPoints, categories: [...CONTENT_CATEGORIES] });
-    console.log(JSON.stringify({ verdict, matchedCategories: matchingContentCategories(verdict, frames.length > 0), latencyMs: Date.now() - start }, null, 2));
+        maxPoints === undefined ? undefined : { maxPoints, categories: [...CONTENT_CATEGORIES] }, model);
+    console.log(JSON.stringify({ model: model || CONTENT_SAFETY_MODEL, verdict, matchedCategories: matchingContentCategories(verdict, frames.length > 0), latencyMs: Date.now() - start }, null, 2));
 }
 main().catch(error => { console.error(error.message); process.exitCode = 1; });

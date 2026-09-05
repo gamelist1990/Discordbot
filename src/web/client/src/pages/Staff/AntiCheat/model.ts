@@ -31,7 +31,7 @@ export const DETECTORS: DetectorDefinition[] = [
     { kind: 'number', key: 'maxSampleFrames', label: 'GIF・WebPの抽出枚数（初期6枚・等間隔）', defaultValue: 6, min: 1, max: 12 },
     { kind: 'number', key: 'maxImages', label: '1投稿の画像取得上限', defaultValue: 4, min: 1, max: 10 },
     { kind: 'number', key: 'maxFileSizeMb', label: '画像1件の取得上限(MB)', defaultValue: 8, min: 1, max: 10 },
-    { kind: 'number', key: 'timeoutMs', label: 'AI応答の待機上限(ms)', defaultValue: 90000, min: 5000, max: 180000, step: 1000 },
+    { kind: 'number', key: 'timeoutMs', label: 'AI応答の待機上限(ms)', defaultValue: 120000, min: 5000, max: 180000, step: 1000 },
   ] },
   { key: 'textSpam', title: 'テキストスパム', description: '短時間の連投を検知します。', icon: 'sms', fields: [
     { kind: 'number', key: 'windowSeconds', label: '監視秒数', defaultValue: 5, min: 1 },

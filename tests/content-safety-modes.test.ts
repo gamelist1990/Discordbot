@@ -23,7 +23,7 @@ test('missing tool call retries once with the same input and rejects repeated ma
     try {
         assert.deepEqual(await classifyContent('test content'), verdict);
         assert.equal(requests.length, 2);
-        assert.ok(requests[1].messages[1].content.endsWith(JSON.stringify('test content')));
+        assert.ok(requests[1].messages[1].content.includes(JSON.stringify('test content')));
         assert.notEqual(requests[0].messages[1].content, requests[1].messages[1].content);
         assert.deepEqual(requests[0].tool_choice, requests[1].tool_choice);
         assert.ok(requests[1].messages[0].content.startsWith(CONTENT_SAFETY_PROMPT));
@@ -55,8 +55,9 @@ test('image retries reject explanations that claim the attached image is absent'
         calls++;
         const request = JSON.parse(String(options?.body));
         if (calls === 2) {
-            assert.match(request.messages[0].content, /画像入力は存在する/);
-            assert.match(request.messages[1].content[1].text, /添付画像1枚は実際に入力されています/);
+            assert.equal(request.messages[0].content, CONTENT_SAFETY_PROMPT);
+            assert.match(request.messages[1].content[1].text, /対象: 画像1枚/);
+            assert.match(request.messages[1].content[1].text, /再試行:/);
         }
         const result = calls === 1 ? { ...verdict, explanation: '画像が提供されていないため判定できません。' } : { ...verdict, explanation: '画像を確認し、性的な強調は見られない。' };
         return new Response(JSON.stringify({ choices: [{ message: { tool_calls: [{ type: 'function', function: { name: 'submit_verdict', arguments: JSON.stringify(result) } }] } }] }));
@@ -105,7 +106,7 @@ test('mixed posts send text with images, invalidate changed captions and respect
         const ctx = context('spoiler');
         assert.ok((await detector.detect(message, ctx)).spoilerRepost);
         assert.equal(requests.length, 2);
-        assert.equal(requests[1].messages[1].content[1].text, 'caption A');
+        assert.match(requests[1].messages[1].content[1].text, /投稿本文\(JSON\): "caption A"/);
         assert.equal(requests[1].messages[1].content[0].type, 'image_url');
         message.content = 'caption B';
         assert.equal((await detector.detect(message, ctx)).spoilerRepost, undefined);
@@ -193,7 +194,7 @@ test('413 splits frames without altering them or losing caption; aggregates ever
     globalThis.fetch = (async (_url, options) => {
         const body = JSON.parse(String(options?.body));
         const parts = body.messages[1].content;
-        assert.equal(parts.at(-1).text, 'context');
+        assert.match(parts.at(-1).text, /投稿本文\(JSON\): "context"/);
         const images = parts.filter((part: any) => part.type === 'image_url').map((part: any) => part.image_url.url);
         if (images.length > 1) return new Response('', { status: 413 });
         accepted.push(images[0]);
@@ -273,7 +274,7 @@ test('stable prefix, raw text payload and deduplicated images reduce input', asy
         await classifyContent('', ['data:image/jpeg;base64,AA==', 'data:image/jpeg;base64,BB==']);
         assert.equal(requests[0].messages[0].content, CONTENT_SAFETY_PROMPT);
         assert.equal(requests[1].messages[0].content, CONTENT_SAFETY_PROMPT);
-        assert.equal(requests[0].messages[1].content, 'hello');
+        assert.match(requests[0].messages[1].content, /投稿本文\(JSON\): "hello"/);
         assert.equal(requests[1].messages[1].content.filter((part: any) => part.type === 'image_url').length, 1);
         assert.equal(requests[2].messages[1].content.filter((part: any) => part.type === 'image_url').length, 2);
         assert.equal(requests[2].messages[1].content[1].image_url.detail, 'high');
@@ -281,11 +282,11 @@ test('stable prefix, raw text payload and deduplicated images reduce input', asy
         assert.equal(requests[0].response_format, undefined);
         assert.equal(requests[0].reasoning_effort, 'none');
         assert.deepEqual(requests[0].chat_template_kwargs, { enable_thinking: false });
-        assert.match(CONTENT_SAFETY_PROMPT, /通常の衣服.*対象外/);
-        assert.match(CONTENT_SAFETY_PROMPT, /あなた自身に「対象表現は実際にあるか」/);
-        assert.match(CONTENT_SAFETY_PROMPT, /少しでも合理的な根拠があり弱いと判断した場合は低い正の値/);
-        assert.match(CONTENT_SAFETY_PROMPT, /弱い性的な見せ方があると判断した場合はその程度に応じた低い値/);
-        assert.ok(CONTENT_SAFETY_PROMPT.length < 1600);
+        assert.match(CONTENT_SAFETY_PROMPT, /自分で分類/);
+        assert.match(CONTENT_SAFETY_PROMPT, /通常の服.*対象外/);
+        assert.match(CONTENT_SAFETY_PROMPT, /弱い表現には低い正の値/);
+        assert.match(CONTENT_SAFETY_PROMPT, /自然でカジュアルな日本語1文/);
+        assert.ok(CONTENT_SAFETY_PROMPT.length < 1000);
     } finally { globalThis.fetch = original; }
 });
 

@@ -148,7 +148,7 @@ export const DEFAULT_ANTICHEAT_SETTINGS: GuildAntiCheatSettings = {
                 imageSuggestiveThreshold: 0.2, textSuggestiveThreshold: 0.7,
                 suggestive: 1, explicit: 1, harassment: 1, hate: 1, threat: 1, violence: 1,
                 scanImages: 1, scanText: 1, scanUrls: 1,
-                maxSampleFrames: 6, maxFileSizeMb: 8, maxImages: 4, timeoutMs: 90000
+                maxSampleFrames: 6, maxFileSizeMb: 8, maxImages: 4, timeoutMs: 120000
             }
         },
         textSpam: {
