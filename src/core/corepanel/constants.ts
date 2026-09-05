@@ -1,7 +1,7 @@
 import { PersonalityArchetypeDefinition, PersonalityKey } from './types.js';
 
 export const CORE_FEATURE_MODEL_FALLBACKS = [
-    'gemma4:e4b-it-qat'
+    'gemma4:e2b-it-qat'
 ] as const;
 
 export const CORE_FEATURE_API_ENDPOINT = 'http://api.pexserver.com:9000/v1';

@@ -26,7 +26,7 @@ async function main() {
         const response = await fetch(`${config.pexAi.endpoint.replace(/\/$/, '')}/chat/completions`, {
             method: 'POST', signal: AbortSignal.timeout(60000),
             headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.pexAi.apiKey}` },
-            body: JSON.stringify({ model: 'gemma4:e4b-it-qat', stream: false, max_tokens: 1024,
+            body: JSON.stringify({ model: 'gemma4:e2b-it-qat', stream: false, max_tokens: 1024,
                 messages: [{ role: 'user', content: frames.length ? [
                     { type: 'text', text: 'Briefly identify the non-explicit visual elements in this image: art style, hair color and background. Do not describe anatomy or sexual acts.' },
                     { type: 'image_url', image_url: { url: frames[0] } }

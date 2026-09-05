@@ -83,7 +83,7 @@ export async function classifyContent(text: string, frames: string[] = [], timeo
     const response = await fetch(`${config.pexAi.endpoint.replace(/\/$/, '')}/chat/completions`, {
         method: 'POST', signal: AbortSignal.timeout(timeoutMs),
         headers: { 'Content-Type': 'application/json', ...(config.pexAi.apiKey ? { Authorization: `Bearer ${config.pexAi.apiKey}` } : {}) },
-        body: JSON.stringify({ model: 'gemma4:e4b-it-qat', temperature: 0, max_tokens: 2048, stream: true,
+        body: JSON.stringify({ model: 'gemma4:e2b-it-qat', temperature: 0, max_tokens: 2048, stream: true,
             reasoning_effort: 'none',
             tools: [{ type: 'function', function: { name: 'submit_verdict',
                 description: 'Report the content category scores. This function records a classification only.', strict: true,
@@ -193,7 +193,7 @@ export class ContentSafetyDetector implements Detector {
             stage = 'cache';
             frames = [...new Set(frames)];
             trace(`analysis-start source=${source} frames=${frames.length}`);
-            const key = createHash('sha256').update(JSON.stringify(['gemma4:e4b-it-qat', 'images-first-thinking-low-2048', CONTENT_SAFETY_PROMPT, scoring, text, frames])).digest('hex');
+            const key = createHash('sha256').update(JSON.stringify(['gemma4:e2b-it-qat', 'images-first-thinking-low-2048', CONTENT_SAFETY_PROMPT, scoring, text, frames])).digest('hex');
             const input = await similarityInput(text, frames);
             const revision = this.cache.revision(guildId);
             const requestKey = `${guildId}:${revision}:${key}`;
@@ -276,7 +276,7 @@ export class ContentSafetyDetector implements Detector {
             ...(hits.size ? options.action === 'delete' ? { contentDeletion: expected } : {
                 spoilerRepost: { files, categories: [...hits].map(category => CONTENT_LABELS[category]), expected, aiExplanation }
             } : {}),
-            metadata: { model: 'gemma4:e4b-it-qat', action: options.action === 'delete' ? 'delete' : 'spoiler', aiExplanation, analyses, errors, scoring, appliedPoints: scoreDelta, pointsReason: scored?.scores.pointsReason, stoppedAfterMatch: hits.size > 0 }
+            metadata: { model: 'gemma4:e2b-it-qat', action: options.action === 'delete' ? 'delete' : 'spoiler', aiExplanation, analyses, errors, scoring, appliedPoints: scoreDelta, pointsReason: scored?.scores.pointsReason, stoppedAfterMatch: hits.size > 0 }
         };
     }
 }
