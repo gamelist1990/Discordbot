@@ -2,7 +2,7 @@
 
 後続修正：ユーザーの指定に従い、日本語版の「明確に該当すれば0.7以上」という下限誘導を撤去した。現在は内容の強度を0〜1で連続的に採点し、検知閾値に合わせない指示を使用する。以下の比較結果は撤去前の履歴であり、現行プロンプトの検証結果ではない。
 
-対象はユーザー提供の caption.gif。元解像度の可逆PNGを6枚、既存の sampleImageFrames で抽出。画像加工・モデル・閾値は変更せず、システムプロンプトを比較した。モデルは gemma4:e2b-it-qat、temperature=0、reasoning_effort=none、max_tokens=256、submit_verdict 強制指定。判定キャッシュは使っていない。
+対象はユーザー提供の caption.gif。元解像度の可逆PNGを6枚、既存の sampleImageFrames で抽出。画像加工・モデル・閾値は変更せず、システムプロンプトを比較した。モデルは gemma4:12b-it-q4_K_M、temperature=0、reasoning_effort=none、max_tokens=256、submit_verdict 強制指定。判定キャッシュは使っていない。
 
 |プロンプト|H系|R18|説明|
 |---|---:|---:|---|

@@ -1,6 +1,6 @@
 {
   "startedAt": "2026-09-04T11:29:50.032Z",
-  "model": "gemma4:e2b-it-qat",
+  "model": "gemma4:12b-it-q4_K_M",
   "sampleSha256": "8428791c1e1a52c99dcd6f0f6d3e04df639c98a98b0a8b7f0350926c1f007174",
   "sampleBytes": 4868882,
   "sampledFrames": 6,

@@ -30,6 +30,7 @@ import {
 } from './types.js';
 import { TextSpamDetector } from './detectors/TextSpamDetector.js';
 import { ContentSafetyDetector } from './detectors/ContentSafetyDetector.js';
+import { CONTENT_VERDICT_CACHE_PATH, ContentVerdictCache } from './ContentVerdictCache.js';
 import { deleteMatchedContent } from './ContentDeletion.js';
 import { CrossChannelSpamDetector } from './detectors/CrossChannelSpamDetector.js';
 import { repostWithSpoilers, spoilerText } from './ContentRepost.js';
@@ -64,7 +65,7 @@ export class AntiCheatManager {
 
     constructor() {
         this.registerDetector(new CrossChannelSpamDetector());
-        this.registerDetector(new ContentSafetyDetector());
+        this.registerDetector(new ContentSafetyDetector(undefined, new ContentVerdictCache(CONTENT_VERDICT_CACHE_PATH)));
         this.registerDetector(new TextSpamDetector());
         this.registerDetector(new InviteReferralDetector());
         this.registerDetector(new RedirectLinkDetector());

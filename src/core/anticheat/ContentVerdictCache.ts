@@ -1,9 +1,17 @@
 import sharp from 'sharp';
 import { createHash } from 'node:crypto';
+import fs from 'node:fs';
+import fsPromises from 'node:fs/promises';
+import path from 'node:path';
 import type { ContentVerdict } from './detectors/ContentSafetyDetector.js';
 
 export interface SimilarityInput { kind: 'text' | 'image'; features: string | Buffer; guard: string }
 interface Entry { guildId: string; key: string; input: SimilarityInput; verdict: ContentVerdict; expires: number }
+interface StoredEntry extends Omit<Entry, 'input'> {
+    input: Omit<SimilarityInput, 'features'> & { features: string; encoding?: 'base64' };
+}
+
+export const CONTENT_VERDICT_CACHE_PATH = path.join(process.cwd(), 'Database', 'system', 'content-safety-cache.json');
 
 export async function similarityInput(text: string, images: string[]): Promise<SimilarityInput> {
     if (images.length) {
@@ -44,11 +52,59 @@ export class ContentVerdictCache {
     private entries = new Map<string, Entry>();
     private sequence = 0;
     private revisions = new Map<string, number>();
+    private persistQueue = Promise.resolve();
+    constructor(private readonly persistPath: string | null = null) {
+        if (persistPath) this.loadFromDisk();
+    }
+    private loadFromDisk() {
+        try {
+            const stored = JSON.parse(fs.readFileSync(this.persistPath!, 'utf8')) as StoredEntry[];
+            const now = Date.now();
+            for (const entry of Array.isArray(stored) ? stored : []) {
+                if (!entry || entry.expires <= now || typeof entry.guildId !== 'string' || typeof entry.key !== 'string') continue;
+                const input: SimilarityInput = {
+                    kind: entry.input.kind,
+                    guard: entry.input.guard,
+                    features: entry.input.encoding === 'base64'
+                        ? Buffer.from(entry.input.features, 'base64')
+                        : entry.input.features
+                };
+                this.entries.set(`${entry.guildId}:${entry.key}`, { ...entry, input });
+            }
+        } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== 'ENOENT') console.warn('[ContentSafety] persisted cache could not be loaded; starting empty');
+        }
+    }
+    private persist() {
+        if (!this.persistPath) return;
+        this.persistQueue = this.persistQueue.then(async () => {
+            const now = Date.now();
+            const stored: StoredEntry[] = [];
+            for (const [id, entry] of this.entries) {
+                if (entry.expires <= now) { this.entries.delete(id); continue; }
+                stored.push({
+                    ...entry,
+                    input: {
+                        kind: entry.input.kind,
+                        guard: entry.input.guard,
+                        features: Buffer.isBuffer(entry.input.features) ? entry.input.features.toString('base64') : entry.input.features,
+                        ...(Buffer.isBuffer(entry.input.features) ? { encoding: 'base64' as const } : {})
+                    }
+                });
+            }
+            await fsPromises.mkdir(path.dirname(this.persistPath!), { recursive: true });
+            const temporary = `${this.persistPath!}.tmp`;
+            await fsPromises.writeFile(temporary, JSON.stringify(stored), 'utf8');
+            await fsPromises.rename(temporary, this.persistPath!);
+        }).catch(() => console.warn('[ContentSafety] persisted cache could not be saved'));
+    }
+    async flush() { await this.persistQueue; }
     revision(guildId: string) { return this.revisions.get(guildId) || 0; }
     clear(guildId: string): number {
         let removed = 0;
         for (const [id, entry] of this.entries) if (entry.guildId === guildId) { this.entries.delete(id); removed++; }
         this.revisions.set(guildId, ++this.sequence);
+        this.persist();
         return removed;
     }
     get(guildId: string, key: string, input: SimilarityInput, similarity: number, allowSimilar: (v: ContentVerdict) => boolean) {
@@ -68,5 +124,6 @@ export class ContentVerdictCache {
         if (revision !== this.revision(guildId)) return; // Clear also invalidates still-running requests.
         if (this.entries.size >= 2000) this.entries.delete(this.entries.keys().next().value!);
         this.entries.set(`${guildId}:${key}`, { guildId, key, input, verdict, expires: Date.now() + ttlMs });
+        this.persist();
     }
 }

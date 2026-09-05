@@ -35,3 +35,13 @@ test('incomplete scans distinguish download, frame extraction and AI failures', 
         assert.equal(calls, 2, 'failed verdicts must not enter the cache');
     } finally { globalThis.fetch = original; }
 });
+
+test('ordinary web pages without preview images are skipped instead of failing the scan', async () => {
+    const url = 'https://example.com/page';
+    const message = { id: '123', content: url, editedTimestamp: null, attachments: new Map(), embeds: [] } as any;
+    const context = { guildId: '456', settings: { detectors: { contentSafety: { enabled: true, config: {} } } } } as any;
+    const result = await new ContentSafetyDetector(async () => { throw new Error('No preview image'); }).detect(message, context);
+    assert.deepEqual(result.reasons, []);
+    assert.equal(result.scoreDelta, 0);
+    assert.deepEqual(result.metadata?.errors, []);
+});

@@ -646,7 +646,7 @@ export class ChatGPTClient {
             input,
             ...(options?.level !== undefined ? { level: options.level } : {}),
             temperature: options?.temperature ?? 0.7,
-            max_output_tokens: model === 'gemma4:e2b-it-qat'
+            max_output_tokens: model === 'gemma4:12b-it-q4_K_M'
                 ? Math.max(options?.maxTokens ?? 2048, 512)
                 : options?.maxTokens ?? 1024,
             top_p: options?.topP ?? 1,
@@ -1126,9 +1126,9 @@ export class ChatGPTClient {
             model,
             messages,
             temperature: options?.temperature ?? 0.7,
-            // gemma4:e2b-it-qat は reasoning も出力トークンを消費するため、
+            // gemma4:12b-it-q4_K_M は reasoning も出力トークンを消費するため、
             // 小さすぎる上限では最終 content が空になる。最低 512 を確保する。
-            max_tokens: model === 'gemma4:e2b-it-qat'
+            max_tokens: model === 'gemma4:12b-it-q4_K_M'
                 ? Math.max(options?.maxTokens ?? 2048, 512)
                 : options?.maxTokens ?? 1024,
             top_p: options?.topP ?? 1,

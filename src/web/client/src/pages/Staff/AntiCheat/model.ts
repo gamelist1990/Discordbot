@@ -15,7 +15,7 @@ export const DETECTORS: DetectorDefinition[] = [
     { kind: 'toggle', key: 'scanImages', label: '画像・GIFを検査', defaultValue: 1 },
     { kind: 'toggle', key: 'similarCache', label: '類似投稿の検知済み結果を再利用（ネタバレ・加算OFF時）', defaultValue: 1 },
     { kind: 'number', key: 'similarityThreshold', label: '類似度しきい値（0.9＝90%）', defaultValue: 0.9, min: 0.9, max: 1, step: 0.01 },
-    { kind: 'number', key: 'cacheTtlMinutes', label: '判定キャッシュの保持時間（分）', defaultValue: 60, min: 1, max: 1440 },
+    { kind: 'number', key: 'cacheTtlMinutes', label: '判定キャッシュの保持時間（90日固定）', defaultValue: 129600, min: 129600, max: 129600 },
     { kind: 'toggle', key: 'scanText', label: '文章を検査', defaultValue: 1 },
     { kind: 'toggle', key: 'scanUrls', label: 'URL・リンク先のプレビュー画像を検査', defaultValue: 1 },
     { kind: 'toggle', key: 'suggestive', label: '軽い性的表現・H系', defaultValue: 1 },

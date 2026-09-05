@@ -33,7 +33,7 @@ async function main() {
         { name: 'sample-gif-6frames-run3', text: '', frames: sampleFrames, expected: ['suggestive'], note: 'Repeat of the same image bytes without local cache.' }
     ];
     const report = {
-        startedAt: new Date().toISOString(), model: 'gemma4:e2b-it-qat',
+        startedAt: new Date().toISOString(), model: 'gemma4:12b-it-q4_K_M',
         sampleSha256: createHash('sha256').update(bytes).digest('hex'),
         sampleBytes: bytes.length, sampledFrames: sampleFrames.length,
         execution: 'sequential; local detector cache bypassed; upstream cache unknown; production classifyContent and default thresholds',

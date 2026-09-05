@@ -2,7 +2,7 @@
 
 管理画面 → アンチチート → 検知設定 → **AIコンテンツフィルター** で有効にして保存します。
 初期状態では無効です。アンチチート全体も有効にしてください。除外チャンネル・除外ロールは従来どおり適用します。
-`config.json` の `pexAi.endpoint` / `pexAi.apiKey` を使用し、モデルは `gemma4:e2b-it-qat` 固定です。
+`config.json` の `pexAi.endpoint` / `pexAi.apiKey` を使用し、モデルは `gemma4:12b-it-q4_K_M` 固定です。
 APIキーをブラウザーへ公開しません。モデル一覧ではこのモデルはPlus/Pro対象です。
 有効化したサーバーの検査対象本文・画像フレームは設定済みPEX APIへ送信されます。
 

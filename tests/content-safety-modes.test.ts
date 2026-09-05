@@ -34,6 +34,39 @@ test('missing tool call retries once with the same input and rejects repeated ma
     } finally { globalThis.fetch = original; }
 });
 
+test('invalid tool explanation retries once before failing the content scan', async () => {
+    const original = globalThis.fetch;
+    let calls = 0;
+    globalThis.fetch = (async () => {
+        calls++;
+        const result = calls === 1 ? { ...verdict, explanation: '   ' } : verdict;
+        return new Response(JSON.stringify({ choices: [{ message: { tool_calls: [{ type: 'function', function: { name: 'submit_verdict', arguments: JSON.stringify(result) } }] } }] }));
+    }) as typeof fetch;
+    try {
+        assert.deepEqual(await classifyContent('test content'), verdict);
+        assert.equal(calls, 2);
+    } finally { globalThis.fetch = original; }
+});
+
+test('image retries reject explanations that claim the attached image is absent', async () => {
+    const original = globalThis.fetch;
+    let calls = 0;
+    globalThis.fetch = (async (_url, options) => {
+        calls++;
+        const request = JSON.parse(String(options?.body));
+        if (calls === 2) {
+            assert.match(request.messages[0].content, /画像入力は存在する/);
+            assert.match(request.messages[1].content[1].text, /添付画像1枚は実際に入力されています/);
+        }
+        const result = calls === 1 ? { ...verdict, explanation: '画像が提供されていないため判定できません。' } : { ...verdict, explanation: '画像を確認し、性的な強調は見られない。' };
+        return new Response(JSON.stringify({ choices: [{ message: { tool_calls: [{ type: 'function', function: { name: 'submit_verdict', arguments: JSON.stringify(result) } }] } }] }));
+    }) as typeof fetch;
+    try {
+        assert.deepEqual(await classifyContent('test content', ['data:image/jpeg;base64,AA==']), { ...verdict, explanation: '画像を確認し、性的な強調は見られない。' });
+        assert.equal(calls, 2);
+    } finally { globalThis.fetch = original; }
+});
+
 test('URL-only GIF posts download the signed URL and preserve the original GIF for spoiler repost', async () => {
     const original = globalThis.fetch;
     const url = 'https://cdn.discordapp.com/attachments/1/2/image.gif?ex=abc&is=def&hm=123&';
@@ -140,6 +173,20 @@ test('required tool protocol rejects plain text, wrong functions, multiple calls
     } finally { globalThis.fetch = original; }
 });
 
+test('protocol retry uses a non-stream response to avoid a missing streamed tool call', async () => {
+    const original = globalThis.fetch;
+    const streams: boolean[] = [];
+    const call = { type: 'function', function: { name: 'submit_verdict', arguments: JSON.stringify(verdict) } };
+    globalThis.fetch = (async (_url, options) => {
+        streams.push(JSON.parse(String(options?.body)).stream);
+        return new Response(JSON.stringify({ choices: [{ message: { tool_calls: streams.length === 1 ? [] : [call] } }] }));
+    }) as typeof fetch;
+    try {
+        await classifyContent('test');
+        assert.deepEqual(streams, [true, false]);
+    } finally { globalThis.fetch = original; }
+});
+
 test('413 splits frames without altering them or losing caption; aggregates every batch', async () => {
     const original = globalThis.fetch;
     const accepted: string[] = [];
@@ -232,6 +279,12 @@ test('stable prefix, raw text payload and deduplicated images reduce input', asy
         assert.equal(requests[2].messages[1].content[1].image_url.detail, 'high');
         assert.deepEqual(requests[0].tool_choice, { type: 'function', function: { name: 'submit_verdict' } });
         assert.equal(requests[0].response_format, undefined);
+        assert.equal(requests[0].reasoning_effort, 'none');
+        assert.deepEqual(requests[0].chat_template_kwargs, { enable_thinking: false });
+        assert.match(CONTENT_SAFETY_PROMPT, /通常の衣服.*対象外/);
+        assert.match(CONTENT_SAFETY_PROMPT, /あなた自身に「対象表現は実際にあるか」/);
+        assert.match(CONTENT_SAFETY_PROMPT, /少しでも合理的な根拠があり弱いと判断した場合は低い正の値/);
+        assert.match(CONTENT_SAFETY_PROMPT, /弱い性的な見せ方があると判断した場合はその程度に応じた低い値/);
         assert.ok(CONTENT_SAFETY_PROMPT.length < 1600);
     } finally { globalThis.fetch = original; }
 });

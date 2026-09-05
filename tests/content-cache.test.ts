@@ -3,6 +3,9 @@ import assert from 'node:assert/strict';
 import { ContentVerdictCache, similarityInput, inputSimilarity } from '../src/core/anticheat/ContentVerdictCache.ts';
 import { sampleImageFrames, composeFrameSheet } from '../src/core/anticheat/ContentMedia.ts';
 import sharp from 'sharp';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import { AntiCheatController } from '../src/web/controllers/staff/AntiCheatController.ts';
 import { antiCheatManager } from '../src/core/anticheat/AntiCheatManager.ts';
 (globalThis as any)._cacheCleanupInterval?.unref?.();
@@ -33,6 +36,27 @@ test('clear affects one guild and prevents old in-flight results from repopulati
     assert.equal(cache.get('b', 'key', input, 2, () => true)?.cache, 'exact');
     cache.set('a', 'new', input, positive, -1, cache.revision('a'));
     assert.equal(cache.get('a', 'new', input, 2, () => true), undefined);
+});
+
+test('cache survives recreation on disk and clear is persisted', async () => {
+    const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'content-verdict-cache-'));
+    const cachePath = path.join(directory, 'cache.json');
+    try {
+        const input = await similarityInput('persist me', []);
+        const first = new ContentVerdictCache(cachePath);
+        first.set('guild', 'key', input, positive, 90 * 86400000, first.revision('guild'));
+        await first.flush();
+
+        const restored = new ContentVerdictCache(cachePath);
+        assert.equal(restored.get('guild', 'key', input, 2, () => true)?.cache, 'exact');
+        assert.equal(restored.clear('guild'), 1);
+        await restored.flush();
+
+        const cleared = new ContentVerdictCache(cachePath);
+        assert.equal(cleared.get('guild', 'key', input, 2, () => true), undefined);
+    } finally {
+        await fs.rm(directory, { recursive: true, force: true });
+    }
 });
 
 test('frame sheet keeps distinct frames in separate cells', async () => {
