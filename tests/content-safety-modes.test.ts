@@ -7,7 +7,7 @@ import { AntiCheatManager } from '../src/core/anticheat/AntiCheatManager.ts';
 import { DEFAULT_ANTICHEAT_SETTINGS } from '../src/core/anticheat/types.ts';
 
 (globalThis as any)._cacheCleanupInterval?.unref?.();
-const verdict = { suggestive: 1, explicit: 0, harassment: 0, hate: 0, threat: 0, violence: 0 };
+const verdict = { suggestive: 1, explicit: 0, harassment: 0, hate: 0, threat: 0, violence: 0, explanation: '性的なポーズを強調している。' };
 const makeMessage = () => ({ id: '123', content: '分類用の文章', editedTimestamp: null, attachments: new Map(), embeds: [] } as any);
 const context = (action: string) => ({ settings: { detectors: { contentSafety: { enabled: true, config: { action } } } } } as any);
 const response = () => new Response(JSON.stringify({ choices: [{ message: { tool_calls: [{ type: 'function', function: { name: 'submit_verdict', arguments: JSON.stringify(verdict) } }] } }] }));
@@ -23,7 +23,9 @@ test('missing tool call retries once with the same input and rejects repeated ma
     try {
         assert.deepEqual(await classifyContent('test content'), verdict);
         assert.equal(requests.length, 2);
-        assert.deepEqual(requests[0].messages[1], requests[1].messages[1]);
+        assert.ok(requests[1].messages[1].content.endsWith(JSON.stringify('test content')));
+        assert.notEqual(requests[0].messages[1].content, requests[1].messages[1].content);
+        assert.deepEqual(requests[0].tool_choice, requests[1].tool_choice);
         assert.ok(requests[1].messages[0].content.startsWith(CONTENT_SAFETY_PROMPT));
         recover = false;
         requests.length = 0;
@@ -45,7 +47,7 @@ test('URL-only GIF posts download the signed URL and preserve the original GIF f
         const result = await detector.detect(message, context('spoiler'));
         assert.deepEqual(downloaded, [url]);
         assert.equal(requests.length, 1);
-        assert.ok(requests[0].messages[1].content[1].image_url.url.startsWith('data:image/png;base64,'));
+        assert.ok(requests[0].messages[1].content[0].image_url.url.startsWith('data:image/png;base64,'));
         assert.deepEqual(result.spoilerRepost?.files[0].data, data);
         assert.equal(result.spoilerRepost?.files[0].sourceUrl, url);
     } finally { globalThis.fetch = original; }
@@ -59,7 +61,7 @@ test('mixed posts send text with images, invalidate changed captions and respect
         const request = JSON.parse(String(options?.body));
         requests.push(request);
         const content = request.messages[1].content;
-        const scores = Array.isArray(content) && content[0].text.includes('caption A') ? verdict : { ...verdict, suggestive: 0 };
+        const scores = Array.isArray(content) && content.find((part: any) => part.type === 'text').text.includes('caption A') ? verdict : { ...verdict, suggestive: 0 };
         return new Response(JSON.stringify({ choices: [{ message: { tool_calls: [{ type: 'function', function: { name: 'submit_verdict', arguments: JSON.stringify(scores) } }] } }] }));
     }) as typeof fetch;
     try {
@@ -70,8 +72,8 @@ test('mixed posts send text with images, invalidate changed captions and respect
         const ctx = context('spoiler');
         assert.ok((await detector.detect(message, ctx)).spoilerRepost);
         assert.equal(requests.length, 2);
-        assert.equal(requests[1].messages[1].content[0].text, 'caption A');
-        assert.equal(requests[1].messages[1].content[1].type, 'image_url');
+        assert.equal(requests[1].messages[1].content[1].text, 'caption A');
+        assert.equal(requests[1].messages[1].content[0].type, 'image_url');
         message.content = 'caption B';
         assert.equal((await detector.detect(message, ctx)).spoilerRepost, undefined);
         assert.equal(requests.length, 4);
@@ -83,16 +85,16 @@ test('mixed posts send text with images, invalidate changed captions and respect
     } finally { globalThis.fetch = original; }
 });
 
-test('AI score is opt-in, scales matched categories and ignores disabled categories', async () => {
+test('AI points are opt-in and independent of intensity; thresholds still gate application', async () => {
     const original = globalThis.fetch;
-    globalThis.fetch = (async () => new Response(JSON.stringify({ choices: [{ message: { tool_calls: [{ type: 'function', function: { name: 'submit_verdict', arguments: JSON.stringify({ ...verdict, suggestive: .7, violence: 1 }) } }] } }] }))) as typeof fetch;
+    globalThis.fetch = (async () => new Response(JSON.stringify({ choices: [{ message: { tool_calls: [{ type: 'function', function: { name: 'submit_verdict', arguments: JSON.stringify({ ...verdict, suggestive: .7, violence: 1, suggestedPoints: 3, pointsReason: '軽い強調のため低い加算が妥当。' }) } }] } }] }))) as typeof fetch;
     try {
         const detector = new ContentSafetyDetector();
         const ctx = context('spoiler');
         Object.assign(ctx.settings.detectors.contentSafety.config, { violence: 0, maxAiScore: 10 });
         assert.equal((await detector.detect(makeMessage(), ctx)).scoreDelta, 0);
         ctx.settings.detectors.contentSafety.config.awardScore = 1;
-        assert.equal((await detector.detect(makeMessage(), ctx)).scoreDelta, 7);
+        assert.equal((await detector.detect(makeMessage(), ctx)).scoreDelta, 3);
         ctx.settings.detectors.contentSafety.config.textSuggestiveThreshold = .8;
         assert.equal((await detector.detect(makeMessage(), ctx)).scoreDelta, 0);
     } finally { globalThis.fetch = original; }
@@ -128,6 +130,8 @@ test('required tool protocol rejects plain text, wrong functions, multiple calls
             { message: { content: JSON.stringify(verdict) } },
             { message: { tool_calls: [{ ...call, function: { ...call.function, name: 'delete_message' } }] } },
             { message: { tool_calls: [call, call] } },
+            { message: { tool_calls: [null] } },
+            { message: { tool_calls: { length: 1, 0: call } } },
             { message: { tool_calls: [call] }, finish_reason: 'length' }
         ]) {
             globalThis.fetch = (async () => new Response(JSON.stringify({ choices: [choice] }))) as typeof fetch;
@@ -142,8 +146,8 @@ test('413 splits frames without altering them or losing caption; aggregates ever
     globalThis.fetch = (async (_url, options) => {
         const body = JSON.parse(String(options?.body));
         const parts = body.messages[1].content;
-        assert.equal(parts[0].text, 'context');
-        const images = parts.slice(1).map((part: any) => part.image_url.url);
+        assert.equal(parts.at(-1).text, 'context');
+        const images = parts.filter((part: any) => part.type === 'image_url').map((part: any) => part.image_url.url);
         if (images.length > 1) return new Response('', { status: 413 });
         accepted.push(images[0]);
         const scores = { ...verdict, suggestive: images[0] === 'first' ? .2 : .8, explanation: images[0] === 'first' ? '弱い表現' : '強い表現' };
@@ -228,7 +232,7 @@ test('stable prefix, raw text payload and deduplicated images reduce input', asy
         assert.equal(requests[2].messages[1].content[1].image_url.detail, 'high');
         assert.deepEqual(requests[0].tool_choice, { type: 'function', function: { name: 'submit_verdict' } });
         assert.equal(requests[0].response_format, undefined);
-        assert.ok(CONTENT_SAFETY_PROMPT.length < 1000);
+        assert.ok(CONTENT_SAFETY_PROMPT.length < 1600);
     } finally { globalThis.fetch = original; }
 });
 

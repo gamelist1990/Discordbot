@@ -6,7 +6,8 @@ export function contentFailureReason(error: unknown): string {
     const known = ['Media too large', 'Unsupported media URL', 'Non-public media host', 'No preview image',
         'Unsupported image', 'Animation decode budget exceeded', 'Input buffer contains unsupported image format',
         'Input image exceeds pixel limit', 'Moderation batch deadline exceeded', 'Truncated moderation response',
-        'Moderation API did not return required submit_verdict tool call', 'Invalid moderation verdict', 'Invalid moderation explanation'];
+        'Moderation API did not return required submit_verdict tool call', 'Invalid moderation verdict', 'Invalid moderation explanation', 'Invalid moderation points',
+        'Incomplete moderation stream', 'Moderation stream error', 'Invalid moderation stream', 'Moderation stream too large'];
     if (known.includes(message)) return message;
     if (value?.name === 'SyntaxError') return 'Invalid JSON response';
     if (value?.name === 'TimeoutError' || value?.name === 'AbortError') return value.name;

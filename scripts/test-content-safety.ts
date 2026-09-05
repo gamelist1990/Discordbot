@@ -1,11 +1,26 @@
 // Sends only explicitly provided text/file to the configured PEX moderation model. Never logs credentials.
 import fs from 'node:fs/promises';
 import { config } from '../src/config.js';
-import { classifyContent, matchingContentCategories } from '../src/core/anticheat/detectors/ContentSafetyDetector.js';
+import { classifyContent, matchingContentCategories, CONTENT_CATEGORIES } from '../src/core/anticheat/detectors/ContentSafetyDetector.js';
 import { sampleImageFrames } from '../src/core/anticheat/ContentMedia.js';
 
 async function main() {
-    const [mode, input, captionFlag, caption] = process.argv.slice(2);
+    const args = process.argv.slice(2);
+    const timeoutIndex = args.indexOf('--timeout-ms');
+    let timeoutMs = 90000;
+    if (timeoutIndex >= 0) {
+        timeoutMs = Number(args[timeoutIndex + 1]);
+        if (!Number.isInteger(timeoutMs) || timeoutMs < 5000 || timeoutMs > 180000) throw new Error('--timeout-ms must be an integer from 5000 to 180000');
+        args.splice(timeoutIndex, 2);
+    }
+    const pointsIndex = args.indexOf('--max-points');
+    let maxPoints: number | undefined;
+    if (pointsIndex >= 0) {
+        maxPoints = Number(args[pointsIndex + 1]);
+        if (!Number.isInteger(maxPoints) || maxPoints < 1 || maxPoints > 100) throw new Error('--max-points must be an integer from 1 to 100');
+        args.splice(pointsIndex, 2);
+    }
+    const [mode, input, captionFlag, caption] = args;
     if (mode === '--diagnose' || mode === '--diagnose-image') {
         const frames = mode === '--diagnose-image' ? await sampleImageFrames(await fs.readFile(input), 1) : [];
         const response = await fetch(`${config.pexAi.endpoint.replace(/\/$/, '')}/chat/completions`, {
@@ -25,7 +40,8 @@ async function main() {
     const start = Date.now();
     console.log(JSON.stringify({ sampledFrames: frames.length }));
     if (captionFlag && (mode !== '--file' || captionFlag !== '--caption' || !caption)) throw new Error('Use --file <path> --caption <text>');
-    const verdict = await classifyContent(mode === '--text' ? input : caption || '', frames, 90000);
+    const verdict = await classifyContent(mode === '--text' ? input : caption || '', frames, timeoutMs, false,
+        maxPoints === undefined ? undefined : { maxPoints, categories: [...CONTENT_CATEGORIES] });
     console.log(JSON.stringify({ verdict, matchedCategories: matchingContentCategories(verdict, frames.length > 0), latencyMs: Date.now() - start }, null, 2));
 }
 main().catch(error => { console.error(error.message); process.exitCode = 1; });

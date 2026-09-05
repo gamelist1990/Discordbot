@@ -64,7 +64,7 @@ test('text categories, thresholds, disabled categories, cache and API failure', 
         calls++;
         const request = JSON.parse(String(options?.body));
         assert.equal(request.model, 'gemma4:e4b-it-qat');
-        return new Response(JSON.stringify({ choices: [{ message: { tool_calls: [{ type: 'function', function: { name: 'submit_verdict', arguments: JSON.stringify({ ...safe, suggestive: 0.85 }) } }] } }] }));
+        return new Response(JSON.stringify({ choices: [{ message: { tool_calls: [{ type: 'function', function: { name: 'submit_verdict', arguments: JSON.stringify({ ...safe, suggestive: 0.85, explanation: '性的な表現を含む本文。' }) } }] } }] }));
     }) as typeof fetch;
     try {
         const detector = new ContentSafetyDetector();
