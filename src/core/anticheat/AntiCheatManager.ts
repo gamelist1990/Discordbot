@@ -1095,6 +1095,13 @@ export class AntiCheatManager {
             recentLogs: Array.isArray(settings?.recentLogs) ? settings.recentLogs.slice(-this.MAX_LOGS) : []
         };
 
+        // Migrate the former overly-sensitive image default. This also makes
+        // existing guilds receive the balanced setting without a manual save.
+        const contentConfig = normalized.detectors.contentSafety?.config;
+        if (contentConfig?.imageSuggestiveThreshold === 0.2) {
+            contentConfig.imageSuggestiveThreshold = 0.65;
+        }
+
         return normalized;
     }
 

@@ -283,10 +283,10 @@ test('stable prefix, raw text payload and deduplicated images reduce input', asy
         assert.equal(requests[0].reasoning_effort, 'none');
         assert.deepEqual(requests[0].chat_template_kwargs, { enable_thinking: false });
         assert.match(CONTENT_SAFETY_PROMPT, /自分で分類/);
-        assert.match(CONTENT_SAFETY_PROMPT, /通常の服.*対象外/);
+        assert.match(CONTENT_SAFETY_PROMPT, /単なる水着・下着姿や露出量だけは対象外/);
         assert.match(CONTENT_SAFETY_PROMPT, /弱い表現には低い正の値/);
         assert.match(CONTENT_SAFETY_PROMPT, /自然でカジュアルな日本語1文/);
-        assert.ok(CONTENT_SAFETY_PROMPT.length < 1000);
+        assert.ok(CONTENT_SAFETY_PROMPT.length < 1300);
     } finally { globalThis.fetch = original; }
 });
 

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import sharp from 'sharp';
 import { Collection, PermissionFlagsBits, PermissionsBitField } from 'discord.js';
 import { fetchPublicMedia, isPublicAddress, sampleImageFrames, extractContentUrls } from '../src/core/anticheat/ContentMedia.ts';
-import { ContentSafetyDetector, parseContentVerdict, matchingContentCategories, CONTENT_SAFETY_MODEL } from '../src/core/anticheat/detectors/ContentSafetyDetector.ts';
+import { ContentSafetyDetector, parseContentVerdict, matchingContentCategories, CONTENT_SAFETY_MODEL, CONTENT_SAFETY_PROMPT } from '../src/core/anticheat/detectors/ContentSafetyDetector.ts';
 import { repostWithSpoilers, spoilerText } from '../src/core/anticheat/ContentRepost.ts';
 import { AntiCheatManager } from '../src/core/anticheat/AntiCheatManager.ts';
 import { DEFAULT_ANTICHEAT_SETTINGS } from '../src/core/anticheat/types.ts';
@@ -87,12 +87,42 @@ test('spoiler wrapper cannot be closed by user markdown and mentions', () => {
     assert.ok(!result.includes('@everyone'));
 });
 
-test('mild-image threshold flags the observed sample score without lowering R18 or threat thresholds', () => {
-    const observed = { ...safe, suggestive: 0.2 };
+test('mild-image threshold is balanced without lowering R18 or threat thresholds', () => {
+    const observed = { ...safe, suggestive: 0.65 };
     assert.deepEqual(matchingContentCategories(observed, true), ['suggestive']);
-    assert.deepEqual(matchingContentCategories(observed, true, { imageSuggestiveThreshold: 0.5 }), []);
+    assert.deepEqual(matchingContentCategories({ ...safe, suggestive: 0.64 }, true), []);
+    assert.deepEqual(matchingContentCategories(observed, true, { imageSuggestiveThreshold: 0.7 }), []);
     assert.deepEqual(matchingContentCategories(observed, false), []);
     assert.deepEqual(matchingContentCategories({ ...safe, explicit: 0.2, threat: 0.2 }, true), []);
+});
+
+test('prompt treats ambiguous names, emoji and non-sexual uses as safe by default', () => {
+    assert.match(CONTENT_SAFETY_PROMPT, /「野獣先輩」/);
+    assert.match(CONTENT_SAFETY_PROMPT, /「ナス」や🍆/);
+    assert.match(CONTENT_SAFETY_PROMPT, /「エッチなのはダメ」/);
+    assert.match(CONTENT_SAFETY_PROMPT, /「ハードコア（ゲーム・音楽・難易度）」/);
+    assert.match(CONTENT_SAFETY_PROMPT, /返信先だけの違反を現在の投稿に加点しません/);
+    assert.match(CONTENT_SAFETY_PROMPT, /単なる水着・下着姿や露出量だけは対象外/);
+    assert.match(CONTENT_SAFETY_PROMPT, /同じ根拠で両方を高くしません/);
+});
+
+test('reply text is supplied only as non-scored context for the current post', async () => {
+    const original = globalThis.fetch;
+    let request: any;
+    globalThis.fetch = (async (_url, options) => {
+        request = JSON.parse(String(options?.body));
+        return new Response(JSON.stringify({ choices: [{ message: { tool_calls: [{ type: 'function', function: { name: 'submit_verdict', arguments: JSON.stringify({ ...safe, explanation: 'ゲームの難易度についての会話で、性的表現ではない。' }) } }] } }] }));
+    }) as typeof fetch;
+    try {
+        const message = textMessage('俺はハードコアやってる');
+        message.id = 'reply'; message.editedTimestamp = null;
+        message.reference = { messageId: 'parent' };
+        message.fetchReference = async () => ({ content: 'マイクラはどのモードで遊んでる？' });
+        const result = await new ContentSafetyDetector().detect(message, context());
+        assert.equal(result.spoilerRepost, undefined);
+        assert.ok(request.messages[1].content.includes('現在の投稿:\\n俺はハードコアやってる'));
+        assert.ok(request.messages[1].content.includes('返信先（解釈用・採点対象外）:\\nマイクラはどのモード'));
+    } finally { globalThis.fetch = original; }
 });
 
 function mockMessage({ failSend = false, failDelete = false, changed = false } = {}) {
