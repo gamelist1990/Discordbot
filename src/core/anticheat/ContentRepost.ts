@@ -13,7 +13,8 @@ export async function repostWithSpoilers(message: Message, repost: NonNullable<D
     const channel = message.channel;
     // Voice-channel text chat, threads and forum posts are text-based even when
     // they are not exposed as a regular TextChannel by the runtime.
-    if (!channel.isTextBased() || !('send' in channel) || typeof channel.send !== 'function' || !message.deletable) {
+    const isTextBased = typeof channel.isTextBased === 'function' ? channel.isTextBased() : 'send' in channel;
+    if (!isTextBased || !('send' in channel) || typeof channel.send !== 'function' || !message.deletable) {
         throw new Error('Cannot replace this message');
     }
     const permissions = 'permissionsFor' in channel ? channel.permissionsFor(message.client.user!) : null;

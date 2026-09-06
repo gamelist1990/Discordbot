@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import sharp from 'sharp';
 import { Collection, PermissionFlagsBits, PermissionsBitField } from 'discord.js';
 import { fetchPublicMedia, isPublicAddress, sampleImageFrames, extractContentUrls } from '../src/core/anticheat/ContentMedia.ts';
-import { ContentSafetyDetector, parseContentVerdict, matchingContentCategories } from '../src/core/anticheat/detectors/ContentSafetyDetector.ts';
+import { ContentSafetyDetector, parseContentVerdict, matchingContentCategories, CONTENT_SAFETY_MODEL } from '../src/core/anticheat/detectors/ContentSafetyDetector.ts';
 import { repostWithSpoilers, spoilerText } from '../src/core/anticheat/ContentRepost.ts';
 import { AntiCheatManager } from '../src/core/anticheat/AntiCheatManager.ts';
 import { DEFAULT_ANTICHEAT_SETTINGS } from '../src/core/anticheat/types.ts';
@@ -63,7 +63,7 @@ test('text categories, thresholds, disabled categories, cache and API failure', 
     globalThis.fetch = (async (_url, options) => {
         calls++;
         const request = JSON.parse(String(options?.body));
-        assert.equal(request.model, 'gemma4-12b-q4ks');
+        assert.equal(request.model, CONTENT_SAFETY_MODEL);
         return new Response(JSON.stringify({ choices: [{ message: { tool_calls: [{ type: 'function', function: { name: 'submit_verdict', arguments: JSON.stringify({ ...safe, suggestive: 0.85, explanation: '性的な表現を含む本文。' }) } }] } }] }));
     }) as typeof fetch;
     try {
