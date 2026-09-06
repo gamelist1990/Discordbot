@@ -68,7 +68,8 @@ export const CONTENT_DEFAULT_CONFIG = {
   maxImages: 4,
   timeoutMs: 120000,
 };
-export const CONTENT_SAFETY_MODEL = "gemma4-12b-q4ks";
+// gemma4-12b-q4ks 平均 2.73toks　から gemma4-12b-balanced-mtp　平均 3.52toks
+export const CONTENT_SAFETY_MODEL = "gemma4-12b-balanced-mtp";
 export function boundedNumber(
   value: unknown,
   fallback: number,
