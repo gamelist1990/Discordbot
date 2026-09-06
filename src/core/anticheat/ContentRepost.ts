@@ -10,10 +10,15 @@ export function spoilerText(text: string): string {
 }
 
 export async function repostWithSpoilers(message: Message, repost: NonNullable<DetectionResult['spoilerRepost']>): Promise<string> {
-    if (!message.channel.isSendable() || !('permissionsFor' in message.channel) || !message.deletable) throw new Error('Cannot replace this message');
-    const permissions = message.channel.permissionsFor(message.client.user!);
-    if (!permissions?.has([PermissionFlagsBits.ManageMessages, PermissionFlagsBits.EmbedLinks, PermissionFlagsBits.AttachFiles,
-        message.channel.isThread() ? PermissionFlagsBits.SendMessagesInThreads : PermissionFlagsBits.SendMessages])) {
+    const channel = message.channel;
+    // Voice-channel text chat, threads and forum posts are text-based even when
+    // they are not exposed as a regular TextChannel by the runtime.
+    if (!channel.isTextBased() || !('send' in channel) || typeof channel.send !== 'function' || !message.deletable) {
+        throw new Error('Cannot replace this message');
+    }
+    const permissions = 'permissionsFor' in channel ? channel.permissionsFor(message.client.user!) : null;
+    if (permissions && !permissions.has([PermissionFlagsBits.ManageMessages, PermissionFlagsBits.EmbedLinks, PermissionFlagsBits.AttachFiles,
+        channel.isThread() ? PermissionFlagsBits.SendMessagesInThreads : PermissionFlagsBits.SendMessages])) {
         throw new Error('Missing permissions for spoiler repost');
     }
     const originalContent = message.content;
@@ -59,7 +64,7 @@ export async function repostWithSpoilers(message: Message, repost: NonNullable<D
     const fresh = await message.fetch();
     if (fresh.content !== originalContent || fresh.editedTimestamp !== revision
         || [...fresh.attachments.keys()].join() !== attachmentIds) throw new Error('Message changed during analysis');
-    const replacement = await message.channel.send({ embeds: [embed], files, allowedMentions: { parse: [], repliedUser: false } });
+    const replacement = await channel.send({ embeds: [embed], files, allowedMentions: { parse: [], repliedUser: false } });
     try {
         const latest = await message.fetch();
         if (latest.content !== originalContent || latest.editedTimestamp !== revision
