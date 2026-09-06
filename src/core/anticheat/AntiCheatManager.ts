@@ -54,6 +54,7 @@ export class AntiCheatManager {
     private readonly MAX_LOGS = 100;
     private readonly detectionCooldownMs = 150;
     private replacedMessages = new Map<string, number>();
+    private deletedMessages = new Map<string, number>();
     private lastDetectionTimestamps: Map<string, number> = new Map();
     private logChannelCache: Map<string, TextChannel> = new Map();
     private messageProcessingQueues: Map<string, Promise<void>> = new Map();
@@ -118,6 +119,9 @@ export class AntiCheatManager {
             if (now - timestamp > this.detectionCooldownMs * 4) {
                 this.lastDetectionTimestamps.delete(key);
             }
+        }
+        for (const [id, timestamp] of this.deletedMessages) {
+            if (now - timestamp > 10 * 60 * 1000) this.deletedMessages.delete(id);
         }
     }
 
@@ -194,11 +198,14 @@ export class AntiCheatManager {
 
         try {
             // Separate queue: cross-channel bursts must be counted/handled while an earlier AI scan is pending.
+            let existingDetection = false;
             if (settings.detectors.crossChannelSpam?.enabled) {
                 await this.enqueueMessageProcessing(`${guildId}:${message.author.id}:cross-channel`, async () => {
-                    if (!this.replacedMessages.has(message.id)) await this.processMessage(message, settings, contentOnly, true);
+                    if (!this.replacedMessages.has(message.id))
+                        existingDetection = await this.processMessage(message, settings, contentOnly, true);
                 });
-                if (this.replacedMessages.has(message.id)) return true;
+                if (this.replacedMessages.has(message.id) || existingDetection)
+                    return this.replacedMessages.has(message.id);
             }
             await this.enqueueMessageProcessing(
                 `${guildId}:${message.author.id}`,
@@ -206,11 +213,11 @@ export class AntiCheatManager {
                     if (this.replacedMessages.has(message.id)) return;
 
                     // Fast, deterministic rules must be fully handled before the slower AI scan starts.
-                    // This lets detections such as maxLines reach the log channel without waiting on AI.
+                    // Any existing-rule match owns this message; do not also spend an AI request on it.
                     if (!contentOnly) {
-                        await this.processMessage(message, settings, false, false, 'standard');
+                        existingDetection = await this.processMessage(message, settings, false, false, 'standard');
                     }
-                    if (!this.replacedMessages.has(message.id)) {
+                    if (!existingDetection && !this.replacedMessages.has(message.id)) {
                         await this.processMessage(message, settings, contentOnly, false, 'ai');
                     }
                 }
@@ -342,6 +349,8 @@ export class AntiCheatManager {
     }
 
     async onMessageDelete(message: Message | PartialMessage): Promise<void> {
+        if (this.deletedMessages.size >= 10000) this.deletedMessages.delete(this.deletedMessages.keys().next().value!);
+        this.deletedMessages.set(message.id, Date.now());
         const guild = message.guild;
         if (!guild) {
             return;
@@ -416,7 +425,7 @@ export class AntiCheatManager {
         contentOnly = false,
         crossChannelOnly = false,
         phase: 'all' | 'standard' | 'ai' = 'all'
-    ): Promise<void> {
+    ): Promise<boolean> {
         const guildId = message.guild!.id;
         const userId = message.author.id;
         const currentTrust = settings.userTrust[userId] || {
@@ -429,7 +438,8 @@ export class AntiCheatManager {
             userId,
             channelId: message.channel.id,
             userTrustScore: currentTrust.score,
-            settings
+            settings,
+            isMessageDeleted: () => this.deletedMessages.has(message.id)
         };
         const detectionStartedAt = Date.now();
         this.processedMessageCount += 1;
@@ -475,8 +485,23 @@ export class AntiCheatManager {
         const detectionResults = (await Promise.all(detectorTasks))
             .filter((entry): entry is { detector: string; result: DetectionResult } => entry !== null);
 
+        // A gateway delete event may arrive while AI or media processing is in
+        // flight. Do not repost, score, log, notify, or otherwise act on it.
+        if (this.deletedMessages.has(message.id)) return false;
+
         if (detectionResults.length === 0) {
-            return;
+            return false;
+        }
+
+        // Bulk deletion does not always arrive through the single-message
+        // gateway event. Confirm existence once before any moderation side
+        // effects; this request is made only for an actual detection.
+        if (typeof message.fetch === 'function') {
+            const fresh = await message.fetch().catch(() => null);
+            if (!fresh) {
+                this.deletedMessages.set(message.id, Date.now());
+                return false;
+            }
         }
 
         const totalScoreDelta = detectionResults.reduce(
@@ -580,6 +605,7 @@ export class AntiCheatManager {
         } else {
             this.runDetached(summaryTask, `detection-summary:${guildId}:${message.id}`);
         }
+        return true;
     }
     private async sendDetectionSummary(
         guild: Guild,

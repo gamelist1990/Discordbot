@@ -16,7 +16,9 @@ export async function readContentStream(response: Response, progress: (chunks: n
         const data = JSON.parse(payload);
         if (data.error) throw new Error('Moderation stream error');
         chunks++;
-        if (chunks === 1 || chunks % 100 === 0) progress(chunks);
+        // One start marker per request is enough. Periodic chunk markers made
+        // a single long response look like duplicate AI processing in logs.
+        if (chunks === 1) progress(chunks);
         const choice = data.choices?.find((item: any) => item.index === 0);
         if (!choice) return;
         if (choice.finish_reason != null) finish = choice.finish_reason;

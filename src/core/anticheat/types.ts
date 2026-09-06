@@ -7,6 +7,7 @@ export interface DetectionContext {
     recentMessages?: Message[];
     userTrustScore?: number;
     settings: GuildAntiCheatSettings;
+    isMessageDeleted?: () => boolean;
 }
 
 export interface DetectionNoticeField {

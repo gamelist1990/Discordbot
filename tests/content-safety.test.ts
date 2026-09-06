@@ -125,6 +125,48 @@ test('reply text is supplied only as non-scored context for the current post', a
     } finally { globalThis.fetch = original; }
 });
 
+test('a message deleted during AI analysis stops without moderation actions', async () => {
+    const original = globalThis.fetch;
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    let deleted = false;
+    globalThis.fetch = (async () => {
+        await gate;
+        return new Response(JSON.stringify({ choices: [{ message: { tool_calls: [{ type: 'function', function: { name: 'submit_verdict', arguments: JSON.stringify({ ...safe, suggestive: 1, explanation: '性的な表現。' }) } }] } }] }));
+    }) as typeof fetch;
+    try {
+        const pending = new ContentSafetyDetector().detect(textMessage('判定中の投稿'), {
+            ...context(), isMessageDeleted: () => deleted
+        } as any);
+        await new Promise(resolve => setImmediate(resolve));
+        deleted = true;
+        release();
+        const result = await pending;
+        assert.equal(result.spoilerRepost, undefined);
+        assert.equal(result.scoreDelta, 0);
+        assert.equal(result.metadata?.stoppedBecauseDeleted, true);
+    } finally { release(); globalThis.fetch = original; }
+});
+
+test('byte-identical images with different Discord URLs reuse the exact verdict cache', async () => {
+    const original = globalThis.fetch;
+    const bytes = await sharp({ create: { width: 20, height: 20, channels: 3, background: 'green' } }).png().toBuffer();
+    let calls = 0;
+    globalThis.fetch = (async () => {
+        calls++;
+        return new Response(JSON.stringify({ choices: [{ message: { tool_calls: [{ type: 'function', function: { name: 'submit_verdict', arguments: JSON.stringify({ ...safe, explanation: '通常の画像で問題はない。' }) } }] } }] }));
+    }) as typeof fetch;
+    try {
+        const detector = new ContentSafetyDetector(async url => ({ data: bytes, type: 'png', url }));
+        const make = (id: string, url: string) => ({ id, content: '', editedTimestamp: null,
+            attachments: new Collection([[id, { id, name: 'same.png', contentType: 'image/png', url }]]), embeds: [] } as any);
+        await detector.detect(make('one', 'https://cdn.discordapp.com/same.png?token=one'), context());
+        const second = await detector.detect(make('two', 'https://cdn.discordapp.com/same.png?token=two'), context());
+        assert.equal(calls, 1);
+        assert.equal(second.metadata?.analyses[0].cache, 'exact');
+    } finally { globalThis.fetch = original; }
+});
+
 function mockMessage({ failSend = false, failDelete = false, changed = false } = {}) {
     const operations: string[] = [];
     let payload: any;

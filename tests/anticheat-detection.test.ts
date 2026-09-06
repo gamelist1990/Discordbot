@@ -19,7 +19,7 @@ import {
 
 (globalThis as any)._cacheCleanupInterval?.unref?.();
 
-test('standard detections are notified before content-safety AI inference starts', async () => {
+test('standard detections are handled without starting content-safety AI inference', async () => {
     const manager = new AntiCheatManager();
     const settings = structuredClone(DEFAULT_ANTICHEAT_SETTINGS);
     settings.enabled = true;
@@ -54,7 +54,32 @@ test('standard detections are notified before content-safety AI inference starts
         member: null
     } as any);
 
-    assert.deepEqual(events, ['standard-notified', 'ai-started']);
+    assert.deepEqual(events, ['standard-notified']);
+});
+
+test('a detected message missing from Discord receives no score, log or notification', async () => {
+    const manager = new AntiCheatManager();
+    const settings = structuredClone(DEFAULT_ANTICHEAT_SETTINGS);
+    settings.enabled = true;
+    for (const [name, config] of Object.entries(settings.detectors)) config.enabled = name === 'contentSafety';
+    manager.getSettings = async () => settings;
+    let writes = 0, notices = 0;
+    manager.setSettings = async () => { writes++; };
+    (manager as any).sendDetectionSummary = async () => { notices++; };
+    manager.registerDetector({ name: 'contentSafety', detect: async () => ({
+        scoreDelta: 5, reasons: ['軽度の性的表現・H系']
+    }) });
+
+    await manager.onMessage({
+        id: 'bulk-deleted', content: 'deleted', attachments: new Map(), embeds: [],
+        author: { id: 'user', bot: false }, guild: { id: 'guild' }, channel: { id: 'channel' },
+        member: null, fetch: async () => { throw new Error('Unknown Message'); }
+    } as any);
+
+    assert.equal(settings.userTrust.user, undefined);
+    assert.equal(settings.recentLogs.length, 0);
+    assert.equal(writes, 0);
+    assert.equal(notices, 0);
 });
 
 test('textSpam does not flag a normal message only because deleteMessage is enabled', async () => {

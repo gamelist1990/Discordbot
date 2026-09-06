@@ -427,7 +427,8 @@ export class ContentSafetyDetector implements Detector {
     context: DetectionContext,
   ): Promise<DetectionResult> {
     const settings = context.settings.detectors[this.name];
-    if (!settings?.enabled) return { scoreDelta: 0, reasons: [] };
+    if (!settings?.enabled || context.isMessageDeleted?.())
+      return { scoreDelta: 0, reasons: [] };
     if (this.active >= 2) {
       if (this.waiting.length >= 32)
         throw new Error("Moderation queue full; message not scanned");
@@ -448,6 +449,7 @@ export class ContentSafetyDetector implements Detector {
         message,
         settings.config || {},
         context.guildId || "default",
+        context.isMessageDeleted,
       );
     } finally {
       const next = this.waiting.shift();
@@ -460,7 +462,10 @@ export class ContentSafetyDetector implements Detector {
     message: Message,
     overrides: Record<string, any>,
     guildId: string,
+    isMessageDeleted?: () => boolean,
   ): Promise<DetectionResult> {
+    const stopped = (): DetectionResult => ({ scoreDelta: 0, reasons: [], metadata: { stoppedBecauseDeleted: true } });
+    if (isMessageDeleted?.()) return stopped();
     const options = { ...CONTENT_DEFAULT_CONFIG, ...overrides };
     if (!CONTENT_CATEGORIES.some((category) => options[category] === 1))
       return { scoreDelta: 0, reasons: [] };
@@ -480,6 +485,7 @@ export class ContentSafetyDetector implements Detector {
     if (options.scanText === 1 && message.reference?.messageId) {
       try {
         const referenced = await message.fetchReference();
+        if (isMessageDeleted?.()) return stopped();
         const referencedText = referenced.content?.trim();
         if (referencedText)
           replyContext = referencedText.slice(0, 1000);
@@ -511,7 +517,8 @@ export class ContentSafetyDetector implements Detector {
     const files: Array<{ data: Buffer; name: string; sourceUrl: string }> = [];
     const errors: string[] = [];
     let stage = "cache";
-    const check = async (text: string, frames: string[], source: string) => {
+    const check = async (text: string, frames: string[], source: string): Promise<boolean> => {
+      if (isMessageDeleted?.()) return false;
       stage = "cache";
       frames = [...new Set(frames)];
       trace(`analysis-start source=${source} frames=${frames.length}`);
@@ -562,7 +569,7 @@ export class ContentSafetyDetector implements Detector {
                 key,
                 input,
                 result,
-                90 * 24 * 60 * 60 * 1000,
+                boundedNumber(options.cacheTtlMinutes, 129600, 1, 129600) * 60 * 1000,
                 revision,
               );
               return result;
@@ -572,6 +579,7 @@ export class ContentSafetyDetector implements Detector {
         }
         verdict = await pending;
       }
+      if (isMessageDeleted?.()) return false;
       analyses.push({
         source,
         scores: verdict,
@@ -590,6 +598,7 @@ export class ContentSafetyDetector implements Detector {
         options,
       ))
         hits.add(category);
+      return true;
     };
     const urlOnly =
       /https?:\/\//i.test(content) &&
@@ -600,7 +609,7 @@ export class ContentSafetyDetector implements Detector {
       !(urlOnly && options.scanImages === 1 && options.scanUrls === 1)
     ) {
       try {
-        await check(contextualContent, [], "text");
+        if (!(await check(contextualContent, [], "text"))) return stopped();
       } catch (error) {
         errors.push(
           `text-analysis-failed stage=${stage}: ${contentFailureReason(error)}`,
@@ -624,6 +633,7 @@ export class ContentSafetyDetector implements Detector {
     const limit = Math.floor(boundedNumber(options.maxImages, 4, 1, 10));
     if (urls.size > limit) errors.push("image-limit-exceeded");
     for (const [index, url] of [...urls].slice(0, limit).entries()) {
+      if (isMessageDeleted?.()) return stopped();
       // A confirmed match already determines the action; do not send the remaining media to the model.
       if (hits.size) break;
       let bytes = 0;
@@ -637,23 +647,25 @@ export class ContentSafetyDetector implements Detector {
           url,
           boundedNumber(options.maxFileSizeMb, 8, 1, 10) * 1024 * 1024,
         );
+        if (isMessageDeleted?.()) return stopped();
         bytes = media.data.length;
         stage = "frame-extraction";
         const frames = await sampleImageFrames(
           media.data,
           boundedNumber(options.maxSampleFrames, 6, 1, 12),
         );
+        if (isMessageDeleted?.()) return stopped();
         frameCount = frames.length;
         trace(
           `frames-ready source=image-${index + 1} bytes=${bytes} frames=${frameCount}`,
         );
         // Include the same post's text so the model can interpret visual context.
         // Respect text opt-out; URL-only posts need no duplicate URL text.
-        await check(
+        if (!(await check(
           options.scanText === 1 && !urlOnly ? contextualContent : "",
           frames,
           `image-${index + 1}`,
-        );
+        ))) return stopped();
         files.push({
           data: media.data,
           name: `image-${files.length + 1}.${media.type}`,
