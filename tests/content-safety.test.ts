@@ -101,6 +101,10 @@ test('prompt treats ambiguous names, emoji and non-sexual uses as safe by defaul
     assert.match(CONTENT_SAFETY_PROMPT, /「ナス」や🍆/);
     assert.match(CONTENT_SAFETY_PROMPT, /「エッチなのはダメ」/);
     assert.match(CONTENT_SAFETY_PROMPT, /「ハードコア（ゲーム・音楽・難易度）」/);
+    assert.match(CONTENT_SAFETY_PROMPT, /「俺のこと舐めてる？／舐めてるやろ」は「見下している・軽く見ている」という挑発/);
+    assert.match(CONTENT_SAFETY_PROMPT, /「舐める」「触る」「濡れる」「イく」などの語だけを根拠にしません/);
+    assert.match(CONTENT_SAFETY_PROMPT, /投稿内で確認できる別の証拠が組み合わさった場合に限り性的カテゴリへ加点/);
+    assert.match(CONTENT_SAFETY_PROMPT, /explanationやpointsReasonにも仮定した性的解釈を書きません/);
     assert.match(CONTENT_SAFETY_PROMPT, /返信先だけの違反を現在の投稿に加点しません/);
     assert.match(CONTENT_SAFETY_PROMPT, /単なる水着・下着姿や露出量だけは対象外/);
     assert.match(CONTENT_SAFETY_PROMPT, /同じ根拠で両方を高くしません/);
