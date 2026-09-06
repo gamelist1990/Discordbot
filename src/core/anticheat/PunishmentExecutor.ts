@@ -70,6 +70,10 @@ export class PunishmentExecutor {
 
             switch (action.type) {
                 case 'timeout':
+                    if (!member.moderatable) {
+                        Logger.warn(`Skipped timeout for ${member.id}: bot lacks permission or role hierarchy access`);
+                        return false;
+                    }
                     if (!action.durationSeconds) {
                         Logger.warn(`Timeout action requires durationSeconds for user ${member.id}`);
                         return false;
@@ -100,6 +104,10 @@ export class PunishmentExecutor {
                     break;
 
                 case 'kick':
+                    if (!member.kickable) {
+                        Logger.warn(`Skipped kick for ${member.id}: bot lacks permission or role hierarchy access`);
+                        return false;
+                    }
                     await member.kick(reason);
                     Logger.info(`👢 Kicked user ${member.user.tag}`);
                     
@@ -121,6 +129,10 @@ export class PunishmentExecutor {
                     break;
 
                 case 'ban':
+                    if (!member.bannable) {
+                        Logger.warn(`Skipped ban for ${member.id}: bot lacks permission or role hierarchy access`);
+                        return false;
+                    }
                     await member.ban({ 
                         reason,
                         deleteMessageSeconds: action.durationSeconds || 0
@@ -156,7 +168,11 @@ export class PunishmentExecutor {
 
             return true;
         } catch (error) {
-            Logger.error(`Failed to execute punishment ${action.type} on ${member.id}:`, error);
+            if (this.isMissingPermissionsError(error)) {
+                Logger.warn(`Skipped ${action.type} for ${member.id}: Discord permissions are insufficient`);
+            } else {
+                Logger.error(`Failed to execute punishment ${action.type} on ${member.id}:`, error);
+            }
             return false;
         }
     }
@@ -192,9 +208,18 @@ export class PunishmentExecutor {
 
             return true;
         } catch (error) {
-            Logger.error(`Failed to revoke timeout for ${member.id}:`, error);
+            if (this.isMissingPermissionsError(error)) {
+                Logger.warn(`Skipped timeout revoke for ${member.id}: Discord permissions are insufficient`);
+            } else {
+                Logger.error(`Failed to revoke timeout for ${member.id}:`, error);
+            }
             return false;
         }
+    }
+
+    private static isMissingPermissionsError(error: unknown): boolean {
+        const candidate = error as { code?: unknown; status?: unknown; rawError?: { code?: unknown } } | null;
+        return candidate?.code === 50013 || candidate?.status === 403 || candidate?.rawError?.code === 50013;
     }
 
     /**
