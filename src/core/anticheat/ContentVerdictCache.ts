@@ -20,7 +20,7 @@ export async function similarityInput(text: string, images: string[]): Promise<S
         // A changed caption can reverse the interpretation of an otherwise identical image.
         return { kind: 'image', features, guard: `${images.length}:${createHash('sha256').update(text).digest('hex')}` };
     }
-    const normalized = text.normalize('NFKC').replace(/\s+/g, ' ').trim();
+    const normalized = text.normalize('NFKC').replace(/[\u200B-\u200D\u2060\uFEFF]/g, '').replace(/\s+/g, ' ').trim();
     const guard = (normalized.match(/ない|ません|相談|引用|報告|被害|教育|医療|[「」"“”]|\b(?:not|never|no|report|quote)\b/gi) || []).join('|');
     return { kind: 'text', features: normalized, guard };
 }

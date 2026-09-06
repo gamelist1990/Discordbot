@@ -286,7 +286,7 @@ test('stable prefix, raw text payload and deduplicated images reduce input', asy
         assert.match(CONTENT_SAFETY_PROMPT, /単なる水着・下着姿や露出量だけは対象外/);
         assert.match(CONTENT_SAFETY_PROMPT, /弱い表現には低い正の値/);
         assert.match(CONTENT_SAFETY_PROMPT, /自然でカジュアルな日本語1文/);
-        assert.ok(CONTENT_SAFETY_PROMPT.length < 1300);
+        assert.ok(CONTENT_SAFETY_PROMPT.length < 1600);
     } finally { globalThis.fetch = original; }
 });
 

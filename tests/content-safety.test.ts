@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import sharp from 'sharp';
 import { Collection, PermissionFlagsBits, PermissionsBitField } from 'discord.js';
 import { fetchPublicMedia, isPublicAddress, sampleImageFrames, extractContentUrls } from '../src/core/anticheat/ContentMedia.ts';
-import { ContentSafetyDetector, parseContentVerdict, matchingContentCategories, CONTENT_SAFETY_MODEL, CONTENT_SAFETY_PROMPT } from '../src/core/anticheat/detectors/ContentSafetyDetector.ts';
+import { ContentSafetyDetector, parseContentVerdict, matchingContentCategories, CONTENT_SAFETY_MODEL, CONTENT_SAFETY_PROMPT, normalizeModerationText } from '../src/core/anticheat/detectors/ContentSafetyDetector.ts';
 import { repostWithSpoilers, spoilerText } from '../src/core/anticheat/ContentRepost.ts';
 import { AntiCheatManager } from '../src/core/anticheat/AntiCheatManager.ts';
 import { DEFAULT_ANTICHEAT_SETTINGS } from '../src/core/anticheat/types.ts';
@@ -106,6 +106,13 @@ test('prompt treats ambiguous names, emoji and non-sexual uses as safe by defaul
     assert.match(CONTENT_SAFETY_PROMPT, /同じ根拠で両方を高くしません/);
 });
 
+test('prompt detects deliberate obfuscated sexual wording without guessing ambiguous typos', () => {
+    assert.match(CONTENT_SAFETY_PROMPT, /検知回避のための伏字も意味で判断/);
+    assert.match(CONTENT_SAFETY_PROMPT, /「セッkusウ」「せっ○す」「s e xしよう」/);
+    assert.match(CONTENT_SAFETY_PROMPT, /意味を一意に復元できない文字列を想像で性的表現にしません/);
+    assert.equal(normalizeModerationText('Ｓ\u200bＥ\u2060Ｘ'), 'SEX');
+});
+
 test('reply text is supplied only as non-scored context for the current post', async () => {
     const original = globalThis.fetch;
     let request: any;
@@ -121,7 +128,7 @@ test('reply text is supplied only as non-scored context for the current post', a
         const result = await new ContentSafetyDetector().detect(message, context());
         assert.equal(result.spoilerRepost, undefined);
         assert.ok(request.messages[1].content.includes('現在の投稿:\\n俺はハードコアやってる'));
-        assert.ok(request.messages[1].content.includes('返信先（解釈用・採点対象外）:\\nマイクラはどのモード'));
+        assert.ok(request.messages[1].content.includes('返信先(解釈用・採点対象外):\\nマイクラはどのモード'));
     } finally { globalThis.fetch = original; }
 });
 
