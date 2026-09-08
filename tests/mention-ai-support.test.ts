@@ -1,11 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import sharp from 'sharp';
 
 import {
     formatMentionAIContext,
     MENTION_AI_SUPPORT_MODEL,
 } from '../src/core/ai-support/MentionAISupportManager.ts';
-import { CONTENT_SAFETY_MODEL } from '../src/core/anticheat/detectors/ContentSafetyDetector.ts';
 
 const message = (id: string, timestamp: number, content: string, author: string) => ({
     id,
@@ -16,9 +16,8 @@ const message = (id: string, timestamp: number, content: string, author: string)
     attachments: { size: 0, map: () => [] },
 });
 
-test('メンションAIはコンテンツフィルターと同じモデルに固定される', () => {
-    assert.equal(MENTION_AI_SUPPORT_MODEL, CONTENT_SAFETY_MODEL);
-    assert.equal(MENTION_AI_SUPPORT_MODEL, 'lfm2.5-vl-3b-q4-k-m');
+test('メンションAIは設定されたVLモデルに固定される', () => {
+    assert.equal(MENTION_AI_SUPPORT_MODEL, 'lfm2.5-8b-a1b-q4-k-m');
 });
 
 test('周辺会話をDiscordの新しい順取得から時系列へ並べ直す', () => {
@@ -35,4 +34,54 @@ test('Botの過去回答はAIアシスタントとして表記する', () => {
     botMessage.author.bot = true;
     const formatted = formatMentionAIContext([botMessage] as any, 'bot');
     assert.match(formatted, /AIアシスタント: 前回の回答/);
+});
+
+test('返信先のDiscord画像を取得してVLモデル用data URLへ変換する', async () => {
+    const originalFetch = globalThis.fetch;
+    const png = await sharp({
+        create: { width: 24, height: 24, channels: 3, background: '#3366cc' },
+    }).png().toBuffer();
+    globalThis.fetch = (async () => new Response(png, {
+        status: 200,
+        headers: { 'content-type': 'image/png', 'content-length': String(png.length) },
+    })) as typeof fetch;
+    try {
+        const manager = new (await import('../src/core/ai-support/MentionAISupportManager.ts')).MentionAISupportManager();
+        const referenced = {
+            ...message('reply', 1_000, '', 'user'),
+            attachments: new Map([['image', {
+                id: 'image', name: 'sample.png', contentType: 'image/png', size: png.length,
+                url: 'https://cdn.discordapp.com/attachments/test/sample.png',
+            }]]),
+        };
+        const current = { ...message('current', 2_000, '@bot 何が見える？', 'user'), attachments: new Map() };
+        const images = await (manager as any).prepareImages(current, {
+            messages: [current],
+            referenced,
+        });
+
+        assert.equal(images.length, 1);
+        assert.equal(images[0].messageId, 'reply');
+        assert.equal(images[0].filename, 'sample.png');
+        assert.match(images[0].dataUrl, /^data:image\/jpeg;base64,/);
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+});
+
+test('生成中テキストへ点滅カーソルを付ける', async () => {
+    const manager = new (await import('../src/core/ai-support/MentionAISupportManager.ts')).MentionAISupportManager();
+    assert.equal((manager as any).streamingContent('回答中', true), '回答中 ▌');
+    assert.equal((manager as any).streamingContent('回答中', false), '回答中 \u200b');
+    assert.equal((manager as any).streamingContent('', true), '▌');
+});
+
+test('Typingループは直ちに通知し停止できる', async () => {
+    const manager = new (await import('../src/core/ai-support/MentionAISupportManager.ts')).MentionAISupportManager();
+    let calls = 0;
+    const stop = await (manager as any).startTypingLoop({
+        sendTyping: async () => { calls += 1; },
+    });
+    assert.equal(calls, 1);
+    stop();
 });
