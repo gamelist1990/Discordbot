@@ -63,7 +63,7 @@ const SettingsListPage: React.FC = () => {
       return (
         <div className={styles.statePanel}>
           <h2>ログインが必要です</h2>
-          <p>Discord で認証すると、管理権限のあるサーバーだけを安全に一覧化します。</p>
+          <p>Discordでログインすると、管理できるサーバーが表示されます。</p>
           <button
             className={styles.primaryButton}
             onClick={() => {
@@ -132,7 +132,7 @@ const SettingsListPage: React.FC = () => {
         <div className={styles.pageHeaderCopy}>
           <span className={styles.pageEyebrow}>Server Management</span>
           <h1>管理対象サーバー</h1>
-          <p>設定を触れるサーバーだけを集め、次に開く面を迷わない一覧に整理しています。</p>
+          <p>管理するサーバーを選んでください。</p>
         </div>
 
         <div className={styles.pageHeaderActions}>
@@ -148,7 +148,7 @@ const SettingsListPage: React.FC = () => {
 
         <div className={styles.summary}>
           <div className={styles.summaryCard}>
-            <span className={styles.summaryLabel}>Visible guilds</span>
+            <span className={styles.summaryLabel}>管理できるサーバー</span>
             <strong>{isLoggedOut ? '—' : guilds.length}</strong>
             <p>
               {isLoggedOut
@@ -157,12 +157,12 @@ const SettingsListPage: React.FC = () => {
             </p>
           </div>
           <div className={styles.summaryCard}>
-            <span className={styles.summaryLabel}>Owner access</span>
+            <span className={styles.summaryLabel}>オーナーのサーバー</span>
             <strong>{isLoggedOut ? '—' : ownerCount}</strong>
             <p>
               {isLoggedOut
                 ? '認証後にオーナー権限の判定を行います。'
-                : 'オーナー権限で開けるサーバー数を分離して把握できます。'}
+                : 'あなたがオーナーのサーバーです。'}
             </p>
           </div>
         </div>

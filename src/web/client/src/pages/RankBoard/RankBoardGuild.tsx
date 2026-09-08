@@ -160,7 +160,7 @@ const RankBoardGuild: React.FC = () => {
                             src={getGuildIconUrl(guild.id, guild.icon, guild.iconURL)}
                             alt={guild.name}
                             className={styles.guildIcon}
-                            style={{ width: 80, height: 80, margin: '0 auto 16px', display: 'block' }}
+                            style={{ marginBottom: 16 }}
                         />
                     )}
                     <h1 className={styles.heroTitle}>{guild.name}</h1>
@@ -189,6 +189,9 @@ const RankBoardGuild: React.FC = () => {
                             <div
                                 key={panel.id}
                                 className={styles.panelCard}
+                                role="link"
+                                tabIndex={0}
+                                onKeyDown={e => { if (e.key === "Enter") handlePanelClick(panel.id); }}
                                 onClick={() => handlePanelClick(panel.id)}
                             >
                                 <div className={styles.panelIcon}>

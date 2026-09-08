@@ -1,6 +1,6 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import type { GuildSettings, Role } from '../../types';
-import styles from './PermissionsTab.module.css';
+import React, { useEffect, useMemo, useState } from "react";
+import type { GuildSettings, Role } from "../../types";
+import styles from "./PermissionsTab.module.css";
 
 interface PermissionsTabProps {
   settings: GuildSettings;
@@ -8,23 +8,29 @@ interface PermissionsTabProps {
   onSave: (newSettings: Partial<GuildSettings>) => Promise<void>;
 }
 
-const PermissionsTab: React.FC<PermissionsTabProps> = ({ settings, roles, onSave }) => {
-  const [staffRoleId, setStaffRoleId] = useState(settings.staffRoleId || '');
-  const [webAuthRoleId, setWebAuthRoleId] = useState(settings.webAuthRoleId || '');
+const PermissionsTab: React.FC<PermissionsTabProps> = ({
+  settings,
+  roles,
+  onSave,
+}) => {
+  const [staffRoleId, setStaffRoleId] = useState(settings.staffRoleId || "");
+  const [webAuthRoleId, setWebAuthRoleId] = useState(
+    settings.webAuthRoleId || "",
+  );
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
-    setStaffRoleId(settings.staffRoleId || '');
-    setWebAuthRoleId(settings.webAuthRoleId || '');
+    setStaffRoleId(settings.staffRoleId || "");
+    setWebAuthRoleId(settings.webAuthRoleId || "");
   }, [settings.staffRoleId, settings.webAuthRoleId]);
 
   const sortedRoles = useMemo(
-    () => (Array.isArray(roles) ? [...roles].sort((left, right) => right.position - left.position) : []),
-    [roles]
+    () =>
+      Array.isArray(roles)
+        ? [...roles].sort((left, right) => right.position - left.position)
+        : [],
+    [roles],
   );
-
-  const selectedStaffRole = sortedRoles.find((role) => role.id === staffRoleId);
-  const selectedWebAuthRole = sortedRoles.find((role) => role.id === webAuthRoleId);
 
   const handleSave = async () => {
     setIsSaving(true);
@@ -42,27 +48,18 @@ const PermissionsTab: React.FC<PermissionsTabProps> = ({ settings, roles, onSave
     <section className={styles.container}>
       <div className={styles.header}>
         <div>
-          <span className={styles.eyebrow}>Permissions</span>
+          <span className={styles.eyebrow}>01 / PERMISSIONS</span>
           <h2>権限ロール</h2>
-          <p>スタッフ権限と WEB 認証付与ロールだけをここで管理します。</p>
-        </div>
-
-        <div className={styles.summary}>
-          <div className={styles.summaryRow}>
-            <span>スタッフ</span>
-            <strong>{selectedStaffRole?.name || '未設定'}</strong>
-          </div>
-          <div className={styles.summaryRow}>
-            <span>WEB 認証</span>
-            <strong>{selectedWebAuthRole?.name || '未設定'}</strong>
-          </div>
+          <p>管理機能へのアクセスと、認証時に付与するロールを設定します。</p>
         </div>
       </div>
 
       <div className={styles.grid}>
         <label className={styles.field}>
           <span className={styles.label}>スタッフロール</span>
-          <span className={styles.help}>モデレーション面へ入れるロールを選択します。</span>
+          <span className={styles.help}>
+            スタッフ向け管理機能を利用できるロール。
+          </span>
           <select
             className={styles.select}
             value={staffRoleId}
@@ -79,7 +76,9 @@ const PermissionsTab: React.FC<PermissionsTabProps> = ({ settings, roles, onSave
 
         <label className={styles.field}>
           <span className={styles.label}>WEB認証ロール</span>
-          <span className={styles.help}>認証完了時に自動付与するロールを選択します。</span>
+          <span className={styles.help}>
+            認証完了時に自動付与するロールを選択します。
+          </span>
           <select
             className={styles.select}
             value={webAuthRoleId}
@@ -97,11 +96,18 @@ const PermissionsTab: React.FC<PermissionsTabProps> = ({ settings, roles, onSave
 
       <div className={styles.actions}>
         <p className={styles.footnote}>
-          管理者ロールはサーバー側の権限構造に従うため、この画面では明示設定しません。
+          管理者権限はDiscordの設定が適用されます。
         </p>
-        <button className={styles.saveButton} onClick={handleSave} disabled={isSaving} type="button">
-          <span className="material-icons">{isSaving ? 'sync' : 'save'}</span>
-          <span>{isSaving ? '保存中...' : '権限設定を保存'}</span>
+        <button
+          className={styles.saveButton}
+          onClick={handleSave}
+          disabled={isSaving}
+          type="button"
+        >
+          <span className="material-icons" aria-hidden="true">
+            {isSaving ? "sync" : "save"}
+          </span>
+          <span>{isSaving ? "保存中..." : "権限設定を保存"}</span>
         </button>
       </div>
     </section>

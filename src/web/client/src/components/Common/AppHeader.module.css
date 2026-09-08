@@ -3,355 +3,278 @@
   top: 0;
   z-index: 120;
   border-bottom: 1px solid var(--app-border);
-  background: color-mix(in srgb, var(--app-surface-strong) 94%, transparent);
-  backdrop-filter: blur(12px);
+  background: var(--app-surface-strong);
 }
-
 .container {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
+  display: flex;
   align-items: center;
-  gap: 28px;
-  width: min(1440px, calc(100% - 32px));
+  justify-content: space-between;
+  gap: 32px;
+  width: min(1320px, calc(100% - 64px));
   min-height: var(--header-height);
-  margin: 0 auto;
+  margin: auto;
 }
-
-.brandZone {
-  display: inline-flex;
-  align-items: center;
-  gap: 18px;
-  min-width: 0;
-}
-
+.brandZone,
 .brand {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 0;
+  gap: 10px;
+}
+.brand {
+  min-height: 44px;
   background: transparent;
   color: var(--app-ink);
+  padding: 0;
 }
-
 .brandMark {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 46px;
-  height: 46px;
-  border: 1px solid var(--app-border-strong);
-  background: var(--app-surface);
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
 }
-
 .brandLogo {
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   object-fit: contain;
 }
-
 .brandCopy {
   display: grid;
-  gap: 2px;
   text-align: left;
+  gap: 1px;
 }
-
 .brandTitle {
-  color: var(--app-ink);
-  font-family: var(--font-display);
-  font-size: 1rem;
+  font-size: 18px;
   font-weight: 700;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.6px;
 }
-
-.brandSubtitle,
-.surfaceLabel,
-.accountMeta,
-.sessionHint,
-.menuEyebrow,
-.menuMeta {
+.brandSubtitle {
+  font-size: 9px;
+  letter-spacing: 1.8px;
   color: var(--app-ink-soft);
-  font-size: 0.72rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
 }
-
-.surfaceBadge {
-  display: grid;
-  gap: 2px;
-  min-width: 0;
-  padding-left: 18px;
-  border-left: 1px solid var(--app-border);
-}
-
-.surfaceBadge strong {
-  color: var(--app-ink);
-  font-size: 0.92rem;
-  font-weight: 600;
-  white-space: nowrap;
-}
-
 .nav {
   display: flex;
+  align-self: stretch;
   align-items: stretch;
-  justify-content: center;
-  gap: 4px;
+  gap: 26px;
+  margin: 0 auto;
 }
-
 .navLink {
-  min-height: 42px;
-  padding: 0 14px;
-  border: 1px solid transparent;
-  border-bottom-color: transparent;
+  position: relative;
   background: transparent;
   color: var(--app-ink-soft);
-  font-size: 0.9rem;
-  font-weight: 700;
+  padding: 0 2px;
+  min-height: 44px;
+  font-size: 13px;
+  font-weight: 500;
+  border: 0;
 }
-
 .navLink:hover {
-  color: var(--app-ink);
-  background: var(--app-surface-soft);
+  color: var(--app-accent);
 }
-
 .navLinkActive {
   color: var(--app-ink);
-  border-color: var(--app-border);
-  border-bottom-color: var(--app-accent-strong);
-  background: color-mix(in srgb, var(--app-accent) 7%, var(--app-surface));
+  font-weight: 700;
 }
-
+.navLinkActive::after {
+  position: absolute;
+  content: "";
+  height: 2px;
+  background: var(--app-accent);
+  bottom: 0;
+  left: 0;
+  right: 0;
+}
 .utility {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  justify-content: flex-end;
-  gap: 12px;
+  gap: 14px;
 }
-
-.themeButton,
-.accountButton,
-.loginButton,
-.mobileToggle,
-.menuAction {
-  transition:
-    background 0.18s ease,
-    border-color 0.18s ease,
-    color 0.18s ease,
-    box-shadow 0.18s ease,
-    transform 0.18s ease;
-}
-
 .themeButton,
 .mobileToggle {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  min-height: 42px;
-  padding: 0 12px;
-  border: 1px solid var(--app-border);
-  background: var(--app-surface);
-  color: var(--app-ink);
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  color: var(--app-ink-soft);
+  background: transparent;
+  border-radius: 8px;
 }
-
 .themeButton:hover,
-.accountButton:hover,
-.menuAction:hover,
-.loginButton:hover,
-.mobileToggle:hover {
-  border-color: var(--app-border-strong);
-  background: var(--app-surface-strong);
-  box-shadow: var(--app-shadow-sm);
+.mobileToggle:hover,
+.accountButton:hover {
+  background: var(--app-surface-soft);
 }
-
-.utilityText {
-  font-size: 0.78rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+.utilityText,
+.sessionHint {
+  display: none;
 }
-
 .accountWrap {
   position: relative;
 }
-
 .accountButton {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  gap: 12px;
-  min-width: 228px;
-  min-height: 42px;
-  padding: 6px 10px 6px 6px;
-  border: 1px solid var(--app-border);
-  background: var(--app-surface);
+  gap: 10px;
+  min-height: 44px;
   color: var(--app-ink);
+  background: transparent;
+  border-radius: 8px;
+  padding: 4px 8px;
 }
-
 .avatar {
-  width: 34px;
-  height: 34px;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
   object-fit: cover;
-  border: 1px solid var(--app-border);
 }
-
 .accountCopy {
   display: grid;
-  flex: 1 1 auto;
   text-align: left;
-  line-height: 1.2;
 }
-
-.accountName,
-.menuHeader strong {
-  color: var(--app-ink);
-  font-size: 0.88rem;
-  font-weight: 700;
+.accountName {
+  font-size: 13px;
+  font-weight: 600;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-
+.accountMeta {
+  font-size: 10px;
+  color: var(--app-ink-soft);
+}
 .menuPanel {
   position: absolute;
-  top: calc(100% + 10px);
   right: 0;
-  display: grid;
-  gap: 6px;
-  width: 288px;
-  padding: 10px;
-  border: 1px solid var(--app-border-strong);
+  top: calc(100% + 14px);
+  width: 280px;
   background: var(--app-surface-strong);
+  border: 1px solid var(--app-border);
+  border-radius: 12px;
+  padding: 8px;
   box-shadow: var(--app-shadow-lg);
 }
-
 .menuHeader {
   display: grid;
-  gap: 3px;
-  padding: 10px 10px 12px;
+  gap: 4px;
+  padding: 14px;
   border-bottom: 1px solid var(--app-border);
+  margin-bottom: 6px;
+  overflow-wrap: anywhere;
 }
-
+.menuEyebrow,
+.menuMeta {
+  font-size: 11px;
+  color: var(--app-ink-soft);
+}
 .menuAction {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  min-height: 46px;
   width: 100%;
-  min-height: 42px;
-  padding: 0 12px;
-  border: 1px solid transparent;
-  background: transparent;
+  padding: 8px 12px;
+  border-radius: 6px;
   color: var(--app-ink);
+  background: transparent;
 }
-
 .menuActionLeft {
-  display: inline-flex;
-  align-items: center;
+  display: flex;
   gap: 10px;
-  font-weight: 600;
+  align-items: center;
+  font-size: 13px;
 }
-
+.menuAction:hover {
+  background: var(--app-surface-soft);
+}
 .dangerAction {
   color: var(--app-danger);
 }
-
 .loginButton {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   gap: 8px;
-  min-height: 42px;
+  min-height: 44px;
   padding: 0 16px;
-  border: 1px solid var(--app-accent-strong);
   background: var(--app-accent-strong);
-  color: #fff;
-  font-weight: 700;
+  color: var(--app-on-accent);
+  border-radius: 6px;
+  font-size: 13px;
 }
-
+.loginButton:hover {
+  filter: brightness(0.92);
+}
 .mobileToggle {
   display: none;
-  padding: 0 10px;
 }
-
-@media (max-width: 1080px) {
+@media (max-width: 1000px) {
   .container {
-    grid-template-columns: minmax(0, 1fr) auto;
+    width: calc(100% - 40px);
     gap: 16px;
   }
-
-  .surfaceBadge {
+  .nav {
+    gap: 16px;
+  }
+  .accountCopy {
     display: none;
   }
-
+}
+@media (max-width: 760px) {
+  .container {
+    width: calc(100% - 32px);
+    gap: 8px;
+  }
+  .brandSubtitle {
+    display: none;
+  }
+  .utility {
+    gap: 2px;
+  }
+  .brandTitle {
+    font-size: 16px;
+  }
+  .mobileToggle {
+    display: grid;
+  }
   .nav {
     position: absolute;
-    top: calc(100% - 1px);
+    top: 100%;
     left: 0;
     right: 0;
     display: none;
     flex-direction: column;
-    gap: 0;
-    padding: 12px 16px 16px;
+    gap: 4px;
+    padding: 12px 16px;
     border-bottom: 1px solid var(--app-border);
-    background: color-mix(in srgb, var(--app-surface-strong) 96%, transparent);
-    backdrop-filter: blur(12px);
+    background: var(--app-surface-strong);
+    box-shadow: var(--app-shadow-sm);
   }
-
   .navOpen {
     display: flex;
   }
-
   .navLink {
-    justify-content: flex-start;
-    min-height: 46px;
-    padding: 0 14px;
-    border: 1px solid transparent;
-    border-left-width: 3px;
+    text-align: left;
+    padding: 0 16px;
+    border-radius: 6px;
   }
-
   .navLinkActive {
-    border-left-color: var(--app-accent-strong);
-    border-bottom-color: var(--app-border);
+    background: var(--app-accent-soft);
   }
-
-  .mobileToggle {
-    display: inline-flex;
-  }
-
-  .sessionHint {
+  .navLinkActive::after {
     display: none;
   }
-}
-
-@media (max-width: 720px) {
-  .container {
-    width: min(1440px, calc(100% - 20px));
-    min-height: 70px;
-    gap: 10px;
-  }
-
-  .brandSubtitle,
-  .accountCopy,
-  .utilityText {
-    display: none;
-  }
-
-  .brandTitle {
-    font-size: 0.92rem;
-  }
-
   .accountButton {
-    min-width: auto;
-    padding-right: 6px;
+    padding: 4px;
+    gap: 2px;
   }
-
-  .themeButton,
-  .mobileToggle,
+  .accountButton > :last-child {
+    display: none;
+  }
   .loginButton {
-    width: 42px;
-    padding: 0 10px;
+    width: 44px;
     justify-content: center;
-  }
-
-  .loginButton {
     padding: 0;
   }
-
   .loginButton span:last-child {
     display: none;
   }

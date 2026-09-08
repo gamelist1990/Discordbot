@@ -1,69 +1,91 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { fetchStaffCommands, type StaffCommandData } from '../../services/api';
-import styles from './StaffHelpPage.module.css';
+import React, { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { fetchStaffCommands, type StaffCommandData } from "../../services/api";
+import styles from "./StaffHelpPage.module.css";
 
-type TabType = 'help' | 'services';
+type TabType = "help" | "services";
 
 const services = [
   {
-    title: 'AntiCheat',
-    description: '不正検知ルールと自動処罰の設定面へ移動します。',
-    path: '/staff/anticheat',
-    icon: 'shield',
+    title: "AntiCheat",
+    description: "不正検知ルールと自動処罰の設定面へ移動します。",
+    path: "/staff/anticheat",
+    icon: "shield",
   },
   {
-    title: 'プライベートチャット',
-    description: 'ユーザーとの個別対応を安全に管理します。',
-    path: '/staff/privatechat',
-    icon: 'forum',
+    title: "プライベートチャット",
+    description: "ユーザーとの個別対応を安全に管理します。",
+    path: "/staff/privatechat",
+    icon: "forum",
   },
   {
-    title: 'ロール管理',
-    description: 'ロールプリセットと変更ログを整理します。',
-    path: '/staff/rolemanager',
-    icon: 'style',
+    title: "ロール管理",
+    description: "ロールプリセットと変更ログを整理します。",
+    path: "/staff/rolemanager",
+    icon: "style",
   },
   {
-    title: 'Core パネル',
-    description: '性格診断と レスバ のパネル設定・投稿を管理します。',
-    path: '/staff/corepanel',
-    icon: 'dashboard',
+    title: "Core パネル",
+    description: "性格診断と レスバ のパネル設定・投稿を管理します。",
+    path: "/staff/corepanel",
+    icon: "dashboard",
   },
   {
-    title: 'ランキング管理',
-    description: 'XP とパネル運用の設定に進みます。',
-    path: '/staff/rankmanager',
-    icon: 'leaderboard',
+    title: "ランキング管理",
+    description: "XP とパネル運用の設定に進みます。",
+    path: "/staff/rankmanager",
+    icon: "leaderboard",
   },
   {
-    title: 'チャンネル管理',
-    description: 'カテゴリやチャンネルの作成、権限、並び順をまとめて操作します。',
-    path: '/staff/channel-manager',
-    icon: 'view_kanban',
+    title: "チャンネル管理",
+    description:
+      "カテゴリやチャンネルの作成、権限、並び順をまとめて操作します。",
+    path: "/staff/channel-manager",
+    icon: "view_kanban",
   },
   {
-    title: 'Todo',
-    description: 'Discord チャンネルに進行管理 Todo を Embed で保存・更新します。',
-    path: '/staff/todo',
-    icon: 'checklist',
+    title: "Todo",
+    description:
+      "Discord チャンネルに進行管理 Todo を Embed で保存・更新します。",
+    path: "/staff/todo",
+    icon: "checklist",
   },
   {
-    title: '参加・退出ログ',
-    description: 'メンバー参加・退出通知の送信先とEmbedテンプレートを設定します。',
-    path: '/staff/join-log',
-    icon: 'login',
+    title: "参加・退出ログ",
+    description:
+      "メンバー参加・退出通知の送信先とEmbedテンプレートを設定します。",
+    path: "/staff/join-log",
+    icon: "login",
   },
+];
+
+const serviceCategories: Record<string, string> = {
+  "/staff/anticheat": "safety",
+  "/staff/privatechat": "safety",
+  "/staff/join-log": "safety",
+  "/staff/rolemanager": "manage",
+  "/staff/channel-manager": "manage",
+  "/staff/todo": "manage",
+  "/staff/corepanel": "community",
+  "/staff/rankmanager": "community",
+};
+const categories = [
+  { id: "all", label: "すべてのツール", icon: "grid_view" },
+  { id: "safety", label: "モデレーション", icon: "shield" },
+  { id: "manage", label: "サーバー管理", icon: "tune" },
+  { id: "community", label: "コミュニティ", icon: "groups" },
 ];
 
 const StaffHelpPage: React.FC = () => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<TabType>('help');
+  const [activeTab, setActiveTab] = useState<TabType>("services");
   const [commandData, setCommandData] = useState<StaffCommandData | null>(null);
   const [expandedCommand, setExpandedCommand] = useState<string | null>(null);
-  const [searchQuery, setSearchQuery] = useState('');
+  const [searchQuery, setSearchQuery] = useState("");
+  const [serviceQuery, setServiceQuery] = useState("");
+  const [category, setCategory] = useState("all");
 
   useEffect(() => {
     const load = async () => {
@@ -71,8 +93,12 @@ const StaffHelpPage: React.FC = () => {
         const data = await fetchStaffCommands();
         setCommandData(data);
       } catch (loadError) {
-        console.error('Failed to load staff commands:', loadError);
-        setError(loadError instanceof Error ? loadError.message : '読み込みに失敗しました');
+        console.error("Failed to load staff commands:", loadError);
+        setError(
+          loadError instanceof Error
+            ? loadError.message
+            : "読み込みに失敗しました",
+        );
       } finally {
         setLoading(false);
       }
@@ -95,9 +121,11 @@ const StaffHelpPage: React.FC = () => {
       const searchable = [
         command.name,
         command.description,
-        ...command.options.map((option) => `${option.name} ${option.description} ${option.type}`),
+        ...command.options.map(
+          (option) => `${option.name} ${option.description} ${option.type}`,
+        ),
       ]
-        .join(' ')
+        .join(" ")
         .toLowerCase();
 
       return searchable.includes(keyword);
@@ -106,48 +134,69 @@ const StaffHelpPage: React.FC = () => {
 
   const getOptionIcon = (type: string) => {
     const icons: Record<string, string> = {
-      STRING: 'title',
-      INTEGER: 'pin',
-      BOOLEAN: 'toggle_on',
-      USER: 'person',
-      CHANNEL: 'tag',
-      ROLE: 'shield',
-      MENTIONABLE: 'alternate_email',
-      NUMBER: 'calculate',
+      STRING: "title",
+      INTEGER: "pin",
+      BOOLEAN: "toggle_on",
+      USER: "person",
+      CHANNEL: "tag",
+      ROLE: "shield",
+      MENTIONABLE: "alternate_email",
+      NUMBER: "calculate",
     };
 
-    return icons[type] || 'extension';
+    return icons[type] || "extension";
   };
 
   const renderBody = () => {
+    if (activeTab === "services") {
+      return (
+        <div className={styles.servicesGrid}>
+          {services
+            .filter(
+              (service) =>
+                (category === "all" ||
+                  serviceCategories[service.path] === category) &&
+                `${service.title} ${service.description}`
+                  .toLowerCase()
+                  .includes(serviceQuery.toLowerCase().trim()),
+            )
+            .map((service) => (
+              <button
+                key={service.path}
+                className={styles.serviceCard}
+                onClick={() => navigate(service.path)}
+                type="button"
+              >
+                <span className={styles.serviceIcon}>
+                  <span className="material-icons" aria-hidden="true">
+                    {service.icon}
+                  </span>
+                </span>
+                <div>
+                  <h3>{service.title}</h3>
+                  <p>{service.description}</p>
+                </div>
+                <span className="material-icons" aria-hidden="true">
+                  arrow_forward
+                </span>
+              </button>
+            ))}
+        </div>
+      );
+    }
+
     if (loading) {
-      return <div className={styles.statePanel}>スタッフ機能を読み込んでいます...</div>;
+      return (
+        <div className={styles.statePanel}>
+          スタッフ機能を読み込んでいます...
+        </div>
+      );
     }
 
     if (error || !commandData) {
-      return <div className={styles.statePanel}>{error || 'データの取得に失敗しました'}</div>;
-    }
-
-    if (activeTab === 'services') {
       return (
-        <div className={styles.servicesGrid}>
-          {services.map((service) => (
-            <button
-              key={service.path}
-              className={styles.serviceCard}
-              onClick={() => navigate(service.path)}
-              type="button"
-            >
-              <span className={styles.serviceIcon}>
-                <span className="material-icons">{service.icon}</span>
-              </span>
-              <div>
-                <h3>{service.title}</h3>
-                <p>{service.description}</p>
-              </div>
-              <span className="material-icons">arrow_forward</span>
-            </button>
-          ))}
+        <div className={styles.statePanel}>
+          {error || "データの取得に失敗しました"}
         </div>
       );
     }
@@ -155,19 +204,24 @@ const StaffHelpPage: React.FC = () => {
     return (
       <>
         <div className={styles.searchBox}>
-          <span className="material-icons">search</span>
+          <span className="material-icons" aria-hidden="true">
+            search
+          </span>
           <input
             className={styles.searchInput}
             type="text"
             value={searchQuery}
             onChange={(event) => setSearchQuery(event.target.value)}
+            aria-label="コマンドを検索"
             placeholder="コマンド名・説明・オプションを検索"
           />
         </div>
 
         <div className={styles.commandList}>
           {filteredCommands.length === 0 ? (
-            <div className={styles.statePanel}>該当するコマンドがありません。</div>
+            <div className={styles.statePanel}>
+              該当するコマンドがありません。
+            </div>
           ) : (
             filteredCommands.map((command) => {
               const isOpen = expandedCommand === command.name;
@@ -175,15 +229,21 @@ const StaffHelpPage: React.FC = () => {
                 <article key={command.name} className={styles.commandCard}>
                   <button
                     className={styles.commandHeader}
-                    onClick={() => setExpandedCommand(isOpen ? null : command.name)}
+                    onClick={() =>
+                      setExpandedCommand(isOpen ? null : command.name)
+                    }
                     type="button"
                     aria-expanded={isOpen}
                   >
                     <div>
-                      <span className={styles.commandName}>/staff {command.name}</span>
+                      <span className={styles.commandName}>
+                        /staff {command.name}
+                      </span>
                       <p>{command.description}</p>
                     </div>
-                    <span className="material-icons">{isOpen ? 'remove' : 'add'}</span>
+                    <span className="material-icons" aria-hidden="true">
+                      {isOpen ? "remove" : "add"}
+                    </span>
                   </button>
 
                   {isOpen ? (
@@ -191,24 +251,39 @@ const StaffHelpPage: React.FC = () => {
                       {command.options.length > 0 ? (
                         <div className={styles.optionList}>
                           {command.options.map((option) => (
-                            <div key={option.name} className={styles.optionCard}>
+                            <div
+                              key={option.name}
+                              className={styles.optionCard}
+                            >
                               <div className={styles.optionHeader}>
                                 <span className={styles.optionIcon}>
-                                  <span className="material-icons">{getOptionIcon(option.type)}</span>
+                                  <span
+                                    className="material-icons"
+                                    aria-hidden="true"
+                                  >
+                                    {getOptionIcon(option.type)}
+                                  </span>
                                 </span>
                                 <div>
                                   <strong>{option.name}</strong>
-                                  <span className={styles.optionType}>{option.type}</span>
+                                  <span className={styles.optionType}>
+                                    {option.type}
+                                  </span>
                                 </div>
                                 {option.required ? (
-                                  <span className={styles.requiredBadge}>必須</span>
+                                  <span className={styles.requiredBadge}>
+                                    必須
+                                  </span>
                                 ) : null}
                               </div>
                               <p>{option.description}</p>
                               {option.choices.length > 0 ? (
                                 <div className={styles.choiceList}>
                                   {option.choices.map((choice) => (
-                                    <span key={String(choice.value)} className={styles.choiceBadge}>
+                                    <span
+                                      key={String(choice.value)}
+                                      className={styles.choiceBadge}
+                                    >
                                       {choice.name}
                                     </span>
                                   ))}
@@ -218,7 +293,9 @@ const StaffHelpPage: React.FC = () => {
                           ))}
                         </div>
                       ) : (
-                        <p className={styles.commandNote}>追加オプションはありません。</p>
+                        <p className={styles.commandNote}>
+                          追加オプションはありません。
+                        </p>
                       )}
 
                       <div className={styles.usageBox}>
@@ -228,7 +305,7 @@ const StaffHelpPage: React.FC = () => {
                           {command.options
                             .filter((option) => option.required)
                             .map((option) => ` ${option.name}:<値>`)
-                            .join('')}
+                            .join("")}
                         </code>
                       </div>
                     </div>
@@ -244,51 +321,129 @@ const StaffHelpPage: React.FC = () => {
 
   return (
     <div className={styles.page}>
-      <section className={styles.pageHeader}>
-        <div className={styles.pageHeaderCopy}>
-          <span className={styles.pageEyebrow}>Staff Surface</span>
-          <h1>スタッフ運用</h1>
-          <p>スタッフ向けコマンドの参照と、運用サービスへの導線をひとつの画面にまとめています。</p>
+      <header className={styles.pageHeader}>
+        <div>
+          <span className={styles.pageEyebrow}>STAFF CONSOLE</span>
+          <h1>スタッフツール</h1>
+          <p>サーバーの日常を支える、運営の道具箱。</p>
         </div>
-
-        <div className={styles.summary}>
-          <div className={styles.summaryCard}>
-            <span className={styles.summaryLabel}>Commands</span>
-            <strong>{commandData?.subcommands.length || 0}</strong>
-            <p>利用できるスタッフ向けサブコマンド数です。</p>
+        <button
+          className={styles.serverLink}
+          type="button"
+          onClick={() => navigate("/settings")}
+        >
+          サーバーを選ぶ <span aria-hidden="true">↗</span>
+        </button>
+      </header>
+      <div className={styles.workspace}>
+        <aside className={styles.sidebar}>
+          <span className={styles.navLabel}>ツールを探す</span>
+          <nav className={styles.categoryNav} aria-label="スタッフツールの分類">
+            {categories.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                aria-pressed={activeTab === "services" && category === item.id}
+                className={
+                  activeTab === "services" && category === item.id
+                    ? styles.activeCategory
+                    : ""
+                }
+                onClick={() => {
+                  setCategory(item.id);
+                  setActiveTab("services");
+                }}
+              >
+                <span className="material-icons" aria-hidden="true">
+                  {item.icon}
+                </span>
+                {item.label}
+                <small>
+                  {item.id === "all"
+                    ? services.length
+                    : services.filter(
+                        (s) => serviceCategories[s.path] === item.id,
+                      ).length}
+                </small>
+              </button>
+            ))}
+          </nav>
+          <div className={styles.reference}>
+            <span className={styles.navLabel}>リファレンス</span>
+            <button
+              type="button"
+              className={activeTab === "help" ? styles.activeCategory : ""}
+              aria-pressed={activeTab === "help"}
+              onClick={() => setActiveTab("help")}
+            >
+              <span className="material-icons" aria-hidden="true">
+                terminal
+              </span>
+              コマンド一覧
+            </button>
+            <p>
+              Discordでは <code>/staff</code> から
+              <br />
+              各コマンドを実行できます。
+            </p>
           </div>
-          <div className={styles.summaryCard}>
-            <span className={styles.summaryLabel}>Services</span>
-            <strong>{services.length}</strong>
-            <p>整理済みの主要スタッフサービスに直接移動できます。</p>
+        </aside>
+        <section
+          className={styles.content}
+          aria-label={
+            activeTab === "services" ? "管理ツール一覧" : "コマンド一覧"
+          }
+        >
+          <div className={styles.contentHeader}>
+            <div>
+              <h2>
+                {activeTab === "services"
+                  ? categories.find((c) => c.id === category)?.label
+                  : "コマンド一覧"}
+              </h2>
+              <p>
+                {activeTab === "services"
+                  ? "使いたい機能を選んで、設定をはじめましょう。"
+                  : "コマンドを選ぶと使い方とオプションを確認できます。"}
+              </p>
+            </div>
+            <span>
+              {activeTab === "services"
+                ? "TOOLS"
+                : `${commandData?.subcommands.length ?? "—"} COMMANDS`}
+            </span>
           </div>
-        </div>
-      </section>
-
-      <div>
-        <div className={styles.tabBar}>
-          <button
-            className={`${styles.tabButton} ${activeTab === 'help' ? styles.activeTab : ''}`}
-            onClick={() => setActiveTab('help')}
-            type="button"
-          >
-            <span className="material-icons">menu_book</span>
-            コマンド
-          </button>
-          <button
-            className={`${styles.tabButton} ${activeTab === 'services' ? styles.activeTab : ''}`}
-            onClick={() => setActiveTab('services')}
-            type="button"
-          >
-            <span className="material-icons">apps</span>
-            サービス
-          </button>
-        </div>
-
-        {renderBody()}
+          {activeTab === "services" && (
+            <label className={styles.searchBox}>
+              <span className="material-icons" aria-hidden="true">
+                search
+              </span>
+              <input
+                aria-label="ツールを検索"
+                className={styles.searchInput}
+                placeholder="ツール名で検索"
+                value={serviceQuery}
+                onChange={(e) => setServiceQuery(e.target.value)}
+              />
+            </label>
+          )}
+          {activeTab === "services" &&
+            !services.some(
+              (service) =>
+                (category === "all" ||
+                  serviceCategories[service.path] === category) &&
+                `${service.title} ${service.description}`
+                  .toLowerCase()
+                  .includes(serviceQuery.toLowerCase().trim()),
+            ) && (
+              <div className={styles.statePanel}>
+                該当するツールがありません。検索語や分類を変更してください。
+              </div>
+            )}
+          {renderBody()}
+        </section>
       </div>
     </div>
   );
 };
-
 export default StaffHelpPage;

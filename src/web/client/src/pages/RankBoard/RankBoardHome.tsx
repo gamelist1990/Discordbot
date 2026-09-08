@@ -129,6 +129,9 @@ const RankBoardHome: React.FC = () => {
                             <div
                                 key={guild.id}
                                 className={styles.guildCard}
+                                role="link"
+                                tabIndex={0}
+                                onKeyDown={e => { if (e.key === "Enter") handleGuildClick(guild.id); }}
                                 onClick={() => handleGuildClick(guild.id)}
                             >
                                 {guild.icon ? (

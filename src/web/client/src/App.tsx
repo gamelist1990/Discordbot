@@ -1,29 +1,31 @@
-import React, { Suspense } from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
-import AppHeader from './components/Common/AppHeader';
-import SettingsPage from './pages/Settings';
-import SettingsListPage from './pages/SettingsList';
-import PrivateChatPage from './pages/PrivateChat';
-import RoleManagerPage from './pages/RoleManager';
-import StaffHelpPage from './pages/StaffHelp';
-import RankManagerPage from './pages/RankManager';
-import RankBoardHome from './pages/RankBoard/RankBoardHome';
-import RankBoardGuild from './pages/RankBoard/RankBoardGuild';
-import RankBoard from './pages/RankBoard';
-import UserProfile from './pages/Profile';
+import React, { Suspense } from "react";
+import { Routes, Route, Navigate } from "react-router-dom";
+import AppHeader from "./components/Common/AppHeader";
+import SettingsPage from "./pages/Settings";
+import SettingsListPage from "./pages/SettingsList";
+import PrivateChatPage from "./pages/PrivateChat";
+import RoleManagerPage from "./pages/RoleManager";
+import StaffHelpPage from "./pages/StaffHelp";
+import RankManagerPage from "./pages/RankManager";
+import RankBoardHome from "./pages/RankBoard/RankBoardHome";
+import RankBoardGuild from "./pages/RankBoard/RankBoardGuild";
+import RankBoard from "./pages/RankBoard";
+import UserProfile from "./pages/Profile";
 
-import AntiCheatPage from './pages/Staff/AntiCheat';
-import AntiCheatSelector from './pages/Staff/AntiCheatSelector';
-import CorePanelPage from './pages/Staff/CorePanel';
-import OthelloPage from './pages/Othello';
-import ChannelManagerPage from './pages/Staff/ChannelManager';
-import TodoPage from './pages/Staff/Todo';
-import JoinLogPage from './pages/Staff/JoinLog';
-const MinecraftViewer = React.lazy(() => import('./pages/Tools/MinecraftViewer/MinecraftViewer'));
-import { useAuthGuard } from './hooks/useAuthGuard';
-import HomePage from './pages/Home';
-import NotFoundPage from './pages/NotFound';
-import ProfileSettings from './pages/Profile/ProfileSettings';
+import AntiCheatPage from "./pages/Staff/AntiCheat";
+import AntiCheatSelector from "./pages/Staff/AntiCheatSelector";
+import CorePanelPage from "./pages/Staff/CorePanel";
+import OthelloPage from "./pages/Othello";
+import ChannelManagerPage from "./pages/Staff/ChannelManager";
+import TodoPage from "./pages/Staff/Todo";
+import JoinLogPage from "./pages/Staff/JoinLog";
+const MinecraftViewer = React.lazy(
+  () => import("./pages/Tools/MinecraftViewer/MinecraftViewer"),
+);
+import { useAuthGuard } from "./hooks/useAuthGuard";
+import HomePage from "./pages/Home";
+import NotFoundPage from "./pages/NotFound";
+import ProfileSettings from "./pages/Profile/ProfileSettings";
 
 // Protected route component for staff access
 const StaffGuard: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -31,13 +33,15 @@ const StaffGuard: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
   if (loading) {
     return (
-      <div style={{
-        display: 'flex',
-        justifyContent: 'center',
-        alignItems: 'center',
-        height: '100vh',
-        fontSize: '1.2em'
-      }}>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+          height: "100vh",
+          fontSize: "1.2em",
+        }}
+      >
         読み込み中...
       </div>
     );
@@ -53,8 +57,11 @@ const StaffGuard: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 const App: React.FC = () => {
   return (
     <div className="appFrame">
+      <a href="#main-content" className="skipLink">
+        本文へ移動
+      </a>
       <AppHeader />
-      <main className="appMain">
+      <main className="appMain" id="main-content" tabIndex={-1}>
         <Routes>
           <Route path="/" element={<HomePage />} />
           <Route path="/profile" element={<UserProfile />} />
@@ -66,22 +73,125 @@ const App: React.FC = () => {
           <Route path="/rank/:guildId" element={<RankBoardGuild />} />
           <Route path="/rank/:guildId/:panelId" element={<RankBoard />} />
           <Route path="/games/othello/:guildId" element={<OthelloPage />} />
-          <Route path="/staff" element={<StaffGuard><StaffHelpPage /></StaffGuard>} />
-          <Route path="/staff/privatechat" element={<StaffGuard><PrivateChatPage /></StaffGuard>} />
-          <Route path="/staff/rolemanager" element={<StaffGuard><RoleManagerPage /></StaffGuard>} />
-          <Route path="/staff/rankmanager" element={<StaffGuard><RankManagerPage /></StaffGuard>} />
-          <Route path="/staff/corepanel" element={<StaffGuard><CorePanelPage /></StaffGuard>} />
-          <Route path="/staff/channel-manager" element={<StaffGuard><ChannelManagerPage /></StaffGuard>} />
-          <Route path="/staff/todo" element={<StaffGuard><TodoPage /></StaffGuard>} />
-          <Route path="/staff/join-log" element={<StaffGuard><JoinLogPage /></StaffGuard>} />
-          <Route path="/staff/join-log/:guildId" element={<StaffGuard><JoinLogPage /></StaffGuard>} />
-          <Route path="/staff/anticheat" element={<StaffGuard><AntiCheatSelector /></StaffGuard>} />
-          <Route path="/staff/anticheat/:guildId" element={<StaffGuard><AntiCheatPage /></StaffGuard>} />
-          <Route path="/todo" element={<StaffGuard><TodoPage /></StaffGuard>} />
-          <Route path="/todo/:guildId/:channelId" element={<StaffGuard><TodoPage /></StaffGuard>} />
-          <Route path="/staff/privateChat" element={<Navigate to="/staff/privatechat" replace />} />
+          <Route
+            path="/staff"
+            element={
+              <StaffGuard>
+                <StaffHelpPage />
+              </StaffGuard>
+            }
+          />
+          <Route
+            path="/staff/privatechat"
+            element={
+              <StaffGuard>
+                <PrivateChatPage />
+              </StaffGuard>
+            }
+          />
+          <Route
+            path="/staff/rolemanager"
+            element={
+              <StaffGuard>
+                <RoleManagerPage />
+              </StaffGuard>
+            }
+          />
+          <Route
+            path="/staff/rankmanager"
+            element={
+              <StaffGuard>
+                <RankManagerPage />
+              </StaffGuard>
+            }
+          />
+          <Route
+            path="/staff/corepanel"
+            element={
+              <StaffGuard>
+                <CorePanelPage />
+              </StaffGuard>
+            }
+          />
+          <Route
+            path="/staff/channel-manager"
+            element={
+              <StaffGuard>
+                <ChannelManagerPage />
+              </StaffGuard>
+            }
+          />
+          <Route
+            path="/staff/todo"
+            element={
+              <StaffGuard>
+                <TodoPage />
+              </StaffGuard>
+            }
+          />
+          <Route
+            path="/staff/join-log"
+            element={
+              <StaffGuard>
+                <JoinLogPage />
+              </StaffGuard>
+            }
+          />
+          <Route
+            path="/staff/join-log/:guildId"
+            element={
+              <StaffGuard>
+                <JoinLogPage />
+              </StaffGuard>
+            }
+          />
+          <Route
+            path="/staff/anticheat"
+            element={
+              <StaffGuard>
+                <AntiCheatSelector />
+              </StaffGuard>
+            }
+          />
+          <Route
+            path="/staff/anticheat/:guildId"
+            element={
+              <StaffGuard>
+                <AntiCheatPage />
+              </StaffGuard>
+            }
+          />
+          <Route
+            path="/todo"
+            element={
+              <StaffGuard>
+                <TodoPage />
+              </StaffGuard>
+            }
+          />
+          <Route
+            path="/todo/:guildId/:channelId"
+            element={
+              <StaffGuard>
+                <TodoPage />
+              </StaffGuard>
+            }
+          />
+          <Route
+            path="/staff/privateChat"
+            element={<Navigate to="/staff/privatechat" replace />}
+          />
 
-          <Route path="/tools/minecraft" element={<Suspense fallback={<div style={{padding:20}}>読み込み中...</div>}><MinecraftViewer /></Suspense>} />
+          <Route
+            path="/tools/minecraft"
+            element={
+              <Suspense
+                fallback={<div style={{ padding: 20 }}>読み込み中...</div>}
+              >
+                <MinecraftViewer />
+              </Suspense>
+            }
+          />
           <Route path="/404" element={<NotFoundPage />} />
           <Route path="*" element={<Navigate to="/404" replace />} />
         </Routes>
