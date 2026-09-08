@@ -51,3 +51,13 @@ test('JSON fallback supports proxies ignoring stream flag', async () => {
     const value = { choices: [{ message: { tool_calls: [] }, finish_reason: 'stop' }] };
     assert.deepEqual(await readContentStream(Response.json(value), () => {}), value);
 });
+
+test('SSE assembles JSON content for models without tool-call support', async () => {
+    const response = sse(
+        chunk({ content: '{"suggestive":0,' })
+        + chunk({ content: '"explicit":0}' }, 'stop')
+        + 'data: [DONE]\r\n\r\n',
+    );
+    const data = await readContentStream(response, () => {});
+    assert.equal(data.choices[0].message.content, '{"suggestive":0,"explicit":0}');
+});

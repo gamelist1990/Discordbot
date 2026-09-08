@@ -7,6 +7,7 @@ export async function readContentStream(response: Response, progress: (chunks: n
     const decoder = new TextDecoder();
     const calls = new Map<number, any>();
     let pending = '', eventData: string[] = [], finish: string | null = null;
+    let content = '';
     let usage: any;
     let done = false, bytes = 0, chunks = 0;
     const event = () => {
@@ -24,6 +25,12 @@ export async function readContentStream(response: Response, progress: (chunks: n
         const choice = data.choices?.find((item: any) => item.index === 0);
         if (!choice) return;
         if (choice.finish_reason != null) finish = choice.finish_reason;
+        // OpenAI-compatible streams commonly emit an initial role chunk with
+        // content:null before textual deltas.
+        if (choice.delta?.content !== undefined && choice.delta.content !== null) {
+            if (typeof choice.delta.content !== 'string') throw new Error('Invalid moderation stream');
+            content += choice.delta.content;
+        }
         for (const delta of choice.delta?.tool_calls ?? []) {
             if (!Number.isInteger(delta.index) || delta.index < 0 || delta.index > 15) throw new Error('Invalid moderation stream');
             const call = calls.get(delta.index) ?? { type: '', function: { name: '', arguments: '' } };
@@ -59,8 +66,10 @@ export async function readContentStream(response: Response, progress: (chunks: n
             }
         }
         if (!done || !finish) throw new Error('Incomplete moderation stream');
-        return { usage, choices: [{ finish_reason: finish, message: { tool_calls: [...calls.entries()]
-            .sort(([a], [b]) => a - b).map(([, call]) => call) } }] };
+        return { usage, choices: [{ finish_reason: finish, message: {
+            ...(content ? { content } : {}),
+            tool_calls: [...calls.entries()].sort(([a], [b]) => a - b).map(([, call]) => call),
+        } }] };
     } finally {
         await reader.cancel().catch(() => {});
         reader.releaseLock();

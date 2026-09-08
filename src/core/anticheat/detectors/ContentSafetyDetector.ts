@@ -215,6 +215,9 @@ export async function classifyContent(
   const deadline = Date.now() + timeoutMs;
   const uniqueFrames = [...new Set(frames)];
   const stream = !formatRetry;
+  // The configured LFM llama.cpp backend does not reliably implement OpenAI
+  // function calling. Its native JSON mode is both supported and faster.
+  const jsonResponseMode = formatRetry || model === CONTENT_SAFETY_MODEL;
   // On retry, separate the task from the untrusted post instead of repeating
   // the same conversational user message with only a stronger system prompt.
   const inputText = [
@@ -224,9 +227,21 @@ export async function classifyContent(
       ? `加点: ${scoring.categories.join(",")}を対象に0〜${scoring.maxPoints}点で自分で判断。投稿内で確認できる違反の証拠がなければ0。多義語の仮定だけでは加点しない。軽微なら低く、深刻なら高く、不要なら0。pointsReasonに短い理由を書く。`
       : "加点: 無効",
     formatRetry
-      ? "再試行: 必須項目をすべて埋め、画像を直接確認してsubmit_verdictを1回だけ呼ぶ。"
+      ? "再試行: 必須項目をすべて埋め、画像を直接確認し、指定されたJSONオブジェクトだけを返す。"
       : "判定を実行する。",
   ].join("\n");
+  const retryJsonTemplate = JSON.stringify({
+    suggestive: 0,
+    explicit: 0,
+    harassment: 0,
+    hate: 0,
+    threat: 0,
+    violence: 0,
+    explanation: "判定理由を日本語で記入",
+    ...(scoring
+      ? { suggestedPoints: 0, pointsReason: "加点理由を日本語で記入" }
+      : {}),
+  });
   const requestStarted = Date.now();
   const metrics: AiRequestMetrics = { model, frames: uniqueFrames.length, retry: formatRetry };
   requests.push(metrics);
@@ -248,7 +263,10 @@ export async function classifyContent(
         stream,
         ...(stream ? { stream_options: { include_usage: true } } : {}),
         reasoning_effort: "none",
-        tools: [
+        ...(jsonResponseMode ? {
+          response_format: { type: "json_object" },
+        } : {
+          tools: [
           {
             type: "function",
             function: {
@@ -300,14 +318,20 @@ export async function classifyContent(
               },
             },
           },
-        ],
-        tool_choice: { type: "function", function: { name: "submit_verdict" } },
-        parallel_tool_calls: false,
+          ],
+          // llama.cpp's OpenAI-compatible server accepts tool_choice as a
+          // string. Only submit_verdict is exposed, so "required" selects it
+          // without the unsupported named-tool object form.
+          tool_choice: "required",
+          parallel_tool_calls: false,
+        }),
         chat_template_kwargs: { enable_thinking: false },
         messages: [
           {
             role: "system",
-            content: CONTENT_SAFETY_PROMPT,
+            content: jsonResponseMode
+              ? `${CONTENT_SAFETY_PROMPT}\n\nこのAPIではツール呼び出しを使いません。必ず次のテンプレートと同じ全キーを1回ずつ含むJSONオブジェクトだけを返してください。キーの省略は禁止です。6スコアは0〜1の数値です。Markdownや説明文をJSONの外に書かないでください。\n${retryJsonTemplate}`
+              : CONTENT_SAFETY_PROMPT,
           },
           {
             role: "user",
@@ -398,16 +422,19 @@ export async function classifyContent(
   if (choice?.finish_reason === "length")
     throw new Error("Truncated moderation response");
   const calls = choice?.message?.tool_calls;
+  const fallbackContent = choice?.message?.content;
   Logger.info(
     `[ContentSafety] ai-response status=${response.status} frames=${uniqueFrames.length} retry=${formatRetry} finish=${["stop", "length", "tool_calls", "content_filter"].includes(choice?.finish_reason) ? choice.finish_reason : "other"} tools=${Array.isArray(calls) ? calls.length : 0} ms=${Date.now() - (deadline - timeoutMs)}`,
   );
-  if (
+  const validToolCall = (
     !Array.isArray(calls) ||
     calls.length !== 1 ||
     calls[0]?.type !== "function" ||
     calls[0].function?.name !== "submit_verdict"
-  ) {
-    // Retry once within the original deadline. Never parse conversational text as a verdict.
+  ) === false;
+  if (!validToolCall && !(jsonResponseMode && typeof fallbackContent === "string")) {
+    // Retry once within the original deadline. The retry may use a strictly
+    // validated JSON body when this model ignores forced function calling.
     const remaining = deadline - Date.now();
     if (!formatRetry && remaining > 0)
       // The first response can consume most of the model deadline. Give the
@@ -420,7 +447,9 @@ export async function classifyContent(
     );
   }
   try {
-    const verdict = parseContentVerdict(calls[0].function.arguments);
+    const verdict = parseContentVerdict(validToolCall
+      ? calls[0].function.arguments
+      : fallbackContent);
     if (!verdict.explanation?.trim())
       throw new Error("Invalid moderation explanation");
     if (
@@ -446,6 +475,10 @@ export async function classifyContent(
     const remaining = deadline - Date.now();
     if (!formatRetry && remaining > 0)
       return classifyContent(text, uniqueFrames, timeoutMs, true, scoring, model, requests);
+    if (jsonResponseMode && !validToolCall)
+      throw new Error(
+        "Moderation API did not return required submit_verdict tool call or a valid verdict JSON",
+      );
     throw error;
   }
 }

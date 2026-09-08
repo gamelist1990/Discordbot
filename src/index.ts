@@ -25,6 +25,10 @@ let guild890315487962095637Integration: {
     initialize(client: Client): Promise<void>;
     destroy(): Promise<void>;
 } | null = null;
+let mentionAISupportManager: {
+    initialize(client: Client): void;
+    destroy(): void;
+} | null = null;
 
 /**
  * 設定ファイルを読み込む
@@ -142,6 +146,15 @@ async function main() {
         guild890315487962095637Integration = integrationModule.guild890315487962095637Integration;
         await guild890315487962095637Integration.initialize(botClient.client);
 
+        // 通常チャンネルでは、Botへの明示メンションを周辺会話つきのAI相談として処理する。
+        // 常駐AI専用チャンネルは既存マネージャーとの二重応答を避けるため除外する。
+        const [{ MentionAISupportManager }, { CHAT_AI_CHANNEL_ID }] = await Promise.all([
+            import('./core/ai-support/MentionAISupportManager.js'),
+            import('./integrations/guild890315487962095637/Loader.js'),
+        ]);
+        mentionAISupportManager = new MentionAISupportManager({ excludedChannelIds: [CHAT_AI_CHANNEL_ID] });
+        mentionAISupportManager.initialize(botClient.client);
+
         // 設定サーバーを起動
         Logger.info('🌐 設定サーバーを起動します...');
         settingsServer = new SettingsServer(botClient, 3000);
@@ -197,6 +210,9 @@ async function shutdown(): Promise<void> {
 
     if (guild890315487962095637Integration) {
         await guild890315487962095637Integration.destroy();
+    }
+    if (mentionAISupportManager) {
+        mentionAISupportManager.destroy();
     }
     if (statusManager) {
         await statusManager.cleanup();

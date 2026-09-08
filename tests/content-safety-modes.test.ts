@@ -25,7 +25,10 @@ test('missing tool call retries once with the same input and rejects repeated ma
         assert.equal(requests.length, 2);
         assert.ok(requests[1].messages[1].content.includes(JSON.stringify('test content')));
         assert.notEqual(requests[0].messages[1].content, requests[1].messages[1].content);
-        assert.deepEqual(requests[0].tool_choice, requests[1].tool_choice);
+        assert.equal(requests[0].tool_choice, undefined);
+        assert.equal(requests[1].tool_choice, undefined);
+        assert.deepEqual(requests[0].response_format, { type: 'json_object' });
+        assert.deepEqual(requests[1].response_format, { type: 'json_object' });
         assert.ok(requests[1].messages[0].content.startsWith(CONTENT_SAFETY_PROMPT));
         recover = false;
         requests.length = 0;
@@ -55,7 +58,8 @@ test('image retries reject explanations that claim the attached image is absent'
         calls++;
         const request = JSON.parse(String(options?.body));
         if (calls === 2) {
-            assert.equal(request.messages[0].content, CONTENT_SAFETY_PROMPT);
+            assert.ok(request.messages[0].content.startsWith(CONTENT_SAFETY_PROMPT));
+            assert.deepEqual(request.response_format, { type: 'json_object' });
             assert.match(request.messages[1].content[1].text, /対象: 画像1枚/);
             assert.match(request.messages[1].content[1].text, /再試行:/);
         }
@@ -156,12 +160,12 @@ test('structured output accepts scores but never fills in missing categories as 
     assert.throws(() => parseContentVerdict(JSON.stringify({ observation: 'visible facts', scores: incomplete })), /Invalid moderation verdict/);
 });
 
-test('required tool protocol rejects plain text, wrong functions, multiple calls and truncation', async () => {
+test('required tool protocol rejects conversational text, wrong functions, multiple calls and truncation', async () => {
     const original = globalThis.fetch;
     const call = { type: 'function', function: { name: 'submit_verdict', arguments: JSON.stringify(verdict) } };
     try {
         for (const choice of [
-            { message: { content: JSON.stringify(verdict) } },
+            { message: { content: '判定結果は安全です。' } },
             { message: { tool_calls: [{ ...call, function: { ...call.function, name: 'delete_message' } }] } },
             { message: { tool_calls: [call, call] } },
             { message: { tool_calls: [null] } },
@@ -171,6 +175,24 @@ test('required tool protocol rejects plain text, wrong functions, multiple calls
             globalThis.fetch = (async () => new Response(JSON.stringify({ choices: [choice] }))) as typeof fetch;
             await assert.rejects(classifyContent('test'), /required|Truncated/);
         }
+    } finally { globalThis.fetch = original; }
+});
+
+test('protocol retry accepts only a complete validated verdict JSON when the model ignores tool calling', async () => {
+    const original = globalThis.fetch;
+    let calls = 0;
+    globalThis.fetch = (async () => {
+        calls += 1;
+        return new Response(JSON.stringify({ choices: [{
+            finish_reason: 'stop',
+            message: calls === 1
+                ? { content: 'ツールを呼び出せませんでした。' }
+                : { content: JSON.stringify({ ...verdict, explanation: '通常の文章で問題はない。' }) },
+        }] }));
+    }) as typeof fetch;
+    try {
+        assert.deepEqual(await classifyContent('test'), { ...verdict, explanation: '通常の文章で問題はない。' });
+        assert.equal(calls, 2);
     } finally { globalThis.fetch = original; }
 });
 
@@ -278,8 +300,8 @@ test('stable prefix, raw text payload and deduplicated images reduce input', asy
         assert.equal(requests[1].messages[1].content.filter((part: any) => part.type === 'image_url').length, 1);
         assert.equal(requests[2].messages[1].content.filter((part: any) => part.type === 'image_url').length, 2);
         assert.equal(requests[2].messages[1].content[1].image_url.detail, 'high');
-        assert.deepEqual(requests[0].tool_choice, { type: 'function', function: { name: 'submit_verdict' } });
-        assert.equal(requests[0].response_format, undefined);
+        assert.equal(requests[0].tool_choice, undefined);
+        assert.deepEqual(requests[0].response_format, { type: 'json_object' });
         assert.equal(requests[0].reasoning_effort, 'none');
         assert.deepEqual(requests[0].chat_template_kwargs, { enable_thinking: false });
         assert.match(CONTENT_SAFETY_PROMPT, /自分で分類/);
