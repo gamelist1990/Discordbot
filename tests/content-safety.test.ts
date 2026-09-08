@@ -108,6 +108,9 @@ test('prompt treats ambiguous names, emoji and non-sexual uses as safe by defaul
     assert.match(CONTENT_SAFETY_PROMPT, /返信先だけの違反を現在の投稿に加点しません/);
     assert.match(CONTENT_SAFETY_PROMPT, /単なる水着・下着姿や露出量だけは対象外/);
     assert.match(CONTENT_SAFETY_PROMPT, /同じ根拠で両方を高くしません/);
+    assert.match(CONTENT_SAFETY_PROMPT, /性的行為・性的ポーズ・接触がなくても必ずexplicitを0\.9以上/);
+    assert.match(CONTENT_SAFETY_PROMPT, /explicitが加点対象カテゴリに含まれる場合、suggestedPointsを0にしてはいけません/);
+    assert.match(CONTENT_SAFETY_PROMPT, /服や水着越しの輪郭、谷間、へそを乳首・性器と誤認しません/);
 });
 
 test('prompt detects deliberate obfuscated sexual wording without guessing ambiguous typos', () => {
