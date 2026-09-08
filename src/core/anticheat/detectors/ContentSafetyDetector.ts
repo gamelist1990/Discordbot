@@ -242,6 +242,34 @@ export async function classifyContent(
       ? { suggestedPoints: 0, pointsReason: "加点理由を日本語で記入" }
       : {}),
   });
+  const verdictJsonSchema = {
+    type: "object",
+    properties: {
+      ...Object.fromEntries(
+        CONTENT_CATEGORIES.map((key) => [
+          key,
+          { type: "number", minimum: 0, maximum: 1 },
+        ]),
+      ),
+      explanation: { type: "string", minLength: 1, maxLength: 80 },
+      ...(scoring
+        ? {
+            suggestedPoints: {
+              type: "integer",
+              minimum: 0,
+              maximum: scoring.maxPoints,
+            },
+            pointsReason: { type: "string", minLength: 1, maxLength: 80 },
+          }
+        : {}),
+    },
+    required: [
+      ...CONTENT_CATEGORIES,
+      "explanation",
+      ...(scoring ? ["suggestedPoints", "pointsReason"] : []),
+    ],
+    additionalProperties: false,
+  };
   const requestStarted = Date.now();
   const metrics: AiRequestMetrics = { model, frames: uniqueFrames.length, retry: formatRetry };
   requests.push(metrics);
@@ -264,7 +292,14 @@ export async function classifyContent(
         ...(stream ? { stream_options: { include_usage: true } } : {}),
         reasoning_effort: "none",
         ...(jsonResponseMode ? {
-          response_format: { type: "json_object" },
+          response_format: {
+            type: "json_schema",
+            json_schema: {
+              name: "moderation_verdict",
+              strict: true,
+              schema: verdictJsonSchema,
+            },
+          },
         } : {
           tools: [
           {
