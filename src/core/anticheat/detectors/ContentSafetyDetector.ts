@@ -69,7 +69,8 @@ export const CONTENT_DEFAULT_CONFIG = {
   timeoutMs: 120000,
 };
 // gemma4-12b-q4ks 平均 2.73toks　から gemma4-12b-balanced-mtp　平均 3.52toks
-export const CONTENT_SAFETY_MODEL = "gemma4-12b-balanced-mtp";
+// lfm2.5-vl-3b-q4-k-m 平均 15 toks　3B の為かなり低スペ
+export const CONTENT_SAFETY_MODEL = "lfm2.5-vl-3b-q4-k-m";
 export function boundedNumber(
   value: unknown,
   fallback: number,
