@@ -1,4 +1,5 @@
 import { exclusionChannelIds, detectorExcluded, normalizeChannelExclusions } from './ExclusionPolicy.js';
+import { contentFailureReason } from './ContentScanFailure.js';
 import { displayContentExplanation } from './ContentExplanation.js';
 import {
     AttachmentBuilder,
@@ -465,9 +466,13 @@ export class AntiCheatManager {
                 continue;
             }
 
+            const aiStartedAt = Date.now();
             detectorTasks.push(
                 detector.detect(message, context)
                     .then((result) => {
+                        if (name === 'contentSafety' && settings.aiLogChannelId) {
+                            this.runDetached(this.sendAiDecisionLog(message, settings.aiLogChannelId, result, Date.now() - aiStartedAt), 'AI decision log');
+                        }
                         if (!hasMeaningfulDetection(result)) {
                             return null;
                         }
@@ -476,6 +481,11 @@ export class AntiCheatManager {
                         return { detector: name, result };
                     })
                     .catch((error) => {
+                        if (name === 'contentSafety' && settings.aiLogChannelId) {
+                            this.runDetached(this.sendAiDecisionLog(message, settings.aiLogChannelId, {
+                                scoreDelta: 0, reasons: [], metadata: error?.auditMetadata,
+                            }, Date.now() - aiStartedAt, contentFailureReason(error)), 'AI failure log');
+                        }
                         Logger.error(`Detector ${name} failed:`, error);
                         return null;
                     })
@@ -1105,6 +1115,7 @@ export class AntiCheatManager {
             logChannelId: settings?.logChannelId ?? null,
             avatarLogChannelId: settings?.avatarLogChannelId ?? null,
             chatLogChannelId: settings?.chatLogChannelId ?? null,
+            aiLogChannelId: settings?.aiLogChannelId ?? null,
             autoTimeout: {
                 ...DEFAULT_ANTICHEAT_SETTINGS.autoTimeout,
                 ...(settings?.autoTimeout || {})
@@ -1159,6 +1170,49 @@ export class AntiCheatManager {
         }
 
         return merged;
+    }
+
+    private async sendAiDecisionLog(message: Message, channelId: string, result: DetectionResult, elapsedMs: number, error?: string): Promise<void> {
+        if (!message.guild) return;
+        const channel = await this.fetchLogChannel(message.guild, channelId);
+        if (!channel || typeof channel.send !== 'function') return;
+        const metadata = result.metadata || {};
+        const analyses = Array.isArray(metadata.analyses) ? metadata.analyses : [];
+        const status = error ? '判定失敗（安全判定ではありません）'
+            : metadata.stoppedBecauseDeleted ? '投稿削除により中止'
+            : result.reasons.length ? '検知あり'
+            : metadata.errors?.length ? '一部の判定が未完了'
+            : analyses.length ? '検知なし' : '判定対象なし';
+        const explanations = analyses.map((item: any) => `${item.source}: ${item.scores?.explanation || '理由の返却なし'}`);
+        const requests = metadata.requests || analyses.flatMap((item: any) => item.requests || []);
+        const count = (key: string) => requests.length && requests.every((item: any) => typeof item[key] === 'number')
+            ? requests.reduce((sum: number, item: any) => sum + item[key], 0).toString() : '取得不可';
+        const details = {
+            loggedAt: new Date().toISOString(), guildId: message.guild.id,
+            channelId: message.channelId, messageId: message.id, userId: message.author.id,
+            messageUrl: message.url, status, totalElapsedMs: elapsedMs,
+            reasons: result.reasons, appliedPoints: result.scoreDelta, error,
+            ...metadata,
+        };
+        const embed = new EmbedBuilder()
+            .setTitle('AI判定ログ')
+            .setColor(error ? Colors.Orange : result.reasons.length ? Colors.Red : Colors.Blue)
+            .setTimestamp()
+            .setDescription((error || explanations.join('\n') || status).slice(0, 2000))
+            .addFields(
+                { name: '判定', value: status, inline: true },
+                { name: 'モデル', value: String(metadata.model || '取得不可').slice(0, 100), inline: true },
+                { name: '経過時間（待機含む）', value: `${(elapsedMs / 1000).toFixed(3)} 秒`, inline: true },
+                { name: '投稿', value: `[メッセージ](${message.url})\nユーザーID: ${message.author.id}`, inline: false },
+                { name: 'トークン（入力 / 出力 / 合計）', value: `${count('inputTokens')} / ${count('outputTokens')} / ${count('totalTokens')}`, inline: false },
+                { name: 'tok/s（出力数 ÷ リクエスト全体時間）', value: (requests.map((item: any, index: number) => `${index + 1}: ${typeof item.tokensPerSecond === 'number' ? item.tokensPerSecond.toFixed(2) : '取得不可'}`).join(' / ') || 'API呼び出しなし').slice(0, 1024), inline: false },
+                { name: 'キャッシュ', value: (analyses.map((item: any) => `${item.source}: ${item.cache}`).join(' / ') || 'なし').slice(0, 1024), inline: false },
+                { name: '加点 / リクエスト数', value: `${result.scoreDelta} 点 / ${requests.length} 回`, inline: true },
+            );
+        await channel.send({
+            embeds: [embed], allowedMentions: { parse: [] },
+            files: [new AttachmentBuilder(Buffer.from(JSON.stringify(details, null, 2), 'utf8'), { name: `ai-decision-${message.id}.json` })],
+        });
     }
 
     private async fetchLogChannel(guild: Guild, channelId: string | null): Promise<TextChannel | null> {

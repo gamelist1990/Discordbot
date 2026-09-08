@@ -190,6 +190,18 @@ harassment: 罵倒・嫌がらせ。hate: 属性集団への差別。threat: 具
 
 submit_verdictを必ず1回だけ呼び出します。explanationはスタッフ向けの自然でカジュアルな日本語1文、80文字以内にします。「胸が見えているのでR18です」のように、見えた事実と判断を端的に書いてください。安全判定でも具体的な理由を書き、硬い報告書調、長い前置き、推測は避けてください。`;
 
+export interface AiRequestMetrics {
+  model: string;
+  frames: number;
+  retry: boolean;
+  elapsedMs?: number;
+  status?: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+  tokensPerSecond?: number;
+}
+
 export async function classifyContent(
   text: string,
   frames: string[] = [],
@@ -197,6 +209,7 @@ export async function classifyContent(
   formatRetry = false,
   scoring?: ContentScoringPolicy,
   model = CONTENT_SAFETY_MODEL,
+  requests: AiRequestMetrics[] = [],
 ): Promise<ContentVerdict> {
   const deadline = Date.now() + timeoutMs;
   const uniqueFrames = [...new Set(frames)];
@@ -213,6 +226,9 @@ export async function classifyContent(
       ? "再試行: 必須項目をすべて埋め、画像を直接確認してsubmit_verdictを1回だけ呼ぶ。"
       : "判定を実行する。",
   ].join("\n");
+  const requestStarted = Date.now();
+  const metrics: AiRequestMetrics = { model, frames: uniqueFrames.length, retry: formatRetry };
+  requests.push(metrics);
   const response = await fetch(
     `${config.pexAi.endpoint.replace(/\/$/, "")}/chat/completions`,
     {
@@ -229,6 +245,7 @@ export async function classifyContent(
         temperature: 0,
         max_tokens: 768,
         stream,
+        ...(stream ? { stream_options: { include_usage: true } } : {}),
         reasoning_effort: "none",
         tools: [
           {
@@ -310,7 +327,12 @@ export async function classifyContent(
         ],
       }),
     },
-  );
+  ).catch(error => {
+    metrics.elapsedMs = Date.now() - requestStarted;
+    throw error;
+  });
+  metrics.status = response.status;
+  metrics.elapsedMs = Date.now() - requestStarted;
   if (response.status === 413 && uniqueFrames.length > 1) {
     await response.body?.cancel();
     const remaining = () => {
@@ -327,6 +349,7 @@ export async function classifyContent(
       formatRetry,
       scoring,
       model,
+      requests,
     );
     const right = await classifyContent(
       text,
@@ -335,6 +358,7 @@ export async function classifyContent(
       formatRetry,
       scoring,
       model,
+      requests,
     );
     const strongest = [left, right].sort(
       (a, b) =>
@@ -362,7 +386,13 @@ export async function classifyContent(
     Logger.info(
       `[ContentSafety] ai-stream frames=${uniqueFrames.length} chunks=${chunks} ms=${Date.now() - (deadline - timeoutMs)}`,
     ),
-  );
+  ).finally(() => { metrics.elapsedMs = Date.now() - requestStarted; });
+  const tokenCount = (value: unknown) => typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
+  metrics.inputTokens = tokenCount(data.usage?.prompt_tokens);
+  metrics.outputTokens = tokenCount(data.usage?.completion_tokens);
+  metrics.totalTokens = tokenCount(data.usage?.total_tokens);
+  if (metrics.outputTokens !== undefined && metrics.elapsedMs > 0)
+    metrics.tokensPerSecond = metrics.outputTokens / (metrics.elapsedMs / 1000);
   const choice = data.choices?.[0];
   if (choice?.finish_reason === "length")
     throw new Error("Truncated moderation response");
@@ -383,7 +413,7 @@ export async function classifyContent(
       // single protocol retry a fresh request deadline instead of an
       // unrealistically small remainder (which caused otherwise valid image
       // scans to end in TimeoutError immediately after the first response).
-      return classifyContent(text, uniqueFrames, timeoutMs, true, scoring, model);
+      return classifyContent(text, uniqueFrames, timeoutMs, true, scoring, model, requests);
     throw new Error(
       "Moderation API did not return required submit_verdict tool call",
     );
@@ -414,7 +444,7 @@ export async function classifyContent(
     // A model can emit a tool call before completing a required explanation. Retry once with the strict format reminder.
     const remaining = deadline - Date.now();
     if (!formatRetry && remaining > 0)
-      return classifyContent(text, uniqueFrames, timeoutMs, true, scoring, model);
+      return classifyContent(text, uniqueFrames, timeoutMs, true, scoring, model, requests);
     throw error;
   }
 }
@@ -474,7 +504,11 @@ export class ContentSafetyDetector implements Detector {
     guildId: string,
     isMessageDeleted?: () => boolean,
   ): Promise<DetectionResult> {
-    const stopped = (): DetectionResult => ({ scoreDelta: 0, reasons: [], metadata: { stoppedBecauseDeleted: true } });
+    const scanStarted = Date.now();
+    let auditMetadata: Record<string, any> = {};
+    const stopped = (): DetectionResult => ({ scoreDelta: 0, reasons: [], metadata: {
+      ...auditMetadata, model: CONTENT_SAFETY_MODEL, elapsedMs: Date.now() - scanStarted, stoppedBecauseDeleted: true,
+    } });
     if (isMessageDeleted?.()) return stopped();
     const options = { ...CONTENT_DEFAULT_CONFIG, ...overrides };
     if (!CONTENT_CATEGORIES.some((category) => options[category] === 1))
@@ -523,12 +557,22 @@ export class ContentSafetyDetector implements Detector {
       scores: ContentVerdict;
       cache: string;
       similarity: number;
+      frames: number;
+      elapsedMs: number;
+      requests: AiRequestMetrics[];
+      matchedCategories: ContentCategory[];
     }> = [];
     const files: Array<{ data: Buffer; name: string; sourceUrl: string }> = [];
     const errors: string[] = [];
+    const allRequests: AiRequestMetrics[] = [];
+    auditMetadata = { analyses, errors, requests: allRequests };
     let stage = "cache";
     const check = async (text: string, frames: string[], source: string): Promise<boolean> => {
       if (isMessageDeleted?.()) return false;
+      const analysisStarted = Date.now();
+      const requests = allRequests;
+      const requestOffset = requests.length;
+      let shared = false;
       stage = "cache";
       text = normalizeModerationText(text);
       frames = [...new Set(frames)];
@@ -566,6 +610,7 @@ export class ContentSafetyDetector implements Detector {
       else {
         stage = "ai";
         let pending = this.inFlight.get(requestKey);
+        shared = !!pending;
         if (!pending) {
           pending = classifyContent(
             text,
@@ -573,6 +618,8 @@ export class ContentSafetyDetector implements Detector {
             boundedNumber(options.timeoutMs, 120000, 5000, 180000),
             false,
             scoring,
+            CONTENT_SAFETY_MODEL,
+            requests,
           )
             .then((result) => {
               this.cache.set(
@@ -594,7 +641,11 @@ export class ContentSafetyDetector implements Detector {
       analyses.push({
         source,
         scores: verdict,
-        cache: cached?.cache || "miss",
+        cache: cached?.cache || (shared ? "shared" : "miss"),
+        frames: frames.length,
+        elapsedMs: Date.now() - analysisStarted,
+        requests: requests.slice(requestOffset),
+        matchedCategories: matchingContentCategories(verdict, frames.length > 0, options),
         similarity: cached?.similarity || 0,
       });
       trace(
@@ -700,9 +751,9 @@ export class ContentSafetyDetector implements Detector {
       `scan-end matched=${[...hits].join(",") || "none"} errors=${errors.length} ms=${Date.now() - started}`,
     );
     if (!hits.size && errors.length)
-      throw new Error(
+      throw Object.assign(new Error(
         `ContentSafety incomplete: guild=${guildId} message=${message.id}; ${errors.join("; ")}`,
-      );
+      ), { auditMetadata: { model: CONTENT_SAFETY_MODEL, analyses, errors, requests: allRequests, elapsedMs: Date.now() - started } });
     const explained = analyses
       .filter(
         (item) =>
@@ -782,9 +833,13 @@ export class ContentSafetyDetector implements Detector {
         : {}),
       metadata: {
         model: CONTENT_SAFETY_MODEL,
+        elapsedMs: Date.now() - started,
+        thresholds: { image: options.imageThreshold, text: options.textThreshold, imageSuggestive: options.imageSuggestiveThreshold, textSuggestive: options.textSuggestiveThreshold },
+        enabledCategories: CONTENT_CATEGORIES.filter(category => options[category] === 1),
         action: options.action === "delete" ? "delete" : "spoiler",
         aiExplanation,
         analyses,
+        requests: allRequests,
         errors,
         scoring,
         appliedPoints: scoreDelta,

@@ -7,6 +7,7 @@ export async function readContentStream(response: Response, progress: (chunks: n
     const decoder = new TextDecoder();
     const calls = new Map<number, any>();
     let pending = '', eventData: string[] = [], finish: string | null = null;
+    let usage: any;
     let done = false, bytes = 0, chunks = 0;
     const event = () => {
         if (!eventData.length) return;
@@ -15,6 +16,7 @@ export async function readContentStream(response: Response, progress: (chunks: n
         if (payload.trim() === '[DONE]') { done = true; return; }
         const data = JSON.parse(payload);
         if (data.error) throw new Error('Moderation stream error');
+        if (data.usage) usage = data.usage;
         chunks++;
         // One start marker per request is enough. Periodic chunk markers made
         // a single long response look like duplicate AI processing in logs.
@@ -57,7 +59,7 @@ export async function readContentStream(response: Response, progress: (chunks: n
             }
         }
         if (!done || !finish) throw new Error('Incomplete moderation stream');
-        return { choices: [{ finish_reason: finish, message: { tool_calls: [...calls.entries()]
+        return { usage, choices: [{ finish_reason: finish, message: { tool_calls: [...calls.entries()]
             .sort(([a], [b]) => a - b).map(([, call]) => call) } }] };
     } finally {
         await reader.cancel().catch(() => {});

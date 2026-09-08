@@ -295,6 +295,14 @@ export function GeneralEditor(props: Props) {
             />
           </label>
           <label>
+            AI判定ログチャンネル ID（空欄で無効）
+            <input
+              value={d.aiLogChannelId || ""}
+              onChange={(e) => props.updateDraft((c) => ({ ...c, aiLogChannelId: e.target.value.trim() || null }))}
+            />
+            <small>検知なしも記録：判定理由・スコア・トークン数・tok/s・経過時間。スタッフ用チャンネルを指定してください。</small>
+          </label>
+          <label>
             アバターログチャンネル ID
             <input
               value={d.avatarLogChannelId || ""}

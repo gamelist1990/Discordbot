@@ -18,6 +18,7 @@ export interface AntiCheatSettings {
     logChannelId: string | null;
     avatarLogChannelId: string | null;
     chatLogChannelId: string | null;
+    aiLogChannelId: string | null;
     autoTimeout: {
         enabled: boolean;
         durationSeconds: number;

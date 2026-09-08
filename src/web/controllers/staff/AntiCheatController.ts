@@ -90,6 +90,22 @@ export class AntiCheatController {
                 return;
             }
 
+            if (updates.aiLogChannelId !== undefined && updates.aiLogChannelId !== null) {
+                if (typeof updates.aiLogChannelId !== 'string' || !/^[1-9]\d{0,19}$/.test(updates.aiLogChannelId)) {
+                    res.status(400).json({ error: 'AI判定ログチャンネルIDが不正です。' }); return;
+                }
+                const guild = await this.botClient.client.guilds.fetch(guildId);
+                const channel = await guild.channels.fetch(updates.aiLogChannelId).catch(() => null);
+                const me = guild.members.me || await guild.members.fetchMe();
+                const permissions = channel?.permissionsFor(me);
+                if (!channel?.isTextBased() || !('send' in channel) || !permissions?.has([
+                    PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages,
+                    PermissionFlagsBits.EmbedLinks, PermissionFlagsBits.AttachFiles,
+                ])) {
+                    res.status(400).json({ error: 'AI判定ログには、Botが閲覧・送信・埋め込み・ファイル添付できるテキストチャンネルを指定してください。' }); return;
+                }
+            }
+
             // Get current settings
             const currentSettings = await antiCheatManager.getSettings(guildId);
             if (updates.excludedRoles !== undefined || updates.excludedChannels !== undefined || updates.channelDetectorExclusions !== undefined) {
