@@ -32,7 +32,7 @@ test('missing tool call retries once with the same input and rejects repeated ma
         assert.ok(requests[1].messages[0].content.startsWith(CONTENT_SAFETY_PROMPT));
         recover = false;
         requests.length = 0;
-        await assert.rejects(classifyContent('test content'), /required submit_verdict/);
+        await assert.rejects(classifyContent('test content'), /Invalid moderation verdict/);
         assert.equal(requests.length, 2);
     } finally { globalThis.fetch = original; }
 });
@@ -173,7 +173,7 @@ test('required tool protocol rejects conversational text, wrong functions, multi
             { message: { tool_calls: [call] }, finish_reason: 'length' }
         ]) {
             globalThis.fetch = (async () => new Response(JSON.stringify({ choices: [choice] }))) as typeof fetch;
-            await assert.rejects(classifyContent('test'), /required|Truncated/);
+            await assert.rejects(classifyContent('test'), /required|Invalid moderation verdict|Truncated/);
         }
     } finally { globalThis.fetch = original; }
 });

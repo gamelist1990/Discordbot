@@ -476,9 +476,7 @@ export async function classifyContent(
     if (!formatRetry && remaining > 0)
       return classifyContent(text, uniqueFrames, timeoutMs, true, scoring, model, requests);
     if (jsonResponseMode && !validToolCall)
-      throw new Error(
-        "Moderation API did not return required submit_verdict tool call or a valid verdict JSON",
-      );
+      throw new Error("Invalid moderation verdict");
     throw error;
   }
 }
