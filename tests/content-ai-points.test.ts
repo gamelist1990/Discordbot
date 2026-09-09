@@ -47,7 +47,7 @@ test('AI may propose zero for a match and scoring settings invalidate exact cach
         assert.ok(zero.spoilerRepost);
         assert.ok(zero.aiExplanation?.includes('加算0点：'));
         assert.equal(requests.length, 2);
-        assert.equal(requests[1].tools[0].function.parameters.properties.suggestedPoints.maximum, 5);
+        assert.match(requests[1].tools[0].function.parameters.properties.verdict.description, /0〜5の整数/);
         config.violence = 1;
         await detector.detect(message, context);
         assert.equal(requests.length, 3);
@@ -71,7 +71,7 @@ test('split frame requests preserve points policy and use the largest proposal w
     const original = globalThis.fetch;
     globalThis.fetch = (async (_url, options) => {
         const body = JSON.parse(String(options?.body));
-        assert.equal(body.tools[0].function.parameters.properties.suggestedPoints.maximum, 10);
+        assert.match(body.tools[0].function.parameters.properties.verdict.description, /0〜10の整数/);
         const frames = body.messages[1].content.filter((part: any) => part.type === 'image_url');
         if (frames.length > 1) return new Response('', { status: 413 });
         const points = frames[0].image_url.url === 'first' ? 2 : 4;

@@ -96,27 +96,10 @@ test('mild-image threshold is balanced without lowering R18 or threat thresholds
     assert.deepEqual(matchingContentCategories({ ...safe, explicit: 0.2, threat: 0.2 }, true), []);
 });
 
-test('prompt treats ambiguous names, emoji and non-sexual uses as safe by default', () => {
-    assert.match(CONTENT_SAFETY_PROMPT, /「野獣先輩」/);
-    assert.match(CONTENT_SAFETY_PROMPT, /「ナス」や🍆/);
-    assert.match(CONTENT_SAFETY_PROMPT, /「エッチなのはダメ」/);
-    assert.match(CONTENT_SAFETY_PROMPT, /「ハードコア（ゲーム・音楽・難易度）」/);
-    assert.match(CONTENT_SAFETY_PROMPT, /「俺のこと舐めてる？／舐めてるやろ」は「見下している・軽く見ている」という挑発/);
-    assert.match(CONTENT_SAFETY_PROMPT, /「舐める」「触る」「濡れる」「イく」などの語だけを根拠にしません/);
-    assert.match(CONTENT_SAFETY_PROMPT, /投稿内で確認できる別の証拠が組み合わさった場合に限り性的カテゴリへ加点/);
-    assert.match(CONTENT_SAFETY_PROMPT, /explanationやpointsReasonにも仮定した性的解釈を書きません/);
-    assert.match(CONTENT_SAFETY_PROMPT, /返信先だけの違反を現在の投稿に加点しません/);
-    assert.match(CONTENT_SAFETY_PROMPT, /単なる水着・下着姿や露出量だけは対象外/);
-    assert.match(CONTENT_SAFETY_PROMPT, /同じ根拠で両方を高くしません/);
-    assert.match(CONTENT_SAFETY_PROMPT, /性的行為・性的ポーズ・接触がなくても必ずexplicitを0\.9以上/);
-    assert.match(CONTENT_SAFETY_PROMPT, /explicitが加点対象カテゴリに含まれる場合、suggestedPointsを0にしてはいけません/);
-    assert.match(CONTENT_SAFETY_PROMPT, /服や水着越しの輪郭、谷間、へそを乳首・性器と誤認しません/);
-});
-
-test('prompt detects deliberate obfuscated sexual wording without guessing ambiguous typos', () => {
-    assert.match(CONTENT_SAFETY_PROMPT, /検知回避のための伏字も意味で判断/);
-    assert.match(CONTENT_SAFETY_PROMPT, /「セッkusウ」「せっ○す」「s e xしよう」/);
-    assert.match(CONTENT_SAFETY_PROMPT, /意味を一意に復元できない文字列を想像で性的表現にしません/);
+test('Gemma prompt keeps ambiguity, context and obfuscation safeguards compact', () => {
+    assert.match(CONTENT_SAFETY_PROMPT, /一般語、多義語、比喩だけを性的表現にしません/);
+    assert.match(CONTENT_SAFETY_PROMPT, /返信先だけの違反は現在の投稿へ加点しません/);
+    assert.match(CONTENT_SAFETY_PROMPT, /伏字は意味が一意に復元できる場合だけ判定します/);
     assert.equal(normalizeModerationText('Ｓ\u200bＥ\u2060Ｘ'), 'SEX');
 });
 
