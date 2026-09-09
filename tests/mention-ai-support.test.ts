@@ -17,7 +17,7 @@ const message = (id: string, timestamp: number, content: string, author: string)
 });
 
 test('メンションAIは設定されたVLモデルに固定される', () => {
-    assert.equal(MENTION_AI_SUPPORT_MODEL, 'lfm2.5-8b-a1b-q4-k-m');
+    assert.equal(MENTION_AI_SUPPORT_MODEL, 'gemma4-e4b-it-qat');
 });
 
 test('周辺会話をDiscordの新しい順取得から時系列へ並べ直す', () => {
@@ -74,6 +74,30 @@ test('生成中テキストへ点滅カーソルを付ける', async () => {
     assert.equal((manager as any).streamingContent('回答中', true), '回答中 ▌');
     assert.equal((manager as any).streamingContent('回答中', false), '回答中 \u200b');
     assert.equal((manager as any).streamingContent('', true), '▌');
+});
+
+test('ストリームの最初と最後のチャンクをDiscordへリアルタイム反映する', async () => {
+    const manager = new (await import('../src/core/ai-support/MentionAISupportManager.ts')).MentionAISupportManager();
+    const edits: string[] = [];
+    (manager as any).chatManager = {
+        streamText: async (_prompt: unknown, onText: (text: string) => void) => {
+            onText('回答');
+            onText('の続き');
+        },
+    };
+    const responseMessage = {
+        edit: async ({ content }: { content: string }) => { edits.push(content); },
+    };
+    const input = {
+        reply: async () => responseMessage,
+        channel: { send: async () => undefined },
+    };
+
+    await (manager as any).streamReply(input, []);
+
+    assert.equal(edits[0], '回答 ▌');
+    assert.ok(edits.some(content => content.includes('回答の続き')));
+    assert.equal(edits.at(-1), '回答の続き');
 });
 
 test('Typingループは直ちに通知し停止できる', async () => {

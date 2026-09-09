@@ -68,8 +68,6 @@ export const CONTENT_DEFAULT_CONFIG = {
   maxImages: 4,
   timeoutMs: 120000,
 };
-// gemma4-12b-q4ks 平均 2.73toks　から gemma4-12b-balanced-mtp　平均 3.52toks
-// lfm2.5-vl-3b-q4-k-m 平均 15 toks　3B の為かなり低スペ
 export const CONTENT_SAFETY_MODEL = "gemma4-e4b-it-qat";
 export function boundedNumber(
   value: unknown,
@@ -189,7 +187,7 @@ harassment: 罵倒・嫌がらせ。hate: 属性集団への差別。threat: 具
 
 医療・教育・相談・引用は、確認できる文脈を考慮します。全フレームを確認し、カテゴリごとに最も強い場面を採用してください。
 
-submit_verdictを必ず1回だけ呼び出します。explanationはスタッフ向けの自然でカジュアルな日本語1文、80文字以内にします。「胸が見えているのでR18です」のように、見えた事実と判断を端的に書いてください。安全判定でも具体的な理由を書き、硬い報告書調、長い前置き、推測は避けてください。`;
+submit_verdictを必ず1回だけ呼び出し、直後に終了します。ツール呼び出しの前後へ通常文、JSON、コードブロック、同じ呼び出しを出力しません。explanationはスタッフ向けの自然でカジュアルな日本語1文、80文字以内にします。「胸が見えているのでR18です」のように、見えた事実と判断を端的に書いてください。安全判定でも具体的な理由を書き、硬い報告書調、長い前置き、推測は避けてください。`;
 
 export interface AiRequestMetrics {
   model: string;
@@ -215,11 +213,6 @@ export async function classifyContent(
   const deadline = Date.now() + timeoutMs;
   const uniqueFrames = [...new Set(frames)];
   const stream = !formatRetry;
-  // The configured LFM llama.cpp backend does not reliably implement OpenAI
-  // function calling. Its native JSON mode is both supported and faster.
-  const jsonResponseMode = formatRetry || model === CONTENT_SAFETY_MODEL;
-  // On retry, separate the task from the untrusted post instead of repeating
-  // the same conversational user message with only a stronger system prompt.
   const inputText = [
     `対象: ${uniqueFrames.length ? `画像${uniqueFrames.length}枚` : "文章のみ"}`,
     text ? `投稿本文(JSON): ${JSON.stringify(text)}` : "投稿本文: なし",
@@ -227,49 +220,9 @@ export async function classifyContent(
       ? `加点: ${scoring.categories.join(",")}を対象に0〜${scoring.maxPoints}点で自分で判断。投稿内で確認できる違反の証拠がなければ0。多義語の仮定だけでは加点しない。軽微なら低く、深刻なら高く、不要なら0。pointsReasonに短い理由を書く。`
       : "加点: 無効",
     formatRetry
-      ? "再試行: 必須項目をすべて埋め、画像を直接確認し、指定されたJSONオブジェクトだけを返す。"
+      ? "再試行: 画像を直接確認し、必須項目をすべて埋めてsubmit_verdictを1回だけ呼び出す。"
       : "判定を実行する。",
   ].join("\n");
-  const retryJsonTemplate = JSON.stringify({
-    suggestive: 0,
-    explicit: 0,
-    harassment: 0,
-    hate: 0,
-    threat: 0,
-    violence: 0,
-    explanation: "判定理由を日本語で記入",
-    ...(scoring
-      ? { suggestedPoints: 0, pointsReason: "加点理由を日本語で記入" }
-      : {}),
-  });
-  const verdictJsonSchema = {
-    type: "object",
-    properties: {
-      ...Object.fromEntries(
-        CONTENT_CATEGORIES.map((key) => [
-          key,
-          { type: "number", minimum: 0, maximum: 1 },
-        ]),
-      ),
-      explanation: { type: "string", minLength: 1, maxLength: 80 },
-      ...(scoring
-        ? {
-            suggestedPoints: {
-              type: "integer",
-              minimum: 0,
-              maximum: scoring.maxPoints,
-            },
-            pointsReason: { type: "string", minLength: 1, maxLength: 80 },
-          }
-        : {}),
-    },
-    required: [
-      ...CONTENT_CATEGORIES,
-      "explanation",
-      ...(scoring ? ["suggestedPoints", "pointsReason"] : []),
-    ],
-    additionalProperties: false,
-  };
   const requestStarted = Date.now();
   const metrics: AiRequestMetrics = { model, frames: uniqueFrames.length, retry: formatRetry };
   requests.push(metrics);
@@ -287,28 +240,19 @@ export async function classifyContent(
       body: JSON.stringify({
         model,
         temperature: 0,
+        // A verdict is small. A tight cap prevents Gemma from repeating an
+        // already-complete tool call until the provider's PEG parser rejects it.
         max_tokens: 768,
         stream,
         ...(stream ? { stream_options: { include_usage: true } } : {}),
         reasoning_effort: "none",
-        ...(jsonResponseMode ? {
-          response_format: {
-            type: "json_schema",
-            json_schema: {
-              name: "moderation_verdict",
-              strict: true,
-              schema: verdictJsonSchema,
-            },
-          },
-        } : {
-          tools: [
+        tools: [
           {
             type: "function",
             function: {
               name: "submit_verdict",
               description:
                 "Report the content category scores. This function records a classification only.",
-              strict: true,
               parameters: {
                 type: "object",
                 properties: {
@@ -353,20 +297,14 @@ export async function classifyContent(
               },
             },
           },
-          ],
-          // llama.cpp's OpenAI-compatible server accepts tool_choice as a
-          // string. Only submit_verdict is exposed, so "required" selects it
-          // without the unsupported named-tool object form.
-          tool_choice: "required",
-          parallel_tool_calls: false,
-        }),
+        ],
+        tool_choice: "required",
+        parallel_tool_calls: false,
         chat_template_kwargs: { enable_thinking: false },
         messages: [
           {
             role: "system",
-            content: jsonResponseMode
-              ? `${CONTENT_SAFETY_PROMPT}\n\nこのAPIではツール呼び出しを使いません。必ず次のテンプレートと同じ全キーを1回ずつ含むJSONオブジェクトだけを返してください。キーの省略は禁止です。6スコアは0〜1の数値です。Markdownや説明文をJSONの外に書かないでください。\n${retryJsonTemplate}`
-              : CONTENT_SAFETY_PROMPT,
+            content: CONTENT_SAFETY_PROMPT,
           },
           {
             role: "user",
@@ -457,7 +395,6 @@ export async function classifyContent(
   if (choice?.finish_reason === "length")
     throw new Error("Truncated moderation response");
   const calls = choice?.message?.tool_calls;
-  const fallbackContent = choice?.message?.content;
   Logger.info(
     `[ContentSafety] ai-response status=${response.status} frames=${uniqueFrames.length} retry=${formatRetry} finish=${["stop", "length", "tool_calls", "content_filter"].includes(choice?.finish_reason) ? choice.finish_reason : "other"} tools=${Array.isArray(calls) ? calls.length : 0} ms=${Date.now() - (deadline - timeoutMs)}`,
   );
@@ -467,9 +404,9 @@ export async function classifyContent(
     calls[0]?.type !== "function" ||
     calls[0].function?.name !== "submit_verdict"
   ) === false;
-  if (!validToolCall && !(jsonResponseMode && typeof fallbackContent === "string")) {
-    // Retry once within the original deadline. The retry may use a strictly
-    // validated JSON body when this model ignores forced function calling.
+  if (!validToolCall) {
+    // Retry once within the original deadline when the provider returns a
+    // malformed native tool response.
     const remaining = deadline - Date.now();
     if (!formatRetry && remaining > 0)
       // The first response can consume most of the model deadline. Give the
@@ -482,9 +419,7 @@ export async function classifyContent(
     );
   }
   try {
-    const verdict = parseContentVerdict(validToolCall
-      ? calls[0].function.arguments
-      : fallbackContent);
+    const verdict = parseContentVerdict(calls[0].function.arguments);
     if (!verdict.explanation?.trim())
       throw new Error("Invalid moderation explanation");
     if (
@@ -510,8 +445,6 @@ export async function classifyContent(
     const remaining = deadline - Date.now();
     if (!formatRetry && remaining > 0)
       return classifyContent(text, uniqueFrames, timeoutMs, true, scoring, model, requests);
-    if (jsonResponseMode && !validToolCall)
-      throw new Error("Invalid moderation verdict");
     throw error;
   }
 }

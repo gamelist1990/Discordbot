@@ -1,11 +1,29 @@
 // Sends only explicitly provided text/file to the configured PEX moderation model. Never logs credentials.
 import fs from 'node:fs/promises';
 import { config } from '../src/config.js';
-import { classifyContent, matchingContentCategories, CONTENT_CATEGORIES, CONTENT_SAFETY_MODEL } from '../src/core/anticheat/detectors/ContentSafetyDetector.js';
+import { classifyContent, matchingContentCategories, CONTENT_CATEGORIES, CONTENT_SAFETY_MODEL, type AiRequestMetrics } from '../src/core/anticheat/detectors/ContentSafetyDetector.js';
 import { sampleImageFrames } from '../src/core/anticheat/ContentMedia.js';
 
 async function main() {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (url, options) => {
+        const response = await originalFetch(url, options);
+        if (!response.ok) {
+            const body = (await response.clone().text()).slice(0, 1_000);
+            console.error(JSON.stringify({ apiStatus: response.status, apiError: body }));
+        } else if (nonStream) {
+            const data = await response.clone().json() as any;
+            console.error(JSON.stringify({ apiStatus: response.status,
+                finishReason: data.choices?.[0]?.finish_reason,
+                toolCount: data.choices?.[0]?.message?.tool_calls?.length,
+                usage: data.usage }));
+        }
+        return response;
+    };
     const args = process.argv.slice(2);
+    const nonStreamIndex = args.indexOf('--non-stream');
+    const nonStream = nonStreamIndex >= 0;
+    if (nonStream) args.splice(nonStreamIndex, 1);
     const timeoutIndex = args.indexOf('--timeout-ms');
     let timeoutMs = 90000;
     if (timeoutIndex >= 0) {
@@ -45,10 +63,13 @@ async function main() {
     if (!['--file', '--text'].includes(mode) || !input) throw new Error('Usage: npx tsx scripts/test-content-safety.ts --file <path> | --text <text> | --diagnose');
     const frames = mode === '--file' ? await sampleImageFrames(await fs.readFile(input)) : [];
     const start = Date.now();
+    const requests: AiRequestMetrics[] = [];
     console.log(JSON.stringify({ sampledFrames: frames.length }));
     if (captionFlag && (mode !== '--file' || captionFlag !== '--caption' || !caption)) throw new Error('Use --file <path> --caption <text>');
-    const verdict = await classifyContent(mode === '--text' ? input : caption || '', frames, timeoutMs, false,
-        maxPoints === undefined ? undefined : { maxPoints, categories: [...CONTENT_CATEGORIES] }, model);
-    console.log(JSON.stringify({ model: model || CONTENT_SAFETY_MODEL, verdict, matchedCategories: matchingContentCategories(verdict, frames.length > 0), latencyMs: Date.now() - start }, null, 2));
+    const verdict = await classifyContent(mode === '--text' ? input : caption || '', frames, timeoutMs, nonStream,
+        maxPoints === undefined ? undefined : { maxPoints, categories: [...CONTENT_CATEGORIES] }, model, requests);
+    console.log(JSON.stringify({ model: model || CONTENT_SAFETY_MODEL, verdict,
+        matchedCategories: matchingContentCategories(verdict, frames.length > 0),
+        latencyMs: Date.now() - start, requests }, null, 2));
 }
 main().catch(error => { console.error(error.message); process.exitCode = 1; });

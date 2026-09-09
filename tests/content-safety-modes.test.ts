@@ -25,16 +25,14 @@ test('missing tool call retries once with the same input and rejects repeated ma
         assert.equal(requests.length, 2);
         assert.ok(requests[1].messages[1].content.includes(JSON.stringify('test content')));
         assert.notEqual(requests[0].messages[1].content, requests[1].messages[1].content);
-        assert.equal(requests[0].tool_choice, undefined);
-        assert.equal(requests[1].tool_choice, undefined);
-        assert.equal(requests[0].response_format.type, 'json_schema');
-        assert.deepEqual(requests[0].response_format, requests[1].response_format);
-        assert.deepEqual(requests[0].response_format.json_schema.schema.required,
-            ['suggestive', 'explicit', 'harassment', 'hate', 'threat', 'violence', 'explanation']);
+        assert.equal(requests[0].tool_choice, 'required');
+        assert.equal(requests[1].tool_choice, 'required');
+        assert.equal(requests[0].response_format, undefined);
+        assert.deepEqual(requests[0].tools, requests[1].tools);
         assert.ok(requests[1].messages[0].content.startsWith(CONTENT_SAFETY_PROMPT));
         recover = false;
         requests.length = 0;
-        await assert.rejects(classifyContent('test content'), /Invalid moderation verdict/);
+        await assert.rejects(classifyContent('test content'), /required submit_verdict tool call/);
         assert.equal(requests.length, 2);
     } finally { globalThis.fetch = original; }
 });
@@ -61,7 +59,7 @@ test('image retries reject explanations that claim the attached image is absent'
         const request = JSON.parse(String(options?.body));
         if (calls === 2) {
             assert.ok(request.messages[0].content.startsWith(CONTENT_SAFETY_PROMPT));
-            assert.equal(request.response_format.type, 'json_schema');
+            assert.equal(request.tool_choice, 'required');
             assert.match(request.messages[1].content[1].text, /対象: 画像1枚/);
             assert.match(request.messages[1].content[1].text, /再試行:/);
         }
@@ -180,7 +178,7 @@ test('required tool protocol rejects conversational text, wrong functions, multi
     } finally { globalThis.fetch = original; }
 });
 
-test('protocol retry accepts only a complete validated verdict JSON when the model ignores tool calling', async () => {
+test('protocol retry accepts only a complete submit_verdict tool call', async () => {
     const original = globalThis.fetch;
     let calls = 0;
     globalThis.fetch = (async () => {
@@ -189,7 +187,7 @@ test('protocol retry accepts only a complete validated verdict JSON when the mod
             finish_reason: 'stop',
             message: calls === 1
                 ? { content: 'ツールを呼び出せませんでした。' }
-                : { content: JSON.stringify({ ...verdict, explanation: '通常の文章で問題はない。' }) },
+                : { tool_calls: [{ type: 'function', function: { name: 'submit_verdict', arguments: JSON.stringify({ ...verdict, explanation: '通常の文章で問題はない。' }) } }] },
         }] }));
     }) as typeof fetch;
     try {
@@ -302,8 +300,9 @@ test('stable prefix, raw text payload and deduplicated images reduce input', asy
         assert.equal(requests[1].messages[1].content.filter((part: any) => part.type === 'image_url').length, 1);
         assert.equal(requests[2].messages[1].content.filter((part: any) => part.type === 'image_url').length, 2);
         assert.equal(requests[2].messages[1].content[1].image_url.detail, 'high');
-        assert.equal(requests[0].tool_choice, undefined);
-        assert.equal(requests[0].response_format.type, 'json_schema');
+        assert.equal(requests[0].tool_choice, 'required');
+        assert.equal(requests[0].response_format, undefined);
+        assert.equal(requests[0].tools[0].function.name, 'submit_verdict');
         assert.equal(requests[0].reasoning_effort, 'none');
         assert.deepEqual(requests[0].chat_template_kwargs, { enable_thinking: false });
         assert.match(CONTENT_SAFETY_PROMPT, /自分で分類/);

@@ -14,7 +14,7 @@ import {
     isImageAttachment,
 } from '../anticheat/detectors/MediaSafetyUtils.js';
 
-export const MENTION_AI_SUPPORT_MODEL = 'lfm2.5-8b-a1b-q4-k-m';
+export const MENTION_AI_SUPPORT_MODEL = 'gemma4-e4b-it-qat';
 export const MENTION_AI_HISTORY_LIMIT = 20;
 const MAX_CONTEXT_CHARACTERS = 12_000;
 const MAX_REPLY_CHARACTERS = 1_900;
@@ -22,7 +22,7 @@ const MAX_IMAGES_PER_REQUEST = 2;
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 const IMAGE_DOWNLOAD_TIMEOUT_MS = 12_000;
 const TYPING_REFRESH_INTERVAL_MS = 8_000;
-const STREAM_UPDATE_INTERVAL_MS = 1_200;
+const STREAM_UPDATE_INTERVAL_MS = 750;
 
 export interface MentionAISupportOptions {
     excludedChannelIds?: string[];
@@ -185,30 +185,38 @@ export class MentionAISupportManager {
             allowedMentions: { parse: [], repliedUser: false },
         });
         let answer = '';
-        let cursorVisible = true;
         let lastUpdateAt = 0;
+        let pendingUpdate: ReturnType<typeof setTimeout> | null = null;
+        let lastRenderedContent = '▌';
         let updateChain = Promise.resolve();
-        const queueUpdate = (force = false): void => {
-            const now = Date.now();
-            if (!force && now - lastUpdateAt < STREAM_UPDATE_INTERVAL_MS) return;
-            lastUpdateAt = now;
-            const content = this.streamingContent(answer, cursorVisible);
+        const flushUpdate = (): void => {
+            pendingUpdate = null;
+            lastUpdateAt = Date.now();
+            const content = this.streamingContent(answer, true);
+            if (content === lastRenderedContent) return;
+            lastRenderedContent = content;
             updateChain = updateChain.then(async () => {
                 await responseMessage.edit({ content, allowedMentions: { parse: [] } })
                     .catch(error => Logger.debug('[MentionAISupport] stream edit failed:', error));
             });
         };
-        const cursorTimer = setInterval(() => {
-            cursorVisible = !cursorVisible;
-            queueUpdate(true);
-        }, STREAM_UPDATE_INTERVAL_MS);
-        cursorTimer.unref?.();
+        const queueUpdate = (force = false): void => {
+            const now = Date.now();
+            if (force || lastUpdateAt === 0 || now - lastUpdateAt >= STREAM_UPDATE_INTERVAL_MS) {
+                if (pendingUpdate) clearTimeout(pendingUpdate);
+                flushUpdate();
+                return;
+            }
+            if (!pendingUpdate) {
+                pendingUpdate = setTimeout(flushUpdate, STREAM_UPDATE_INTERVAL_MS - (now - lastUpdateAt));
+                pendingUpdate.unref?.();
+            }
+        };
 
         let streamError: unknown = null;
         try {
             await this.chatManager.streamText(prompt, (delta) => {
                 answer += delta;
-                cursorVisible = true;
                 queueUpdate();
             }, {
                 model: MENTION_AI_SUPPORT_MODEL,
@@ -222,7 +230,8 @@ export class MentionAISupportManager {
         } catch (error) {
             streamError = error;
         } finally {
-            clearInterval(cursorTimer);
+            if (pendingUpdate) clearTimeout(pendingUpdate);
+            queueUpdate(true);
             await updateChain;
         }
 
