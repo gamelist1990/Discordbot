@@ -19,8 +19,10 @@ test('safe AI results are logged independently without detection logs or points;
     (manager as any).fetchLogChannel = async () => ({ send: async (payload: any) => { sent.push(payload); } });
     manager.registerDetector({ name: 'contentSafety', detect: async () => ({
         scoreDelta: 0, reasons: [], metadata: { model: 'test', analyses: [
-            { source: 'text', scores: { explanation: '挨拶なので問題ありません。' }, cache: 'exact', requests: [] }
-        ] }
+            { source: 'text', scores: { suggestive: 0.4, explicit: 0, harassment: 0, hate: 0, threat: 0, violence: 0,
+                explanation: '軽度の性的示唆があります。' }, cache: 'exact', requests: [], matchedCategories: [] }
+        ], thresholds: { image: 0.7, text: 0.8, imageSuggestive: 0.65, textSuggestive: 0.7 },
+        enabledCategories: ['suggestive', 'explicit', 'harassment', 'hate', 'threat', 'violence'] }
     }) });
     const message = { id: 'safe', content: 'こんにちは', author: { id: 'user', bot: false },
         guild: { id: 'guild' }, channel: { id: 'channel' }, channelId: 'channel', member: null,
@@ -28,7 +30,10 @@ test('safe AI results are logged independently without detection logs or points;
     await manager.onMessage(message);
     await new Promise(resolve => setImmediate(resolve));
     assert.equal(sent.length, 1);
-    assert.match(sent[0].embeds[0].data.description, /挨拶/);
+    assert.match(sent[0].embeds[0].data.description, /軽度の性的示唆/);
+    const scoreField = sent[0].embeds[0].data.fields.find((field: any) => field.name === 'カテゴリ別スコア / しきい値');
+    assert.match(scoreField.value, /軽度の性的表現・H系 0\.40\/0\.70/);
+    assert.match(scoreField.value, /検知: なし/);
     const details = JSON.parse(sent[0].files[0].attachment.toString());
     assert.equal(details.status, '検知なし');
     assert.equal(details.appliedPoints, 0);

@@ -10,7 +10,7 @@ import {
 import { config } from '../../config.js';
 import { Logger } from '../../utils/Logger.js';
 import { OpenAIChatManager } from '../ai/OpenAIChatManager.js';
-import type { ToolExecutionStep } from '../ai/ChatGPTClient.js';
+import type { ResponseApiStreamDelta, ToolExecutionStep } from '../ai/ChatGPTClient.js';
 import type { OpenAIChatCompletionMessage, OpenAIContentPart } from '../../types/openai.js';
 import { registerChatAIChannelTools } from './tools/index.js';
 import { ChatAISpamGuard } from './ChatAISpamGuard.js';
@@ -407,7 +407,7 @@ export class ChatAIChannelManager {
             });
         };
 
-            const handleDelta = (delta: { type: 'text' | 'thinking'; text: string }): void => {
+            const handleDelta = (delta: ResponseApiStreamDelta): void => {
                     // ChatAIChannelでは推論過程を利用・表示せず、回答本文だけを受け取る。
                     if (delta.type !== 'text') return;
                     response += delta.text;

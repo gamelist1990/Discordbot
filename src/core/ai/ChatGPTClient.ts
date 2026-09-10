@@ -84,10 +84,15 @@ export interface RateLimitWaitInfo {
     requestId: string | null;
 }
 
-export interface ResponseApiStreamDelta {
+export type ResponseApiStreamDelta = {
     type: 'text' | 'thinking';
     text: string;
-}
+} | {
+    type: 'usage';
+    inputTokens?: number;
+    outputTokens?: number;
+    totalTokens?: number;
+};
 
 interface ResponseFunctionCallItem {
     id?: string;
@@ -722,6 +727,17 @@ export class ChatGPTClient {
             responseId = this.extractResponseId(data) ?? responseId;
 
             const eventType = typeof data?.type === 'string' ? data.type : '';
+            if (eventType === 'response.completed') {
+                const usage = data?.response?.usage;
+                const tokenCount = (value: unknown): number | undefined =>
+                    typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined;
+                const inputTokens = tokenCount(usage?.input_tokens);
+                const outputTokens = tokenCount(usage?.output_tokens);
+                const totalTokens = tokenCount(usage?.total_tokens);
+                if (inputTokens !== undefined || outputTokens !== undefined || totalTokens !== undefined) {
+                    onDeltaReceive({ type: 'usage', inputTokens, outputTokens, totalTokens });
+                }
+            }
             const textDelta = this.extractResponseTextDelta(data, eventType);
             if (textDelta) {
                 textDeltaItems.add(String(data?.item_id ?? data?.output_index ?? 'default'));

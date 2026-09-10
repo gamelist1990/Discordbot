@@ -4,6 +4,7 @@ import sharp from 'sharp';
 
 import {
     formatMentionAIContext,
+    MENTION_AI_HISTORY_LIMIT,
     MENTION_AI_SUPPORT_MODEL,
 } from '../src/core/ai-support/MentionAISupportManager.ts';
 
@@ -18,6 +19,7 @@ const message = (id: string, timestamp: number, content: string, author: string)
 
 test('メンションAIは設定されたVLモデルに固定される', () => {
     assert.equal(MENTION_AI_SUPPORT_MODEL, 'gemma4-e4b-it-qat');
+    assert.equal(MENTION_AI_HISTORY_LIMIT, 8);
 });
 
 test('周辺会話をDiscordの新しい順取得から時系列へ並べ直す', () => {
@@ -27,6 +29,7 @@ test('周辺会話をDiscordの新しい順取得から時系列へ並べ直す'
     ] as any, 'bot');
 
     assert.ok(formatted.indexOf('この案で進めたい') < formatted.indexOf('@bot どう思う？'));
+    assert.match(formatted, /1970-01-01T00:00:01\.000Z/);
 });
 
 test('Botの過去回答はAIアシスタントとして表記する', () => {
@@ -79,14 +82,20 @@ test('生成中テキストへ点滅カーソルを付ける', async () => {
 test('ストリームの最初と最後のチャンクをDiscordへリアルタイム反映する', async () => {
     const manager = new (await import('../src/core/ai-support/MentionAISupportManager.ts')).MentionAISupportManager();
     const edits: string[] = [];
+    let finalFields: any[] = [];
     (manager as any).chatManager = {
-        streamText: async (_prompt: unknown, onText: (text: string) => void) => {
-            onText('回答');
-            onText('の続き');
+        streamResponseText: async (_prompt: unknown, onDelta: (delta: any) => void) => {
+            onDelta({ type: 'thinking', text: '内部推論' });
+            onDelta({ type: 'text', text: '回答' });
+            onDelta({ type: 'text', text: 'の続き' });
+            onDelta({ type: 'usage', inputTokens: 120, outputTokens: 30, totalTokens: 150 });
         },
     };
     const responseMessage = {
-        edit: async ({ content }: { content: string }) => { edits.push(content); },
+        edit: async ({ embeds }: { embeds: any[] }) => {
+            edits.push(embeds[0].data.description);
+            finalFields = embeds[0].data.fields || [];
+        },
     };
     const input = {
         reply: async () => responseMessage,
@@ -96,8 +105,11 @@ test('ストリームの最初と最後のチャンクをDiscordへリアルタ�
     await (manager as any).streamReply(input, []);
 
     assert.equal(edits[0], '回答 ▌');
+    assert.ok(edits.every(content => !content.includes('内部推論')));
     assert.ok(edits.some(content => content.includes('回答の続き')));
     assert.equal(edits.at(-1), '回答の続き');
+    assert.equal(finalFields.find(field => field.name === 'トークン（入力 / 出力 / 合計）')?.value, '120 / 30 / 150');
+    assert.match(finalFields.find(field => field.name === '出力速度')?.value, /tok\/s$/);
 });
 
 test('Typingループは直ちに通知し停止できる', async () => {

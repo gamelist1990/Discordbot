@@ -30,7 +30,7 @@ import {
     UserTrustData
 } from './types.js';
 import { TextSpamDetector } from './detectors/TextSpamDetector.js';
-import { ContentSafetyDetector } from './detectors/ContentSafetyDetector.js';
+import { CONTENT_CATEGORIES, CONTENT_LABELS, ContentSafetyDetector } from './detectors/ContentSafetyDetector.js';
 import { CONTENT_VERDICT_CACHE_PATH, ContentVerdictCache } from './ContentVerdictCache.js';
 import { deleteMatchedContent } from './ContentDeletion.js';
 import { CrossChannelSpamDetector } from './detectors/CrossChannelSpamDetector.js';
@@ -1185,6 +1185,25 @@ export class AntiCheatManager {
             : analyses.length ? '検知なし' : '判定対象なし';
         const explanations = analyses.map((item: any) => `${item.source}: ${item.scores?.explanation || '理由の返却なし'}`);
         const requests = metadata.requests || analyses.flatMap((item: any) => item.requests || []);
+        const thresholds = metadata.thresholds || {};
+        const scoreLines = analyses.map((item: any) => {
+            const isImage = item.source !== 'text';
+            const scores = item.scores || {};
+            const enabled = new Set(Array.isArray(metadata.enabledCategories) ? metadata.enabledCategories : CONTENT_CATEGORIES);
+            const values = CONTENT_CATEGORIES
+                .filter(category => enabled.has(category) && typeof scores[category] === 'number')
+                .map(category => {
+                    const threshold = category === 'suggestive'
+                        ? (isImage ? thresholds.imageSuggestive : thresholds.textSuggestive)
+                        : (isImage ? thresholds.image : thresholds.text);
+                    const thresholdText = typeof threshold === 'number' ? threshold.toFixed(2) : '?';
+                    return `${CONTENT_LABELS[category]} ${scores[category].toFixed(2)}/${thresholdText}`;
+                });
+            const matched = Array.isArray(item.matchedCategories) && item.matchedCategories.length
+                ? item.matchedCategories.map((category: string) => CONTENT_LABELS[category as keyof typeof CONTENT_LABELS] || category).join('、')
+                : 'なし';
+            return `${item.source}: ${values.join('｜') || 'スコア取得不可'}\n検知: ${matched}`;
+        });
         const count = (key: string) => requests.length && requests.every((item: any) => typeof item[key] === 'number')
             ? requests.reduce((sum: number, item: any) => sum + item[key], 0).toString() : '取得不可';
         const details = {
@@ -1204,6 +1223,7 @@ export class AntiCheatManager {
                 { name: 'モデル', value: String(metadata.model || '取得不可').slice(0, 100), inline: true },
                 { name: '経過時間（待機含む）', value: `${(elapsedMs / 1000).toFixed(3)} 秒`, inline: true },
                 { name: '投稿', value: `[メッセージ](${message.url})\nユーザーID: ${message.author.id}`, inline: false },
+                { name: 'カテゴリ別スコア / しきい値', value: (scoreLines.join('\n') || '判定スコアなし').slice(0, 1024), inline: false },
                 { name: 'トークン（入力 / 出力 / 合計）', value: `${count('inputTokens')} / ${count('outputTokens')} / ${count('totalTokens')}`, inline: false },
                 { name: 'tok/s（出力数 ÷ リクエスト全体時間）', value: (requests.map((item: any, index: number) => `${index + 1}: ${typeof item.tokensPerSecond === 'number' ? item.tokensPerSecond.toFixed(2) : '取得不可'}`).join(' / ') || 'API呼び出しなし').slice(0, 1024), inline: false },
                 { name: 'キャッシュ', value: (analyses.map((item: any) => `${item.source}: ${item.cache}`).join(' / ') || 'なし').slice(0, 1024), inline: false },
