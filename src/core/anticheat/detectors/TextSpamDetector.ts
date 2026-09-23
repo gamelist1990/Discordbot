@@ -30,14 +30,22 @@ export class TextSpamDetector implements Detector {
         const rapidWindowMs = (Number(config.windowSeconds) || 5) * 1000;
         const cacheKey = `anticheat:messages:${context.guildId}:${context.channelId}:${context.userId}`;
         const normalizedContent = normalizeContent(message.content);
+        const now = Date.now();
         
         // Get user's recent messages from cache
-        let recentMessages = CacheManager.get<MessageRecord[]>(cacheKey) || [];
+        let recentMessages = (CacheManager.get<MessageRecord[]>(cacheKey) || [])
+            .filter((record) => now - record.timestamp <= Math.max(rapidWindowMs, 60_000));
+        const previous = recentMessages.find((record) => record.messageId === message.id);
+
+        if (previous?.content === normalizedContent) {
+            return { scoreDelta: 0, reasons: [] };
+        }
         
-        // Add current message
+        // Replace edits instead of counting the same Discord message as a new post.
+        recentMessages = recentMessages.filter((record) => record.messageId !== message.id);
         recentMessages.push({
             content: normalizedContent,
-            timestamp: Date.now(),
+            timestamp: previous?.timestamp ?? now,
             messageId: message.id
         });
         
@@ -64,7 +72,6 @@ export class TextSpamDetector implements Detector {
         }
         
         // Check for rapid sending
-        const now = Date.now();
         const recentCount = recentMessages.filter(
             m => now - m.timestamp < rapidWindowMs
         ).length;

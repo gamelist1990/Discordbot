@@ -36,7 +36,8 @@ export class DuplicateImageDetector implements Detector {
         const existing = (CacheManager.get<ImageRecord[]>(cacheKey) || [])
             .filter((entry) => now - entry.timestamp <= windowSeconds * 1000)
             .slice(-200);
-        const nextRecords = [...existing];
+        const previousMessageRecords = existing.filter((entry) => entry.messageId === message.id);
+        const nextRecords = existing.filter((entry) => entry.messageId !== message.id);
 
         for (const attachment of getMediaAttachments(message).filter(isImageAttachment)) {
             const buffer = await downloadAttachment(attachment, maxBytes, timeoutMs);
@@ -46,10 +47,15 @@ export class DuplicateImageDetector implements Detector {
 
             try {
                 const fingerprint = await createImageFingerprint(buffer);
-                const matchingRecords = existing.filter((entry) => (
+                const matchingRecords = nextRecords.filter((entry) => (
                     entry.sha256 === fingerprint.sha256
                     || calculateHashDistance(entry.perceptualHash, fingerprint.perceptualHash) <= perceptualDistance
                 ));
+                const unchangedRecord = previousMessageRecords.find((entry) => entry.sha256 === fingerprint.sha256);
+                if (unchangedRecord) {
+                    nextRecords.push(unchangedRecord);
+                    continue;
+                }
                 const duplicateCount = matchingRecords.length + 1;
 
                 nextRecords.push({

@@ -14,7 +14,7 @@ function matchesRule(rule: WordFilterRule, content: string, normalized: string):
             }
         case 'contains':
         default:
-            return normalized.includes(rule.pattern.toLowerCase());
+            return normalized.includes(normalizeContent(rule.pattern));
     }
 }
 

@@ -45,20 +45,30 @@ export class MentionSpamDetector implements Detector {
         const content = message.content || '';
         const userIds = extractMentionIds(content, /<@!?(\d+)>/g);
         const roleIds = extractMentionIds(content, /<@&(\d+)>/g);
-
-        if (userIds.length === 0 && roleIds.length === 0) {
-            return { scoreDelta: 0, reasons: [] };
-        }
-
         const now = Date.now();
         const windowMs = windowSeconds * 1000;
         const cacheKey = `anticheat:mention-spam:${context.guildId}:${context.userId}`;
         const previous = (CacheManager.get<MentionRecord[]>(cacheKey) || [])
             .filter((entry) => now - entry.timestamp <= windowMs);
+        const previousMessage = previous.find((entry) => entry.messageId === message.id);
+        const withoutCurrent = previous.filter((entry) => entry.messageId !== message.id);
+
+        if (userIds.length === 0 && roleIds.length === 0) {
+            CacheManager.set(cacheKey, withoutCurrent, (windowSeconds + 30) * 1000);
+            return { scoreDelta: 0, reasons: [] };
+        }
+
+        if (
+            previousMessage
+            && previousMessage.userIds.join(',') === userIds.join(',')
+            && previousMessage.roleIds.join(',') === roleIds.join(',')
+        ) {
+            return { scoreDelta: 0, reasons: [] };
+        }
         const next = [
-            ...previous,
+            ...withoutCurrent,
             {
-                timestamp: now,
+                timestamp: previousMessage?.timestamp ?? now,
                 userIds,
                 roleIds,
                 messageId: message.id

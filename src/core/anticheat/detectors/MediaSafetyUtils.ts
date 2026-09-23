@@ -15,8 +15,10 @@ export interface GifFlashAnalysis {
     sampledFrameCount: number;
     durationMs: number;
     transitionCount: number;
+    reversalCount: number;
     maxLuminanceDelta: number;
     maxPixelDelta: number;
+    maxFlashAreaRatio: number;
     flashScore: number;
     hazardous: boolean;
 }
@@ -151,18 +153,51 @@ function calculateFrameMetrics(raw: Buffer): { luminance: number; pixels: Uint8A
     };
 }
 
-function calculatePixelDelta(left: Uint8Array, right: Uint8Array): number {
+function calculateTransitionMetrics(left: Uint8Array, right: Uint8Array, pixelThreshold: number): {
+    averageDelta: number;
+    flashAreaRatio: number;
+    direction: -1 | 0 | 1;
+} {
     const length = Math.min(left.length, right.length);
     if (length === 0) {
-        return 0;
+        return { averageDelta: 0, flashAreaRatio: 0, direction: 0 };
     }
 
     let total = 0;
+    let changedPixels = 0;
+    let signedChange = 0;
     for (let index = 0; index < length; index += 1) {
-        total += Math.abs(left[index] - right[index]);
+        const delta = right[index] - left[index];
+        total += Math.abs(delta);
+        if (Math.abs(delta) >= pixelThreshold) {
+            changedPixels += 1;
+            signedChange += delta;
+        }
     }
 
-    return total / length;
+    return {
+        averageDelta: total / length,
+        flashAreaRatio: changedPixels / length,
+        direction: signedChange > 0 ? 1 : signedChange < 0 ? -1 : 0
+    };
+}
+
+function selectSampledPages(frameCount: number, maxSampleFrames: number): number[] {
+    if (frameCount <= maxSampleFrames) {
+        return Array.from({ length: frameCount }, (_, index) => index);
+    }
+
+    const pairCount = Math.max(1, Math.floor(maxSampleFrames / 2));
+    const pages = new Set<number>();
+    for (let pair = 0; pair < pairCount; pair += 1) {
+        const start = pairCount === 1
+            ? 0
+            : Math.round((pair * (frameCount - 2)) / (pairCount - 1));
+        pages.add(start);
+        pages.add(start + 1);
+    }
+
+    return [...pages].sort((left, right) => left - right);
 }
 
 export async function analyzeGifFlash(
@@ -188,12 +223,7 @@ export async function analyzeGifFlash(
     const frameCount = Math.max(1, metadata.pages || 1);
     const delays = Array.isArray(metadata.delay) ? metadata.delay : [];
     const durationMs = delays.reduce((sum, delay) => sum + Math.max(10, delay || 100), 0);
-    const sampledPages = frameCount === 1
-        ? [0]
-        : Array.from({ length: Math.min(frameCount, maxSampleFrames) }, (_, index) =>
-            Math.round((index * (frameCount - 1)) / (Math.min(frameCount, maxSampleFrames) - 1))
-        );
-    const uniquePages = Array.from(new Set(sampledPages));
+    const uniquePages = selectSampledPages(frameCount, maxSampleFrames);
     const frames = await Promise.all(uniquePages.map(async (page) => {
         const raw = await sharp(gifBuffer, {
             page,
@@ -207,40 +237,66 @@ export async function analyzeGifFlash(
             .raw()
             .toBuffer();
 
-        return calculateFrameMetrics(raw);
+        return { page, ...calculateFrameMetrics(raw) };
     }));
 
     let transitionCount = 0;
+    let reversalCount = 0;
     let maxLuminanceDelta = 0;
     let maxPixelDelta = 0;
+    let maxFlashAreaRatio = 0;
+    let previousDirection: -1 | 0 | 1 = 0;
     const transitionScores: number[] = [];
 
     for (let index = 1; index < frames.length; index += 1) {
+        if (frames[index].page !== frames[index - 1].page + 1) {
+            previousDirection = 0;
+            continue;
+        }
+
         const luminanceDelta = Math.abs(frames[index].luminance - frames[index - 1].luminance);
-        const pixelDelta = calculatePixelDelta(frames[index].pixels, frames[index - 1].pixels);
+        const transition = calculateTransitionMetrics(
+            frames[index - 1].pixels,
+            frames[index].pixels,
+            pixelDeltaThreshold
+        );
+        const pixelDelta = transition.averageDelta;
         maxLuminanceDelta = Math.max(maxLuminanceDelta, luminanceDelta);
         maxPixelDelta = Math.max(maxPixelDelta, pixelDelta);
+        maxFlashAreaRatio = Math.max(maxFlashAreaRatio, transition.flashAreaRatio);
 
         const transitionScore = Math.min(
             1,
             Math.max(
                 luminanceDelta / Math.max(1, luminanceDeltaThreshold),
-                pixelDelta / Math.max(1, pixelDeltaThreshold)
+                pixelDelta / Math.max(1, pixelDeltaThreshold),
+                transition.flashAreaRatio / 0.1
             )
         );
         transitionScores.push(transitionScore);
 
         if (
-            luminanceDelta >= luminanceDeltaThreshold
-            && pixelDelta >= pixelDeltaThreshold
+            transition.flashAreaRatio >= 0.1
+            && (luminanceDelta >= luminanceDeltaThreshold || pixelDelta >= pixelDeltaThreshold * 0.35)
         ) {
             transitionCount += 1;
+            if (previousDirection !== 0 && transition.direction !== 0 && previousDirection !== transition.direction) {
+                reversalCount += 1;
+            }
+            previousDirection = transition.direction;
+        } else {
+            previousDirection = 0;
         }
     }
 
-    const transitionRatio = transitionCount / Math.max(1, frames.length - 1);
+    const analyzedTransitionCount = Math.max(1, transitionScores.length);
+    const transitionRatio = transitionCount / analyzedTransitionCount;
     const averageTransitionScore = mean(transitionScores);
-    const flashScore = Math.min(1, transitionRatio * 0.7 + averageTransitionScore * 0.3);
+    const repetitionScore = Math.min(1, (transitionCount + reversalCount) / Math.max(1, minimumTransitions * 2));
+    const flashScore = Math.min(
+        1,
+        transitionRatio * 0.45 + averageTransitionScore * 0.25 + repetitionScore * 0.3
+    );
     const animated = frameCount > 1;
 
     return {
@@ -249,8 +305,10 @@ export async function analyzeGifFlash(
         sampledFrameCount: frames.length,
         durationMs,
         transitionCount,
+        reversalCount,
         maxLuminanceDelta: Number(maxLuminanceDelta.toFixed(2)),
         maxPixelDelta: Number(maxPixelDelta.toFixed(2)),
+        maxFlashAreaRatio: Number(maxFlashAreaRatio.toFixed(3)),
         flashScore: Number(flashScore.toFixed(3)),
         hazardous: animated
             && transitionCount >= minimumTransitions

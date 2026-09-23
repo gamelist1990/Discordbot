@@ -6,7 +6,10 @@ import { DEFAULT_ANTICHEAT_SETTINGS } from '../src/core/anticheat/types.ts';
 import { RedirectLinkDetector } from '../src/core/anticheat/detectors/RedirectLinkDetector.ts';
 import { TextSpamDetector } from '../src/core/anticheat/detectors/TextSpamDetector.ts';
 import { MentionSpamDetector } from '../src/core/anticheat/detectors/MentionSpamDetector.ts';
-import { hasMeaningfulDetection } from '../src/core/anticheat/utils.ts';
+import { DuplicateMessageDetector } from '../src/core/anticheat/detectors/DuplicateMessageDetector.ts';
+import { DuplicateImageDetector } from '../src/core/anticheat/detectors/DuplicateImageDetector.ts';
+import { WordFilterDetector } from '../src/core/anticheat/detectors/WordFilterDetector.ts';
+import { hasMeaningfulDetection, normalizeContent } from '../src/core/anticheat/utils.ts';
 import { CacheManager } from '../src/utils/CacheManager.ts';
 import sharp from 'sharp';
 import GIFEncoder from 'gif-encoder-2';
@@ -117,6 +120,108 @@ test('textSpam does not flag a normal message only because deleteMessage is enab
     assert.deepEqual(result.reasons, []);
     assert.equal(result.deleteMessage, undefined);
     assert.equal(hasMeaningfulDetection(result), false);
+});
+
+test('content normalization closes full-width and invisible-character bypasses', () => {
+    assert.equal(normalizeContent('ＦＲＥＥ\u200b　ＮＩＴＲＯ'), 'free nitro');
+    assert.equal(normalizeContent('hello\u202eworld'), 'helloworld');
+});
+
+test('wordFilter applies canonical normalization to content and configured patterns', async () => {
+    const detector = new WordFilterDetector();
+    const result = await detector.detect({ content: 'ＦＲＥＥ\u200b　ＮＩＴＲＯ' } as any, {
+        settings: { detectors: { wordFilter: {
+            enabled: true, score: 2, deleteMessage: true, notifyChannel: false,
+            config: { rules: [{ id: 'rule-1', enabled: true, pattern: 'free nitro', mode: 'contains', score: 2 }] }
+        } } }
+    } as any);
+
+    assert.equal(result.scoreDelta, 2);
+    assert.equal(result.deleteMessage, true);
+});
+
+test('history detectors do not count the same message twice', async (t) => {
+    CacheManager.clear();
+    t.after(() => CacheManager.clear());
+
+    const textSpam = new TextSpamDetector();
+    const textContext = {
+        guildId: 'guild-idempotent', userId: 'user-idempotent', channelId: 'channel-idempotent',
+        settings: { detectors: { textSpam: {
+            enabled: true, score: 2, deleteMessage: true, notifyChannel: false,
+            config: { windowSeconds: 5, rapidMessageCount: 2, duplicateThreshold: 2 }
+        } } }
+    } as any;
+    assert.equal((await textSpam.detect({ id: 'same-message', content: 'same' } as any, textContext)).scoreDelta, 0);
+    assert.equal((await textSpam.detect({ id: 'same-message', content: 'same' } as any, textContext)).scoreDelta, 0);
+
+    const duplicate = new DuplicateMessageDetector();
+    const duplicateContext = {
+        guildId: 'guild-idempotent', userId: 'user-idempotent', channelId: 'channel-idempotent',
+        settings: { detectors: { duplicateMessage: {
+            enabled: true, score: 1, deleteMessage: true, notifyChannel: false,
+            config: { windowSeconds: 180, deleteFrom: 2, scoreFrom: 4 }
+        } } }
+    } as any;
+    assert.equal((await duplicate.detect({ id: 'duplicate-message', content: 'same' } as any, duplicateContext)).reasons.length, 0);
+    assert.equal((await duplicate.detect({ id: 'duplicate-message', content: 'same' } as any, duplicateContext)).reasons.length, 0);
+});
+
+test('edits that remove tracked content also remove stale detector history', async (t) => {
+    CacheManager.clear();
+    t.after(() => CacheManager.clear());
+
+    const duplicate = new DuplicateMessageDetector();
+    const duplicateContext = {
+        guildId: 'guild-edit-cleanup', userId: 'user-edit-cleanup', channelId: 'channel-edit-cleanup',
+        settings: { detectors: { duplicateMessage: {
+            enabled: true, score: 1, deleteMessage: true, notifyChannel: false,
+            config: { windowSeconds: 180, deleteFrom: 2, scoreFrom: 4 }
+        } } }
+    } as any;
+    await duplicate.detect({ id: 'edited-message', content: 'tracked text' } as any, duplicateContext);
+    await duplicate.detect({ id: 'edited-message', content: '' } as any, duplicateContext);
+    assert.equal((await duplicate.detect({ id: 'new-message', content: 'tracked text' } as any, duplicateContext)).reasons.length, 0);
+
+    const mention = new MentionSpamDetector();
+    const mentionContext = createMentionSpamContext({ sameUserMentionThreshold: 2 });
+    await mention.detect({ id: 'edited-mention', content: '<@123>' } as any, mentionContext);
+    await mention.detect({ id: 'edited-mention', content: 'mention removed' } as any, mentionContext);
+    assert.equal((await mention.detect({ id: 'new-mention', content: '<@123>' } as any, mentionContext)).scoreDelta, 0);
+});
+
+test('duplicateImage does not count the same Discord message twice', async (t) => {
+    CacheManager.clear();
+    const originalFetch = globalThis.fetch;
+    const image = await sharp({
+        create: { width: 16, height: 16, channels: 3, background: '#3366cc' }
+    }).png().toBuffer();
+    globalThis.fetch = (async () => new Response(image, {
+        headers: { 'content-type': 'image/png', 'content-length': String(image.length) }
+    })) as typeof fetch;
+    t.after(() => {
+        globalThis.fetch = originalFetch;
+        CacheManager.clear();
+    });
+
+    const detector = new DuplicateImageDetector();
+    const context = {
+        guildId: 'guild-image-idempotent', userId: 'user-image-idempotent', channelId: 'channel-image-idempotent',
+        settings: { detectors: { duplicateImage: {
+            enabled: true, score: 2, deleteMessage: true, notifyChannel: false,
+            config: { windowSeconds: 300, deleteFrom: 2, scoreFrom: 3, perceptualDistance: 5 }
+        } } }
+    } as any;
+    const message = {
+        id: 'same-image-message',
+        attachments: new Map([['image', {
+            id: 'image', name: 'image.png', contentType: 'image/png', size: image.length,
+            url: 'https://cdn.discordapp.com/attachments/test/image.png'
+        }]])
+    } as any;
+
+    assert.equal((await detector.detect(message, context)).reasons.length, 0);
+    assert.equal((await detector.detect(message, context)).reasons.length, 0);
 });
 
 test('manager safety guard ignores delete-only results with no detection signal', () => {
@@ -602,6 +707,62 @@ test('flash analysis detects alternating single-color GIF frames', async () => {
     assert.ok(analysis.transitionCount >= 2);
     assert.ok(analysis.maxLuminanceDelta >= 200);
     assert.ok(analysis.flashScore >= 0.55);
+});
+
+test('flash analysis preserves adjacent transitions when sampling long GIFs', async () => {
+    const width = 32;
+    const height = 32;
+    const frameCount = 30;
+    const canvas = createCanvas(width, height);
+    const context = canvas.getContext('2d');
+    const encoder = new GIFEncoder(width, height, 'neuquant', false, frameCount);
+
+    encoder.start();
+    encoder.setRepeat(0);
+    encoder.setDelay(40);
+    encoder.setQuality(1);
+
+    for (let frame = 0; frame < frameCount; frame += 1) {
+        context.fillStyle = frame % 2 === 0 ? '#000000' : '#ffffff';
+        context.fillRect(0, 0, width, height);
+        encoder.addFrame(context);
+    }
+
+    encoder.finish();
+    const analysis = await analyzeGifFlash(encoder.out.getData(), { maxSampleFrames: 12 });
+
+    assert.equal(analysis.sampledFrameCount, 12);
+    assert.equal(analysis.hazardous, true);
+    assert.ok(analysis.transitionCount >= 2);
+});
+
+test('flash analysis detects repeated flashes limited to part of the image', async () => {
+    const width = 64;
+    const height = 64;
+    const frameCount = 6;
+    const canvas = createCanvas(width, height);
+    const context = canvas.getContext('2d');
+    const encoder = new GIFEncoder(width, height, 'neuquant', false, frameCount);
+
+    encoder.start();
+    encoder.setRepeat(0);
+    encoder.setDelay(60);
+    encoder.setQuality(1);
+
+    for (let frame = 0; frame < frameCount; frame += 1) {
+        context.fillStyle = '#303030';
+        context.fillRect(0, 0, width, height);
+        context.fillStyle = frame % 2 === 0 ? '#000000' : '#ffffff';
+        context.fillRect(0, 0, width / 2, height / 2);
+        encoder.addFrame(context);
+    }
+
+    encoder.finish();
+    const analysis = await analyzeGifFlash(encoder.out.getData());
+
+    assert.equal(analysis.hazardous, true);
+    assert.ok(analysis.maxFlashAreaRatio >= 0.2);
+    assert.ok(analysis.reversalCount >= 1);
 });
 
 test('flash analysis allows static GIF images', async () => {

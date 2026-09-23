@@ -29,7 +29,7 @@ export class CopyPasteDetector implements Detector {
             ? config.suspiciousTerms
             : DEFAULT_SUSPICIOUS_TERMS;
 
-        const matchedTerms = suspiciousTerms.filter((term: string) => normalized.includes(term.toLowerCase()));
+        const matchedTerms = suspiciousTerms.filter((term: string) => normalized.includes(normalizeContent(term)));
         const zeroWidthCount = (content.match(/[\u200B-\u200F\u2060\uFEFF]/g) || []).length;
         const decorativeCount = (content.match(/[▓▒░█▄▀▌▐■□◆◇▲△▼▽]/g) || []).length;
         const repeatedLineCount = content

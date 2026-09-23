@@ -87,7 +87,12 @@ export function hasMeaningfulDetection(result: DetectionResult): boolean {
 }
 
 export function normalizeContent(content: string): string {
-    return content.toLowerCase().replace(/\s+/g, ' ').trim();
+    return content
+        .normalize('NFKC')
+        .toLowerCase()
+        .replace(/[\u00ad\u034f\u061c\u115f\u1160\u17b4\u17b5\u180e\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
 }
 
 export function extractUrls(content: string): string[] {
