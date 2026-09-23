@@ -19,7 +19,7 @@ const message = (id: string, timestamp: number, content: string, author: string)
 
 test('メンションAIは設定されたVLモデルに固定される', () => {
     assert.equal(MENTION_AI_SUPPORT_MODEL, 'gemma4-e4b-it-qat');
-    assert.equal(MENTION_AI_HISTORY_LIMIT, 8);
+    assert.equal(MENTION_AI_HISTORY_LIMIT, 3);
 });
 
 test('周辺会話をDiscordの新しい順取得から時系列へ並べ直す', () => {
@@ -29,7 +29,7 @@ test('周辺会話をDiscordの新しい順取得から時系列へ並べ直す'
     ] as any, 'bot');
 
     assert.ok(formatted.indexOf('この案で進めたい') < formatted.indexOf('@bot どう思う？'));
-    assert.match(formatted, /1970-01-01T00:00:01\.000Z/);
+    assert.match(formatted, /1970-01-01T00:00:01Z/);
 });
 
 test('Botの過去回答はAIアシスタントとして表記する', () => {

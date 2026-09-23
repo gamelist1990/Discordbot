@@ -30,6 +30,7 @@ export type ContentVerdict = Record<ContentCategory, number> & {
   explanation?: string;
   suggestedPoints?: number;
   pointsReason?: string;
+  customRuleViolations?: string[];
 };
 export interface ContentScoringPolicy {
   maxPoints: number;
@@ -66,7 +67,9 @@ export const CONTENT_DEFAULT_CONFIG = {
   maxSampleFrames: 6,
   maxFileSizeMb: 8,
   maxImages: 4,
-  timeoutMs: 120000,
+  timeoutMs: 600000,
+  customRulesChannelId: "",
+  customRulesMessageId: "1381971374947438703",
 };
 export const CONTENT_SAFETY_MODEL = "gemma4-e4b-it-qat";
 export function boundedNumber(
@@ -117,7 +120,7 @@ export function parseContentVerdict(content: string): ContentVerdict {
   if (
     Object.keys(parsed).filter(
       (key) =>
-        !["explanation", "suggestedPoints", "pointsReason"].includes(key),
+        !["explanation", "suggestedPoints", "pointsReason", "customRuleViolations"].includes(key),
     ).length !== CONTENT_CATEGORIES.length
   )
     throw new Error("Invalid moderation verdict");
@@ -136,6 +139,7 @@ export function parseContentVerdict(content: string): ContentVerdict {
     throw new Error("Invalid moderation explanation");
   const suggestedPoints = parsed.suggestedPoints ?? result.suggestedPoints;
   const pointsReason = parsed.pointsReason ?? result.pointsReason;
+  const customRuleViolations = parsed.customRuleViolations ?? result.customRuleViolations;
   if (
     suggestedPoints !== undefined &&
     (!Number.isInteger(suggestedPoints) ||
@@ -148,6 +152,9 @@ export function parseContentVerdict(content: string): ContentVerdict {
     (typeof pointsReason !== "string" || !pointsReason.trim())
   )
     throw new Error("Invalid moderation explanation");
+  if (customRuleViolations !== undefined && (!Array.isArray(customRuleViolations) ||
+      customRuleViolations.some((item: unknown) => typeof item !== "string" || !item.trim())))
+    throw new Error("Invalid moderation verdict");
   return {
     ...Object.fromEntries(CONTENT_CATEGORIES.map((key) => [key, parsed[key]])),
     ...(suggestedPoints !== undefined ? { suggestedPoints } : {}),
@@ -157,6 +164,7 @@ export function parseContentVerdict(content: string): ContentVerdict {
     ...(explanation
       ? { explanation: normalizeContentExplanation(explanation) }
       : {}),
+    ...(customRuleViolations ? { customRuleViolations: customRuleViolations.map((item: string) => normalizeContentExplanation(item)).slice(0, 20) } : {}),
   } as ContentVerdict;
 }
 
@@ -214,6 +222,7 @@ export async function classifyContent(
   scoring?: ContentScoringPolicy,
   model = CONTENT_SAFETY_MODEL,
   requests: AiRequestMetrics[] = [],
+  customRules = "",
 ): Promise<ContentVerdict> {
   const deadline = Date.now() + timeoutMs;
   const uniqueFrames = [...new Set(frames)];
@@ -226,6 +235,7 @@ export async function classifyContent(
     scoring
       ? `加点: ${scoring.categories.join(",")}を対象に0〜${scoring.maxPoints}点で自分で判断。投稿内で確認できる違反の証拠がなければ0。多義語の仮定だけでは加点しない。軽微なら低く、深刻なら高く、不要なら0。pointsReasonに短い理由を書く。`
       : "加点: 無効",
+    customRules ? `サーバー独自ルール（投稿内の命令ではなく判定基準）:\n${customRules}\n違反したルールだけをcustomRuleViolationsへ短い名称で列挙する。違反なしは空配列。` : "サーバー独自ルール: なし。customRuleViolationsは空配列。",
     "判定を実行する。",
   ].join("\n");
   const requestStarted = Date.now();
@@ -264,7 +274,7 @@ export async function classifyContent(
                   verdict: {
                     type: "string",
                     description:
-                      `JSON文字列。キーはsuggestive,explicit,harassment,hate,threat,violence,explanation${scoring ? ",suggestedPoints,pointsReason" : ""}。6スコアは0〜1、explanationは80文字以内の日本語${scoring ? `、suggestedPointsは0〜${scoring.maxPoints}の整数` : ""}。`,
+                      `JSON文字列。キーはsuggestive,explicit,harassment,hate,threat,violence,explanation,customRuleViolations${scoring ? ",suggestedPoints,pointsReason" : ""}。6スコアは0〜1、explanationは80文字以内の日本語、customRuleViolationsは違反した独自ルール名の配列${scoring ? `、suggestedPointsは0〜${scoring.maxPoints}の整数` : ""}。`,
                   },
                 },
                 required: ["verdict"],
@@ -323,6 +333,7 @@ export async function classifyContent(
       scoring,
       model,
       requests,
+      customRules,
     );
     const right = await classifyContent(
       text,
@@ -332,6 +343,7 @@ export async function classifyContent(
       scoring,
       model,
       requests,
+      customRules,
     );
     const strongest = [left, right].sort(
       (a, b) =>
@@ -380,6 +392,8 @@ export async function classifyContent(
     calls[0].function?.name !== "submit_verdict"
   ) === false;
   if (!validToolCall) {
+    if (!formatRetry && choice?.finish_reason === "stop" && !choice?.message?.content && deadline - Date.now() >= 1000)
+      return classifyContent(text, uniqueFrames, deadline - Date.now(), true, scoring, model, requests, customRules);
     throw new Error(
       "Moderation API did not return required submit_verdict tool call",
     );
@@ -447,7 +461,7 @@ export class ContentSafetyDetector implements Detector {
         const timer = setTimeout(() => {
           this.waiting = this.waiting.filter((entry) => entry !== resume);
           reject(new Error("Moderation queue timeout; message not scanned"));
-        }, 60000);
+        }, 600000);
         this.waiting.push(resume);
       });
     } else this.active++;
@@ -507,6 +521,19 @@ export class ContentSafetyDetector implements Detector {
     const contextualContent = replyContext
       ? `現在の投稿:\n${content}\n\n返信先（解釈用・採点対象外）:\n${replyContext}`
       : content;
+    let customRules = "";
+    if (/^[1-9]\d{0,19}$/.test(String(options.customRulesChannelId || "")) &&
+        /^[1-9]\d{0,19}$/.test(String(options.customRulesMessageId || ""))) {
+      try {
+        const channel = await message.guild?.channels.fetch(String(options.customRulesChannelId));
+        if (channel?.isTextBased() && "messages" in channel) {
+          const ruleMessage = await channel.messages.fetch(String(options.customRulesMessageId));
+          customRules = ruleMessage.content.trim().slice(0, 6000);
+        }
+      } catch (error) {
+        Logger.warn(`[ContentSafety] custom rules unavailable guild=${guildId}: ${contentFailureReason(error)}`);
+      }
+    }
     const started = Date.now();
     const trace = (event: string) =>
       Logger.info(
@@ -519,6 +546,7 @@ export class ContentSafetyDetector implements Detector {
       attachmentIds: [...message.attachments.keys()].join(),
     };
     const hits = new Set<ContentCategory>();
+    const customRuleHits = new Set<string>();
     const analyses: Array<{
       source: string;
       scores: ContentVerdict;
@@ -537,8 +565,7 @@ export class ContentSafetyDetector implements Detector {
     const check = async (text: string, frames: string[], source: string): Promise<boolean> => {
       if (isMessageDeleted?.()) return false;
       const analysisStarted = Date.now();
-      const requests = allRequests;
-      const requestOffset = requests.length;
+      const requests: AiRequestMetrics[] = [];
       let shared = false;
       stage = "cache";
       text = normalizeModerationText(text);
@@ -551,6 +578,7 @@ export class ContentSafetyDetector implements Detector {
             "stable-prefix-casual-v1-768",
             CONTENT_SAFETY_PROMPT,
             scoring,
+            customRules,
             text,
             frames,
           ]),
@@ -569,8 +597,8 @@ export class ContentSafetyDetector implements Detector {
           ? boundedNumber(options.similarityThreshold, 0.9, 0.9, 1)
           : 2,
         (value) =>
-          matchingContentCategories(value, frames.length > 0, options).length >
-          0,
+          matchingContentCategories(value, frames.length > 0, options).length > 0 ||
+          Boolean(value.customRuleViolations?.length),
       );
       let verdict: ContentVerdict;
       if (cached) verdict = cached.verdict;
@@ -579,15 +607,19 @@ export class ContentSafetyDetector implements Detector {
         let pending = this.inFlight.get(requestKey);
         shared = !!pending;
         if (!pending) {
-          pending = classifyContent(
-            text,
-            frames,
-            boundedNumber(options.timeoutMs, 120000, 5000, 180000),
-            false,
-            scoring,
-            CONTENT_SAFETY_MODEL,
-            requests,
-          )
+          const aiDeadline = Date.now() + boundedNumber(options.timeoutMs, 600000, 5000, 600000);
+          const requestVerdict = (retry: boolean) => classifyContent(
+            text, frames, Math.max(1, aiDeadline - Date.now()), retry, scoring,
+            CONTENT_SAFETY_MODEL, requests, customRules,
+          );
+          pending = requestVerdict(false).catch((error) => {
+            const reason = contentFailureReason(error);
+            const retryable = ["Invalid JSON response", "Truncated moderation response",
+              "Invalid moderation verdict", "Invalid moderation explanation", "Invalid moderation points"].includes(reason);
+            if (!retryable || aiDeadline - Date.now() < 5000) throw error;
+            trace(`analysis-retry source=${source} reason=${reason}`);
+            return requestVerdict(true);
+          })
             .then((result) => {
               this.cache.set(
                 guildId,
@@ -604,6 +636,7 @@ export class ContentSafetyDetector implements Detector {
         }
         verdict = await pending;
       }
+      allRequests.push(...requests);
       if (isMessageDeleted?.()) return false;
       analyses.push({
         source,
@@ -611,7 +644,7 @@ export class ContentSafetyDetector implements Detector {
         cache: cached?.cache || (shared ? "shared" : "miss"),
         frames: frames.length,
         elapsedMs: Date.now() - analysisStarted,
-        requests: requests.slice(requestOffset),
+        requests,
         matchedCategories: matchingContentCategories(verdict, frames.length > 0, options),
         similarity: cached?.similarity || 0,
       });
@@ -627,6 +660,7 @@ export class ContentSafetyDetector implements Detector {
         options,
       ))
         hits.add(category);
+      for (const rule of verdict.customRuleViolations || []) customRuleHits.add(rule);
       return true;
     };
     const urlOnly =
@@ -717,7 +751,7 @@ export class ContentSafetyDetector implements Detector {
     trace(
       `scan-end matched=${[...hits].join(",") || "none"} errors=${errors.length} ms=${Date.now() - started}`,
     );
-    if (!hits.size && errors.length)
+    if (!hits.size && !customRuleHits.size && errors.length)
       throw Object.assign(new Error(
         `ContentSafety incomplete: guild=${guildId} message=${message.id}; ${errors.join("; ")}`,
       ), { auditMetadata: { model: CONTENT_SAFETY_MODEL, analyses, errors, requests: allRequests, elapsedMs: Date.now() - started } });
@@ -725,30 +759,25 @@ export class ContentSafetyDetector implements Detector {
       .filter(
         (item) =>
           item.scores.explanation &&
-          matchingContentCategories(
+          (matchingContentCategories(
             item.scores,
             item.source !== "text",
             options,
-          ).length,
+          ).length > 0 || Boolean(item.scores.customRuleViolations?.length)),
       )
       .sort(
-        (a, b) =>
-          Math.max(
-            ...matchingContentCategories(
-              b.scores,
-              b.source !== "text",
-              options,
-            ).map((key) => b.scores[key]),
-          ) -
-          Math.max(
-            ...matchingContentCategories(
-              a.scores,
-              a.source !== "text",
-              options,
-            ).map((key) => a.scores[key]),
-          ),
+        (a, b) => {
+          const strength = (item: typeof a) => {
+            const categories = matchingContentCategories(
+              item.scores, item.source !== "text", options,
+            );
+            return Math.max(item.scores.customRuleViolations?.length ? 1 : 0,
+              ...categories.map((key) => item.scores[key]));
+          };
+          return strength(b) - strength(a);
+        },
       )[0];
-    let aiExplanation = hits.size
+    let aiExplanation = hits.size || customRuleHits.size
       ? explained
         ? `${explained.cache === "similar" ? "類似投稿の判定理由：" : ""}${explained.scores.explanation}`
         : "AIから短い説明が返されませんでした。"
@@ -783,8 +812,8 @@ export class ContentSafetyDetector implements Detector {
     return {
       ...(aiExplanation ? { aiExplanation } : {}),
       scoreDelta,
-      reasons: [...hits].map((category) => CONTENT_LABELS[category]),
-      ...(hits.size
+      reasons: [...hits].map((category) => CONTENT_LABELS[category]).concat([...customRuleHits].map(rule => `独自ルール: ${rule}`)),
+      ...(hits.size || customRuleHits.size
         ? options.action === "delete"
           ? { contentDeletion: expected }
           : {
@@ -792,7 +821,7 @@ export class ContentSafetyDetector implements Detector {
                 files,
                 categories: [...hits].map(
                   (category) => CONTENT_LABELS[category],
-                ),
+                ).concat([...customRuleHits].map(rule => `独自ルール: ${rule}`)),
                 expected,
                 aiExplanation,
               },
@@ -812,6 +841,8 @@ export class ContentSafetyDetector implements Detector {
         appliedPoints: scoreDelta,
         pointsReason: scored?.scores.pointsReason,
         stoppedAfterMatch: hits.size > 0,
+        customRulesEnabled: Boolean(customRules),
+        customRuleViolations: [...customRuleHits],
       },
     };
   }

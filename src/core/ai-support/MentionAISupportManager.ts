@@ -17,8 +17,8 @@ import {
 } from '../anticheat/detectors/MediaSafetyUtils.js';
 
 export const MENTION_AI_SUPPORT_MODEL = 'gemma4-e4b-it-qat';
-export const MENTION_AI_HISTORY_LIMIT = 8;
-const MAX_CONTEXT_CHARACTERS = 6_000;
+export const MENTION_AI_HISTORY_LIMIT = 3;
+const MAX_CONTEXT_CHARACTERS = 1_800;
 const MAX_REPLY_CHARACTERS = 3_900;
 const MAX_IMAGES_PER_REQUEST = 2;
 const MAX_IMAGE_DIMENSION = 768;
@@ -52,11 +52,14 @@ export function formatMentionAIContext(messages: ContextMessage[], botUserId: st
             const author = message.author.id === botUserId
                 ? 'AIアシスタント'
                 : message.member?.displayName || message.author.displayName || message.author.username || '利用者';
-            const text = message.content.trim() || '（本文なし）';
+            const text = message.content
+                .replace(new RegExp(`<@!?${botUserId}>`, 'g'), '@AI')
+                .trim() || '（本文なし）';
             const attachments = message.attachments?.size
                 ? ` [添付: ${message.attachments.map(attachment => attachment.name || 'ファイル').join(', ')}]`
                 : '';
-            return `[${new Date(message.createdTimestamp).toISOString()}] ${author}: ${text}${attachments}`;
+            const timestamp = new Date(message.createdTimestamp).toISOString().replace('.000Z', 'Z');
+            return `[${timestamp}] ${author}: ${text}${attachments}`;
         });
 
     const joined = lines.join('\n');
@@ -239,7 +242,7 @@ export class MentionAISupportManager {
                 fallbackOnLimitOnly: false,
                 reasoningEffort: 'none',
                 temperature: 0.65,
-                maxTokens: 450,
+                maxTokens: 300,
                 requestLabel: 'mention-ai-support-responses',
             });
         } catch (error) {

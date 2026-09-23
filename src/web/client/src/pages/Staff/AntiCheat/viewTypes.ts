@@ -13,7 +13,7 @@ export type TrustEntry = UserTrustDataWithUser & { userId: string };
 export type SettingsSection = "general" | "detectors" | "policies";
 
 export interface DetectorFieldDefinition {
-  kind: "number" | "list" | "toggle";
+  kind: "number" | "list" | "toggle" | "text";
   key: string;
   label: string;
   defaultValue?: number;

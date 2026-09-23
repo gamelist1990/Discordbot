@@ -105,6 +105,24 @@ export class AntiCheatController {
                     res.status(400).json({ error: 'AI判定ログには、Botが閲覧・送信・埋め込み・ファイル添付できるテキストチャンネルを指定してください。' }); return;
                 }
             }
+            const contentConfig = updates.detectors?.contentSafety?.config;
+            if (contentConfig) {
+                for (const key of ['customRulesChannelId', 'customRulesMessageId']) {
+                    const value = contentConfig[key];
+                    if (value !== undefined && value !== '' && (typeof value !== 'string' || !/^[1-9]\d{0,19}$/.test(value))) {
+                        res.status(400).json({ error: `${key === 'customRulesChannelId' ? '独自ルールのチャンネル' : '独自ルールのメッセージ'}IDが不正です。` }); return;
+                    }
+                }
+                if (contentConfig.customRulesChannelId && contentConfig.customRulesMessageId) {
+                    const guild = await this.botClient.client.guilds.fetch(guildId);
+                    const channel = await guild.channels.fetch(contentConfig.customRulesChannelId).catch(() => null);
+                    const ruleMessage = channel?.isTextBased() && 'messages' in channel
+                        ? await channel.messages.fetch(contentConfig.customRulesMessageId).catch(() => null) : null;
+                    if (!ruleMessage?.content.trim()) {
+                        res.status(400).json({ error: '独自ルールのメッセージを取得できないか、本文が空です。Botの閲覧権限とIDを確認してください。' }); return;
+                    }
+                }
+            }
 
             // Get current settings
             const currentSettings = await antiCheatManager.getSettings(guildId);

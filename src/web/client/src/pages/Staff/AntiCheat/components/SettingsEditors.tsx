@@ -232,6 +232,10 @@ function DetectorBody({
                 placeholder={field.placeholder}
                 disabled={!detector.enabled}
               />
+            ) : field.kind === "text" ? (
+              <input type="text" value={String(detector.config?.[field.key] ?? '')}
+                onChange={(e) => props.updateDetectorConfig(definition.key, field.key, e.target.value)}
+                placeholder={field.placeholder} disabled={!detector.enabled} />
             ) : (
               <input
                 type="number"
