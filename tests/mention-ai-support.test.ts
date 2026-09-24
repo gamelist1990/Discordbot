@@ -3,8 +3,6 @@ import assert from 'node:assert/strict';
 import sharp from 'sharp';
 
 import {
-    formatMentionAIContext,
-    MENTION_AI_HISTORY_LIMIT,
     MENTION_AI_SUPPORT_MODEL,
 } from '../src/core/ai-support/MentionAISupportManager.ts';
 
@@ -18,28 +16,10 @@ const message = (id: string, timestamp: number, content: string, author: string)
 });
 
 test('メンションAIは設定されたVLモデルに固定される', () => {
-    assert.equal(MENTION_AI_SUPPORT_MODEL, 'gemma4-e4b-it-qat');
-    assert.equal(MENTION_AI_HISTORY_LIMIT, 3);
+    assert.equal(MENTION_AI_SUPPORT_MODEL, 'gemma4-e2b-it-qat');
 });
 
-test('周辺会話をDiscordの新しい順取得から時系列へ並べ直す', () => {
-    const formatted = formatMentionAIContext([
-        message('2', 2_000, '@bot どう思う？', '相談者'),
-        message('1', 1_000, 'この案で進めたい', '参加者'),
-    ] as any, 'bot');
-
-    assert.ok(formatted.indexOf('この案で進めたい') < formatted.indexOf('@bot どう思う？'));
-    assert.match(formatted, /1970-01-01T00:00:01Z/);
-});
-
-test('Botの過去回答はAIアシスタントとして表記する', () => {
-    const botMessage = message('1', 1_000, '前回の回答', 'bot');
-    botMessage.author.bot = true;
-    const formatted = formatMentionAIContext([botMessage] as any, 'bot');
-    assert.match(formatted, /AIアシスタント: 前回の回答/);
-});
-
-test('返信先のDiscord画像を取得してVLモデル用data URLへ変換する', async () => {
+test('現在のDiscord画像を取得してVLモデル用data URLへ変換する', async () => {
     const originalFetch = globalThis.fetch;
     const png = await sharp({
         create: { width: 24, height: 24, channels: 3, background: '#3366cc' },
@@ -50,21 +30,17 @@ test('返信先のDiscord画像を取得してVLモデル用data URLへ変換す
     })) as typeof fetch;
     try {
         const manager = new (await import('../src/core/ai-support/MentionAISupportManager.ts')).MentionAISupportManager();
-        const referenced = {
-            ...message('reply', 1_000, '', 'user'),
+        const current = {
+            ...message('current', 2_000, '@bot 何が見える？', 'user'),
             attachments: new Map([['image', {
                 id: 'image', name: 'sample.png', contentType: 'image/png', size: png.length,
                 url: 'https://cdn.discordapp.com/attachments/test/sample.png',
             }]]),
         };
-        const current = { ...message('current', 2_000, '@bot 何が見える？', 'user'), attachments: new Map() };
-        const images = await (manager as any).prepareImages(current, {
-            messages: [current],
-            referenced,
-        });
+        const images = await (manager as any).prepareImages(current);
 
         assert.equal(images.length, 1);
-        assert.equal(images[0].messageId, 'reply');
+        assert.equal(images[0].messageId, 'current');
         assert.equal(images[0].filename, 'sample.png');
         assert.match(images[0].dataUrl, /^data:image\/jpeg;base64,/);
     } finally {
