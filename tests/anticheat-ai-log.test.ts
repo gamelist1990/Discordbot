@@ -66,6 +66,32 @@ test('retry usage is retained per request, absent usage is not invented', async 
     } finally { globalThis.fetch = original; }
 });
 
+test('failed content analysis retains API attempts in audit metadata', async () => {
+    const original = globalThis.fetch;
+    globalThis.fetch = (async () => Response.json({
+        choices: [{ finish_reason: 'length', message: {} }],
+    })) as typeof fetch;
+    try {
+        const detector = new (await import('../src/core/anticheat/detectors/ContentSafetyDetector.ts')).ContentSafetyDetector();
+        const message = {
+            id: 'truncated', content: '判定対象', editedTimestamp: null,
+            attachments: new Map(), embeds: [],
+        } as any;
+        await assert.rejects(
+            detector.detect(message, {
+                settings: { detectors: { contentSafety: { enabled: true, config: {} } } },
+            } as any),
+            (error: any) => {
+                assert.match(String(error), /incomplete/);
+                assert.equal(error.auditMetadata.requests.length, 2);
+                assert.ok(error.auditMetadata.requests.every((request: AiRequestMetrics) => request.status === 200));
+                assert.deepEqual(error.auditMetadata.requests.map((request: AiRequestMetrics) => request.retry), [false, true]);
+                return true;
+            },
+        );
+    } finally { globalThis.fetch = original; }
+});
+
 test('AI failure is logged as failure rather than a safe verdict', async () => {
     const manager = new AntiCheatManager();
     const sent: any[] = [];

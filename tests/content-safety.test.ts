@@ -97,9 +97,12 @@ test('mild-image threshold is balanced without lowering R18 or threat thresholds
 });
 
 test('Gemma prompt keeps ambiguity, context and obfuscation safeguards compact', () => {
-    assert.match(CONTENT_SAFETY_PROMPT, /一般語、多義語、比喩だけを性的表現にしません/);
+    assert.match(CONTENT_SAFETY_PROMPT, /一般語、多義語、比喩だけでは性的表現にしません/);
     assert.match(CONTENT_SAFETY_PROMPT, /返信先だけの違反は現在の投稿へ加点しません/);
-    assert.match(CONTENT_SAFETY_PROMPT, /伏字は意味が一意に復元できる場合だけ判定します/);
+    assert.match(CONTENT_SAFETY_PROMPT, /伏字は意味を一意に復元できる場合だけ判定し/);
+    assert.match(CONTENT_SAFETY_PROMPT, /明るくフレンドリー/);
+    assert.match(CONTENT_SAFETY_PROMPT, /これはちょい危険そうやで/);
+    assert.match(CONTENT_SAFETY_PROMPT, /確認できませんでした.*避け/);
     assert.equal(normalizeModerationText('Ｓ\u200bＥ\u2060Ｘ'), 'SEX');
 });
 
