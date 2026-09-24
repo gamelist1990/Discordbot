@@ -71,7 +71,7 @@ export const CONTENT_DEFAULT_CONFIG = {
   customRulesChannelId: "",
   customRulesMessageId: "1381971374947438703",
 };
-export const CONTENT_SAFETY_MODEL = "gemma4-e2b-it-qat";
+export const CONTENT_SAFETY_MODEL = "gemma4-e4b-it-qat";
 export function boundedNumber(
   value: unknown,
   fallback: number,
