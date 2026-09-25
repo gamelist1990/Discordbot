@@ -10,6 +10,9 @@ test('diagnostics retain useful codes without copying response content or creden
     assert.equal(contentFailureReason(new SyntaxError('private response text')), 'Invalid JSON response');
     assert.equal(contentFailureReason(new Error('fetch failed')), 'Network request failed');
     assert.equal(contentFailureReason(new Error('https://host/image?secret=123 private text')), 'Unrecognized processing error');
+    assert.equal(contentFailureReason(Object.assign(new Error('ContentSafety incomplete'), {
+        contentFailureReason: 'Invalid moderation explanation',
+    })), 'Invalid moderation explanation');
 });
 
 test('incomplete scans distinguish download, frame extraction and AI failures', async () => {

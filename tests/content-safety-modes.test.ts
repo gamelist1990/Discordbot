@@ -152,6 +152,34 @@ test('structured output accepts scores but never fills in missing categories as 
     assert.throws(() => parseContentVerdict(JSON.stringify({ observation: 'visible facts', scores: incomplete })), /Invalid moderation verdict/);
 });
 
+test('missing explanation is replaced without issuing another AI request', async () => {
+    const original = globalThis.fetch;
+    let calls = 0;
+    globalThis.fetch = (async () => {
+        calls++;
+        return Response.json({
+            choices: [{
+                finish_reason: 'tool_calls',
+                message: { tool_calls: [{ type: 'function', function: {
+                    name: 'submit_verdict',
+                    arguments: JSON.stringify({
+                        suggestive: 0, explicit: 0, harassment: 0,
+                        hate: 0, threat: 0, violence: 0,
+                        customRuleViolations: [],
+                    }),
+                } }] },
+            }],
+        });
+    }) as typeof fetch;
+    try {
+        const result = await classifyContent('普通の投稿');
+        assert.equal(calls, 1);
+        assert.match(result.explanation || '', /問題表現|通常の投稿/);
+    } finally {
+        globalThis.fetch = original;
+    }
+});
+
 test('required tool protocol rejects conversational text, wrong functions, multiple calls and truncation', async () => {
     const original = globalThis.fetch;
     const call = { type: 'function', function: { name: 'submit_verdict', arguments: JSON.stringify(verdict) } };

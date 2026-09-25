@@ -168,6 +168,15 @@ export function parseContentVerdict(content: string): ContentVerdict {
   } as ContentVerdict;
 }
 
+function fallbackModerationExplanation(verdict: ContentVerdict): string {
+  const strongest = CONTENT_CATEGORIES.reduce((best, category) =>
+    verdict[category] > verdict[best] ? category : best,
+  CONTENT_CATEGORIES[0]);
+  if (verdict[strongest] <= 0)
+    return "目立った問題表現はなく、通常の投稿として扱えそうです。";
+  return `${CONTENT_LABELS[strongest]}に関する表現が含まれる可能性があります。`;
+}
+
 export function normalizeModerationText(text: string): string {
   // Keep visible separators for contextual interpretation, but remove invisible
   // format characters and normalize full-width forms used to evade matching.
@@ -435,7 +444,7 @@ export async function classifyContent(
         : calls[0].function.arguments,
     );
     if (!verdict.explanation?.trim())
-      throw new Error("Invalid moderation explanation");
+      verdict.explanation = fallbackModerationExplanation(verdict);
     if (
       uniqueFrames.length &&
       /画像(が|は)?(ない|提供されていない|添付されていない)|画像なし/.test(
@@ -882,10 +891,15 @@ export class ContentSafetyDetector implements Detector {
     trace(
       `scan-end matched=${[...hits].join(",") || "none"} errors=${errors.length} ms=${Date.now() - started}`,
     );
-    if (!hits.size && !customRuleHits.size && errors.length)
+    if (!hits.size && !customRuleHits.size && errors.length) {
+      const primaryFailure = errors[0]?.replace(/^.*?: /, "") || "Content safety processing failed";
       throw Object.assign(new Error(
         `ContentSafety incomplete: guild=${guildId} message=${message.id}; ${errors.join("; ")}`,
-      ), { auditMetadata: { model: CONTENT_SAFETY_MODEL, analyses, errors, requests: allRequests, elapsedMs: Date.now() - started } });
+      ), {
+        contentFailureReason: primaryFailure,
+        auditMetadata: { model: CONTENT_SAFETY_MODEL, analyses, errors, requests: allRequests, elapsedMs: Date.now() - started },
+      });
+    }
     const explained = analyses
       .filter(
         (item) =>
