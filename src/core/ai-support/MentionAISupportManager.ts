@@ -16,7 +16,7 @@ import {
     isImageAttachment,
 } from '../anticheat/detectors/MediaSafetyUtils.js';
 
-export const MENTION_AI_SUPPORT_MODEL = 'gemma4-e2b-it-qat';
+export const MENTION_AI_SUPPORT_MODEL = 'lfm2.5-1.2b-jp-202606';
 const MAX_REPLY_CHARACTERS = 3_900;
 const MAX_IMAGES_PER_REQUEST = 2;
 const MAX_IMAGE_DIMENSION = 768;

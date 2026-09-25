@@ -25,6 +25,19 @@ test('similar positive text is reused without crossing guilds or contextual guar
     assert.equal(inputSimilarity(input, negated), 0);
 });
 
+test('indexed retrieval keeps exact and similar cache hits available', async () => {
+    const cache = new ContentVerdictCache();
+    for (let index = 0; index < 250; index++) {
+        const input = await similarityInput(`unrelated cached moderation sample number ${index} with enough text for retrieval`, []);
+        cache.set('guild', `key-${index}`, input, positive, 60000, cache.revision('guild'));
+    }
+    const original = await similarityInput('A repeated moderation sentence with sufficient length for indexed semantic retrieval.', []);
+    const variant = await similarityInput('A repeated moderation sentence with sufficient length for indexed semantic retrieval!', []);
+    cache.set('guild', 'target', original, positive, 60000, cache.revision('guild'));
+    assert.equal(cache.get('guild', 'target', original, .9, () => true)?.cache, 'exact');
+    assert.equal(cache.get('guild', 'variant', variant, .9, () => true)?.cache, 'similar');
+});
+
 test('clear affects one guild and prevents old in-flight results from repopulating cache', async () => {
     const cache = new ContentVerdictCache();
     const input = await similarityInput('test', []);

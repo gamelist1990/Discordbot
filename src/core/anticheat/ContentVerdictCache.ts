@@ -50,11 +50,69 @@ export function inputSimilarity(a: SimilarityInput, b: SimilarityInput): number 
 
 export class ContentVerdictCache {
     private entries = new Map<string, Entry>();
+    private buckets = new Map<string, Set<string>>();
+    private textIndex = new Map<string, Set<string>>();
     private sequence = 0;
     private revisions = new Map<string, number>();
     private persistQueue = Promise.resolve();
     constructor(private readonly persistPath: string | null = null) {
         if (persistPath) this.loadFromDisk();
+    }
+    private bucketKey(entry: Pick<Entry, 'guildId' | 'input'>) {
+        return `${entry.guildId}:${entry.input.kind}:${entry.input.guard}`;
+    }
+    private textTokens(input: SimilarityInput): string[] {
+        if (input.kind !== 'text') return [];
+        const value = String(input.features).toLocaleLowerCase();
+        const words = value.match(/[\p{L}\p{N}_]{2,}/gu) || [];
+        const grams = value.length >= 3
+            ? Array.from({ length: Math.min(value.length - 2, 96) }, (_, index) => value.slice(index, index + 3))
+            : [];
+        return [...new Set([...words.slice(0, 48), ...grams])];
+    }
+    private addToIndex(id: string, entry: Entry) {
+        const bucket = this.bucketKey(entry);
+        const bucketEntries = this.buckets.get(bucket) || new Set<string>();
+        bucketEntries.add(id);
+        this.buckets.set(bucket, bucketEntries);
+        for (const token of this.textTokens(entry.input)) {
+            const key = `${bucket}:${token}`;
+            const matches = this.textIndex.get(key) || new Set<string>();
+            matches.add(id);
+            this.textIndex.set(key, matches);
+        }
+    }
+    private removeFromIndex(id: string, entry: Entry) {
+        const bucket = this.bucketKey(entry);
+        const bucketEntries = this.buckets.get(bucket);
+        bucketEntries?.delete(id);
+        if (!bucketEntries?.size) this.buckets.delete(bucket);
+        for (const token of this.textTokens(entry.input)) {
+            const key = `${bucket}:${token}`;
+            const matches = this.textIndex.get(key);
+            matches?.delete(id);
+            if (!matches?.size) this.textIndex.delete(key);
+        }
+    }
+    private deleteEntry(id: string) {
+        const entry = this.entries.get(id);
+        if (!entry) return false;
+        this.removeFromIndex(id, entry);
+        return this.entries.delete(id);
+    }
+    private candidateIds(guildId: string, input: SimilarityInput): Iterable<string> {
+        const bucket = `${guildId}:${input.kind}:${input.guard}`;
+        if (input.kind !== 'text') return this.buckets.get(bucket) || [];
+        const ranked = new Map<string, number>();
+        for (const token of this.textTokens(input)) {
+            for (const id of this.textIndex.get(`${bucket}:${token}`) || []) {
+                ranked.set(id, (ranked.get(id) || 0) + 1);
+            }
+        }
+        return [...ranked.entries()]
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 128)
+            .map(([id]) => id);
     }
     private loadFromDisk() {
         try {
@@ -69,7 +127,10 @@ export class ContentVerdictCache {
                         ? Buffer.from(entry.input.features, 'base64')
                         : entry.input.features
                 };
-                this.entries.set(`${entry.guildId}:${entry.key}`, { ...entry, input });
+                const id = `${entry.guildId}:${entry.key}`;
+                const restored = { ...entry, input };
+                this.entries.set(id, restored);
+                this.addToIndex(id, restored);
             }
         } catch (error) {
             if ((error as NodeJS.ErrnoException).code !== 'ENOENT') console.warn('[ContentSafety] persisted cache could not be loaded; starting empty');
@@ -81,7 +142,7 @@ export class ContentVerdictCache {
             const now = Date.now();
             const stored: StoredEntry[] = [];
             for (const [id, entry] of this.entries) {
-                if (entry.expires <= now) { this.entries.delete(id); continue; }
+                if (entry.expires <= now) { this.deleteEntry(id); continue; }
                 stored.push({
                     ...entry,
                     input: {
@@ -102,17 +163,23 @@ export class ContentVerdictCache {
     revision(guildId: string) { return this.revisions.get(guildId) || 0; }
     clear(guildId: string): number {
         let removed = 0;
-        for (const [id, entry] of this.entries) if (entry.guildId === guildId) { this.entries.delete(id); removed++; }
+        for (const [id, entry] of this.entries) if (entry.guildId === guildId) { this.deleteEntry(id); removed++; }
         this.revisions.set(guildId, ++this.sequence);
         this.persist();
         return removed;
     }
     get(guildId: string, key: string, input: SimilarityInput, similarity: number, allowSimilar: (v: ContentVerdict) => boolean) {
+        const exactId = `${guildId}:${key}`;
+        const exact = this.entries.get(exactId);
+        if (exact) {
+            if (exact.expires > Date.now()) return { verdict: exact.verdict, similarity: 1, cache: 'exact' as const };
+            this.deleteEntry(exactId);
+        }
         let best: { verdict: ContentVerdict; similarity: number; cache: 'exact' | 'similar' } | undefined;
-        for (const [id, entry] of this.entries) {
-            if (entry.expires <= Date.now()) { this.entries.delete(id); continue; }
-            if (entry.guildId !== guildId) continue;
-            if (entry.key === key) return { verdict: entry.verdict, similarity: 1, cache: 'exact' as const };
+        for (const id of this.candidateIds(guildId, input)) {
+            const entry = this.entries.get(id);
+            if (!entry) continue;
+            if (entry.expires <= Date.now()) { this.deleteEntry(id); continue; }
             if (similarity <= 1 && allowSimilar(entry.verdict)) {
                 const score = inputSimilarity(entry.input, input);
                 if (score >= similarity && score > (best?.similarity || 0)) best = { verdict: entry.verdict, similarity: score, cache: 'similar' };
@@ -122,8 +189,12 @@ export class ContentVerdictCache {
     }
     set(guildId: string, key: string, input: SimilarityInput, verdict: ContentVerdict, ttlMs: number, revision: number) {
         if (revision !== this.revision(guildId)) return; // Clear also invalidates still-running requests.
-        if (this.entries.size >= 2000) this.entries.delete(this.entries.keys().next().value!);
-        this.entries.set(`${guildId}:${key}`, { guildId, key, input, verdict, expires: Date.now() + ttlMs });
+        if (this.entries.size >= 10000) this.deleteEntry(this.entries.keys().next().value!);
+        const id = `${guildId}:${key}`;
+        this.deleteEntry(id);
+        const entry = { guildId, key, input, verdict, expires: Date.now() + ttlMs };
+        this.entries.set(id, entry);
+        this.addToIndex(id, entry);
         this.persist();
     }
 }

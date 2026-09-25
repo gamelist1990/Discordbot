@@ -468,8 +468,88 @@ export class ContentSafetyDetector implements Detector {
   private active = 0;
   private waiting: Array<() => void> = [];
   private inFlight = new Map<string, Promise<ContentVerdict>>();
+  private deferred = new Map<string, {
+    guildId: string;
+    key: string;
+    input: Awaited<ReturnType<typeof similarityInput>>;
+    text: string;
+    frames: string[];
+    scoring?: ContentScoringPolicy;
+    customRules: string;
+    ttlMs: number;
+    revision: number;
+    attempts: number;
+    nextAttemptAt: number;
+  }>();
+  private deferredTimer?: ReturnType<typeof setTimeout>;
   clearCache(guildId: string) {
+    for (const [key, item] of this.deferred) {
+      if (item.guildId === guildId) this.deferred.delete(key);
+    }
     return this.cache.clear(guildId);
+  }
+  private queueDeferred(item: Omit<Map<string, any> extends never ? never : {
+    guildId: string;
+    key: string;
+    input: Awaited<ReturnType<typeof similarityInput>>;
+    text: string;
+    frames: string[];
+    scoring?: ContentScoringPolicy;
+    customRules: string;
+    ttlMs: number;
+    revision: number;
+  }, never>) {
+    const id = `${item.guildId}:${item.revision}:${item.key}`;
+    if (!this.deferred.has(id)) {
+      this.deferred.set(id, { ...item, attempts: 0, nextAttemptAt: Date.now() + 5_000 });
+      Logger.info(`[ContentSafety] deferred-queued guild=${item.guildId} queue=${this.deferred.size}`);
+    }
+    this.scheduleDeferred();
+  }
+  private scheduleDeferred() {
+    if (this.deferredTimer || !this.deferred.size) return;
+    const nextAt = Math.min(...[...this.deferred.values()].map(item => item.nextAttemptAt));
+    this.deferredTimer = setTimeout(() => {
+      this.deferredTimer = undefined;
+      void this.processDeferred();
+    }, Math.max(250, nextAt - Date.now()));
+    this.deferredTimer.unref?.();
+  }
+  private async processDeferred() {
+    const ready = [...this.deferred.entries()]
+      .filter(([, item]) => item.nextAttemptAt <= Date.now())
+      .slice(0, 4);
+    await Promise.all(ready.map(async ([id, item]) => {
+      if (item.revision !== this.cache.revision(item.guildId)) {
+        this.deferred.delete(id);
+        return;
+      }
+      try {
+        const verdict = await classifyContent(
+          item.text,
+          item.frames,
+          60_000,
+          item.attempts > 0,
+          item.scoring,
+          CONTENT_SAFETY_MODEL,
+          [],
+          item.customRules,
+        );
+        this.cache.set(item.guildId, item.key, item.input, verdict, item.ttlMs, item.revision);
+        this.deferred.delete(id);
+        Logger.info(`[ContentSafety] deferred-ok guild=${item.guildId} attempts=${item.attempts + 1} queue=${this.deferred.size}`);
+      } catch (error) {
+        item.attempts++;
+        if (item.attempts >= 8) {
+          this.deferred.delete(id);
+          Logger.warn(`[ContentSafety] deferred-dropped guild=${item.guildId} reason=${contentFailureReason(error)}`);
+          return;
+        }
+        item.nextAttemptAt = Date.now() + Math.min(15 * 60_000, 5_000 * 2 ** item.attempts);
+        Logger.warn(`[ContentSafety] deferred-retry guild=${item.guildId} attempt=${item.attempts} reason=${contentFailureReason(error)}`);
+      }
+    }));
+    this.scheduleDeferred();
   }
 
   async detect(
@@ -666,7 +746,27 @@ export class ContentSafetyDetector implements Detector {
             });
           this.inFlight.set(requestKey, pending);
         }
-        verdict = await pending;
+        try {
+          verdict = await pending;
+        } catch (error) {
+          const reason = contentFailureReason(error);
+          const retryLater = /^(?:Moderation API HTTP (?:408|425|429|5\d\d)|TimeoutError|AbortError|ECONN|ENET|EAI_AGAIN|ETIMEDOUT|UND_ERR)/.test(reason)
+            || reason === "Unrecognized processing error";
+          if (retryLater) {
+            this.queueDeferred({
+              guildId,
+              key,
+              input,
+              text,
+              frames,
+              scoring,
+              customRules,
+              ttlMs: boundedNumber(options.cacheTtlMinutes, 129600, 1, 129600) * 60 * 1000,
+              revision,
+            });
+          }
+          throw error;
+        }
       }
       if (isMessageDeleted?.()) return false;
       analyses.push({

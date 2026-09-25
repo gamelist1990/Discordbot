@@ -8,6 +8,7 @@ test('diagnostics retain useful codes without copying response content or creden
     assert.equal(contentFailureReason(new Error('Media HTTP 403')), 'Media HTTP 403');
     assert.equal(contentFailureReason(new Error('fetch failed', { cause: { code: 'ECONNRESET' } })), 'ECONNRESET');
     assert.equal(contentFailureReason(new SyntaxError('private response text')), 'Invalid JSON response');
+    assert.equal(contentFailureReason(new Error('fetch failed')), 'Network request failed');
     assert.equal(contentFailureReason(new Error('https://host/image?secret=123 private text')), 'Unrecognized processing error');
 });
 

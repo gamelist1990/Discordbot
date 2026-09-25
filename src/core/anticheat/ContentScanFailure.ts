@@ -13,5 +13,6 @@ export function contentFailureReason(error: unknown): string {
     if (value?.name === 'TimeoutError' || value?.name === 'AbortError') return value.name;
     const code = value?.code ?? value?.cause?.code;
     if (typeof code === 'string' && /^[A-Z][A-Z0-9_]{1,63}$/.test(code)) return code;
+    if (/fetch failed|network|socket|connection/i.test(message)) return 'Network request failed';
     return 'Unrecognized processing error';
 }
