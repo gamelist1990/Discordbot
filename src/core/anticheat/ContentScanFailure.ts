@@ -4,7 +4,7 @@ export function contentFailureReason(error: unknown): string {
     const message = typeof value?.message === 'string' ? value.message : '';
     if (typeof value?.contentFailureReason === 'string' && value.contentFailureReason.trim())
         return value.contentFailureReason;
-    if (/^(?:Media|Moderation API) HTTP \d{3}$/.test(message)) return message;
+    if (/^(?:Media|Moderation API|jev moderation API) HTTP \d{3}$/.test(message)) return message;
     const known = ['Media too large', 'Unsupported media URL', 'Non-public media host', 'No preview image',
         'Unsupported image', 'Animation decode budget exceeded', 'Input buffer contains unsupported image format',
         'Input image exceeds pixel limit', 'Moderation batch deadline exceeded', 'Truncated moderation response',
