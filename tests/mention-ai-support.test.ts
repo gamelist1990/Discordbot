@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import sharp from 'sharp';
+import { config } from '../src/config.ts';
 
 import {
     MENTION_AI_SUPPORT_MODEL,
@@ -15,8 +16,8 @@ const message = (id: string, timestamp: number, content: string, author: string)
     attachments: { size: 0, map: () => [] },
 });
 
-test('メンションAIは設定されたVLモデルに固定される', () => {
-    assert.equal(MENTION_AI_SUPPORT_MODEL, 'gemma4-e2b-it-qat');
+test('メンションAIは共通のQwen設定を使う', () => {
+    assert.equal(MENTION_AI_SUPPORT_MODEL, config.pexAi.model);
 });
 
 test('現在のDiscord画像を取得してVLモデル用data URLへ変換する', async () => {

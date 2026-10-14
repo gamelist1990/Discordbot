@@ -1,10 +1,11 @@
 import { PersonalityArchetypeDefinition, PersonalityKey } from './types.js';
+import { config } from '../../config.js';
 
 export const CORE_FEATURE_MODEL_FALLBACKS = [
-    'gemma4:12b-it-q4_K_M'
+    config.pexAi.model
 ] as const;
 
-export const CORE_FEATURE_API_ENDPOINT = 'http://api.pexserver.com:9000/v1';
+export const CORE_FEATURE_API_ENDPOINT = config.pexAi.endpoint;
 
 export const PERSONALITY_CATEGORY_NAME = '性格診断室';
 export const DEBATE_CATEGORY_NAME = 'レスバアリーナ';

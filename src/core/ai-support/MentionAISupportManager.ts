@@ -16,7 +16,7 @@ import {
     isImageAttachment,
 } from '../anticheat/detectors/MediaSafetyUtils.js';
 
-export const MENTION_AI_SUPPORT_MODEL = 'lfm2.5-1.2b-jp-202606';
+export const MENTION_AI_SUPPORT_MODEL = config.pexAi.model;
 const MAX_REPLY_CHARACTERS = 3_900;
 const MAX_IMAGES_PER_REQUEST = 2;
 const MAX_IMAGE_DIMENSION = 768;
@@ -95,9 +95,12 @@ export class MentionAISupportManager {
         };
         const stopTyping = await this.startTypingLoop(channel);
         try {
-            const images = await this.prepareImages(message);
+            const images = config.pexAi.visionModel ? await this.prepareImages(message) : [];
             const userContent: OpenAIContentPart[] = [
                 { type: 'text', text: message.content },
+                ...(!config.pexAi.visionModel && getMediaAttachments(message).some(isImageAttachment)
+                    ? [{ type: 'text' as const, text: '添付画像がありますが、現在のモデルはテキスト専用です。画像の内容を見たふりをせず、必要なら文章での説明をお願いしてください。' }]
+                    : []),
                 ...images.map(image => ({
                     type: 'image_url' as const,
                     image_url: { url: image.dataUrl, detail: 'low' as const },

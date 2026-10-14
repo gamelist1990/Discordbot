@@ -666,6 +666,12 @@ export class ChatAIChannelManager {
         let totalImageBytes = 0;
         const preparedImages: PreparedChatPrompt['images'] = [];
         for (const message of effectiveCurrentTurn) {
+            if (!config.pexAi.visionModel) {
+                if (this.getImageUrls(message).length > 0) {
+                    currentContentParts.push({ type: 'text', text: '添付画像がありますが、現在のモデルはテキスト専用です。画像内容を推測で断定せず、必要なら文章での説明をお願いしてください。' });
+                }
+                continue;
+            }
             for (const imageUrl of this.getImageUrls(message)) {
                 if (imageCount >= MAX_IMAGES_PER_REQUEST) break;
                 const image = await this.fetchImageAsDataUrl(imageUrl);

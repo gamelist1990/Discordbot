@@ -6,6 +6,8 @@ import { Logger } from './utils/Logger.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+export const LOCAL_QWEN_MODEL = 'qwen3.5-4b-ja-en-vulkan';
+
 export interface AppConfig {
     token?: string;
     DISCORD_CLIENT_SECRET?: string;
@@ -70,7 +72,7 @@ export const config: Required<AppConfig> = {
     openai: {
         apiKey: raw.openai?.apiKey || '',
         apiEndpoint: raw.openai?.apiEndpoint || '',
-        defaultModel: raw.openai?.defaultModel || '',
+        defaultModel: raw.openai?.defaultModel || LOCAL_QWEN_MODEL,
         proxyEndpoints: Array.isArray(raw.openai?.proxyEndpoints)
             ? raw.openai?.proxyEndpoints.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
             : [],
@@ -80,8 +82,8 @@ export const config: Required<AppConfig> = {
     },
     pexAi: {
         endpoint: raw.pexAi?.endpoint || 'http://api.pexserver.com:9000/v1',
-        model: raw.pexAi?.model || 'gemma4-agent',
-        fallbackModel: raw.pexAi?.fallbackModel || '@cf/google/gemma-4-26b-a4b-it',
+        model: raw.pexAi?.model || LOCAL_QWEN_MODEL,
+        fallbackModel: raw.pexAi?.fallbackModel || '',
         steps: Array.isArray(raw.pexAi?.steps)
             ? raw.pexAi.steps
                 .filter(step =>
@@ -95,7 +97,7 @@ export const config: Required<AppConfig> = {
                     level: step.level,
                 }))
             : [],
-        visionModel: raw.pexAi?.visionModel || 'moondream:1.8b-v2-q2_K',
+        visionModel: raw.pexAi?.visionModel || '',
         apiKey: raw.pexAi?.apiKey || '',
         level: raw.pexAi?.level === 0
             || raw.pexAi?.level === 1

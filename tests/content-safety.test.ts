@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import sharp from 'sharp';
 import { Collection, PermissionFlagsBits, PermissionsBitField } from 'discord.js';
 import { fetchPublicMedia, isPublicAddress, sampleImageFrames, extractContentUrls } from '../src/core/anticheat/ContentMedia.ts';
-import { ContentSafetyDetector, parseContentVerdict, matchingContentCategories, CONTENT_SAFETY_MODEL, CONTENT_SAFETY_PROMPT, normalizeModerationText } from '../src/core/anticheat/detectors/ContentSafetyDetector.ts';
+import { ContentSafetyDetector, classifyContent, parseContentVerdict, matchingContentCategories, CONTENT_SAFETY_MODEL, CONTENT_SAFETY_PROMPT, normalizeModerationText } from '../src/core/anticheat/detectors/ContentSafetyDetector.ts';
+import { config } from '../src/config.ts';
 import { repostWithSpoilers, spoilerText } from '../src/core/anticheat/ContentRepost.ts';
 import { AntiCheatManager } from '../src/core/anticheat/AntiCheatManager.ts';
 import { DEFAULT_ANTICHEAT_SETTINGS } from '../src/core/anticheat/types.ts';
@@ -150,6 +151,8 @@ test('a message deleted during AI analysis stops without moderation actions', as
 
 test('byte-identical images with different Discord URLs reuse the exact verdict cache', async () => {
     const original = globalThis.fetch;
+    const originalVisionModel = config.pexAi.visionModel;
+    config.pexAi.visionModel = 'test-vision';
     const bytes = await sharp({ create: { width: 20, height: 20, channels: 3, background: 'green' } }).png().toBuffer();
     let calls = 0;
     globalThis.fetch = (async () => {
@@ -164,7 +167,22 @@ test('byte-identical images with different Discord URLs reuse the exact verdict 
         const second = await detector.detect(make('two', 'https://cdn.discordapp.com/same.png?token=two'), context());
         assert.equal(calls, 1);
         assert.equal(second.metadata?.analyses[0].cache, 'exact');
-    } finally { globalThis.fetch = original; }
+    } finally { globalThis.fetch = original; config.pexAi.visionModel = originalVisionModel; }
+});
+
+test('text-only model rejects image classification before calling the proxy', async () => {
+    const originalVisionModel = config.pexAi.visionModel;
+    const originalFetch = globalThis.fetch;
+    let called = false;
+    config.pexAi.visionModel = '';
+    globalThis.fetch = (async () => { called = true; throw new Error('unexpected network request'); }) as typeof fetch;
+    try {
+        await assert.rejects(classifyContent('', ['data:image/png;base64,AA==']), /テキスト専用/);
+        assert.equal(called, false);
+    } finally {
+        config.pexAi.visionModel = originalVisionModel;
+        globalThis.fetch = originalFetch;
+    }
 });
 
 function mockMessage({ failSend = false, failDelete = false, changed = false } = {}) {

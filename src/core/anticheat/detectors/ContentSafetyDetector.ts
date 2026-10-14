@@ -71,7 +71,7 @@ export const CONTENT_DEFAULT_CONFIG = {
   customRulesChannelId: "",
   customRulesMessageId: "1381971374947438703",
 };
-export const CONTENT_SAFETY_MODEL = "gemma4-e4b-it-qat";
+export const CONTENT_SAFETY_MODEL = config.pexAi.model;
 export function boundedNumber(
   value: unknown,
   fallback: number,
@@ -319,6 +319,9 @@ export async function classifyContent(
 ): Promise<ContentVerdict> {
   const deadline = Date.now() + timeoutMs;
   const uniqueFrames = [...new Set(frames)];
+  if (uniqueFrames.length > 0 && !config.pexAi.visionModel) {
+    throw new Error('現在のQwenモデルはテキスト専用のため、画像の安全性判定には対応していません。');
+  }
   // Moderation only needs the final tool arguments. Non-streaming avoids the
   // provider buffering a malformed partial Gemma tool call until timeout.
   const stream = false;
