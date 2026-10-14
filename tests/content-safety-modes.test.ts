@@ -32,7 +32,8 @@ test('URL-only GIF posts download the signed URL and preserve the original GIF f
         const result = await detector.detect(message, context('spoiler'));
         assert.deepEqual(downloaded, [url]);
         assert.equal(requests.length, 1);
-        assert.ok(requests[0].decision.state.messages[0].content[1].image_url.url.startsWith('data:image/png;base64,'));
+        assert.equal(requests[0].decision.state.messages[0].content[1].type, 'video_url');
+        assert.equal(requests[0].decision.state.messages[0].content[1].video_url.url, `data:image/gif;base64,${data.toString('base64')}`);
         assert.deepEqual(result.spoilerRepost?.files[0].data, data);
         assert.equal(result.spoilerRepost?.files[0].sourceUrl, url);
     } finally { globalThis.fetch = original; }
@@ -67,6 +68,31 @@ test('mixed posts send text with images, invalidate changed captions and respect
         assert.equal((await detector.detect(message, ctx)).spoilerRepost, undefined);
         assert.equal(requests.length, 5);
         assert.ok(!JSON.stringify(requests[4]).includes('caption A'));
+    } finally { globalThis.fetch = original; }
+});
+
+test('MP4 attachments reach jev as video and retain original bytes for spoiler repost', async () => {
+    const original = globalThis.fetch;
+    const data = Buffer.from('bounded mp4 fixture');
+    let sent: any;
+    globalThis.fetch = (async (_url, options) => {
+        sent = JSON.parse(String(options?.body));
+        return jevResponse(verdict);
+    }) as typeof fetch;
+    try {
+        const message = makeMessage();
+        message.content = '';
+        message.attachments.set('video', { id: 'video', name: 'clip.mp4', contentType: 'video/mp4', url: 'https://cdn.discordapp.com/clip.mp4' });
+        const detector = new ContentSafetyDetector(async url => ({ data, type: 'mp4', url }));
+        const result = await detector.detect(message, context('spoiler'));
+        const part = sent.decision.state.messages[0].content[1];
+        assert.equal(part.type, 'video_url');
+        assert.equal(part.video_url.url, `data:video/mp4;base64,${data.toString('base64')}`);
+        assert.deepEqual(result.spoilerRepost?.files[0].data, data);
+        assert.match(result.spoilerRepost?.files[0].name || '', /\.mp4$/);
+        const disabled = context('spoiler');
+        disabled.settings.detectors.contentSafety.config.scanImages = 0;
+        assert.equal((await detector.detect(message, disabled)).spoilerRepost, undefined);
     } finally { globalThis.fetch = original; }
 });
 

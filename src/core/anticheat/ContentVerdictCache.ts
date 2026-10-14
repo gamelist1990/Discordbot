@@ -15,6 +15,12 @@ export const CONTENT_VERDICT_CACHE_PATH = path.join(process.cwd(), 'Database', '
 
 export async function similarityInput(text: string, images: string[]): Promise<SimilarityInput> {
     if (images.length) {
+        if (images.some(image => /^data:(?:video\/|image\/gif)/.test(image))) {
+            // Temporal order is meaningful. Never reuse a visual-similarity verdict
+            // across different videos or changed captions; identical requests still cache.
+            const digest = createHash('sha256').update(JSON.stringify([text, images])).digest('hex');
+            return { kind: 'image', features: Buffer.from(digest, 'hex'), guard: `video-exact:${digest}` };
+        }
         const features = Buffer.concat(await Promise.all(images.map(async image => sharp(Buffer.from(image.split(',')[1], 'base64'))
             .resize(16, 16, { fit: 'fill' }).removeAlpha().toColourspace('srgb').raw().toBuffer())));
         // A changed caption can reverse the interpretation of an otherwise identical image.

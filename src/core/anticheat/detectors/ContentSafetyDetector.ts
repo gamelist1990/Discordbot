@@ -3,15 +3,15 @@ import type { Message } from "discord.js";
 import { config } from "../../../config.js";
 import type { Detector, DetectionContext, DetectionResult } from "../types.js";
 import {
-  resolveImage,
-  sampleImageFrames,
+  resolveContentMedia,
+  prepareJevMedia,
   extractContentUrls,
 } from "../ContentMedia.js";
 import {
   ContentVerdictCache,
   similarityInput,
 } from "../ContentVerdictCache.js";
-import { getMediaAttachments, isImageAttachment } from "./MediaSafetyUtils.js";
+import { getMediaAttachments, isVisualAttachment } from "./MediaSafetyUtils.js";
 import { normalizeContentExplanation } from "../ContentExplanation.js";
 import { contentFailureReason } from "../ContentScanFailure.js";
 import { Logger } from "../../../utils/Logger.js";
@@ -200,7 +200,7 @@ export async function classifyContent(
 export class ContentSafetyDetector implements Detector {
   name = "contentSafety";
   constructor(
-    private readonly readImage: typeof resolveImage = resolveImage,
+    private readonly readImage: typeof resolveContentMedia = resolveContentMedia,
     private readonly cache = new ContentVerdictCache(),
   ) {}
   private active = 0;
@@ -554,7 +554,7 @@ export class ContentSafetyDetector implements Detector {
     const urls = new Set<string>();
     if (options.scanImages === 1) {
       for (const attachment of getMediaAttachments(message).filter(
-        isImageAttachment,
+        isVisualAttachment,
       ))
         urls.add(attachment.url);
       if (options.scanUrls === 1) {
@@ -562,6 +562,7 @@ export class ContentSafetyDetector implements Detector {
         for (const embed of message.embeds || []) {
           if (embed.image?.url) urls.add(embed.image.url);
           if (embed.thumbnail?.url) urls.add(embed.thumbnail.url);
+          if (embed.video?.url) urls.add(embed.video.url);
         }
       }
     }
@@ -585,8 +586,9 @@ export class ContentSafetyDetector implements Detector {
         if (isMessageDeleted?.()) return stopped();
         bytes = media.data.length;
         stage = "frame-extraction";
-        const frames = await sampleImageFrames(
+        const frames = await prepareJevMedia(
           media.data,
+          media.type,
           boundedNumber(options.maxSampleFrames, 6, 1, 12),
         );
         if (isMessageDeleted?.()) return stopped();

@@ -63,6 +63,10 @@ export function isGifAttachment(attachment: MediaAttachment): boolean {
     return attachment.contentType === 'image/gif' || /\.gif$/i.test(attachment.name);
 }
 
+export function isVisualAttachment(attachment: MediaAttachment): boolean {
+    return isImageAttachment(attachment) || attachment.contentType === 'video/mp4' || /\.mp4$/i.test(attachment.name);
+}
+
 export async function downloadAttachment(
     attachment: MediaAttachment,
     maxBytes: number,

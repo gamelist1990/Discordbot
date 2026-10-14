@@ -27,3 +27,7 @@
 関連33テスト通過。実APIで挨拶・物体破壊を違反なし、直接の危害予告を脅迫・暴力として検出することを確認。
 旧方式の開発履歴は `WorkSpace/engineerDocs/discordbot/2026-10-14/` に保存しています。
 詳細は [ai-models.md](./ai-models.md)。
+
+## 動画
+
+画像検査のスイッチでGIFとMP4も検査します。GIF/MP4は時間順の動画としてjevへ渡し、サーバーが16フレームを抽出して判定します。取得上限は既存のmaxFileSizeMb・maxImages。maxSampleFramesはアニメWebP用です。動画キャッシュは本文とbytesの完全一致だけ再利用します。ネタバレ再投稿は元ファイルを保持します。

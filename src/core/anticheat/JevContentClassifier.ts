@@ -38,8 +38,10 @@ export function buildJevModerationRequest(text: string, frames: string[], custom
             criteria: ['違反なし。', '軽微な違反。', '明確な違反。', '深刻な違反。'] };
     }
     return { state: frames.length ? { messages: [{ role: 'user', content: [
-        { type: 'text', text: text || '画像の実際の内容を判定してください。' },
-        ...frames.map(url => ({ type: 'image_url', image_url: { url } })),
+        { type: 'text', text: text || '画像・動画の実際の内容を判定してください。' },
+        ...frames.map(url => /^data:(?:video\/mp4|image\/gif);base64,/.test(url)
+            ? { type: 'video_url', video_url: { url } }
+            : { type: 'image_url', image_url: { url } }),
     ] }] } : text, questions };
 }
 

@@ -75,7 +75,7 @@ async function fetchPublicMediaOnce(input: string, maxBytes: number, timeoutMs: 
     if (!addresses.length || addresses.some(({ address }) => !isPublicAddress(address))) throw new Error('Non-public media host');
     const response = await fetch(url, {
         signal, redirect: 'manual',
-        headers: { Accept: 'image/*,text/html;q=0.8', 'User-Agent': 'PEXServer ContentSafety/1.0' },
+        headers: { Accept: 'image/*,video/mp4,text/html;q=0.8', 'User-Agent': 'PEXServer ContentSafety/1.0' },
     });
     const location = response.headers.get('location');
     if ([301, 302, 303, 307, 308].includes(response.status) && location) {
@@ -105,19 +105,41 @@ async function fetchPublicMediaOnce(input: string, maxBytes: number, timeoutMs: 
     return { data: Buffer.concat(chunks), type: response.headers.get('content-type') || '', url: url.href };
 }
 
-export async function resolveImage(input: string, maxBytes: number): Promise<{ data: Buffer; type: string; url: string }> {
+export async function resolveContentMedia(input: string, maxBytes: number): Promise<{ data: Buffer; type: string; url: string }> {
     const signal = AbortSignal.timeout(12000);
     let result = await fetchPublicMedia(input, maxBytes, 12000, signal);
     if (result.type.includes('text/html')) {
         const $ = load(result.data.toString('utf8'));
-        const image = $('meta[property="og:image"],meta[name="twitter:image"]').first().attr('content');
+        const image = $('meta[property="og:video:secure_url"],meta[property="og:video"]').first().attr('content')
+            || $('meta[property="og:image"],meta[name="twitter:image"]').first().attr('content');
         if (!image) throw new Error('No preview image');
         result = await fetchPublicMedia(new URL(image, result.url).href, maxBytes, 12000, signal);
+    }
+    // MP4 requires an ISO BMFF file-type box, not just a declared MIME type.
+    // The jev API probes and decodes the container before making a decision.
+    if (result.data.length >= 12 && result.data.toString('ascii', 4, 8) === 'ftyp'
+        && /^(?:isom|iso[2-9]|mp4[12]|avc1|M4V |dash)/.test(result.data.toString('ascii', 8, 12))) {
+        return { ...result, type: 'mp4' };
     }
     // Validate actual image bytes; never trust extension or Content-Type alone.
     const metadata = await sharp(result.data, { limitInputPixels: 25_000_000 }).metadata();
     if (!['jpeg', 'png', 'gif', 'webp', 'avif', 'heif'].includes(metadata.format || '')) throw new Error('Unsupported image');
     return { ...result, type: metadata.format || 'png' };
+}
+
+// Keep image-only consumers from accidentally treating a video as an image.
+export async function resolveImage(input: string, maxBytes: number): Promise<{ data: Buffer; type: string; url: string }> {
+    const result = await resolveContentMedia(input, maxBytes);
+    if (result.type === 'mp4') throw new Error('Unsupported image');
+    return result;
+}
+
+export async function prepareJevMedia(data: Buffer, type: string, maxFrames = 6): Promise<string[]> {
+    if (type === 'mp4' || type === 'gif') {
+        const mime = type === 'mp4' ? 'video/mp4' : 'image/gif';
+        return [`data:${mime};base64,${data.toString('base64')}`];
+    }
+    return sampleImageFrames(data, maxFrames);
 }
 
 export async function sampleImageFrames(data: Buffer, maxFrames = 6, encoding: 'auto' | 'jpeg' = 'auto'): Promise<string[]> {

@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildJevModerationRequest, classifyWithJev, verdictFromJev, JEV_CATEGORY_RULES } from '../src/core/anticheat/JevContentClassifier.ts';
 import { jevResponse } from './fixtures/jev.ts';
+import { similarityInput, inputSimilarity } from '../src/core/anticheat/ContentVerdictCache.ts';
 
 test('jev uses evidence gates and severity decisions for every category', () => {
     const request = buildJevModerationRequest('hello', []);
@@ -9,6 +10,19 @@ test('jev uses evidence gates and severity decisions for every category', () => 
     for (const category of Object.keys(JEV_CATEGORY_RULES)) {
         assert.equal((request.questions[category] as any).type, 'noul');
         assert.equal((request.questions[category + '_strength'] as any).type, 'score');
+    }
+});
+
+test('GIF and MP4 use temporal video parts, and video cache requires identical bytes and captions', async () => {
+    const media = ['data:image/gif;base64,R0lGODlh', 'data:video/mp4;base64,AAAA'];
+    for (const url of media) {
+        const request = buildJevModerationRequest('caption', [url]);
+        assert.equal((request.state as any).messages[0].content[1].type, 'video_url');
+        assert.equal((request.state as any).messages[0].content[1].video_url.url, url);
+        const first = await similarityInput('caption', [url]);
+        assert.equal(inputSimilarity(first, await similarityInput('caption', [url])), 1);
+        assert.equal(inputSimilarity(first, await similarityInput('different', [url])), 0);
+        assert.equal(inputSimilarity(first, await similarityInput('caption', [url + 'AA'])), 0);
     }
 });
 
