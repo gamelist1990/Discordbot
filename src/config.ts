@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { Logger } from './utils/Logger.js';
+import { fillMissingConfig } from './utils/configDefaults.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -27,6 +28,8 @@ export interface AppConfig {
     pexAi?: {
         endpoint: string;
         model: string;
+        channelModel?: string;
+        contentSafetyModel?: string;
         fallbackModel: string;
         steps?: Array<{
             model: string;
@@ -48,6 +51,9 @@ try {
     // also trim whitespace
     const cleaned = data.trim();
     raw = JSON.parse(cleaned) as Partial<AppConfig>;
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+        throw new Error('config.json must contain an object');
+    }
 } catch (err) {
     // config.json がないか不正な場合は起動を停止する（env からのフォールバックは禁止）
     try {
@@ -83,6 +89,8 @@ export const config: Required<AppConfig> = {
     pexAi: {
         endpoint: raw.pexAi?.endpoint || 'http://api.pexserver.com:9000/v1',
         model: raw.pexAi?.model || LOCAL_QWEN_MODEL,
+        channelModel: raw.pexAi?.channelModel || 'gemini-3.5-flash-lite',
+        contentSafetyModel: raw.pexAi?.contentSafetyModel || 'jev',
         fallbackModel: raw.pexAi?.fallbackModel || '',
         steps: Array.isArray(raw.pexAi?.steps)
             ? raw.pexAi.steps
@@ -108,6 +116,21 @@ export const config: Required<AppConfig> = {
     },
 };
 
+// Updating the application also migrates an older host's local config on startup.
+// Never replace explicit settings or log credentials.
+const migration = fillMissingConfig(raw as Record<string, unknown>, config as unknown as Record<string, unknown>);
+if (migration.added.length > 0) {
+    const temporaryPath = `${configPath}.${process.pid}.tmp`;
+    try {
+        fs.writeFileSync(temporaryPath, `${JSON.stringify(migration.value, null, 4)}\n`, { mode: 0o600, flag: 'wx' });
+        fs.renameSync(temporaryPath, configPath);
+        Logger.info(`[Config] Added missing defaults: ${migration.added.join(', ')}`);
+    } catch (err) {
+        Logger.warn(`[Config] Could not save missing defaults; runtime defaults remain active. error=${String(err)}`);
+    } finally {
+        try { fs.unlinkSync(temporaryPath); } catch { /* already renamed or never created */ }
+    }
+}
 
 export default config;
 

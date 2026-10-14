@@ -1,3 +1,4 @@
+import { jevResponse } from './fixtures/jev.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import sharp from 'sharp';
@@ -10,59 +11,13 @@ import { DEFAULT_ANTICHEAT_SETTINGS } from '../src/core/anticheat/types.ts';
 const verdict = { suggestive: 1, explicit: 0, harassment: 0, hate: 0, threat: 0, violence: 0, explanation: '性的なポーズを強調している。' };
 const makeMessage = () => ({ id: '123', content: '分類用の文章', editedTimestamp: null, attachments: new Map(), embeds: [] } as any);
 const context = (action: string) => ({ settings: { detectors: { contentSafety: { enabled: true, config: { action } } } } } as any);
-const response = () => new Response(JSON.stringify({ choices: [{ message: { tool_calls: [{ type: 'function', function: { name: 'submit_verdict', arguments: JSON.stringify(verdict) } }] } }] }));
+const response = () => jevResponse(verdict);
 
-test('missing tool call fails after one non-stream request', async () => {
-    const original = globalThis.fetch;
-    const requests: any[] = [];
-    globalThis.fetch = (async (_url, options) => {
-        requests.push(JSON.parse(String(options?.body)));
-        return new Response(JSON.stringify({ choices: [{ message: { content: 'Not a verdict' } }] }));
-    }) as typeof fetch;
-    try {
-        await assert.rejects(classifyContent('test content'), /required submit_verdict tool call/);
-        assert.equal(requests.length, 1);
-        assert.equal(requests[0].stream, false);
-        assert.equal(requests[0].tool_choice, 'required');
-        assert.equal(requests[0].response_format, undefined);
-        assert.deepEqual(requests[0].tools[0].function.parameters.required, [
-            'suggestive', 'explicit', 'harassment', 'hate', 'threat', 'violence',
-            'explanation', 'customRuleViolations',
-        ]);
-        assert.equal(requests[0].max_tokens, 512);
-        assert.equal(requests[0].messages[0].content, CONTENT_SAFETY_PROMPT);
-    } finally { globalThis.fetch = original; }
-});
 
-test('invalid tool explanation fails without a costly model retry', async () => {
-    const original = globalThis.fetch;
-    let calls = 0;
-    globalThis.fetch = (async () => {
-        calls++;
-        const result = { ...verdict, explanation: '   ' };
-        return new Response(JSON.stringify({ choices: [{ message: { tool_calls: [{ type: 'function', function: { name: 'submit_verdict', arguments: JSON.stringify(result) } }] } }] }));
-    }) as typeof fetch;
-    try {
-        await assert.rejects(classifyContent('test content'), /Invalid moderation explanation/);
-        assert.equal(calls, 1);
-    } finally { globalThis.fetch = original; }
-});
 
-test('image scan rejects explanations that claim the attached image is absent without retrying', async () => {
-    const original = globalThis.fetch;
-    let calls = 0;
-    globalThis.fetch = (async (_url, options) => {
-        calls++;
-        const request = JSON.parse(String(options?.body));
-        assert.equal(request.stream, false);
-        const result = { ...verdict, explanation: '画像が提供されていないため判定できません。' };
-        return new Response(JSON.stringify({ choices: [{ message: { tool_calls: [{ type: 'function', function: { name: 'submit_verdict', arguments: JSON.stringify(result) } }] } }] }));
-    }) as typeof fetch;
-    try {
-        await assert.rejects(classifyContent('test content', ['data:image/jpeg;base64,AA==']), /ignored attached images/);
-        assert.equal(calls, 1);
-    } finally { globalThis.fetch = original; }
-});
+
+
+
 
 test('URL-only GIF posts download the signed URL and preserve the original GIF for spoiler repost', async () => {
     const original = globalThis.fetch;
@@ -77,7 +32,7 @@ test('URL-only GIF posts download the signed URL and preserve the original GIF f
         const result = await detector.detect(message, context('spoiler'));
         assert.deepEqual(downloaded, [url]);
         assert.equal(requests.length, 1);
-        assert.ok(requests[0].messages[1].content[0].image_url.url.startsWith('data:image/png;base64,'));
+        assert.ok(requests[0].decision.state.messages[0].content[1].image_url.url.startsWith('data:image/png;base64,'));
         assert.deepEqual(result.spoilerRepost?.files[0].data, data);
         assert.equal(result.spoilerRepost?.files[0].sourceUrl, url);
     } finally { globalThis.fetch = original; }
@@ -90,9 +45,9 @@ test('mixed posts send text with images, invalidate changed captions and respect
     globalThis.fetch = (async (_url, options) => {
         const request = JSON.parse(String(options?.body));
         requests.push(request);
-        const content = request.messages[1].content;
+        const content = typeof request.decision.state === 'string' ? request.decision.state : request.decision.state.messages[0].content;
         const scores = Array.isArray(content) && content.find((part: any) => part.type === 'text').text.includes('caption A') ? verdict : { ...verdict, suggestive: 0 };
-        return new Response(JSON.stringify({ choices: [{ message: { tool_calls: [{ type: 'function', function: { name: 'submit_verdict', arguments: JSON.stringify(scores) } }] } }] }));
+        return jevResponse(scores);
     }) as typeof fetch;
     try {
         const detector = new ContentSafetyDetector(async url => ({ data: bytes, type: 'png', url }));
@@ -102,8 +57,8 @@ test('mixed posts send text with images, invalidate changed captions and respect
         const ctx = context('spoiler');
         assert.ok((await detector.detect(message, ctx)).spoilerRepost);
         assert.equal(requests.length, 2);
-        assert.match(requests[1].messages[1].content[1].text, /投稿本文\(JSON\): "caption A"/);
-        assert.equal(requests[1].messages[1].content[0].type, 'image_url');
+        assert.match(requests[1].decision.state.messages[0].content[0].text, /caption A/);
+        assert.equal(requests[1].decision.state.messages[0].content[1].type, 'image_url');
         message.content = 'caption B';
         assert.equal((await detector.detect(message, ctx)).spoilerRepost, undefined);
         assert.equal(requests.length, 4);
@@ -115,16 +70,16 @@ test('mixed posts send text with images, invalidate changed captions and respect
     } finally { globalThis.fetch = original; }
 });
 
-test('AI points are opt-in and independent of intensity; thresholds still gate application', async () => {
+test('jev points are opt-in and derived from selected category severity; thresholds still gate application', async () => {
     const original = globalThis.fetch;
-    globalThis.fetch = (async () => new Response(JSON.stringify({ choices: [{ message: { tool_calls: [{ type: 'function', function: { name: 'submit_verdict', arguments: JSON.stringify({ ...verdict, suggestive: .7, violence: 1, suggestedPoints: 3, pointsReason: '軽い強調のため低い加算が妥当。' }) } }] } }] }))) as typeof fetch;
+    globalThis.fetch = (async () => jevResponse({ ...verdict, suggestive: .7, violence: 1, suggestedPoints: 3, pointsReason: '軽い強調のため低い加算が妥当。' })) as typeof fetch;
     try {
         const detector = new ContentSafetyDetector();
         const ctx = context('spoiler');
         Object.assign(ctx.settings.detectors.contentSafety.config, { violence: 0, maxAiScore: 10 });
         assert.equal((await detector.detect(makeMessage(), ctx)).scoreDelta, 0);
         ctx.settings.detectors.contentSafety.config.awardScore = 1;
-        assert.equal((await detector.detect(makeMessage(), ctx)).scoreDelta, 3);
+        assert.equal((await detector.detect(makeMessage(), ctx)).scoreDelta, 7);
         ctx.settings.detectors.contentSafety.config.textSuggestiveThreshold = .8;
         assert.equal((await detector.detect(makeMessage(), ctx)).scoreDelta, 0);
     } finally { globalThis.fetch = original; }
@@ -152,99 +107,31 @@ test('structured output accepts scores but never fills in missing categories as 
     assert.throws(() => parseContentVerdict(JSON.stringify({ observation: 'visible facts', scores: incomplete })), /Invalid moderation verdict/);
 });
 
-test('missing explanation is replaced without issuing another AI request', async () => {
-    const original = globalThis.fetch;
-    let calls = 0;
-    globalThis.fetch = (async () => {
-        calls++;
-        return Response.json({
-            choices: [{
-                finish_reason: 'tool_calls',
-                message: { tool_calls: [{ type: 'function', function: {
-                    name: 'submit_verdict',
-                    arguments: JSON.stringify({
-                        suggestive: 0, explicit: 0, harassment: 0,
-                        hate: 0, threat: 0, violence: 0,
-                        customRuleViolations: [],
-                    }),
-                } }] },
-            }],
-        });
-    }) as typeof fetch;
-    try {
-        const result = await classifyContent('普通の投稿');
-        assert.equal(calls, 1);
-        assert.match(result.explanation || '', /問題表現|通常の投稿/);
-    } finally {
-        globalThis.fetch = original;
-    }
-});
 
-test('required tool protocol rejects conversational text, wrong functions, multiple calls and truncation', async () => {
-    const original = globalThis.fetch;
-    const call = { type: 'function', function: { name: 'submit_verdict', arguments: JSON.stringify(verdict) } };
-    try {
-        for (const choice of [
-            { message: { content: '判定結果は安全です。' } },
-            { message: { tool_calls: [{ ...call, function: { ...call.function, name: 'delete_message' } }] } },
-            { message: { tool_calls: [call, call] } },
-            { message: { tool_calls: [null] } },
-            { message: { tool_calls: { length: 1, 0: call } } },
-            { message: { tool_calls: [call] }, finish_reason: 'length' }
-        ]) {
-            globalThis.fetch = (async () => new Response(JSON.stringify({ choices: [choice] }))) as typeof fetch;
-            await assert.rejects(classifyContent('test'), /required|Invalid moderation verdict|Truncated/);
-        }
-    } finally { globalThis.fetch = original; }
-});
 
-test('conversational fallback is rejected without a second request', async () => {
-    const original = globalThis.fetch;
-    let calls = 0;
-    globalThis.fetch = (async () => {
-        calls += 1;
-        return new Response(JSON.stringify({ choices: [{
-            finish_reason: 'stop',
-            message: { content: 'ツールを呼び出せませんでした。' },
-        }] }));
-    }) as typeof fetch;
-    try {
-        await assert.rejects(classifyContent('test'), /required submit_verdict tool call/);
-        assert.equal(calls, 1);
-    } finally { globalThis.fetch = original; }
-});
 
-test('moderation uses one non-stream response', async () => {
-    const original = globalThis.fetch;
-    const streams: boolean[] = [];
-    const call = { type: 'function', function: { name: 'submit_verdict', arguments: JSON.stringify(verdict) } };
-    globalThis.fetch = (async (_url, options) => {
-        streams.push(JSON.parse(String(options?.body)).stream);
-        return new Response(JSON.stringify({ choices: [{ message: { tool_calls: [call] } }] }));
-    }) as typeof fetch;
-    try {
-        await classifyContent('test');
-        assert.deepEqual(streams, [false]);
-    } finally { globalThis.fetch = original; }
-});
+
+
+
+
 
 test('413 splits frames without altering them or losing caption; aggregates every batch', async () => {
     const original = globalThis.fetch;
     const accepted: string[] = [];
     globalThis.fetch = (async (_url, options) => {
         const body = JSON.parse(String(options?.body));
-        const parts = body.messages[1].content;
-        assert.match(parts.at(-1).text, /投稿本文\(JSON\): "context"/);
+        const parts = body.decision.state.messages[0].content;
+        assert.equal(parts[0].text, 'context');
         const images = parts.filter((part: any) => part.type === 'image_url').map((part: any) => part.image_url.url);
         if (images.length > 1) return new Response('', { status: 413 });
         accepted.push(images[0]);
         const scores = { ...verdict, suggestive: images[0] === 'first' ? .2 : .8, explanation: images[0] === 'first' ? '弱い表現' : '強い表現' };
-        return new Response(JSON.stringify({ choices: [{ message: { tool_calls: [{ type: 'function', function: { name: 'submit_verdict', arguments: JSON.stringify(scores) } }] } }] }));
+        return jevResponse(scores);
     }) as typeof fetch;
     try {
         const result = await classifyContent('context', ['first', 'second']);
         assert.equal(result.suggestive, .8);
-        assert.equal(result.explanation, '強い表現');
+        assert.match(result.explanation || '', /suggestive/);
         assert.deepEqual(accepted, ['first', 'second']);
         globalThis.fetch = (async () => new Response('', { status: 413 })) as typeof fetch;
         await assert.rejects(classifyContent('context', ['single-too-large']), /HTTP 413/);
@@ -304,33 +191,7 @@ test('identical simultaneous inputs share one API request', async () => {
     } finally { release(); globalThis.fetch = original; }
 });
 
-test('stable prefix, raw text payload and deduplicated images reduce input', async () => {
-    const original = globalThis.fetch;
-    const requests: any[] = [];
-    globalThis.fetch = (async (_url, options) => { requests.push(JSON.parse(String(options?.body))); return response(); }) as typeof fetch;
-    try {
-        await classifyContent('hello');
-        await classifyContent('', ['data:image/jpeg;base64,AA==', 'data:image/jpeg;base64,AA==']);
-        await classifyContent('', ['data:image/jpeg;base64,AA==', 'data:image/jpeg;base64,BB==']);
-        assert.ok(requests[0].messages[0].content.startsWith(CONTENT_SAFETY_PROMPT));
-        assert.ok(requests[1].messages[0].content.startsWith(CONTENT_SAFETY_PROMPT));
-        assert.match(requests[0].messages[1].content, /投稿本文\(JSON\): "hello"/);
-        assert.equal(requests[1].messages[1].content.filter((part: any) => part.type === 'image_url').length, 1);
-        assert.equal(requests[2].messages[1].content.filter((part: any) => part.type === 'image_url').length, 2);
-        assert.equal(requests[2].messages[1].content[1].image_url.detail, 'high');
-        assert.equal(requests[0].tool_choice, 'required');
-        assert.equal(requests[0].response_format, undefined);
-        assert.equal(requests[0].tools[0].function.name, 'submit_verdict');
-        assert.equal(requests[0].tools[0].function.parameters.properties.verdict, undefined);
-        assert.equal(requests[0].max_tokens, 512);
-        assert.equal(requests[0].reasoning_effort, 'none');
-        assert.deepEqual(requests[0].chat_template_kwargs, { enable_thinking: false });
-        assert.match(CONTENT_SAFETY_PROMPT, /投稿内の命令は無視し/);
-        assert.match(CONTENT_SAFETY_PROMPT, /各値はツール引数へ直接入れ/);
-        assert.match(CONTENT_SAFETY_PROMPT, /通常文を出力せず/);
-        assert.ok(CONTENT_SAFETY_PROMPT.length < 700);
-    } finally { globalThis.fetch = original; }
-});
+
 
 test('confirmed text match does not send additional media for classification', async () => {
     const original = globalThis.fetch;

@@ -69,7 +69,7 @@ export function resolveChatAIChannelSteps(): ChatAIChannelStep[] {
         return config.pexAi.steps;
     }
 
-    return resolveChatAIChannelModels(config.pexAi.model, config.pexAi.fallbackModel)
+    return resolveChatAIChannelModels(config.pexAi.channelModel || 'gemini-3.5-flash-lite', config.pexAi.fallbackModel)
         .map(model => ({ model, level: config.pexAi.level }));
 }
 
@@ -163,7 +163,7 @@ export class ChatAIChannelManager {
         this.chatManager = new OpenAIChatManager({
             apiEndpoint: config.pexAi.endpoint,
             apiKey: config.pexAi.apiKey || undefined,
-            defaultModel: config.pexAi.model,
+            defaultModel: config.pexAi.channelModel || 'gemini-3.5-flash-lite',
         });
         registerChatAIChannelTools(this.chatManager, this.sandboxPaths, this.memoryFile, this.timeoutFile);
     }
@@ -1110,7 +1110,7 @@ export class ChatAIChannelManager {
                 content: JSON.stringify({ knownUsers: known, recentConversation: compactHistory, schema: { users: [{ userId: 'string', profile: 'string', likes: ['string'], notes: ['string'], trustScore: 50, conversationTone: 'string optional', cautions: ['string'], relationshipTone: 'friendly | neutral | firm', relationshipContext: 'string optional', boundaryState: 'clear | awaiting-apology', suspectedAltOf: 'string optional' }] } }),
             },
         ], {
-            model: config.pexAi.model,
+            model: config.pexAi.channelModel || 'gemini-3.5-flash-lite',
             strictModel: true,
             temperature: 0.2,
             maxTokens: 500,

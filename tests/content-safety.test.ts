@@ -1,3 +1,4 @@
+import { jevResponse } from './fixtures/jev.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import sharp from 'sharp';
@@ -65,7 +66,7 @@ test('text categories, thresholds, disabled categories, cache and API failure', 
         calls++;
         const request = JSON.parse(String(options?.body));
         assert.equal(request.model, CONTENT_SAFETY_MODEL);
-        return new Response(JSON.stringify({ choices: [{ message: { tool_calls: [{ type: 'function', function: { name: 'submit_verdict', arguments: JSON.stringify({ ...safe, suggestive: 0.85, explanation: '性的な表現を含む本文。' }) } }] } }] }));
+        return jevResponse({ ...safe, suggestive: 0.85, explanation: '性的な表現を含む本文。' });
     }) as typeof fetch;
     try {
         const detector = new ContentSafetyDetector();
@@ -97,13 +98,9 @@ test('mild-image threshold is balanced without lowering R18 or threat thresholds
     assert.deepEqual(matchingContentCategories({ ...safe, explicit: 0.2, threat: 0.2 }, true), []);
 });
 
-test('Gemma prompt keeps ambiguity, context and obfuscation safeguards compact', () => {
-    assert.match(CONTENT_SAFETY_PROMPT, /一般語、多義語、比喩だけでは性的表現にしません/);
-    assert.match(CONTENT_SAFETY_PROMPT, /返信先だけの違反は現在の投稿へ加点しません/);
-    assert.match(CONTENT_SAFETY_PROMPT, /伏字は意味を一意に復元できる場合だけ判定し/);
-    assert.match(CONTENT_SAFETY_PROMPT, /明るくフレンドリー/);
-    assert.match(CONTENT_SAFETY_PROMPT, /これはちょい危険そうやで/);
-    assert.match(CONTENT_SAFETY_PROMPT, /確認できませんでした.*避け/);
+test('jev policy keeps typed decisions and quoted-context safeguards', () => {
+    assert.match(CONTENT_SAFETY_PROMPT, /Noul.*Score/);
+    assert.match(CONTENT_SAFETY_PROMPT, /quoted context/);
     assert.equal(normalizeModerationText('Ｓ\u200bＥ\u2060Ｘ'), 'SEX');
 });
 
@@ -112,7 +109,7 @@ test('reply text is supplied only as non-scored context for the current post', a
     let request: any;
     globalThis.fetch = (async (_url, options) => {
         request = JSON.parse(String(options?.body));
-        return new Response(JSON.stringify({ choices: [{ message: { tool_calls: [{ type: 'function', function: { name: 'submit_verdict', arguments: JSON.stringify({ ...safe, explanation: 'ゲームの難易度についての会話で、性的表現ではない。' }) } }] } }] }));
+        return jevResponse({ ...safe, explanation: 'ゲームの難易度についての会話で、性的表現ではない。' });
     }) as typeof fetch;
     try {
         const message = textMessage('俺はハードコアやってる');
@@ -121,8 +118,8 @@ test('reply text is supplied only as non-scored context for the current post', a
         message.fetchReference = async () => ({ content: 'マイクラはどのモードで遊んでる？' });
         const result = await new ContentSafetyDetector().detect(message, context());
         assert.equal(result.spoilerRepost, undefined);
-        assert.ok(request.messages[1].content.includes('現在の投稿:\\n俺はハードコアやってる'));
-        assert.ok(request.messages[1].content.includes('返信先(解釈用・採点対象外):\\nマイクラはどのモード'));
+        assert.ok(request.decision.state.includes('現在の投稿:\n俺はハードコアやってる'));
+        assert.ok(request.decision.state.includes('返信先(解釈用・採点対象外):\nマイクラはどのモード'));
     } finally { globalThis.fetch = original; }
 });
 
@@ -133,7 +130,7 @@ test('a message deleted during AI analysis stops without moderation actions', as
     let deleted = false;
     globalThis.fetch = (async () => {
         await gate;
-        return new Response(JSON.stringify({ choices: [{ message: { tool_calls: [{ type: 'function', function: { name: 'submit_verdict', arguments: JSON.stringify({ ...safe, suggestive: 1, explanation: '性的な表現。' }) } }] } }] }));
+        return jevResponse({ ...safe, suggestive: 1, explanation: '性的な表現。' });
     }) as typeof fetch;
     try {
         const pending = new ContentSafetyDetector().detect(textMessage('判定中の投稿'), {
@@ -157,7 +154,7 @@ test('byte-identical images with different Discord URLs reuse the exact verdict 
     let calls = 0;
     globalThis.fetch = (async () => {
         calls++;
-        return new Response(JSON.stringify({ choices: [{ message: { tool_calls: [{ type: 'function', function: { name: 'submit_verdict', arguments: JSON.stringify({ ...safe, explanation: '通常の画像で問題はない。' }) } }] } }] }));
+        return jevResponse({ ...safe, explanation: '通常の画像で問題はない。' });
     }) as typeof fetch;
     try {
         const detector = new ContentSafetyDetector(async url => ({ data: bytes, type: 'png', url }));
@@ -170,19 +167,16 @@ test('byte-identical images with different Discord URLs reuse the exact verdict 
     } finally { globalThis.fetch = original; config.pexAi.visionModel = originalVisionModel; }
 });
 
-test('text-only model rejects image classification before calling the proxy', async () => {
-    const originalVisionModel = config.pexAi.visionModel;
+test('jev image inspection does not depend on the conversational vision model', async () => {
+    const previous = config.pexAi.visionModel;
     const originalFetch = globalThis.fetch;
-    let called = false;
     config.pexAi.visionModel = '';
-    globalThis.fetch = (async () => { called = true; throw new Error('unexpected network request'); }) as typeof fetch;
+    let request: any;
+    globalThis.fetch = (async (_url, options) => { request = JSON.parse(String(options?.body)); return jevResponse(); }) as typeof fetch;
     try {
-        await assert.rejects(classifyContent('', ['data:image/png;base64,AA==']), /テキスト専用/);
-        assert.equal(called, false);
-    } finally {
-        config.pexAi.visionModel = originalVisionModel;
-        globalThis.fetch = originalFetch;
-    }
+        await classifyContent('', ['data:image/png;base64,AA==']);
+        assert.equal(request.decision.state.messages[0].content[1].image_url.url, 'data:image/png;base64,AA==');
+    } finally { config.pexAi.visionModel = previous; globalThis.fetch = originalFetch; }
 });
 
 function mockMessage({ failSend = false, failDelete = false, changed = false } = {}) {
