@@ -14,11 +14,12 @@ export default {
         const durationOption = new SlashCommandStringOption()
             .setName('duration')
             .setDescription('時間（例: 1s, 5m, 2h, 1d, 1h30m）または "clear" で解除')
-            .setRequired(false);
+            .setRequired(true);
 
         const reasonOption = new SlashCommandStringOption()
             .setName('reason')
             .setDescription('理由（任意）')
+            .setMaxLength(512)
             .setRequired(false);
 
         return subcommand
@@ -49,7 +50,7 @@ export default {
         }
 
         const user = interaction.options.getUser('target', true);
-        const durationStr = interaction.options.getString('duration', false);
+        const durationStr = interaction.options.getString('duration', true).trim();
         const reason = interaction.options.getString('reason', false) || `Command by ${interaction.user.tag}`;
 
         await interaction.deferReply({ ephemeral: true });
@@ -61,15 +62,9 @@ export default {
                 return;
             }
 
-            // 操作可能チェック
-            if (!member.manageable) {
-                await interaction.editReply({ content: '❌ このユーザーに対して操作できません。ロール階層や権限を確認してください。' });
-                return;
-            }
-            if (!member.moderatable) {
-                await interaction.editReply({ content: '❌ このユーザーのタイムアウトを操作できません。ボットの権限を確認してください。' });
-                return;
-            }
+            const isClear = durationStr.toLowerCase() === 'clear';
+
+            // 操作可能チェック。実行者と Bot の両方のロール階層を確認する。
             if (member.id === interaction.user.id) {
                 await interaction.editReply({ content: '❌ 自分自身をタイムアウトすることはできません。' });
                 return;
@@ -78,13 +73,27 @@ export default {
                 await interaction.editReply({ content: '❌ サーバー所有者をタイムアウトすることはできません。' });
                 return;
             }
-            if (member.permissions?.has(PermissionFlagsBits.Administrator)) {
+            if (interaction.user.id !== interaction.guild.ownerId) {
+                const actor = await interaction.guild.members.fetch(interaction.user.id);
+                if (member.roles.highest.comparePositionTo(actor.roles.highest) >= 0) {
+                    await interaction.editReply({ content: '❌ 自分と同じ、または上位のロールを持つユーザーは操作できません。' });
+                    return;
+                }
+            }
+            if (!member.manageable) {
+                await interaction.editReply({ content: '❌ このユーザーに対して操作できません。ロール階層や権限を確認してください。' });
+                return;
+            }
+            if (!isClear && !member.moderatable) {
+                await interaction.editReply({ content: '❌ このユーザーのタイムアウトを操作できません。ボットの権限を確認してください。' });
+                return;
+            }
+            if (!isClear && member.permissions.has(PermissionFlagsBits.Administrator)) {
                 await interaction.editReply({ content: '❌ 管理者権限を持つユーザーをタイムアウトすることはできません。' });
                 return;
             }
 
-            // clear または 未指定 -> 解除
-            if (!durationStr || durationStr.toLowerCase() === 'clear') {
+            if (isClear) {
                 // timeout を解除
                 // discord.js v14: member.timeout(null) で解除
                 try {
@@ -148,32 +157,19 @@ export default {
 };
 
 /**
- * 簡易的な時間文字列パーサ
- * サポート: 数値 + s|m|h|d
- * 例: 30s, 5m, 2h, 1d
+ * 例: 30s, 5m, 2h, 1d, 1h30m
  */
-function parseDurationToMs(input: string): number | null {
-    if (!input) return null;
+export function parseDurationToMs(input: string): number | null {
     const trimmed = input.trim().toLowerCase();
-    const match = /^([0-9]+)\s*(s|m|h|d)$/.exec(trimmed);
-    if (!match) return null;
+    if (!/^(?:\d+[smhd])+$/.test(trimmed)) return null;
 
-    const value = Number(match[1]);
-    const unit = match[2];
-
-    if (isNaN(value) || value <= 0) return null;
-
-    switch (unit) {
-        case 's':
-            return value * 1000;
-        case 'm':
-            return value * 60 * 1000;
-        case 'h':
-            return value * 60 * 60 * 1000;
-        case 'd':
-            return value * 24 * 60 * 60 * 1000;
-        default:
-            return null;
+    const units: Record<string, number> = { s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000 };
+    let total = 0;
+    for (const [, amount, unit] of trimmed.matchAll(/(\d+)([smhd])/g)) {
+        const value = Number(amount);
+        if (!Number.isSafeInteger(value)) return null;
+        total += value * units[unit];
+        if (!Number.isSafeInteger(total)) return null;
     }
+    return total > 0 ? total : null;
 }
-

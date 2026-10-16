@@ -1,6 +1,7 @@
 // src/commands/staff/subcommands/ai.ts
 import { ChatInputCommandInteraction, MessageFlags, DiscordAPIError } from 'discord.js';
 import { OpenAIChatManager } from '../../../core/ai/OpenAIChatManager.js';
+import { GEMMA_MODEL } from '../../../config.js';
 import { OpenAIChatCompletionMessage } from '../../../types/openai.js';
 import { statusToolDefinition, statusToolHandler, weatherToolDefinition, weatherToolHandler, timeToolDefinition, timeToolHandler, countPhraseToolDefinition, countPhraseToolHandler, userInfoToolDefinition, userInfoToolHandler, antiCheatUserProfileDefinition, antiCheatUserProfileHandler, memoListDefinition, memoListHandler, memoGetDefinition, memoGetHandler, memoCreateDefinition, memoCreateHandler, memoUpdateDefinition, memoUpdateHandler, memoDeleteDefinition, memoDeleteHandler, memoSearchDefinition, memoSearchHandler, collectHistoryDefinition, collectHistoryHandler, fetchMessageLinkDefinition, fetchMessageLinkHandler } from './ai-tools/index.js';
 import { PdfRAGManager } from '../../../core/ai/PdfRAGManager.js';
@@ -206,10 +207,7 @@ export const subcommandHandler = {
 
                     // サイズチェック（トークン制限を避けるため）
                     if (content.length > 10000) { // 約10KB
-                        await interaction.reply({
-                            content: '❌ 添付ファイルが大きすぎます。10KB以内のファイルのみ対応しています。',
-                            flags: MessageFlags.Ephemeral
-                        });
+                        await safeRespond({ content: '❌ 添付ファイルが大きすぎます。10KB以内のファイルのみ対応しています。' });
                         return;
                     }
 
@@ -324,7 +322,7 @@ export const subcommandHandler = {
         let interactionExpired = false;
 
         try {
-            // 設定済みの Pexserver OpenAI 互換 API と既定モデルを利用する。
+            // /staff ai は汎用AIの設定変更に影響されず Gemma 4 E4B を使う。
             await chatManager.streamText(
                 messages,
                 (text) => {
@@ -336,7 +334,7 @@ export const subcommandHandler = {
                         updateDiscordMessage(interaction, formatResponse(responseContent));
                     }
                 },
-                { maxTokens: 2048 }
+                { model: GEMMA_MODEL, strictModel: true, maxTokens: 2048 }
             );
 
             // 完了としてマーク
@@ -379,18 +377,16 @@ export const subcommandHandler = {
                         // 再構築: system を保守的モードにして、最新の user メッセージを置換
                         const retryMessages = messages.map(m => ({ ...m }));
                         if (retryMessages.length > 0) retryMessages[0] = { role: 'system', content: mergeSystemPrompts(defaultSystemPrompt, null, true) };
-                        // find last user message that starts with '### ユーザープロンプト'
+                        // 現在のユーザープロンプトを安全化した内容に置き換える。
                         for (let i = retryMessages.length - 1; i >= 0; i--) {
-                            // 修正: 要素を一時変数に取り出してから content を安全にチェックする
                             const entry = retryMessages[i];
-                            const content = entry?.content;
-                            if (entry?.role === 'user' && typeof content === 'string' && content.startsWith('### ユーザープロンプト')) {
+                            if (entry?.role === 'user' && entry.content === userContentText) {
                                 retryMessages[i] = { role: 'user', content: sanitizedUserContentText };
                                 break;
                             }
                         }
 
-                        // 設定済みの Pexserver モデルで安全化した入力を再試行する。
+                        // 再試行時も同じ Gemma 4 E4B を使う。
                         try {
                             responseContent = '';
                             await chatManager.streamText(retryMessages, (text) => {
@@ -400,7 +396,7 @@ export const subcommandHandler = {
                                     lastUpdateTime = now2;
                                     updateDiscordMessage(interaction, formatResponse(responseContent));
                                 }
-                            }, { maxTokens: 2048 });
+                            }, { model: GEMMA_MODEL, strictModel: true, maxTokens: 2048 });
 
                             // 成功したら送信
                             await safeRespond({ content: formatResponse(responseContent, true) });
@@ -456,7 +452,7 @@ export const subcommandHandler = {
         }
 
         // 何らかの理由で完了せずに終了した場合、現在の内容で更新
-        if (!isCompleted && !interactionExpired) {
+        if (!isCompleted && !interactionExpired && responseContent.trim()) {
             try {
                 await safeRespond({ content: formatResponse(responseContent, true) });
             } catch (e) {
