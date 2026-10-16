@@ -7,7 +7,7 @@ import { fillMissingConfig } from './utils/configDefaults.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-export const LOCAL_QWEN_MODEL = 'qwen3.5-4b-ja-en-vulkan';
+export const GEMMA_MODEL = 'gemma-4-E4B-it';
 
 export interface AppConfig {
     token?: string;
@@ -78,7 +78,7 @@ export const config: Required<AppConfig> = {
     openai: {
         apiKey: raw.openai?.apiKey || '',
         apiEndpoint: raw.openai?.apiEndpoint || '',
-        defaultModel: raw.openai?.defaultModel || LOCAL_QWEN_MODEL,
+        defaultModel: raw.openai?.defaultModel || GEMMA_MODEL,
         proxyEndpoints: Array.isArray(raw.openai?.proxyEndpoints)
             ? raw.openai?.proxyEndpoints.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
             : [],
@@ -88,9 +88,9 @@ export const config: Required<AppConfig> = {
     },
     pexAi: {
         endpoint: raw.pexAi?.endpoint || 'http://api.pexserver.com:9000/v1',
-        model: raw.pexAi?.model || LOCAL_QWEN_MODEL,
+        model: raw.pexAi?.model || GEMMA_MODEL,
         channelModel: raw.pexAi?.channelModel || 'gemini-3.5-flash-lite',
-        contentSafetyModel: raw.pexAi?.contentSafetyModel || 'jev',
+        contentSafetyModel: raw.pexAi?.contentSafetyModel || 'jeff-base',
         fallbackModel: raw.pexAi?.fallbackModel || '',
         steps: Array.isArray(raw.pexAi?.steps)
             ? raw.pexAi.steps

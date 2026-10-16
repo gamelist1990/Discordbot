@@ -42,7 +42,7 @@ test('missing categories and conversational replies fail without manufacturing s
     assert.throws(() => verdictFromJev({ answers: {} }), /Invalid jev/);
     const original = globalThis.fetch;
     globalThis.fetch = (async () => new Response(JSON.stringify({ choices: [{ message: { content: 'not a decision' } }] }))) as typeof fetch;
-    try { await assert.rejects(classifyWithJev('test', [], 1000, false, undefined, 'jev', [], ''), /JSON|Unexpected/); }
+    try { await assert.rejects(classifyWithJev('test', [], 1000, false, undefined, 'jeff-base', [], ''), /JSON|Unexpected/); }
     finally { globalThis.fetch = original; }
 });
 
@@ -60,8 +60,8 @@ test('decision request preserves attached frames and records zero generated toke
     globalThis.fetch = (async (_url, options) => { sent = JSON.parse(String(options?.body)); return jevResponse(); }) as typeof fetch;
     const metrics: any[] = [];
     try {
-        await classifyWithJev('caption', ['data:image/png;base64,AA=='], 1000, false, undefined, 'jev', metrics, '');
-        assert.equal(sent.model, 'jev');
+        await classifyWithJev('caption', ['data:image/png;base64,AA=='], 1000, false, undefined, 'jeff-base', metrics, '');
+        assert.equal(sent.model, 'jeff-base');
         assert.equal(sent.stream, false);
         assert.equal(sent.tools, undefined);
         assert.equal(sent.decision.state.messages[0].content[0].text, 'caption');

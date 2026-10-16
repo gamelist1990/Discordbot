@@ -1,12 +1,12 @@
 # Discord BotのAI分担
 
-2026-10-14。
+2026-10-15。
 
 | 機能 | モデル |
 | --- | --- |
 | 常駐チャンネルAI・会話メモ更新 | Gemini (`pexAi.channelModel`) |
-| コンテンツ検査（文章・画像・GIF・MP4） | jev (`pexAi.contentSafetyModel`) |
-| その他の既存汎用AI | Qwen (`pexAi.model` / `openai.defaultModel`) |
+| コンテンツ検査（文章・画像・GIF・MP4） | Jeff-base on A8 (`pexAi.contentSafetyModel`) |
+| その他の既存汎用AI | Gemma 4 E4B on A8 (`pexAi.model` / `openai.defaultModel`) |
 | 通常チャンネルでのメンションAI | 廃止 |
 
 `MentionAISupportManager` の起動・終了処理、実装、専用テストを削除。
@@ -38,9 +38,9 @@ API失敗や不完全な判定は既存の失敗経路へ渡し、テストで�
 {
   "pexAi": {
     "endpoint": "http://api.pexserver.com:9000/v1",
-    "model": "qwen3.5-4b-ja-en-vulkan",
+    "model": "gemma-4-E4B-it",
     "channelModel": "gemini-3.5-flash-lite",
-    "contentSafetyModel": "jev",
+    "contentSafetyModel": "jeff-base",
     "fallbackModel": "",
     "steps": [{ "model": "gemini-3.5-flash-lite", "level": 3 }],
     "visionModel": "gemini-3.5-flash-lite"
@@ -64,7 +64,7 @@ API失敗や不完全な判定は既存の失敗経路へ渡し、テストで�
 
 ## 古いホスト設定の自動補完
 
-アプリ更新後の起動時に`config.ts`が既存`config.json`を読み、存在しない項目だけを既定値で追加して保存します。`pexAi.contentSafetyModel`が未設定なら`jev`が自動追加されます。既存のモデル、APIキー、未知の項目、空配列や明示値を保持し、二度目以降は変更しません。保存は権限600の一時ファイルから置換します。書込不能なら警告し、実行中の既定値は引き続き適用します。設定ファイル自体の欠落・不正JSONは従来通り起動エラーです。
+アプリ更新後の起動時に`config.ts`が既存`config.json`を読み、存在しない項目だけを既定値で追加して保存します。`pexAi.contentSafetyModel`が未設定なら`jeff-base`が自動追加されます。既存のモデル、APIキー、未知の項目、空配列や明示値を保持し、二度目以降は変更しません。保存は権限600の一時ファイルから置換します。書込不能なら警告し、実行中の既定値は引き続き適用します。設定ファイル自体の欠落・不正JSONは従来通り起動エラーです。
 
 補完・既存値保持・再実行の2テストを確認済み。
 
@@ -72,4 +72,4 @@ API失敗や不完全な判定は既存の失敗経路へ渡し、テストで�
 
 GIF・MP4はvideo_urlのbase64データとしてjevへ送ります。サーバーで全時間範囲を16フレーム・最大辺256pxの動画に変換して判定します。Bot側の既存scanImagesで有効/無効を切り替え、maxFileSizeMbとmaxImagesで取得量を制限します。アニメWebPは従来の画像フレーム抽出を維持します。動画の類似判定キャッシュは使わず、同じbytesと本文だけ再利用します。元ファイルはネタバレ代理投稿で保持します。
 
-jevは最大4件の受付で、重み共有・独立context2つにより2件同時に推論します。実行枠2つが埋まった場合のみ待ちます。各2CPUスレッドの12問の短い合成動画検査は単独約3.9秒、2件の完了まで約7.6秒。Bot関連37テスト通過。公開APIはvideo_urlのGIF/MP4（最大16MiB・120秒）対応済み。Bot本体へは更新・再起動で反映します。
+2026-10-17に推論先をA8へ移しました。汎用AIはGemma 4 E4B（MTP有効）、コンテンツ検査はJeff-baseを使用します。HomePCではDiscordbot設定の更新を行いました。公開APIはvideo_urlのGIF/MP4（最大16MiB・120秒）に対応します。

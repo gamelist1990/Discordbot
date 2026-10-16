@@ -71,7 +71,7 @@ export const CONTENT_DEFAULT_CONFIG = {
   customRulesChannelId: "",
   customRulesMessageId: "1381971374947438703",
 };
-export const CONTENT_SAFETY_MODEL = config.pexAi.contentSafetyModel || 'jev';
+export const CONTENT_SAFETY_MODEL = config.pexAi.contentSafetyModel || 'jeff-base';
 export function boundedNumber(
   value: unknown,
   fallback: number,

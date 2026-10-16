@@ -1,7 +1,7 @@
-# AIコンテンツフィルター（jev）
+# AIコンテンツフィルター（Jeff-base）
 
 管理画面のアンチチート設定で有効にします。既存の有効/無効・除外設定は維持します。
-モデルは `pexAi.contentSafetyModel`（既定 `jev`）。無料公開されたValen 0.8Bの意思決定APIを使用します。
+モデルは `pexAi.contentSafetyModel`（既定 `jeff-base`）。A8上のJeff-baseを使用します。
 
 ## 判定
 
@@ -21,10 +21,10 @@
 ## 接続
 
 `pexAi.endpoint` と既存APIキーを使用します。画像はBotで取得したbase64 image data URLを送ります。
-公開jev APIはローカルパスや外部URLを直接受け付けません。上限4096入力トークン、リクエスト32MiB、画像1枚8MiB。
+APIにはBot側で取得した画像・動画データを送ります。ローカルパスや外部URLは直接渡しません。入力上限4096トークン、リクエスト32MiB、画像1枚8MiBです。
 チャンネルAIにはGeminiを使用し、コンテンツ検査の画像処理は会話用visionModelから独立しています。
 
-関連33テスト通過。実APIで挨拶・物体破壊を違反なし、直接の危害予告を脅迫・暴力として検出することを確認。
+2026-10-17に推論先をA8のJeff-baseへ切り替えました。しきい値と質問定義は従来設定を維持しています。
 旧方式の開発履歴は `WorkSpace/engineerDocs/discordbot/2026-10-14/` に保存しています。
 詳細は [ai-models.md](./ai-models.md)。
 
