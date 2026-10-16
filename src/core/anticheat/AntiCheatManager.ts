@@ -59,6 +59,10 @@ export class AntiCheatManager {
     private lastDetectionTimestamps: Map<string, number> = new Map();
     private logChannelCache: Map<string, TextChannel> = new Map();
     private messageProcessingQueues: Map<string, Promise<void>> = new Map();
+    // Transient moderation failures must re-run the entire message handling path.
+    // A cached verdict alone would never apply the original moderation action.
+    private contentRetries = new Map<string, { attempts: number; timer?: ReturnType<typeof setTimeout> }>();
+
     private settingsCache: Map<string, GuildAntiCheatSettings> = new Map();
     private settingsLoads: Map<string, Promise<GuildAntiCheatSettings>> = new Map();
     private settingsWriteQueues: Map<string, Promise<void>> = new Map();
@@ -100,6 +104,53 @@ export class AntiCheatManager {
             Logger.error(`Detached AntiCheat task failed (${context}):`, error);
         });
     }
+    private cancelContentRetry(id: string): void {
+        const pending = this.contentRetries.get(id);
+        if (pending?.timer) clearTimeout(pending.timer);
+        this.contentRetries.delete(id);
+    }
+
+    private scheduleContentRetry(message: Message, error: unknown): void {
+        const reason = contentFailureReason(error);
+        const transient = /^(?:(?:jev moderation API|Moderation API|Media) HTTP (?:408|425|429|5\d\d)|(?:TimeoutError|AbortError|ECONN|ENET|EAI_AGAIN|ETIMEDOUT|UND_ERR)|Network request failed|Invalid JSON response|Invalid jev decision|Invalid moderation|Truncated moderation response|Moderation queue|Unrecognized processing error)/.test(reason);
+        if (!transient || !message.guild || typeof message.fetch !== 'function' ||
+            this.replacedMessages.has(message.id) || this.deletedMessages.has(message.id)) {
+            Logger.warn(`[ContentSafety] scan-unresolved message=${message.id} reason=${reason}; original preserved`);
+            return;
+        }
+        const previous = this.contentRetries.get(message.id);
+        if (previous?.timer) return;
+        const attempts = (previous?.attempts ?? 0) + 1;
+        if (attempts > 6) {
+            this.cancelContentRetry(message.id);
+            Logger.warn(`[ContentSafety] retry-exhausted message=${message.id} reason=${reason}; manual review required`);
+            return;
+        }
+        if (!previous && this.contentRetries.size >= 1000) {
+            Logger.warn(`[ContentSafety] retry-queue-full message=${message.id}; manual review required`);
+            return;
+        }
+        const entry: { attempts: number; timer?: ReturnType<typeof setTimeout> } = { attempts };
+        this.contentRetries.set(message.id, entry);
+        const delay = Math.min(15 * 60_000, 5_000 * 2 ** (attempts - 1));
+        entry.timer = setTimeout(() => {
+            entry.timer = undefined;
+            if (this.replacedMessages.has(message.id) || this.deletedMessages.has(message.id)) {
+                this.cancelContentRetry(message.id);
+                return;
+            }
+            // Refetch the latest version. Deleted messages must not be reprocessed.
+            void message.fetch().then(
+                fresh => this.onMessage(fresh, true),
+                () => { this.cancelContentRetry(message.id); }
+            ).catch(retryError => Logger.warn(
+                `[ContentSafety] retry-dispatch-failed message=${message.id} reason=${contentFailureReason(retryError)}`
+            ));
+        }, delay);
+        entry.timer.unref?.();
+        Logger.warn(`[ContentSafety] retry-scheduled message=${message.id} attempt=${attempts}/6 delayMs=${delay} reason=${reason}`);
+    }
+
     private enqueueMessageProcessing(key: string, task: () => Promise<void>): Promise<void> {
         const previous = this.messageProcessingQueues.get(key) || Promise.resolve();
         const next = previous
@@ -352,6 +403,7 @@ export class AntiCheatManager {
     async onMessageDelete(message: Message | PartialMessage): Promise<void> {
         if (this.deletedMessages.size >= 10000) this.deletedMessages.delete(this.deletedMessages.keys().next().value!);
         this.deletedMessages.set(message.id, Date.now());
+        this.cancelContentRetry(message.id);
         const guild = message.guild;
         if (!guild) {
             return;
@@ -470,8 +522,11 @@ export class AntiCheatManager {
             detectorTasks.push(
                 detector.detect(message, context)
                     .then((result) => {
-                        if (name === 'contentSafety' && settings.aiLogChannelId) {
-                            this.runDetached(this.sendAiDecisionLog(message, settings.aiLogChannelId, result, Date.now() - aiStartedAt), 'AI decision log');
+                        if (name === 'contentSafety') {
+                            this.cancelContentRetry(message.id);
+                            if (settings.aiLogChannelId) {
+                                this.runDetached(this.sendAiDecisionLog(message, settings.aiLogChannelId, result, Date.now() - aiStartedAt), 'AI decision log');
+                            }
                         }
                         if (!hasMeaningfulDetection(result)) {
                             return null;
@@ -481,6 +536,7 @@ export class AntiCheatManager {
                         return { detector: name, result };
                     })
                     .catch((error) => {
+                        if (name === 'contentSafety') this.scheduleContentRetry(message, error);
                         if (name === 'contentSafety' && settings.aiLogChannelId) {
                             this.runDetached(this.sendAiDecisionLog(message, settings.aiLogChannelId, {
                                 scoreDelta: 0, reasons: [], metadata: error?.auditMetadata,

@@ -16,6 +16,8 @@ const safe = { suggestive: 0, explicit: 0, harassment: 0, hate: 0, threat: 0, vi
 const context = (config = {}) => ({ settings: { detectors: { contentSafety: { enabled: true, config } } } } as any);
 const textMessage = (content: string) => ({ content, attachments: new Collection(), embeds: [] } as any);
 
+// Legacy jev chat-completion tests are superseded by content-safety-routing.test.ts.
+
 test('signed GIF URLs preserve query parameters through bare, angle and Markdown forms', () => {
     const url = 'https://cdn.discordapp.com/attachments/1/2/image.gif?ex=abc&is=def&hm=123&';
     for (const text of [url, `<${url}>`, `||${url}||`, `[GIF](${url})`, `[${url}](${url.replaceAll('&', '\\&')})`]) {
@@ -24,12 +26,14 @@ test('signed GIF URLs preserve query parameters through bare, angle and Markdown
     assert.deepEqual(extractContentUrls('[link](https://example.org/a(b).gif?token=x%26y)'), ['https://example.org/a(b).gif?token=x%26y']);
 });
 
+
 test('strict JSON parsing rejects refusals, missing scores, strings and out-of-range scores', () => {
     assert.deepEqual(parseContentVerdict('```json\n' + JSON.stringify(safe) + '\n```'), safe);
     for (const response of ['No', '{}', JSON.stringify({ ...safe, suggestive: '0.9' }), JSON.stringify({ ...safe, explicit: 2 })]) {
         assert.throws(() => parseContentVerdict(response));
     }
 });
+
 
 test('SSRF blocks private, link-local, mapped IPv6 and reserved destinations', async () => {
     for (const ip of ['127.0.0.1', '10.0.0.1', '169.254.169.254', '172.16.2.1', '192.168.1.1', '100.64.0.1', '::1', '::ffff:127.0.0.1', '198.18.0.1']) {
@@ -41,6 +45,7 @@ test('SSRF blocks private, link-local, mapped IPv6 and reserved destinations', a
     await assert.rejects(fetchPublicMedia('https://user:password@example.com/'));
 });
 
+
 test('GIF sampling preserves native dimensions and decoded pixels in PNG', async () => {
     const gif = await sharp({ create: { width: 900, height: 16, channels: 4, background: { r: 40, g: 80, b: 160, alpha: 0 } } }).gif().toBuffer();
     const frames = await sampleImageFrames(gif);
@@ -49,6 +54,7 @@ test('GIF sampling preserves native dimensions and decoded pixels in PNG', async
     assert.equal((await sharp(bytes).metadata()).width, 900);
     assert.deepEqual(await sharp(bytes).ensureAlpha().raw().toBuffer(), await sharp(gif).ensureAlpha().raw().toBuffer());
 });
+
 
 test('image sampling produces real resized JPEG frames', async () => {
     const png = await sharp({ create: { width: 1600, height: 800, channels: 3, background: 'blue' } }).png().toBuffer();
@@ -59,35 +65,13 @@ test('image sampling produces real resized JPEG frames', async () => {
     assert.equal(meta.width, 768);
 });
 
-test('text categories, thresholds, disabled categories, cache and API failure', async () => {
-    const original = globalThis.fetch;
-    let calls = 0;
-    globalThis.fetch = (async (_url, options) => {
-        calls++;
-        const request = JSON.parse(String(options?.body));
-        assert.equal(request.model, CONTENT_SAFETY_MODEL);
-        return jevResponse({ ...safe, suggestive: 0.85, explanation: '性的な表現を含む本文。' });
-    }) as typeof fetch;
-    try {
-        const detector = new ContentSafetyDetector();
-        const message = textMessage('分類用の文章');
-        const result = await detector.detect(message, context());
-        assert.ok(result.spoilerRepost);
-        assert.equal(result.scoreDelta, 0);
-        assert.equal(result.deleteMessage, undefined);
-        assert.equal((await detector.detect(message, context({ textThreshold: 0.9, textSuggestiveThreshold: 0.9 }))).spoilerRepost, undefined);
-        assert.equal((await detector.detect(message, context({ suggestive: 0 }))).spoilerRepost, undefined);
-        assert.equal(calls, 1);
-        globalThis.fetch = (async () => new Response('', { status: 503 })) as typeof fetch;
-        await assert.rejects(detector.detect(textMessage('different'), context()), /incomplete/);
-    } finally { globalThis.fetch = original; }
-});
 
 test('spoiler wrapper cannot be closed by user markdown and mentions', () => {
     const result = spoilerText('hello || @everyone \\ || **bold**');
     assert.equal((result.match(/\|\|/g) || []).length, 2);
     assert.ok(!result.includes('@everyone'));
 });
+
 
 test('mild-image threshold is balanced without lowering R18 or threat thresholds', () => {
     const observed = { ...safe, suggestive: 0.65 };
@@ -98,86 +82,6 @@ test('mild-image threshold is balanced without lowering R18 or threat thresholds
     assert.deepEqual(matchingContentCategories({ ...safe, explicit: 0.2, threat: 0.2 }, true), []);
 });
 
-test('jev policy keeps typed decisions and quoted-context safeguards', () => {
-    assert.match(CONTENT_SAFETY_PROMPT, /Noul.*Score/);
-    assert.match(CONTENT_SAFETY_PROMPT, /quoted context/);
-    assert.equal(normalizeModerationText('Ｓ\u200bＥ\u2060Ｘ'), 'SEX');
-});
-
-test('reply text is supplied only as non-scored context for the current post', async () => {
-    const original = globalThis.fetch;
-    let request: any;
-    globalThis.fetch = (async (_url, options) => {
-        request = JSON.parse(String(options?.body));
-        return jevResponse({ ...safe, explanation: 'ゲームの難易度についての会話で、性的表現ではない。' });
-    }) as typeof fetch;
-    try {
-        const message = textMessage('俺はハードコアやってる');
-        message.id = 'reply'; message.editedTimestamp = null;
-        message.reference = { messageId: 'parent' };
-        message.fetchReference = async () => ({ content: 'マイクラはどのモードで遊んでる？' });
-        const result = await new ContentSafetyDetector().detect(message, context());
-        assert.equal(result.spoilerRepost, undefined);
-        assert.ok(request.decision.state.includes('現在の投稿:\n俺はハードコアやってる'));
-        assert.ok(request.decision.state.includes('返信先(解釈用・採点対象外):\nマイクラはどのモード'));
-    } finally { globalThis.fetch = original; }
-});
-
-test('a message deleted during AI analysis stops without moderation actions', async () => {
-    const original = globalThis.fetch;
-    let release!: () => void;
-    const gate = new Promise<void>(resolve => { release = resolve; });
-    let deleted = false;
-    globalThis.fetch = (async () => {
-        await gate;
-        return jevResponse({ ...safe, suggestive: 1, explanation: '性的な表現。' });
-    }) as typeof fetch;
-    try {
-        const pending = new ContentSafetyDetector().detect(textMessage('判定中の投稿'), {
-            ...context(), isMessageDeleted: () => deleted
-        } as any);
-        await new Promise(resolve => setImmediate(resolve));
-        deleted = true;
-        release();
-        const result = await pending;
-        assert.equal(result.spoilerRepost, undefined);
-        assert.equal(result.scoreDelta, 0);
-        assert.equal(result.metadata?.stoppedBecauseDeleted, true);
-    } finally { release(); globalThis.fetch = original; }
-});
-
-test('byte-identical images with different Discord URLs reuse the exact verdict cache', async () => {
-    const original = globalThis.fetch;
-    const originalVisionModel = config.pexAi.visionModel;
-    config.pexAi.visionModel = 'test-vision';
-    const bytes = await sharp({ create: { width: 20, height: 20, channels: 3, background: 'green' } }).png().toBuffer();
-    let calls = 0;
-    globalThis.fetch = (async () => {
-        calls++;
-        return jevResponse({ ...safe, explanation: '通常の画像で問題はない。' });
-    }) as typeof fetch;
-    try {
-        const detector = new ContentSafetyDetector(async url => ({ data: bytes, type: 'png', url }));
-        const make = (id: string, url: string) => ({ id, content: '', editedTimestamp: null,
-            attachments: new Collection([[id, { id, name: 'same.png', contentType: 'image/png', url }]]), embeds: [] } as any);
-        await detector.detect(make('one', 'https://cdn.discordapp.com/same.png?token=one'), context());
-        const second = await detector.detect(make('two', 'https://cdn.discordapp.com/same.png?token=two'), context());
-        assert.equal(calls, 1);
-        assert.equal(second.metadata?.analyses[0].cache, 'exact');
-    } finally { globalThis.fetch = original; config.pexAi.visionModel = originalVisionModel; }
-});
-
-test('jev image inspection does not depend on the conversational vision model', async () => {
-    const previous = config.pexAi.visionModel;
-    const originalFetch = globalThis.fetch;
-    config.pexAi.visionModel = '';
-    let request: any;
-    globalThis.fetch = (async (_url, options) => { request = JSON.parse(String(options?.body)); return jevResponse(); }) as typeof fetch;
-    try {
-        await classifyContent('', ['data:image/png;base64,AA==']);
-        assert.equal(request.decision.state.messages[0].content[1].image_url.url, 'data:image/png;base64,AA==');
-    } finally { config.pexAi.visionModel = previous; globalThis.fetch = originalFetch; }
-});
 
 function mockMessage({ failSend = false, failDelete = false, changed = false } = {}) {
     const operations: string[] = [];
@@ -201,6 +105,7 @@ function mockMessage({ failSend = false, failDelete = false, changed = false } =
     return { message, operations, payload: () => payload };
 }
 
+
 test('repost identifies author, hides media and succeeds before original deletion', async () => {
     const mock = mockMessage();
     await repostWithSpoilers(mock.message, { categories: ['H系'], aiExplanation: '性的なポーズが強調されているため。', files: [{ data: Buffer.from('gif'), name: 'sample.gif' }] });
@@ -214,6 +119,7 @@ test('repost identifies author, hides media and succeeds before original deletio
     assert.equal(embed.fields.find((field: any) => field.name === 'AIの判定理由（参考）')?.value, '性的なポーズが強調されているため。');
 });
 
+
 test('send failure preserves original, deletion failure rolls back, stale content is not replaced', async () => {
     for (const [options, expected] of [
         [{ failSend: true }, ['send']], [{ failDelete: true }, ['send', 'delete', 'rollback']], [{ changed: true }, []]
@@ -223,6 +129,7 @@ test('send failure preserves original, deletion failure rolls back, stale conten
         assert.deepEqual(mock.operations, expected);
     }
 });
+
 
 test('manager scans consecutive content and edited posts even without chat logging', async () => {
     const manager = new AntiCheatManager();
