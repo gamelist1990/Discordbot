@@ -2,7 +2,8 @@
 import { ChatInputCommandInteraction, MessageFlags, DiscordAPIError } from 'discord.js';
 import { OpenAIChatManager } from '../../../core/ai/OpenAIChatManager.js';
 import { GEMMA_MODEL } from '../../../config.js';
-import { OpenAIChatCompletionMessage } from '../../../types/openai.js';
+import { OpenAIChatCompletionMessage, OpenAIChatCompletionChunk } from '../../../types/openai.js';
+import { StaffAIStreamState } from './StaffAIStreamState.js';
 import { statusToolDefinition, statusToolHandler, weatherToolDefinition, weatherToolHandler, timeToolDefinition, timeToolHandler, countPhraseToolDefinition, countPhraseToolHandler, userInfoToolDefinition, userInfoToolHandler, antiCheatUserProfileDefinition, antiCheatUserProfileHandler, memoListDefinition, memoListHandler, memoGetDefinition, memoGetHandler, memoCreateDefinition, memoCreateHandler, memoUpdateDefinition, memoUpdateHandler, memoDeleteDefinition, memoDeleteHandler, memoSearchDefinition, memoSearchHandler, collectHistoryDefinition, collectHistoryHandler, fetchMessageLinkDefinition, fetchMessageLinkHandler } from './ai-tools/index.js';
 import { PdfRAGManager } from '../../../core/ai/PdfRAGManager.js';
 import { database } from '../../../core/persistence/Database.js';
@@ -16,7 +17,7 @@ import {
 const userRateLimits = new Map<string, { lastUsed: number, count: number }>();
 const RATE_LIMIT_WINDOW = 60 * 1000; // 1分間のウィンドウ
 const MAX_REQUESTS_PER_WINDOW = 3; // 1分間に最大3リクエスト
-const UPDATE_INTERVAL = 500; // Discord APIレート制限を避けるため500ミリ秒ごとに更新
+const UPDATE_INTERVAL = 600; // Discord APIレート制限を避けるため500ミリ秒ごとに更新
 
 // このコマンドはオプションでカスタムの system prompt を受け取れます。
 // - `system_prompt` を与えると、デフォルトの安全プロンプトとマージされます。
@@ -268,7 +269,7 @@ export const subcommandHandler = {
         }
 
         // デフォルトの安全な system prompt
-        const defaultSystemPrompt = `あなたは役立つアシスタントです。回答は正確かつスピーディにそしてよりフレンドリーに行って下さい。よく分からない意図が不明の場合は聞き直して下さい。
+        const defaultSystemPrompt = `あなたはDiscordで話す気さくなAIです。友達と話すように自然で親しみやすく、まず結論を短く答えてください。通常は1〜3文に収め、詳しい説明は求められた時だけ。正確さを優先し、不明なことは断定しないでください。
 
 # 重要な応答ルール
 - 会話履歴は文脈理解のために提供されますが、応答時にタイムスタンプ（例: [10/13/2025, 10:01:00 PM]）やユーザー名のプレフィックス（例: PEXserver:）を含めないでください
@@ -287,9 +288,9 @@ export const subcommandHandler = {
                 dataset,
                 channelMessages: channelConversationMessages,
                 channelId: interaction.channelId,
-                maxDatasetEntries: 20,
-                maxChannelMessages: 30,
-                maxCharacters: 20_000,
+                maxDatasetEntries: 12,
+                maxChannelMessages: 16,
+                maxCharacters: 12_000,
             });
         } catch (error) {
             console.error('会話履歴の統合中にエラーが発生:', error);
@@ -315,37 +316,67 @@ export const subcommandHandler = {
             }
         }
 
-        // レスポンスを蓄積
+        // SSEは受信したまま描画。Discord edit は単一キューで順序を保証する。
+        let streamState = new StaffAIStreamState();
         let responseContent = '';
-        let lastUpdateTime = Date.now();
+        let lastUpdateTime = 0;
         let isCompleted = false;
         let interactionExpired = false;
+        let pendingPreview: string | null = null;
+        let editPump: Promise<void> | null = null;
+
+        function queuePreview(force = false): void {
+            if (interactionExpired) return;
+            const now = Date.now();
+            if (!force && now - lastUpdateTime < UPDATE_INTERVAL) return;
+            lastUpdateTime = now;
+            pendingPreview = streamState.render(false);
+            if (editPump) return;
+            editPump = (async () => {
+                while (pendingPreview !== null) {
+                    const content = pendingPreview;
+                    pendingPreview = null;
+                    try {
+                        await interaction.editReply({ content });
+                    } catch (error) {
+                        console.error('AI preview edit failed:', error);
+                        interactionExpired = true;
+                        pendingPreview = null;
+                    }
+                }
+            })().finally(() => { editPump = null; });
+        }
+
+        async function drainPreview(): Promise<void> {
+            while (editPump) await editPump;
+        }
+
+        function handleChunk(chunk: OpenAIChatCompletionChunk): void {
+            streamState.consume(chunk);
+            responseContent = streamState.content;
+            queuePreview();
+        }
+
+        const streamOptions = {
+            model: GEMMA_MODEL, strictModel: true, maxTokens: 1024,
+            includeUsage: true,
+            onToolStep: (step: Parameters<StaffAIStreamState['recordToolStep']>[0]) => {
+                streamState.recordToolStep(step);
+                queuePreview(true);
+            },
+        } as const;
 
         try {
-            // /staff ai は汎用AIの設定変更に影響されず Gemma 4 E4B を使う。
-            await chatManager.streamText(
-                messages,
-                (text) => {
-                    responseContent += text;
-
-                    const now = Date.now();
-                    if (now - lastUpdateTime >= UPDATE_INTERVAL && !interactionExpired) {
-                        lastUpdateTime = now;
-                        updateDiscordMessage(interaction, formatResponse(responseContent));
-                    }
-                },
-                { model: GEMMA_MODEL, strictModel: true, maxTokens: 2048 }
-            );
-
-            // 完了としてマーク
+            // 全ラウンド（ツール呼び出し含む）のテキストとtoken usageを受け取る。
+            await chatManager.streamMessage(messages, handleChunk, streamOptions);
             isCompleted = true;
-
-            // コードブロックを検知してファイル化
             const { cleanedResponse, codeFiles } = processCodeBlocks(responseContent);
-
-            // 最終的な完全なレスポンスで更新（インタラクションが有効な場合のみ）
-            // 完了レスポンスを安全に送信（期限切れ等は safeRespond がフォールバックする）
-            await safeRespond({ content: cleanedResponse, files: codeFiles.length > 0 ? codeFiles : undefined, ephemeral: interactionExpired });
+            await drainPreview();
+            await safeRespond({
+                content: streamState.render(true, cleanedResponse),
+                files: codeFiles.length > 0 ? codeFiles : undefined,
+                ephemeral: interactionExpired,
+            });
 
             // 会話をデータセットに保存（最新100件に切り詰め）
             try {
@@ -388,18 +419,11 @@ export const subcommandHandler = {
 
                         // 再試行時も同じ Gemma 4 E4B を使う。
                         try {
+                            streamState = new StaffAIStreamState();
                             responseContent = '';
-                            await chatManager.streamText(retryMessages, (text) => {
-                                responseContent += text;
-                                const now2 = Date.now();
-                                if (now2 - lastUpdateTime >= UPDATE_INTERVAL && !interactionExpired) {
-                                    lastUpdateTime = now2;
-                                    updateDiscordMessage(interaction, formatResponse(responseContent));
-                                }
-                            }, { model: GEMMA_MODEL, strictModel: true, maxTokens: 2048 });
-
-                            // 成功したら送信
-                            await safeRespond({ content: formatResponse(responseContent, true) });
+                            await chatManager.streamMessage(retryMessages, handleChunk, streamOptions);
+                            await drainPreview();
+                            await safeRespond({ content: streamState.render(true) });
                             isCompleted = true;
                             try {
                                 await saveConversationDatasetEntry(interaction, sanitized, responseContent, false);
@@ -430,7 +454,7 @@ export const subcommandHandler = {
             if (error instanceof DiscordAPIError && error.code === 10062) {
                 interactionExpired = true;
                 try {
-                    await safeRespond({ content: `${errorMessage}\n\n最終結果:\n\n${formatResponse(responseContent, true)}`, ephemeral: true });
+                    await safeRespond({ content: `${errorMessage}\n\n最終結果:\n\n${streamState.render(true)}`, ephemeral: true });
                 } catch (followUpError) {
                     console.error('safeRespond エラー:', followUpError);
                 }
@@ -454,7 +478,7 @@ export const subcommandHandler = {
         // 何らかの理由で完了せずに終了した場合、現在の内容で更新
         if (!isCompleted && !interactionExpired && responseContent.trim()) {
             try {
-                await safeRespond({ content: formatResponse(responseContent, true) });
+                await safeRespond({ content: streamState.render(true) });
             } catch (e) {
                 console.error('safeRespond エラー:', e);
             }
@@ -470,32 +494,6 @@ export const subcommandHandler = {
         }
     }
 };
-
-// Discord表示用のレスポンスをフォーマット
-function formatResponse(response: string, isComplete = false): string {
-    // 回答だけを表示
-    let formattedMessage = response;
-
-    // 完了していない場合は入力インジケータを追加
-    if (!isComplete) {
-        formattedMessage += '▌'; // 入力カーソルインジケータ
-    }
-
-    // Discordのメッセージ長制限を処理
-    if (formattedMessage.length > 1950) {
-        return formattedMessage.substring(0, 1950) + '...\n\n(内容が長すぎるため切り詰められました)';
-    }
-
-    return formattedMessage;
-}
-
-// ブロッキングを避けるためawaitなしでDiscordメッセージを更新
-function updateDiscordMessage(interaction: ChatInputCommandInteraction, content: string): void {
-    interaction.editReply(content).catch(err => {
-        console.error('Discordメッセージの更新中にエラーが発生:', err);
-        // インタラクションが無効になった場合は無視（最終的にフォローアップを送る）
-    });
-}
 
 // レート制限をチェックして更新する関数
 function isRateLimited(userId: string): boolean {
@@ -552,10 +550,10 @@ function processCodeBlocks(response: string): { cleanedResponse: string, codeFil
 
     // コードブロックがない場合は元の応答を返す
     if (codeFiles.length === 0) {
-        return { cleanedResponse: formatResponse(response, true), codeFiles: [] };
+        return { cleanedResponse: response, codeFiles: [] };
     }
 
-    return { cleanedResponse: formatResponse(cleanedResponse, true), codeFiles };
+    return { cleanedResponse, codeFiles };
 }
 
 // 言語からファイル拡張子を取得

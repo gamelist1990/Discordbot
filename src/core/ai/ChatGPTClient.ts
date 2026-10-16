@@ -24,6 +24,7 @@ export interface ChatOptions {
     maxTokens?: number;
     topP?: number;
     stream?: boolean;
+    includeUsage?: boolean;
     apiEndpoint?: string;
     apiEndpoints?: string[];
     apiKey?: string;
@@ -1149,6 +1150,7 @@ export class ChatGPTClient {
                 : options?.maxTokens ?? 1024,
             top_p: options?.topP ?? 1,
             stream,
+            ...(stream && options?.includeUsage ? { stream_options: { include_usage: true } } : {}),
             ...(tools.length > 0 ? { tools, tool_choice: 'auto' } : {}),
         };
     }

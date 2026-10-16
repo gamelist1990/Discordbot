@@ -36,6 +36,7 @@ export interface OpenAIChatCompletionRequest {
     top_p?: number;
     n?: number; // How many chat completion choices to generate for each input message.
     stream?: boolean;
+    stream_options?: { include_usage: boolean };
     stop?: string | string[];
     max_tokens?: number;
     presence_penalty?: number;
@@ -108,6 +109,7 @@ export interface OpenAIChatCompletionChunk {
         finish_reason: 'stop' | 'length' | 'function_call' | 'tool_calls' | 'content_filter' | null;
         logprobs?: any; // For log probability information, if requested
     }[];
+    usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number } | null;
     system_fingerprint?: string;
 }
 
