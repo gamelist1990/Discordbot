@@ -25,6 +25,7 @@ const AI_SELF_MEMORY_KEY = (guildId: string) => `Guild/${guildId}/ai-self-memori
 const AI_SELF_MEMORY_REVISION_KEY = (guildId: string) => `Guild/${guildId}/ai-self-memory-revision`;
 const CHANNEL_IMPORTS_KEY = (guildId: string) => `Guild/${guildId}/staff-ai-memory-channel-imports`;
 const METRICS = (guildId: string) => `Guild/${guildId}/staff-ai-metrics`;
+const MAX_DAILY_MEMORY_CHARS = 6000;
 const ZERO: StaffMetrics = { requests: 0, inputTokens: 0, outputTokens: 0, totalTokens: 0,
     generatedSeconds: 0, cacheHitTokens: 0, cacheInputTokens: 0 };
 const attempted = new Set<string>();
@@ -168,6 +169,25 @@ async function summarize(input: string, instruction: string, signal: AbortSignal
         if (delta.type === 'text') result += delta.text;
     }, { model: config.pexAi.channelModel || config.pexAi.model, strictModel: true, maxTokens: 520, priority: 'background', signal });
     return result.trim();
+}
+
+/** Keep an existing daily digest and append only new, non-duplicate summary lines. */
+function appendDailySummary(existingContent: string | undefined, addition: string): string {
+    const lines = (existingContent || '').split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+    const normalizedLines = new Set(lines.map(line => line.normalize('NFKC').replace(/\s+/g, ' ').toLowerCase()));
+    let contentLength = lines.reduce((total, line) => total + line.length, 0) + Math.max(0, lines.length - 1);
+
+    for (const line of addition.split(/\r?\n/).map(value => value.trim()).filter(Boolean)) {
+        const normalized = line.normalize('NFKC').replace(/\s+/g, ' ').toLowerCase();
+        if (normalizedLines.has(normalized)) continue;
+        const separatorLength = lines.length > 0 ? 1 : 0;
+        if (contentLength + separatorLength + line.length > MAX_DAILY_MEMORY_CHARS) break;
+        lines.push(line);
+        normalizedLines.add(normalized);
+        contentLength += separatorLength + line.length;
+    }
+
+    return lines.join('\n');
 }
 
 export async function staffMemoryChannelImports(guildId: string): Promise<StaffMemoryChannelImport[]> {
@@ -326,29 +346,21 @@ async function updateStaffMemoriesForDay(guildId: string, day: string, updateExi
 
     const initial = (await staffMemoryList(guildId)).filter(memory => memory.kind !== 'ai');
     const previousDaily = initial.find(memory => memory.id === `daily:${day}`);
-    const shouldUpdateDaily = !previousDaily?.editedByStaff && (!previousDaily || updateExistingDaily);
+    const previousEvidenceCount = Math.max(0, previousDaily?.evidenceCount || 0);
+    const newDailyEntries = previousDaily ? entries.slice(previousEvidenceCount) : entries;
+    const shouldUpdateDaily = !previousDaily?.editedByStaff
+        && (!previousDaily || updateExistingDaily)
+        && newDailyEntries.length > 0;
     const summary = shouldUpdateDaily
-        ? await summarize(entries.map(entry =>
+        ? await summarize(newDailyEntries.map(entry =>
             `${entry.userName || entry.userId}: ${entry.prompt.slice(0, 650)}\nAI: ${(entry.response || '').slice(0, 350)}`).join('\n'),
-        `Discordサーバーの${day}の出来事を、話題・取り組み・決まったことを中心に短く箇条書きで要約。`, signal)
+        `Discordサーバーの${day}の新しい会話だけを、話題・取り組み・決まったことを中心に短い箇条書きにする。過去の出来事を再要約せず、今回の入力にある新しい事実だけを書く。`, signal)
         : '';
     if (shouldUpdateDaily && !summary) throw new Error('Staff AI daily summary was empty');
 
     // Re-read before writing so an edit made while the model was summarizing is preserved.
     const next = (await staffMemoryList(guildId)).filter(memory => memory.kind !== 'ai');
-    const currentDailyIndex = next.findIndex(memory => memory.id === `daily:${day}`);
-    const currentDaily = currentDailyIndex >= 0 ? next[currentDailyIndex] : undefined;
     const updatedIds = new Set<string>();
-    if (summary && !currentDaily?.editedByStaff) {
-        const dailyRecord: StaffMemory = {
-            id: `daily:${day}`, kind: 'daily', guildId, day,
-            title: `${day} の出来事`, content: summary.slice(0, 6000),
-            evidenceCount: entries.length, updatedAt: new Date().toISOString(),
-        };
-        if (currentDailyIndex >= 0) next[currentDailyIndex] = dailyRecord;
-        else next.push(dailyRecord);
-        updatedIds.add(dailyRecord.id);
-    }
 
     // Build profiles from the rolling 90-day Staff AI dataset, not one day's messages.
     // This lets one useful interaction per day gradually produce a profile.
@@ -392,6 +404,19 @@ async function updateStaffMemoriesForDay(guildId: string, day: string, updateExi
     // Merge only records generated in this job onto the latest library state.
     // This avoids overwriting a staff edit made while profile summaries were running.
     const latest = (await staffMemoryList(guildId)).filter(memory => memory.kind !== 'ai');
+    const latestDailyIndex = latest.findIndex(memory => memory.id === `daily:${day}`);
+    const latestDaily = latestDailyIndex >= 0 ? latest[latestDailyIndex] : undefined;
+    if (summary && !latestDaily?.editedByStaff && (latestDaily?.evidenceCount || 0) < entries.length) {
+        const dailyRecord: StaffMemory = {
+            ...(latestDaily || {} as StaffMemory),
+            id: `daily:${day}`, kind: 'daily', guildId, day,
+            title: `${day} の出来事`,
+            content: appendDailySummary(latestDaily?.content, summary),
+            evidenceCount: entries.length, updatedAt: new Date().toISOString(),
+        };
+        if (latestDailyIndex >= 0) latest[latestDailyIndex] = dailyRecord;
+        else latest.push(dailyRecord);
+    }
     for (const id of updatedIds) {
         const generated = next.find(memory => memory.id === id);
         if (!generated) continue;
