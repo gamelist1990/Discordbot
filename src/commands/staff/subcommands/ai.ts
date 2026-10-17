@@ -7,6 +7,7 @@ import { StaffAIStreamState } from './StaffAIStreamState.js';
 import { webSearchDefinition, webSearchHandler } from '../../../core/ChatAIChannel/tools/webSearchBing.js';
 import { musicResearchQuery } from './StaffAIResearch.js';
 import { STAFF_AI_SYSTEM_PROMPT } from './StaffAIStyle.js';
+import { selectStaffToolNames } from './StaffAIToolRouting.js';
 import { selectStaffEmojis, getStaffEmojiImageParts } from './StaffAIEmojiContext.js';
 import { statusToolDefinition, statusToolHandler, weatherToolDefinition, weatherToolHandler, timeToolDefinition, timeToolHandler, countPhraseToolDefinition, countPhraseToolHandler, userInfoToolDefinition, userInfoToolHandler, antiCheatUserProfileDefinition, antiCheatUserProfileHandler, memoListDefinition, memoListHandler, memoGetDefinition, memoGetHandler, memoCreateDefinition, memoCreateHandler, memoUpdateDefinition, memoUpdateHandler, memoDeleteDefinition, memoDeleteHandler, memoSearchDefinition, memoSearchHandler, collectHistoryDefinition, collectHistoryHandler, fetchMessageLinkDefinition, fetchMessageLinkHandler } from './ai-tools/index.js';
 import { PdfRAGManager } from '../../../core/ai/PdfRAGManager.js';
@@ -227,32 +228,34 @@ export const subcommandHandler = {
 
         const chatManager = new OpenAIChatManager();
 
-        // >> ツールを登録 <<
-        // ステータス検知
-        chatManager.registerTool(statusToolDefinition, statusToolHandler);
-        chatManager.registerTool(webSearchDefinition, webSearchHandler);
-        // 天気予報
-        chatManager.registerTool(weatherToolDefinition, weatherToolHandler);
-        // 時刻取得
-        chatManager.registerTool(timeToolDefinition, timeToolHandler);
-        // フレーズカウント
-        chatManager.registerTool(countPhraseToolDefinition,countPhraseToolHandler);
-        // ユーザー情報取得
-        chatManager.registerTool(userInfoToolDefinition, userInfoToolHandler);
-        // AntiCheat 情報取得 / 面接室作成
-        chatManager.registerTool(antiCheatUserProfileDefinition, antiCheatUserProfileHandler);
-
-        // メモ管理ツール（create, list, get, update, delete, search）
-        chatManager.registerTool(memoListDefinition, memoListHandler);
-        chatManager.registerTool(memoGetDefinition, memoGetHandler);
-        chatManager.registerTool(memoCreateDefinition, memoCreateHandler);
-        chatManager.registerTool(memoUpdateDefinition, memoUpdateHandler);
-        chatManager.registerTool(memoDeleteDefinition, memoDeleteHandler);
-        chatManager.registerTool(memoSearchDefinition, memoSearchHandler);
-
-        // チャンネル履歴収集ツールとメッセージリンクツール
-        chatManager.registerTool(collectHistoryDefinition, collectHistoryHandler);
-        chatManager.registerTool(fetchMessageLinkDefinition, fetchMessageLinkHandler);
+        // Send only relevant tool schemas. Previously all 15 (~5KB of JSON)
+        // were included in every prompt, even for a simple 'こんにちは'.
+        const selectedTools = selectStaffToolNames(
+            prompt ?? '',
+            channelConversationMessages.map(entry => entry.content),
+        );
+        const availableTools = [
+            [statusToolDefinition, statusToolHandler],
+            [webSearchDefinition, webSearchHandler],
+            [weatherToolDefinition, weatherToolHandler],
+            [timeToolDefinition, timeToolHandler],
+            [countPhraseToolDefinition, countPhraseToolHandler],
+            [userInfoToolDefinition, userInfoToolHandler],
+            [antiCheatUserProfileDefinition, antiCheatUserProfileHandler],
+            [memoListDefinition, memoListHandler],
+            [memoGetDefinition, memoGetHandler],
+            [memoCreateDefinition, memoCreateHandler],
+            [memoUpdateDefinition, memoUpdateHandler],
+            [memoDeleteDefinition, memoDeleteHandler],
+            [memoSearchDefinition, memoSearchHandler],
+            [collectHistoryDefinition, collectHistoryHandler],
+            [fetchMessageLinkDefinition, fetchMessageLinkHandler],
+        ] as const;
+        for (const [definition, handler] of availableTools) {
+            if (selectedTools.has(definition.function.name)) {
+                chatManager.registerTool(definition, handler);
+            }
+        }
 
         // ツール実行時のコンテキストとして interaction を設定
         chatManager.setToolContext(interaction);
