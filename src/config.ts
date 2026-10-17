@@ -66,6 +66,11 @@ try {
     process.exit(1);
 }
 
+const configuredContentSafetyModel = raw.pexAi?.contentSafetyModel?.trim();
+const contentSafetyModel = !configuredContentSafetyModel || configuredContentSafetyModel.toLowerCase() === 'jev'
+    ? 'jeff-base'
+    : configuredContentSafetyModel;
+
 export const config: Required<AppConfig> = {
     token: raw.token || '',
     DISCORD_CLIENT_SECRET: raw.DISCORD_CLIENT_SECRET || '',
@@ -90,7 +95,7 @@ export const config: Required<AppConfig> = {
         endpoint: raw.pexAi?.endpoint || 'http://api.pexserver.com:9000/v1',
         model: raw.pexAi?.model || GEMMA_MODEL,
         channelModel: raw.pexAi?.channelModel || 'gemini-3.5-flash-lite',
-        contentSafetyModel: raw.pexAi?.contentSafetyModel || 'jeff-base',
+        contentSafetyModel,
         fallbackModel: raw.pexAi?.fallbackModel || '',
         steps: Array.isArray(raw.pexAi?.steps)
             ? raw.pexAi.steps
@@ -115,6 +120,10 @@ export const config: Required<AppConfig> = {
             : 1,
     },
 };
+
+if (configuredContentSafetyModel?.toLowerCase() === 'jev') {
+    Logger.warn('[Config] pexAi.contentSafetyModel "jev" is a legacy name; using Jeff model "jeff-base".');
+}
 
 // Updating the application also migrates an older host's local config on startup.
 // Never replace explicit settings or log credentials.

@@ -87,28 +87,44 @@ export async function classifyWithJev(text: string, frames: string[], timeoutMs:
     const targets: Array<ContentCategory | 'custom_rules'> = customRules.trim() ? [...categories, 'custom_rules'] : categories;
     const deadline = Date.now() + timeoutMs;
     const scores = await Promise.all(targets.map(async category => {
-        const start = Date.now();
-        const metrics: AiRequestMetrics = { model, frames: 0, retry };
-        requests.push(metrics);
-        try {
-            const response = await fetch(`${config.pexAi.endpoint.replace(/\/$/, '')}/decide`, {
-                method: 'POST', signal: AbortSignal.timeout(Math.max(1, deadline - Date.now())), headers: {
-                    'Content-Type': 'application/json',
-                    ...(config.pexAi.apiKey ? { Authorization: `Bearer ${config.pexAi.apiKey}` } : {}),
-                }, body: JSON.stringify({ model, ...buildJevDecisionRequest(text, category, customRules) }),
-            });
-            metrics.status = response.status;
-            if (!response.ok) throw new Error(`jev moderation API HTTP ${response.status}`);
-            const data = await response.json() as any;
-            if (typeof data.prompt_tokens === 'number') {
-                metrics.inputTokens = data.prompt_tokens;
-                metrics.outputTokens = 0;
-                metrics.totalTokens = data.prompt_tokens;
+        const body = JSON.stringify({ model, ...buildJevDecisionRequest(text, category, customRules) });
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+            const start = Date.now();
+            const metrics: AiRequestMetrics = { model, frames: 0, retry: retry || attempt > 0 };
+            requests.push(metrics);
+            try {
+                const response = await fetch(`${config.pexAi.endpoint.replace(/\/$/, '')}/decide`, {
+                    method: 'POST', signal: AbortSignal.timeout(Math.max(1, deadline - Date.now())), headers: {
+                        'Content-Type': 'application/json',
+                        ...(config.pexAi.apiKey ? { Authorization: `Bearer ${config.pexAi.apiKey}` } : {}),
+                    }, body,
+                });
+                metrics.status = response.status;
+                if (!response.ok) {
+                    // Retry a transient inference gateway error once inside the
+                    // existing moderation deadline. A failed retry still rejects
+                    // the scan so AntiCheatManager can preserve the post and queue
+                    // its normal delayed re-scan.
+                    if (attempt === 0 && [502, 503, 504].includes(response.status)
+                        && deadline - Date.now() > 5_000) {
+                        await response.body?.cancel().catch(() => undefined);
+                        await new Promise(resolve => setTimeout(resolve, 400));
+                        continue;
+                    }
+                    throw new Error(`jev moderation API HTTP ${response.status}`);
+                }
+                const data = await response.json() as any;
+                if (typeof data.prompt_tokens === 'number') {
+                    metrics.inputTokens = data.prompt_tokens;
+                    metrics.outputTokens = 0;
+                    metrics.totalTokens = data.prompt_tokens;
+                }
+                return scoreJevDecision(data);
+            } finally {
+                metrics.elapsedMs = Date.now() - start;
             }
-            return scoreJevDecision(data);
-        } finally {
-            metrics.elapsedMs = Date.now() - start;
         }
+        throw new Error('jev moderation API retry limit reached');
     }));
     const values = Object.fromEntries(categories.map((category, index) => [category, scores[index]])) as Record<ContentCategory, number>;
     const flagged = categories.filter(category => values[category] >= .5);
