@@ -172,22 +172,26 @@ async function summarize(input: string, instruction: string, signal: AbortSignal
 }
 
 /** Keep an existing daily digest and append only new, non-duplicate summary lines. */
-function appendDailySummary(existingContent: string | undefined, addition: string): string {
+function appendDailySummary(existingContent: string | undefined, addition: string): { content: string; complete: boolean } {
     const lines = (existingContent || '').split(/\r?\n/).map(line => line.trim()).filter(Boolean);
     const normalizedLines = new Set(lines.map(line => line.normalize('NFKC').replace(/\s+/g, ' ').toLowerCase()));
     let contentLength = lines.reduce((total, line) => total + line.length, 0) + Math.max(0, lines.length - 1);
+    let complete = true;
 
     for (const line of addition.split(/\r?\n/).map(value => value.trim()).filter(Boolean)) {
         const normalized = line.normalize('NFKC').replace(/\s+/g, ' ').toLowerCase();
         if (normalizedLines.has(normalized)) continue;
         const separatorLength = lines.length > 0 ? 1 : 0;
-        if (contentLength + separatorLength + line.length > MAX_DAILY_MEMORY_CHARS) break;
+        if (contentLength + separatorLength + line.length > MAX_DAILY_MEMORY_CHARS) {
+            complete = false;
+            break;
+        }
         lines.push(line);
         normalizedLines.add(normalized);
         contentLength += separatorLength + line.length;
     }
 
-    return lines.join('\n');
+    return { content: lines.join('\n'), complete };
 }
 
 export async function staffMemoryChannelImports(guildId: string): Promise<StaffMemoryChannelImport[]> {
@@ -407,12 +411,14 @@ async function updateStaffMemoriesForDay(guildId: string, day: string, updateExi
     const latestDailyIndex = latest.findIndex(memory => memory.id === `daily:${day}`);
     const latestDaily = latestDailyIndex >= 0 ? latest[latestDailyIndex] : undefined;
     if (summary && !latestDaily?.editedByStaff && (latestDaily?.evidenceCount || 0) < entries.length) {
+        const appended = appendDailySummary(latestDaily?.content, summary);
         const dailyRecord: StaffMemory = {
             ...(latestDaily || {} as StaffMemory),
             id: `daily:${day}`, kind: 'daily', guildId, day,
             title: `${day} の出来事`,
-            content: appendDailySummary(latestDaily?.content, summary),
-            evidenceCount: entries.length, updatedAt: new Date().toISOString(),
+            content: appended.content,
+            evidenceCount: appended.complete ? entries.length : latestDaily?.evidenceCount || 0,
+            updatedAt: new Date().toISOString(),
         };
         if (latestDailyIndex >= 0) latest[latestDailyIndex] = dailyRecord;
         else latest.push(dailyRecord);
