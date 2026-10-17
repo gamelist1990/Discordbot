@@ -93,6 +93,8 @@ export type ResponseApiStreamDelta = {
     inputTokens?: number;
     outputTokens?: number;
     totalTokens?: number;
+    predictedTokens?: number;
+    predictedPerSecond?: number;
 };
 
 interface ResponseFunctionCallItem {
@@ -736,7 +738,12 @@ export class ChatGPTClient {
                 const outputTokens = tokenCount(usage?.output_tokens);
                 const totalTokens = tokenCount(usage?.total_tokens);
                 if (inputTokens !== undefined || outputTokens !== undefined || totalTokens !== undefined) {
-                    onDeltaReceive({ type: 'usage', inputTokens, outputTokens, totalTokens });
+                    const speed = tokenCount(data?.timings?.predicted_per_second);
+                    const generated = tokenCount(data?.timings?.predicted_n);
+                    onDeltaReceive({
+                        type: 'usage', inputTokens, outputTokens, totalTokens,
+                        predictedTokens: generated, predictedPerSecond: speed,
+                    });
                 }
             }
             const textDelta = this.extractResponseTextDelta(data, eventType);

@@ -68,3 +68,49 @@ test('本文がなく添付だけの投稿でも返信先として説明でき�
     assert.match(context.text, /画像: capture.jpg/);
     assert.equal(context.imageParts.length, 1);
 });
+
+test('元投稿まで返信をたどり、実画像を安全なdata URIへ変換する', async () => {
+    const sharp = (await import('sharp')).default;
+    const { buildStaffVisualReplyContext } = await import('../src/commands/staff/subcommands/StaffAIReplyContext.ts');
+    const picture = await sharp({ create: { width: 24, height: 24, channels: 3, background: '#ff0000' } }).png().toBuffer();
+    const imagePost: any = {
+        id: 'original-image', content: 'これ見て！', reference: null,
+        author: { username: 'original' }, member: null,
+        attachments: new Map([['a', {
+            name: 'image.png', contentType: 'image/png',
+            url: 'https://cdn.discordapp.com/attachments/111/222/image.png',
+        }]]),
+        embeds: [], stickers: { map: () => [] },
+    };
+    const reply: any = {
+        id: 'reply-to-image', content: 'なにそれ', reference: { messageId: 'original-image' },
+        author: { username: 'suzu' }, member: null,
+        attachments: new Map(), embeds: [], stickers: { map: () => [] },
+    };
+    let calls = 0;
+    const result = await buildStaffVisualReplyContext(
+        reply,
+        async (_, id) => { assert.equal(id, 'original-image'); return imagePost; },
+        (async (url: string) => {
+            calls++;
+            assert.equal(new URL(url).hostname, 'cdn.discordapp.com');
+            return new Response(picture, { status: 200, headers: { 'content-type': 'image/png' } });
+        }) as typeof fetch,
+    );
+    assert.match(result.text, /なにそれ/);
+    assert.match(result.text, /これ見て！/);
+    assert.match(result.text, /original-image/);
+    assert.equal(calls, 1);
+    assert.equal(result.failed, 0);
+    assert.ok(result.imageParts[0].image_url?.url.startsWith('data:image/jpeg;base64,'));
+});
+
+test('非Discord画像URLは取得しない', async () => {
+    const { loadStaffReplyImageParts } = await import('../src/commands/staff/subcommands/StaffAIReplyContext.ts');
+    const result = await loadStaffReplyImageParts([{
+        attachments: new Map([['x', { name: 'x.png', contentType: 'image/png', url: 'https://evil.example/x.png' }]]),
+        embeds: [],
+    } as any], (async () => { throw new Error('Unexpected fetch'); }) as typeof fetch);
+    assert.equal(result.imageParts.length, 0);
+    assert.equal(result.failed, 0);
+});

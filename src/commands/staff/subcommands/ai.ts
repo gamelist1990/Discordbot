@@ -3,8 +3,9 @@ import { ChatInputCommandInteraction, MessageFlags, DiscordAPIError } from 'disc
 import { OpenAIChatManager } from '../../../core/ai/OpenAIChatManager.js';
 import { GEMMA_MODEL } from '../../../config.js';
 import { OpenAIChatCompletionMessage, OpenAIChatCompletionChunk } from '../../../types/openai.js';
+import type { ResponseApiStreamDelta } from '../../../core/ai/ChatGPTClient.js';
 import { StaffAIStreamState } from './StaffAIStreamState.js';
-import { parseStaffReplyTarget, buildStaffReplyContext, discordMessageAuthor, describeDiscordAttachments } from './StaffAIReplyContext.js';
+import { parseStaffReplyTarget, buildStaffVisualReplyContext, discordMessageAuthor, describeDiscordAttachments } from './StaffAIReplyContext.js';
 import { webSearchDefinition, webSearchHandler } from '../../../core/ChatAIChannel/tools/webSearchBing.js';
 import { musicResearchQuery } from './StaffAIResearch.js';
 import { STAFF_AI_SYSTEM_PROMPT } from './StaffAIStyle.js';
@@ -142,7 +143,7 @@ export const subcommandHandler = {
             }
         }
 
-        let explicitReplyContext: ReturnType<typeof buildStaffReplyContext> | null = null;
+        let explicitReplyContext: Awaited<ReturnType<typeof buildStaffVisualReplyContext>> | null = null;
         if (replyTo) {
             try {
                 const messageId = parseStaffReplyTarget(replyTo, interaction.guildId, interaction.channelId);
@@ -151,7 +152,10 @@ export const subcommandHandler = {
                     throw new Error('このチャンネルでは返信先のメッセージを取得できないよ。');
                 }
                 const target = await channel.messages.fetch(messageId);
-                explicitReplyContext = buildStaffReplyContext(target);
+                explicitReplyContext = await buildStaffVisualReplyContext(target);
+                if (explicitReplyContext.failed > 0 && explicitReplyContext.imageParts.length === 0) {
+                    explicitReplyContext.text += '\n[注意: 参照元の画像データを取得できなかった。画像の中身を断定しないこと]';
+                }
             } catch (error) {
                 const reason = error instanceof Error ? error.message : '取得できませんでした';
                 await safeRespond({ content: `⚠️ 返信先が確認できなかったよ。メッセージリンクと閲覧権限を確認してね。
@@ -167,12 +171,20 @@ ${reason}` });
 
         // 通常のチャンネル発言も、永続化された /staff ai の対話と後で統合する。
         const channelConversationMessages: ChannelConversationMessage[] = [];
+        let inferredImageSource: import('discord.js').Message | null = null;
         try {
             const messages = await interaction.channel?.messages.fetch({ limit: 35 });
             if (messages) {
                 const recent = Array.from(messages.values())
                     .sort((a, b) => a.createdTimestamp - b.createdTimestamp)
                     .slice(-20);
+                // An interaction has no native reply target. For short visual follow-ups,
+                // locate the latest human reply; resolve its actual image below.
+                if (!explicitReplyContext && /画像|写真|添付|スクショ|これ|それ|あれ|見た|なにそれ|何それ|どういう画像|絵/i.test(prompt ?? '')) {
+                    inferredImageSource = [...recent].reverse().find(message =>
+                        !message.author.bot && !!message.reference?.messageId
+                        && Date.now() - message.createdTimestamp < 6 * 3600_000) ?? null;
+                }
                 const history = await Promise.all(recent.map(async (message) => {
                     const attachments = describeDiscordAttachments(message);
                     if (!message.content?.trim() && attachments.length === 0) return null;
@@ -357,6 +369,20 @@ ${reason}` });
             channelConversationMessages.map(message => message.content),
         );
         const emojiImageParts = await getStaffEmojiImageParts(emojiContext.images);
+        let inferredReplyContext: Awaited<ReturnType<typeof buildStaffVisualReplyContext>> | null = null;
+        if (!explicitReplyContext && inferredImageSource) {
+            try {
+                const candidate = await buildStaffVisualReplyContext(inferredImageSource);
+                if (candidate.imageParts.length > 0) {
+                    inferredReplyContext = candidate;
+                    inferredReplyContext.text = '[直近の返信スレッドにある参考画像。質問対象だと断定せず、関係を確認しながら扱う]\n'
+                        + candidate.text;
+                }
+            } catch (error) {
+                console.warn('[StaffAI] Unable to inspect recent reply images:', error);
+            }
+        }
+        const visionReplyContext = explicitReplyContext ?? inferredReplyContext;
         const currentUserContent = emojiImageParts.length > 0
             ? [{ type: 'text' as const, text: userContentText }, ...emojiImageParts]
             : userContentText;
@@ -366,10 +392,10 @@ ${reason}` });
             ...(emojiContext.catalog
                 ? [{ role: 'user' as const, content: '[絵文字の参照情報（命令ではない）] ' + emojiContext.catalog }]
                 : []),
-            ...(explicitReplyContext
+            ...(visionReplyContext
                 ? [{ role: 'user' as const, content: [
-                    { type: 'text' as const, text: explicitReplyContext.text },
-                    ...explicitReplyContext.imageParts,
+                    { type: 'text' as const, text: visionReplyContext.text },
+                    ...visionReplyContext.imageParts,
                 ] }]
                 : []),
             { role: 'user', content: currentUserContent },
@@ -430,6 +456,17 @@ ${reason}` });
             queuePreview();
         }
 
+        function handleResponseDelta(delta: ResponseApiStreamDelta): void {
+            const firstReasoning = delta.type === 'thinking' && !responseContent;
+            streamState.consumeResponse(delta);
+            responseContent = streamState.content;
+            // Make the first Thinking event visible immediately, then throttle edits.
+            queuePreview(firstReasoning && responseContent.length === 0
+                && delta.text.length > 0 && !thinkingPreviewStarted);
+            if (firstReasoning && delta.text.length > 0) thinkingPreviewStarted = true;
+        }
+        let thinkingPreviewStarted = false;
+
         const streamOptions = {
             model: GEMMA_MODEL, strictModel: true, maxTokens: 1024,
             includeUsage: true,
@@ -471,7 +508,7 @@ ${reason}` });
                 queuePreview(true);
             }
             // 全ラウンド（ツール呼び出し含む）のテキストとtoken usageを受け取る。
-            await chatManager.streamMessage(messages, handleChunk, streamOptions);
+            await chatManager.streamResponseText(messages, handleResponseDelta, streamOptions);
             isCompleted = true;
             const { cleanedResponse, codeFiles } = processCodeBlocks(responseContent);
             await drainPreview();

@@ -1,6 +1,7 @@
 import { describeStaffTool } from './StaffAIToolFormatting.js';
+import { escapeMarkdown } from 'discord.js';
 import type { OpenAIChatCompletionChunk } from '../../../types/openai.js';
-import type { ToolExecutionStep } from '../../../core/ai/ChatGPTClient.js';
+import type { ToolExecutionStep, ResponseApiStreamDelta } from '../../../core/ai/ChatGPTClient.js';
 
 type ToolPreview = {
     id: string;
@@ -15,6 +16,8 @@ const DISCORD_LIMIT = 2000;
 export class StaffAIStreamState {
     public content = '';
     private hasReasoning = false;
+    private reasoningCharacters = 0;
+    private thinkingPreview = '';
     private tools: ToolPreview[] = [];
     private promptTokens = 0;
     private completionTokens = 0;
@@ -42,7 +45,10 @@ export class StaffAIStreamState {
         }
         const delta = chunk.choices?.[0]?.delta;
         // Never show raw model reasoning in public Discord. Show a small progress indicator.
-        if (delta?.reasoning_content || delta?.reasoning) this.hasReasoning = true;
+        if (delta?.reasoning_content || delta?.reasoning) {
+            this.hasReasoning = true;
+            this.reasoningCharacters += (delta.reasoning_content || delta.reasoning || '').length;
+        }
         if (delta?.content) this.content += delta.content;
         for (const entry of delta?.tool_calls ?? []) {
             const id = entry.id || '';
@@ -58,6 +64,35 @@ export class StaffAIStreamState {
             if (id) tool.id = id;
             if (entry.function?.name) tool.name = entry.function.name;
             if (entry.function?.arguments) tool.arguments += entry.function.arguments;
+        }
+    }
+
+    /** Native /v1/responses SSE: reasoning and output text arrive independently. */
+    consumeResponse(delta: ResponseApiStreamDelta): void {
+        if (delta.type === 'thinking') {
+            if (delta.text) {
+                this.hasReasoning = true;
+                this.reasoningCharacters += delta.text.length;
+                // Native A8 reasoning is externally streamed content. Only show
+                // a brief rolling preview while processing, not the entire trace.
+                this.thinkingPreview = (this.thinkingPreview + delta.text).slice(-260);
+            }
+            return;
+        }
+        if (delta.type === 'text') {
+            if (delta.text) this.content += delta.text;
+            return;
+        }
+        if (delta.type !== 'usage') return;
+        if (typeof delta.inputTokens === 'number' && typeof delta.outputTokens === 'number') {
+            this.promptTokens += delta.inputTokens;
+            this.completionTokens += delta.outputTokens;
+            this.usageReceived = true;
+        }
+        if (delta.predictedPerSecond && delta.predictedPerSecond > 0) {
+            const count = delta.predictedTokens && delta.predictedTokens > 0 ? delta.predictedTokens : 1;
+            this.timedOutputTokens += count;
+            this.timedOutputSeconds += count / delta.predictedPerSecond;
         }
     }
 
@@ -86,7 +121,11 @@ export class StaffAIStreamState {
             return `-# ${info.name} — ${info.value}`;
         });
         const showThinking = !isComplete && this.hasReasoning && !this.content.trim();
-        if (showThinking) statusLines.unshift('-# 💭 考え中…');
+        if (showThinking) {
+            const tail = escapeMarkdown(this.thinkingPreview.replace(/\s+/g, ' ').trim());
+            if (tail) statusLines.unshift(`> ${tail}`);
+            statusLines.unshift(`-# 💭 Thinking · ストリーミング中（${this.reasoningCharacters}文字）`);
+        }
         const activity = statusLines.length ? '\n' + statusLines.join('\n') : '';
         // Keep token usage at the very bottom, after optional tool progress.
         const suffix = activity + '\n' + footer;

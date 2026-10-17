@@ -59,7 +59,7 @@ test('生成速度はprefill時間を含まない値を出す', () => {
 test('Thinkingの生内容は絶対に表示せず小さな進捗だけを出す', () => {
     const stream = new StaffAIStreamState();
     stream.consume({ choices: [{ delta: { reasoning_content: 'Internal hidden reasoning must not leak' } }] } as any);
-    assert.match(stream.render(), /💭 考え中/);
+    assert.match(stream.render(), /💭 Thinking/);
     assert.doesNotMatch(stream.render(), /Internal/);
     stream.consume({ choices: [{ delta: { content: '調べたよ！' } }] } as any);
     const result = stream.renderDiscord(true);
@@ -79,4 +79,25 @@ test('Web検索結果をMarkdownで短く表示し秘密は漏らさない', () 
     assert.doesNotMatch(first, /secret-123/);
     stream.recordToolStep({ phase: 'completed', name: 'web_search', round: 1 });
     assert.match(stream.renderDiscord(true).content, /完了/);
+});
+
+test('Responses SSE のThinkingと本文は別に描画し、usage/timingsを合計する', () => {
+    const stream = new StaffAIStreamState();
+    stream.consumeResponse({ type: 'thinking', text: 'abc' });
+    const before = stream.render();
+    assert.match(before, /💭 Thinking/);
+    assert.match(before, /3文字/);
+    stream.consumeResponse({ type: 'thinking', text: 'defgh' });
+    assert.match(stream.render(), /8文字/);
+    assert.match(stream.render(), /> abcdefgh/);
+    stream.consumeResponse({ type: 'text', text: '画像は赤だよ。' });
+    assert.doesNotMatch(stream.render(), /Thinking/);
+    stream.consumeResponse({ type: 'usage', inputTokens: 100, outputTokens: 50, totalTokens: 150,
+        predictedTokens: 50, predictedPerSecond: 25 });
+    const final = stream.renderDiscord(true);
+    assert.equal(final.embeds.length, 0);
+    assert.match(final.content, /画像は赤だよ/);
+    assert.match(final.content, /25\.0 toks\/s · toks: 150 \(in 100 \/ out 50\)/);
+    assert.doesNotMatch(final.content, /💭 Thinking/);
+    assert.doesNotMatch(final.content, /abcdefgh/);
 });
