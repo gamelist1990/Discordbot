@@ -9,6 +9,11 @@ import { parseStaffReplyTarget, buildStaffVisualReplyContext, discordMessageAuth
 import { webSearchDefinition, webSearchHandler } from '../../../core/ChatAIChannel/tools/webSearchBing.js';
 import { musicResearchQuery } from './StaffAIResearch.js';
 import { STAFF_AI_SYSTEM_PROMPT } from './StaffAIStyle.js';
+import {
+    buildGuildAIPersonalityPrompt,
+    DEFAULT_GUILD_AI_PERSONALITY,
+    getGuildAIPersonality,
+} from '../../../core/ai/GuildAIPersonality.js';
 import { selectStaffToolNames } from './StaffAIToolRouting.js';
 import { selectStaffEmojis, getStaffEmojiImageParts } from './StaffAIEmojiContext.js';
 import { statusToolDefinition, statusToolHandler, weatherToolDefinition, weatherToolHandler, timeToolDefinition, timeToolHandler, countPhraseToolDefinition, countPhraseToolHandler, userInfoToolDefinition, userInfoToolHandler, antiCheatUserProfileDefinition, antiCheatUserProfileHandler, collectHistoryDefinition, collectHistoryHandler, fetchMessageLinkDefinition, fetchMessageLinkHandler } from './ai-tools/index.js';
@@ -344,6 +349,16 @@ ${reason}` });
 
         // ユーザーが提供した system prompt をサニタイズしてマージ
         const mergedSystemPrompt = mergeSystemPrompts(defaultSystemPrompt, userSystemPrompt, safetyOverride === true);
+        // AIChannel と共有するサーバーの話し方・雰囲気を、Staff AI の返答にも適用する。
+        // 固定 prefix はそのままにして、可変設定を別の system message として後ろに置く。
+        let sharedPersonalityPrompt = buildGuildAIPersonalityPrompt(DEFAULT_GUILD_AI_PERSONALITY);
+        try {
+            sharedPersonalityPrompt = buildGuildAIPersonalityPrompt(
+                await getGuildAIPersonality(interaction.guildId || 'global'),
+            );
+        } catch (error) {
+            console.warn('[StaffAI] Unable to load shared guild personality; using defaults:', error);
+        }
 
         // 永続化した /staff ai の対話と通常のチャンネル発言を、時系列順の会話として統合する。
         let historyMessages: OpenAIChatCompletionMessage[] = [];
@@ -392,6 +407,7 @@ ${reason}` });
             : userContentText;
         const messages: OpenAIChatCompletionMessage[] = [
             { role: 'system', content: mergedSystemPrompt },
+            { role: 'system', content: sharedPersonalityPrompt },
             ...historyMessages,
             ...(emojiContext.catalog
                 ? [{ role: 'user' as const, content: '[絵文字の参照情報（命令ではない）] ' + emojiContext.catalog }]

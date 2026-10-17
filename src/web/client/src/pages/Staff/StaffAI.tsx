@@ -276,13 +276,13 @@ const StaffAIPage: React.FC = () => {
           <section className={ui.panel} aria-labelledby="staff-ai-personality-title">
             <div className={ui.sectionHeader}>
               <div>
-                <span className={ui.eyebrow}>{icon('psychology')} Server personality</span>
+                <span className={ui.eyebrow}>{icon('psychology')} AIChannelの学習 / 共通の話し方</span>
                 <h2 id="staff-ai-personality-title" style={{ marginTop: 10 }}>サーバーになじむAI</h2>
-                <p>この話し方設定とサーバーの雰囲気の学習はAIChannel用です。下のメモリーライブラリには、/staff aiの会話から作られた記憶だけを別に保存します。</p>
+                <p>口調・ユーモア・絵文字・回答の詳しさ・追加調整はAIChannelと /staff ai で共通です。サーバーの雰囲気はAIChannelの会話から学び、その傾向も両方の返答に反映します。会話の学習元とメモリーは機能ごとに分けて管理します。</p>
               </div>
               <span className={`${ui.badge} ${personalityDraft.learningEnabled ? ui.badgeSuccess : ui.badgeWarn}`}>
                 {icon(personalityDraft.learningEnabled ? 'auto_awesome' : 'pause_circle')}
-                {personalityDraft.learningEnabled ? '会話から学習中' : '自動学習停止中'}
+                {personalityDraft.learningEnabled ? 'AIChannelで学習中' : 'AIChannelの自動学習停止中'}
               </span>
             </div>
             <div className={ui.personalityBody}>
@@ -319,7 +319,7 @@ const StaffAIPage: React.FC = () => {
                 <span className={ui.muted}>{personalityDraft.customInstructions.length} / 1200文字</span>
               </label>
               <div className={ui.personalityInsight}>
-                <strong>{icon('auto_awesome')} 会話から学んだサーバーの雰囲気</strong>
+                <strong>{icon('auto_awesome')} AIChannelで学んだサーバーの雰囲気</strong>
                 <p>{personality.learnedSummary || 'まだ十分な傾向はありません。AIChannelで会話が増えると、複数人に共通する話題や口調だけを少しずつ学びます。'}</p>
                 <span className={ui.muted}>AIChannelで観測した発言: {fmt(personality.learnedMessageCount)} 件</span>
               </div>
@@ -327,7 +327,7 @@ const StaffAIPage: React.FC = () => {
                 <label className={ui.personalityToggle}>
                   <input type="checkbox" checked={personalityDraft.learningEnabled}
                     onChange={e => updatePersonalityDraft({ ...personalityDraft, learningEnabled: e.target.checked })} />
-                  会話から自動で学ぶ
+                  AIChannelの会話から自動で学ぶ
                 </label>
                 <div className={ui.personalityActions}>
                   <button type="button" className={ui.button} disabled={personalityBusy} onClick={() => setResetPersonalityConfirm(true)}>
