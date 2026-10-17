@@ -38,6 +38,7 @@ export function selectStaffToolNames(prompt: string, recentMessages: string[] = 
         chosen.add('collect_channel_history');
     }
     if (/メモ|memo|覚えて|記録して|保存して|忘れて|思い出し|メモリー|備忘録/i.test(text)) {
+        chosen.add('recall_staff_memory');
         for (const name of ['list_memos','get_memo','create_memo','update_memo','delete_memo','search_memos']) {
             chosen.add(name);
         }

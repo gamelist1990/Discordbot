@@ -95,6 +95,9 @@ async function main() {
         await botClient.initializeDatabase();
 
         Logger.info(`📊 現在のサーバー数: ${botClient.getGuildCount()}/${botClient.getMaxGuilds()}`);
+        // Daily memory runs on a low-frequency timer without blocking commands.
+        const { startStaffAIMemoryScheduler } = await import('./core/ai/StaffAIMemory.js');
+        startStaffAIMemoryScheduler(() => botClient?.client.guilds.cache.map(guild => guild.id) || []);
 
         // コマンドローダーを初期化
         const commandLoader = new CommandLoader(botClient);

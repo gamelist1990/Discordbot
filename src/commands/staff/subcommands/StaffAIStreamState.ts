@@ -21,6 +21,9 @@ export class StaffAIStreamState {
     private reasoningCharacters = 0;
     private tools: ToolPreview[] = [];
     private promptTokens = 0;
+    private cacheTokens = 0;
+    private cacheAvailable = false;
+    private streamingFrom = 0;
     private completionTokens = 0;
     private usageReceived = false;
     private timedOutputTokens = 0;
@@ -72,13 +75,17 @@ export class StaffAIStreamState {
     consumeResponse(delta: ResponseApiStreamDelta): void {
         if (delta.type === 'thinking') {
             if (delta.text) {
+                if (!this.streamingFrom) this.streamingFrom = Date.now();
                 this.hasReasoning = true;
                 this.reasoningCharacters += delta.text.length;
             }
             return;
         }
         if (delta.type === 'text') {
-            if (delta.text) this.content += delta.text;
+            if (delta.text) {
+                if (!this.streamingFrom) this.streamingFrom = Date.now();
+                this.content += delta.text;
+            }
             return;
         }
         if (delta.type !== 'usage') return;
@@ -87,11 +94,20 @@ export class StaffAIStreamState {
             this.completionTokens += delta.outputTokens;
             this.usageReceived = true;
         }
+        if (typeof delta.cachedInputTokens === 'number') {
+            this.cacheTokens += delta.cachedInputTokens;
+            this.cacheAvailable = true;
+        }
         if (delta.predictedPerSecond && delta.predictedPerSecond > 0) {
             const count = delta.predictedTokens && delta.predictedTokens > 0 ? delta.predictedTokens : 1;
             this.timedOutputTokens += count;
             this.timedOutputSeconds += count / delta.predictedPerSecond;
+        } else if (this.streamingFrom && (delta.outputTokens || 0) > 0) {
+            // Approximate when native llama timings are absent.
+            this.timedOutputTokens += delta.outputTokens!;
+            this.timedOutputSeconds += Math.max(0.001, (Date.now() - this.streamingFrom) / 1000);
         }
+        this.streamingFrom = 0;
     }
 
     recordToolStep(step: ToolExecutionStep): void {
@@ -141,6 +157,14 @@ export class StaffAIStreamState {
             ? response.slice(0, Math.max(0, available - 1)) + '…'
             : response;
         return (visible + suffix).slice(0, DISCORD_LIMIT);
+    }
+
+    usageMetrics() {
+        return {
+            input: this.promptTokens, output: this.completionTokens,
+            generatedSeconds: this.timedOutputSeconds,
+            cached: this.cacheAvailable ? this.cacheTokens : undefined,
+        };
     }
 
     renderDiscord(isComplete = false, answer = this.content) {

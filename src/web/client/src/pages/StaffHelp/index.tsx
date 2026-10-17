@@ -6,6 +6,7 @@ import styles from "./StaffHelpPage.module.css";
 type TabType = "help" | "services";
 
 const services = [
+  { title: "Staff AI", description: "トークン・速度統計と会話メモリーの閲覧、編集、削除。", path: "/staff/ai", icon: "psychology" },
   {
     title: "AntiCheat",
     description: "不正検知ルールと自動処罰の設定面へ移動します。",
@@ -60,6 +61,7 @@ const services = [
 ];
 
 const serviceCategories: Record<string, string> = {
+  "/staff/ai": "community",
   "/staff/anticheat": "safety",
   "/staff/privatechat": "safety",
   "/staff/join-log": "safety",

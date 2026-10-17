@@ -13,6 +13,7 @@ import RankBoard from "./pages/RankBoard";
 import UserProfile from "./pages/Profile";
 
 import AntiCheatPage from "./pages/Staff/AntiCheat";
+import StaffAIPage from "./pages/Staff/StaffAI";
 import AntiCheatSelector from "./pages/Staff/AntiCheatSelector";
 import CorePanelPage from "./pages/Staff/CorePanel";
 import OthelloPage from "./pages/Othello";
@@ -144,6 +145,10 @@ const App: React.FC = () => {
                 <JoinLogPage />
               </StaffGuard>
             }
+          />
+          <Route
+            path="/staff/ai"
+            element={<StaffGuard><StaffAIPage /></StaffGuard>}
           />
           <Route
             path="/staff/anticheat"

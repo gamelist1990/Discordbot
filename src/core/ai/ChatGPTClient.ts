@@ -95,6 +95,7 @@ export type ResponseApiStreamDelta = {
     totalTokens?: number;
     predictedTokens?: number;
     predictedPerSecond?: number;
+    cachedInputTokens?: number;
 };
 
 interface ResponseFunctionCallItem {
@@ -749,6 +750,7 @@ export class ChatGPTClient {
                     onDeltaReceive({
                         type: 'usage', inputTokens, outputTokens, totalTokens,
                         predictedTokens: generated, predictedPerSecond: speed,
+                        cachedInputTokens: tokenCount(usage?.input_tokens_details?.cached_tokens),
                     });
                 }
             }
