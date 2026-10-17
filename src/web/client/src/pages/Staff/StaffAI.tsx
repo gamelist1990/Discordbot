@@ -278,7 +278,7 @@ const StaffAIPage: React.FC = () => {
               <div>
                 <span className={ui.eyebrow}>{icon('psychology')} Server personality</span>
                 <h2 id="staff-ai-personality-title" style={{ marginTop: 10 }}>サーバーになじむAI</h2>
-                <p>サーバー共通の話題や言い回しに加え、AI自身が経験した出来事・約束・学びを会話へ引き継ぎます。AI自身の記憶は下のメモリーライブラリで確認できます。</p>
+                <p>この話し方設定とサーバーの雰囲気の学習はAIChannel用です。下のメモリーライブラリには、/staff aiの会話から作られた記憶だけを別に保存します。</p>
               </div>
               <span className={`${ui.badge} ${personalityDraft.learningEnabled ? ui.badgeSuccess : ui.badgeWarn}`}>
                 {icon(personalityDraft.learningEnabled ? 'auto_awesome' : 'pause_circle')}
@@ -320,8 +320,8 @@ const StaffAIPage: React.FC = () => {
               </label>
               <div className={ui.personalityInsight}>
                 <strong>{icon('auto_awesome')} 会話から学んだサーバーの雰囲気</strong>
-                <p>{personality.learnedSummary || 'まだ十分な傾向はありません。会話が増えると、複数人に共通する話題や口調だけを少しずつ学びます。'}</p>
-                <span className={ui.muted}>観測した発言: {fmt(personality.learnedMessageCount)} 件</span>
+                <p>{personality.learnedSummary || 'まだ十分な傾向はありません。AIChannelで会話が増えると、複数人に共通する話題や口調だけを少しずつ学びます。'}</p>
+                <span className={ui.muted}>AIChannelで観測した発言: {fmt(personality.learnedMessageCount)} 件</span>
               </div>
               <div className={ui.personalityFooter}>
                 <label className={ui.personalityToggle}>
@@ -344,7 +344,7 @@ const StaffAIPage: React.FC = () => {
           <section className={ui.panel} aria-labelledby="staff-ai-memories-title">
             <div className={ui.sectionHeader}>
               <div><span className={ui.eyebrow}>Memory workspace</span><h2 id="staff-ai-memories-title" style={{ marginTop: 10 }}>メモリーライブラリ</h2>
-                <p>日次の振り返り、ユーザー別プロフィールに加え、AI自身が会話で経験した出来事・約束・学びも蓄積します。AI自身の記憶は次の会話へ渡され、関連する経験を自然に思い出せるように使われます。</p></div>
+                <p>/staff aiの会話から、当日の日次振り返り、直近90日分をもとにしたユーザー別プロフィール、AI自身の経験・約束・学びをバックグラウンドで作成します。新しいStaff AIの記憶はAIChannelの会話と分けて保存し、Staff AIの次の会話では関連する経験だけを思い出せるように使います。</p></div>
               <button type="button" className={ui.buttonDanger} disabled={busy || (!memories.length && !personality.learnedSummary)} onClick={() => { setDeleting('all'); setConfirmation(''); }}>
                 {icon('delete_outline')} 全件削除
               </button>
@@ -400,10 +400,10 @@ const StaffAIPage: React.FC = () => {
               </div> : <div className={ui.emptyInner}>
                 <div className={ui.emptyIcon}>{icon(search ? 'search_off' : tab === 'daily' ? 'event_note' : tab === 'ai' ? 'psychology' : 'person_search')}</div>
                 <h3>{search ? '一致するメモリーがありません' : 'まだメモリーがありません'}</h3>
-                <p>{search ? '検索条件を変えてみてください。' : tab === 'daily' ? '会話が蓄積されると、日ごとの出来事がここに保存されます。' : tab === 'ai' ? 'AIが印象に残る会話や一緒に解決したことを経験として記録すると、ここに蓄積されます。' : '会話から確認できた興味・得意分野がここに蓄積されます。'}</p>
+                <p>{search ? '検索条件を変えてみてください。' : tab === 'daily' ? '/staff aiで会話すると、今日の振り返りもバックグラウンドで作成されます。' : tab === 'ai' ? '/staff aiでの共同作業、問題解決、約束、今後につながる学びをAI自身の経験として記録します。' : '/staff aiでの本人の発言から、興味・得意分野・継続中の活動を確認できた場合に作成します。'}</p>
               </div>}
           </section>
-          <div className={ui.notice}>{icon('verified_user')} <div><strong style={{ color: 'var(--app-ink)' }}>メモリーの取り扱い</strong><p>サーバーごとに分離して保存します。AI自身の記憶は印象に残る会話・約束・学びを一人称で記録し、次の会話で関連するときに参照します。ユーザーのプロフィール全体は本人との会話だけで使い、他の人へ共有しません。AI自身の記憶や日次要約は編集・削除できます。</p></div></div>
+          <div className={ui.notice}>{icon('verified_user')} <div><strong style={{ color: 'var(--app-ink)' }}>メモリーの取り扱い</strong><p>メモリーはサーバーごとに分離して保存します。これからStaff AIが作る記憶は/staff aiの会話だけを使い、AIChannelの新しい記憶とは共有しません。AI自身の記憶は一人称で記録し、プロフィールは本人との会話だけで使います。AI自身の記憶や日次要約は編集・削除できます。</p></div></div>
         </>}
 
     {deleting && <div className={ui.modalBackdrop} role="presentation" onMouseDown={e => { if (e.target === e.currentTarget && !busy) setDeleting(null); }}>

@@ -16,11 +16,11 @@ import {
     getGuildAIPersonality,
 } from '../ai/GuildAIPersonality.js';
 import {
-    aiExperienceMemoryContext,
-    guildAIExperienceMemoryRevision,
-    saveAIExperienceMemory,
-    selectAIExperienceMemories,
-} from '../ai/StaffAIMemory.js';
+    aiChannelExperienceMemoryContext,
+    channelExperienceMemoryRevision,
+    saveAIChannelExperienceMemory,
+    selectAIChannelExperienceMemories,
+} from './AIChannelExperienceMemory.js';
 import type { ResponseApiStreamDelta, ToolExecutionStep } from '../ai/ChatGPTClient.js';
 import type { OpenAIChatCompletionMessage, OpenAIContentPart } from '../../types/openai.js';
 import { registerChatAIChannelTools } from './tools/index.js';
@@ -625,7 +625,7 @@ export class ChatAIChannelManager {
             .join('\n');
         const personalityPrompt = buildGuildAIPersonalityPrompt(await getGuildAIPersonality(this.options.guildId));
         const experienceQuery = effectiveCurrentTurn.map(message => message.content).join('\n').slice(0, 4_000);
-        const aiExperiencePrompt = await aiExperienceMemoryContext(this.options.guildId, experienceQuery);
+        const aiExperiencePrompt = await aiChannelExperienceMemoryContext(this.options.guildId, experienceQuery);
         const sandboxSessionId = effectiveCurrentTurn.at(-1)?.id.replace(/[^0-9]/g, '').slice(0, 24)
             || String(Date.now());
 
@@ -1190,9 +1190,9 @@ export class ChatAIChannelManager {
         newPersonalityMessages = newPersonalityMessages.slice(-8);
 
         const experienceQuery = newPersonalityMessages.map(message => message.content).join('\n');
-        const aiExperienceRevision = await guildAIExperienceMemoryRevision(this.options.guildId);
+        const aiExperienceRevision = await channelExperienceMemoryRevision(this.options.guildId);
         const priorAIExperiences = personality.learningEnabled
-            ? await selectAIExperienceMemories(this.options.guildId, experienceQuery, 10)
+            ? await selectAIChannelExperienceMemories(this.options.guildId, experienceQuery, 10)
             : [];
 
         const compactHistory = recentHumanMessages.map(message => this.formatHistoryLine(message)).join('\n');
@@ -1313,7 +1313,7 @@ export class ChatAIChannelManager {
             && latestPersonality.learningRevision === personality.learningRevision
             && selfMemory && typeof selfMemory === 'object'
             && (selfMemory.action === 'create' || selfMemory.action === 'update')) {
-            await saveAIExperienceMemory(this.options.guildId, aiExperienceRevision, {
+            await saveAIChannelExperienceMemory(this.options.guildId, aiExperienceRevision, {
                 action: selfMemory.action,
                 id: typeof selfMemory.id === 'string' ? selfMemory.id : undefined,
                 title: selfMemory.title,

@@ -148,7 +148,7 @@ export class StaffAIStreamState {
         const speed = this.timedOutputSeconds > 0
             ? (this.timedOutputTokens / this.timedOutputSeconds).toFixed(1) : '—';
         const footer = isComplete
-            ? `-# ${speed} toks/s · toks: ${this.usageReceived ? `${this.promptTokens + this.completionTokens} (in ${this.promptTokens} / out ${this.completionTokens})` : '未取得 (API未提供)'}`
+            ? `-# ${speed} toks/s · 合計 ${this.usageReceived ? `${this.promptTokens + this.completionTokens} toks (in ${this.promptTokens} / out ${this.completionTokens})` : '未取得 (API未提供)'}`
             : '-# ▌ 生成中…';
         const latest = this.tools.slice(-2);
         const statusLines = latest.map(tool => {
@@ -212,6 +212,19 @@ export class StaffAIStreamState {
             generatedSeconds: this.timedOutputSeconds,
             cached: this.cacheAvailable ? this.cacheTokens : undefined,
         };
+    }
+
+    /** Preserve usage from a failed attempt when a sanitized retry succeeds. */
+    addUsageMetrics(metrics: ReturnType<StaffAIStreamState['usageMetrics']>): void {
+        this.promptTokens += metrics.input;
+        this.completionTokens += metrics.output;
+        this.usageReceived ||= metrics.input > 0 || metrics.output > 0;
+        this.timedOutputTokens += metrics.output;
+        this.timedOutputSeconds += metrics.generatedSeconds;
+        if (metrics.cached !== undefined) {
+            this.cacheTokens += metrics.cached;
+            this.cacheAvailable = true;
+        }
     }
 
     renderDiscord(isComplete = false, answer = this.content) {

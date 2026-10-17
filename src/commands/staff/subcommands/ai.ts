@@ -13,7 +13,7 @@ import { selectStaffToolNames } from './StaffAIToolRouting.js';
 import { selectStaffEmojis, getStaffEmojiImageParts } from './StaffAIEmojiContext.js';
 import { statusToolDefinition, statusToolHandler, weatherToolDefinition, weatherToolHandler, timeToolDefinition, timeToolHandler, countPhraseToolDefinition, countPhraseToolHandler, userInfoToolDefinition, userInfoToolHandler, antiCheatUserProfileDefinition, antiCheatUserProfileHandler, collectHistoryDefinition, collectHistoryHandler, fetchMessageLinkDefinition, fetchMessageLinkHandler } from './ai-tools/index.js';
 import { PdfRAGManager } from '../../../core/ai/PdfRAGManager.js';
-import { recordStaffUsage, queueAIExperienceMemory, queueStaffDailyMemory, staffMemoryContext } from '../../../core/ai/StaffAIMemory.js';
+import { recordStaffUsage, queueAIExperienceMemory, queueCurrentStaffDailyMemory, queueStaffDailyMemory, staffMemoryContext } from '../../../core/ai/StaffAIMemory.js';
 import { staffMemoryDefinition, staffMemoryHandler, staffMemoryToolScope } from './ai-tools/staff_memory.js';
 import { database } from '../../../core/persistence/Database.js';
 import {
@@ -125,6 +125,14 @@ export const subcommandHandler = {
                 // まず編集を試みる（既に返信がある想定）
                 return await interaction.editReply({ content: payload.content, embeds: payload.embeds ?? [], files: payload.files, allowedMentions: { parse: [] } });
             } catch (err: any) {
+                // editReply がタイムアウト後に失敗しても、Discord側では更新済みの場合がある。
+                // 先に元の返信を取得して更新し、不要な followUp の二重投稿を避ける。
+                try {
+                    const original = await interaction.fetchReply();
+                    return await original.edit({ content: payload.content, embeds: payload.embeds ?? [], files: payload.files, allowedMentions: { parse: [] } });
+                } catch {
+                    // 元の返信が利用できないときだけ followUp へ進む。
+                }
                 // Unknown interaction や期限切れの場合、followUp かチャンネル送信でフォールバック
                 try {
                     return await interaction.followUp({ content: payload.content || '', embeds: payload.embeds ?? [], files: payload.files, ephemeral: payload.ephemeral, allowedMentions: { parse: [] } });
@@ -566,8 +574,9 @@ ${reason}` });
 
             // 会話をデータセットに保存（最新100件に切り詰め）
             try {
-                await saveConversationDatasetEntry(interaction, prompt, cleanedResponse, /* incomplete */ false);
+                await saveConversationDatasetEntry(interaction, userContentText, cleanedResponse, /* incomplete */ false);
                 queueStaffDailyMemory(interaction.guildId || 'global');
+                queueCurrentStaffDailyMemory(interaction.guildId || 'global');
             } catch (dbErr) {
                 console.error('dataset save error:', dbErr);
             }
@@ -613,7 +622,9 @@ ${reason}` });
 
                         // 再試行時も同じ Gemma 4 E4B を使う。
                         try {
+                            const firstAttemptUsage = streamState.usageMetrics();
                             streamState = new StaffAIStreamState();
+                            streamState.addUsageMetrics(firstAttemptUsage);
                             responseContent = '';
                             pendingPreview = null;
                             lastUpdateTime = 0;
@@ -625,11 +636,18 @@ ${reason}` });
                             await drainPreview();
                             await safeRespond(streamState.renderDiscord(true));
                             isCompleted = true;
+                            const retryResponse = stripDiscordStreamMetadata(responseContent);
+                            const retryUsage = streamState.usageMetrics();
+                            void recordStaffUsage(interaction.guildId || 'global', retryUsage.input, retryUsage.output, retryUsage.generatedSeconds, retryUsage.cached)
+                                .catch(usageError => console.warn('[StaffAI] retry metrics error', usageError));
                             try {
-                                await saveConversationDatasetEntry(interaction, sanitized, stripDiscordStreamMetadata(responseContent), false);
+                                await saveConversationDatasetEntry(interaction, sanitized, retryResponse, false);
+                                queueStaffDailyMemory(interaction.guildId || 'global');
+                                queueCurrentStaffDailyMemory(interaction.guildId || 'global');
                             } catch (dbErr) {
                                 console.error('dataset save error:', dbErr);
                             }
+                            if (interaction.guildId) queueAIExperienceMemory(interaction.guildId, sanitized, retryResponse);
                             return; // 正常終了
                         } catch (retryErr) {
                             console.error('自動サニタイズ再試行に失敗:', retryErr);
