@@ -1,5 +1,6 @@
 // src/commands/staff/subcommands/ai.ts
 import { ChatInputCommandInteraction, Message, MessageFlags, DiscordAPIError } from 'discord.js';
+import path from 'node:path';
 import { OpenAIChatManager } from '../../../core/ai/OpenAIChatManager.js';
 import { GEMMA_MODEL } from '../../../config.js';
 import { OpenAIChatCompletionMessage, OpenAIChatCompletionChunk } from '../../../types/openai.js';
@@ -21,6 +22,8 @@ import { PdfRAGManager } from '../../../core/ai/PdfRAGManager.js';
 import { recordStaffUsage, queueAIExperienceMemory, queueCurrentStaffDailyMemory, queueStaffDailyMemory, staffMemoryContext } from '../../../core/ai/StaffAIMemory.js';
 import { staffMemoryDefinition, staffMemoryHandler, staffMemoryToolScope } from './ai-tools/staff_memory.js';
 import { database } from '../../../core/persistence/Database.js';
+import type { ChatAISandboxPaths } from '../../../core/ChatAIChannel/types.js';
+import { isChatAITextFileRequest, registerTextFileTools } from '../../../core/ChatAIChannel/tools/textFiles.js';
 import {
     AIConversationEntry,
     ChannelConversationMessage,
@@ -319,6 +322,7 @@ ${reason}` });
             prompt ?? '',
             channelConversationMessages.map(entry => entry.content),
         );
+        const forceTextFileTools = isChatAITextFileRequest(prompt ?? '');
         const availableTools = [
             [statusToolDefinition, statusToolHandler],
             [webSearchDefinition, webSearchHandler],
@@ -337,8 +341,26 @@ ${reason}` });
             }
         }
 
+        const guildIdForFiles = interaction.guildId || 'global';
+        const staffSandboxPaths: ChatAISandboxPaths = {
+            root: path.join(process.cwd(), 'Database', 'integrations', guildIdForFiles, 'staff-ai', 'sandbox'),
+            work: path.join(process.cwd(), 'Database', 'integrations', guildIdForFiles, 'staff-ai', 'sandbox', 'work'),
+            downloads: path.join(process.cwd(), 'Database', 'integrations', guildIdForFiles, 'staff-ai', 'sandbox', 'downloads'),
+            uploads: path.join(process.cwd(), 'Database', 'integrations', guildIdForFiles, 'staff-ai', 'sandbox', 'uploads'),
+        };
+        if (forceTextFileTools) {
+            registerTextFileTools(chatManager, { sandboxPaths: staffSandboxPaths, memoryFile: '', timeoutFile: '' });
+        }
+
         // ツール実行時のコンテキストとして interaction を設定
-        chatManager.setToolContext(interaction);
+        const toolContext = forceTextFileTools ? new Proxy(interaction, {
+            get(target, property) {
+                if (property === 'uploadSessionId') return interaction.id;
+                if (property === 'sandbox' || property === 'sandboxPaths') return staffSandboxPaths;
+                return Reflect.get(target, property, target);
+            },
+        }) : interaction;
+        chatManager.setToolContext(toolContext);
 
         // カスタム system prompt と安全化オプションの取得
         const userSystemPrompt = interaction.options.getString('system_prompt', false);
@@ -420,6 +442,10 @@ ${reason}` });
                 : []),
             { role: 'user', content: currentUserContent },
         ];
+        if (forceTextFileTools) messages.splice(1, 0, {
+            role: 'system',
+            content: 'この依頼は実際のテキストファイル作成です。create_text_fileで内容を書き込み、続けてupload_filesで現在のDiscordチャンネルに添付してください。両方のツール成功を確認してから、最終回答に添付URLを含めてください。ファイルを作ったと文章だけで主張して終わらないでください。',
+        });
 
         // Persistent memory is retrieved only for the requesting user in this guild.
         const savedMemory = await staffMemoryContext(interaction.guildId || 'global', userId, userContentText);
@@ -516,6 +542,7 @@ ${reason}` });
 
         const streamOptions = {
             model: GEMMA_MODEL, strictModel: true, maxTokens: 1024,
+            ...(forceTextFileTools ? { forceToolSequence: ['create_text_file', 'upload_files'] } : {}),
             includeUsage: true,
             onToolStep: (step: Parameters<StaffAIStreamState['recordToolStep']>[0]) => {
                 streamState.recordToolStep(step);

@@ -32,6 +32,8 @@ export interface ChatOptions {
     requestLabel?: string;
     onRateLimitWait?: (info: RateLimitWaitInfo) => void | Promise<void>;
     onToolStep?: (step: ToolExecutionStep) => void | Promise<void>;
+    /** Force a short ordered tool sequence once per tool round, then return to automatic selection. */
+    forceToolSequence?: string[];
     signal?: AbortSignal;
     priority?: AIRequestPriority;
 }
@@ -374,7 +376,7 @@ export class ChatGPTClient {
                 let emittedChunk = false;
 
                 try {
-                    const payload = this.buildRequestPayload(messages, options, model, true, toolDefinitions);
+                    const payload = this.buildRequestPayload(messages, options, model, true, toolDefinitions, toolRound);
                     const stream = await client.chat.completions.create(
                         payload as OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming,
                         { signal: options?.signal },
@@ -403,6 +405,8 @@ export class ChatGPTClient {
                     if (toolCallsBuffer.size > 0) {
                         const nextMessages = await this.executeToolCallsFromBuffer(toolCallsBuffer, messages, options, toolRound + 1);
                         await this.streamMessageInternal(nextMessages, onChunkReceive, options, toolRound + 1, 0);
+                    } else if (this.forcedToolForRound(options, toolDefinitions, toolRound)) {
+                        throw new Error(`Required tool was not called: ${this.forcedToolForRound(options, toolDefinitions, toolRound)}`);
                     }
 
                     return;
@@ -475,6 +479,7 @@ export class ChatGPTClient {
                         model,
                         toolDefinitions,
                         previousResponseId,
+                        toolRound,
                     );
                     this.debugToolCall('request', {
                         api: 'responses',
@@ -482,13 +487,20 @@ export class ChatGPTClient {
                         model,
                         round: toolRound,
                         registeredTools: toolDefinitions.map(tool => tool.function.name),
-                        toolChoice: toolDefinitions.length > 0 ? 'auto' : 'none',
+                        toolChoice: toolDefinitions.length > 0
+                            ? (this.forcedToolForRound(options, toolDefinitions, toolRound) || 'auto')
+                            : 'none',
                     });
                     const result = await this.streamResponseApiPayload(auth, payload, (delta) => {
                         emittedDelta = true;
                         onDeltaReceive(delta);
                     }, options?.signal);
                     this.throwIfAborted(options?.signal);
+
+                    const requiredTool = this.forcedToolForRound(options, toolDefinitions, toolRound);
+                    if (requiredTool && result.functionCalls.length === 0) {
+                        throw new Error(`Required tool was not called: ${requiredTool}`);
+                    }
 
                     if (result.functionCalls.length > 0) {
                         this.debugToolCall('model-requested', {
@@ -653,8 +665,10 @@ export class ChatGPTClient {
         options: ChatOptions | undefined,
         model: string,
         tools: OpenAITool[],
-        previousResponseId?: string
+        previousResponseId?: string,
+        toolRound = 0,
     ): Record<string, unknown> {
+        const forcedTool = this.forcedToolForRound(options, tools, toolRound);
         return {
             model,
             input,
@@ -669,8 +683,16 @@ export class ChatGPTClient {
                 ? { reasoning: { effort: options.reasoningEffort } }
                 : {}),
             ...(previousResponseId ? { previous_response_id: previousResponseId } : {}),
-            ...(tools.length > 0 ? { tools: this.convertToolsToResponseTools(tools), tool_choice: 'auto' } : {}),
+            ...(tools.length > 0 ? {
+                tools: this.convertToolsToResponseTools(tools),
+                tool_choice: forcedTool ? { type: 'function', name: forcedTool } : 'auto',
+            } : {}),
         };
+    }
+
+    private forcedToolForRound(options: ChatOptions | undefined, tools: OpenAITool[], toolRound: number): string | null {
+        const name = options?.forceToolSequence?.[toolRound];
+        return name && tools.some(tool => tool.function.name === name) ? name : null;
     }
 
     private convertChatMessagesToResponseInput(messages: OpenAIChatCompletionMessage[]): any[] {
@@ -1149,15 +1171,20 @@ export class ChatGPTClient {
         options: ChatOptions | undefined,
         model: string,
         stream: boolean,
-        tools: OpenAITool[] = []
+        tools: OpenAITool[] = [],
+        toolRound = 0,
     ): OpenAIChatCompletionRequest {
+        const forcedTool = this.forcedToolForRound(options, tools, toolRound);
+        const toolChoice = forcedTool
+            ? { type: 'function' as const, function: { name: forcedTool } }
+            : 'auto' as const;
         this.debugToolCall('request', {
             api: 'chat-completions',
             requestLabel: options?.requestLabel || 'chatgpt-request',
             model,
             stream,
             registeredTools: tools.map(tool => tool.function.name),
-            toolChoice: tools.length > 0 ? 'auto' : 'none',
+            toolChoice: tools.length > 0 ? (forcedTool || 'auto') : 'none',
         });
         return {
             model,
@@ -1171,7 +1198,7 @@ export class ChatGPTClient {
             top_p: options?.topP ?? 1,
             stream,
             ...(stream && options?.includeUsage ? { stream_options: { include_usage: true } } : {}),
-            ...(tools.length > 0 ? { tools, tool_choice: 'auto' } : {}),
+            ...(tools.length > 0 ? { tools, tool_choice: toolChoice } : {}),
         };
     }
 

@@ -15,7 +15,7 @@ function getSessionDirectory(paths: ChatAISandboxPaths, context?: ChatAIToolCont
     return path.join(paths.uploads, sessionId);
 }
 
-const createTextFileDefinition: OpenAITool = {
+export const createTextFileDefinition: OpenAITool = {
     type: 'function',
     function: {
         name: 'create_text_file',
@@ -31,7 +31,7 @@ const createTextFileDefinition: OpenAITool = {
     },
 };
 
-const uploadFilesDefinition: OpenAITool = {
+export const uploadFilesDefinition: OpenAITool = {
     type: 'function',
     function: {
         name: 'upload_files',
@@ -113,17 +113,30 @@ export function createUploadFilesHandler(paths: ChatAISandboxPaths): ToolHandler
         }
 
         const sendable = channel as typeof channel & { send: (payload: unknown) => Promise<Message> };
-        const sentMessage = await sendable.send({
-            files,
-            allowedMentions: { parse: [], repliedUser: false },
-        });
+        let sentMessage: Message;
+        try {
+            sentMessage = await sendable.send({
+                files,
+                allowedMentions: { parse: [], repliedUser: false },
+            });
+        } catch (error) {
+            await fs.rm(directory, { recursive: true, force: true }).catch(() => undefined);
+            throw error;
+        }
         const links = files.map(file => {
             const filename = file.name ?? 'file.txt';
             const attachment = sentMessage.attachments?.find(entry => entry.name === filename);
             return attachment ? `[${filename}](${attachment.url})` : filename;
         });
+        await fs.rm(directory, { recursive: true, force: true }).catch(() => undefined);
         return `FILES_UPLOADED: ${links.join(', ')} をDiscordへ添付しました。`;
     };
+}
+
+export function isChatAITextFileRequest(text: string): boolean {
+    const artifact = '(?:ファイル|コード(?:ファイル)?|HTML|HTM|TXT|テキスト|Markdown|\\.md\\b|\\.txt\\b|\\.html?\\b|\\.json\\b|\\.csv\\b|\\.css\\b|\\.js\\b|\\.ts\\b|\\.py\\b)';
+    const create = '(?:作って|作成して|書いて|生成して|用意して|出力して|添付して|アップロードして|にして|にしてください)';
+    return new RegExp(`${artifact}.{0,15}${create}|${create}.{0,15}${artifact}`, 'i').test(text);
 }
 
 export const registerTextFileTools: ChatAIToolRegistrar = (manager, { sandboxPaths }: ChatAIToolRegisterContext) => {
