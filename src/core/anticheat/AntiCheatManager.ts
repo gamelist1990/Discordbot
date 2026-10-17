@@ -121,18 +121,12 @@ export class AntiCheatManager {
         const previous = this.contentRetries.get(message.id);
         if (previous?.timer) return;
         const attempts = (previous?.attempts ?? 0) + 1;
-        if (attempts > 6) {
-            this.cancelContentRetry(message.id);
-            Logger.warn(`[ContentSafety] retry-exhausted message=${message.id} reason=${reason}; manual review required`);
-            return;
-        }
-        if (!previous && this.contentRetries.size >= 1000) {
-            Logger.warn(`[ContentSafety] retry-queue-full message=${message.id}; manual review required`);
-            return;
-        }
         const entry: { attempts: number; timer?: ReturnType<typeof setTimeout> } = { attempts };
         this.contentRetries.set(message.id, entry);
-        const delay = Math.min(15 * 60_000, 5_000 * 2 ** (attempts - 1));
+        // Keep retrying until the scan succeeds or the Discord post disappears.
+        // Cap both the delay and exponent so a long outage cannot overflow the
+        // calculation or hammer the inference service when it comes back.
+        const delay = Math.min(15 * 60_000, 5_000 * 2 ** Math.min(attempts - 1, 20));
         entry.timer = setTimeout(() => {
             entry.timer = undefined;
             if (this.replacedMessages.has(message.id) || this.deletedMessages.has(message.id)) {
@@ -148,7 +142,7 @@ export class AntiCheatManager {
             ));
         }, delay);
         entry.timer.unref?.();
-        Logger.warn(`[ContentSafety] retry-scheduled message=${message.id} attempt=${attempts}/6 delayMs=${delay} reason=${reason}`);
+        Logger.warn(`[ContentSafety] retry-scheduled message=${message.id} attempt=${attempts} delayMs=${delay} reason=${reason}`);
     }
 
     private enqueueMessageProcessing(key: string, task: () => Promise<void>): Promise<void> {

@@ -189,3 +189,21 @@ test('API failure retry refetches the original and re-runs the normal message pi
     manager.cancelContentRetry(id);
   }finally{globalThis.setTimeout=oldTimeout;manager.cancelContentRetry(id);}
 });
+
+test('API failure keeps scheduling retries after the old six-attempt limit',()=>{
+  const manager:any=new AntiCheatManager();
+  const id='persistent-retry'; const message:any={id,guild:{id:'guild'},fetch:async()=>message};
+  const oldTimeout=globalThis.setTimeout;
+  const delays:number[]=[];
+  globalThis.setTimeout=((_fn:()=>void,delay?:number)=>{delays.push(delay||0);return {unref(){}} as any;}) as typeof setTimeout;
+  try{
+    for(let attempt=1;attempt<=9;attempt++){
+      const pending=manager.contentRetries.get(id);
+      if(pending)pending.timer=undefined;
+      manager.scheduleContentRetry(message,new Error('Moderation API HTTP 503'));
+      assert.equal(manager.contentRetries.get(id).attempts,attempt);
+    }
+    assert.equal(delays.length,9);
+    assert.equal(delays.at(-1),15*60_000);
+  }finally{globalThis.setTimeout=oldTimeout;manager.cancelContentRetry(id);}
+});
