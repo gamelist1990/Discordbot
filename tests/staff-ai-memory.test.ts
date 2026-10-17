@@ -47,3 +47,22 @@ test('ギルドごとに統計を分離し不明なKV hit率は取得済み扱�
         (database as any).set = set;
     }
 });
+
+test('他ユーザーには一般的な趣味だけ公開し、私的プロフィール本文は渡さない', async () => {
+ const get = database.get.bind(database);
+ (database as any).get = async (_g: string,_k:string,_d:unknown) => [{
+  id:'user:123456789012345678', kind:'user', guildId:'guild',
+  userId:'123456789012345678',title:'テスト',content:'非公開の連絡先情報',
+  publicInterests:'Minecraftの建築が好き。Javaが得意。',
+  updatedAt:new Date().toISOString(), evidenceCount:3,
+ }];
+ try {
+  const publicValue=await staffMemoryToolScope.run({guildId:'guild',userId:'999999999999999999'},
+    ()=>staffMemoryHandler({type:'public_interests',userId:'123456789012345678'}));
+  assert.match(publicValue,/Minecraft/);
+  assert.doesNotMatch(publicValue,/非公開/);
+  const privateValue=await staffMemoryToolScope.run({guildId:'guild',userId:'999999999999999999'},
+    ()=>staffMemoryHandler({type:'my_profile'}));
+  assert.doesNotMatch(privateValue,/非公開/);
+ } finally {(database as any).get=get;}
+});

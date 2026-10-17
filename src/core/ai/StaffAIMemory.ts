@@ -5,7 +5,7 @@ import { GEMMA_MODEL } from '../../config.js';
 
 export type StaffMemory = {
     id: string; kind: 'daily' | 'user'; guildId: string; userId?: string;
-    day?: string; title: string; content: string; evidenceCount: number;
+    day?: string; title: string; content: string; publicInterests?: string; evidenceCount: number;
     updatedAt: string; editedByStaff?: boolean;
 };
 export type StaffMetrics = { requests: number; inputTokens: number; outputTokens: number;
@@ -110,9 +110,15 @@ export function queueStaffDailyMemory(guildId: string): void {
                     '会話しているユーザー本人の興味・得意分野・活動だけを更新。断定できない属性は含めない。本人の発言と明確に分かる情報だけ記録。',
                 );
                 if (!facts) continue;
+                // Only this tightly scoped public-interest summary is permitted in
+                // third-party lookups. The full profile remains private.
+                const publicInterests = await summarize(
+                    own.map(m => m.prompt.slice(0, 400)).join('\n'),
+                    '本人が明示的に話した趣味、好きなゲームや曲、一般的な興味、公開している制作活動や得意分野のみ。連絡先・本名・住所・健康・恋愛・思想・家族・秘密・推測は絶対に記録しない。確証がなければ「不明」と返す。'
+                );
                 const record: StaffMemory = { id, kind: 'user', guildId, userId,
                     title: `${own.at(-1)?.userName || userId} のプロフィール`,
-                    content: facts.slice(0, 4000), evidenceCount: own.length,
+                    content: facts.slice(0, 4000), publicInterests: publicInterests.slice(0, 1000), evidenceCount: own.length,
                     updatedAt: new Date().toISOString() };
                 const index = next.findIndex(m => m.id === id);
                 if (index >= 0) next[index] = record; else next.push(record);

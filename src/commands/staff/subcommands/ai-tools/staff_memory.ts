@@ -12,8 +12,9 @@ export const staffMemoryDefinition = {
         parameters: {
             type: 'object',
             properties: {
-                type: { type: 'string', enum: ['daily', 'my_profile'] },
+                type: { type: 'string', enum: ['daily', 'my_profile', 'public_interests'] },
                 day: { type: 'string', description: 'daily指定の場合に任意の日付（YYYY-MM-DD）' },
+                userId: { type: 'string', description: 'public_interests指定時の対象DiscordユーザーID' },
             },
             required: ['type'],
             additionalProperties: false,
@@ -25,6 +26,12 @@ export async function staffMemoryHandler(args: Record<string, unknown>): Promise
     const scope = staffMemoryToolScope.getStore();
     if (!scope) return 'このリクエストではメモリーの読み取り権限がありません';
     const entries = await staffMemoryList(scope.guildId);
+    if (args.type === 'public_interests') {
+        const target = typeof args.userId === 'string' && /^\d{17,20}$/.test(args.userId)
+            ? args.userId : scope.userId;
+        const profile = entries.find(item => item.kind === 'user' && item.userId === target);
+        return profile?.publicInterests?.trim() || 'このユーザーの一般公開可能な趣味・得意分野は記録されていません';
+    }
     const filtered = args.type === 'my_profile'
         ? entries.filter(item => item.kind === 'user' && item.userId === scope.userId)
         : entries.filter(item => item.kind === 'daily' && (!args.day || item.day === args.day)).slice(-5);

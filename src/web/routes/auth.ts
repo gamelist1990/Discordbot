@@ -146,6 +146,7 @@ export function createAuthRoutes(
                     avatar: (session as any).avatar || null,
                     permissions: session.permissions || [],
                     permissionLevel: maxPermissionLevel,
+                    isBotOwner: isOwner,
                     isOwner,
                     owners,
                     isGuest: session.isGuest === true,

@@ -9,6 +9,7 @@ interface UserInfo {
   username: string;
   avatar?: string | null;
   permissionLevel?: number;
+  isBotOwner?: boolean;
 }
 
 interface AppHeaderProps {
@@ -288,6 +289,13 @@ const AppHeader: React.FC<AppHeaderProps> = ({ user: userProp, onLogout }) => {
                         <span className="material-icons">shield</span>
                         <span>スタッフ運用</span>
                       </span>
+                      <span className="material-icons">arrow_forward</span>
+                    </button>
+                  ) : null}
+
+                  {user?.isBotOwner ? (
+                    <button className={styles.menuAction} onClick={() => goTo("/system-management")} type="button">
+                      <span className={styles.menuActionLeft}><span className="material-icons">monitor_heart</span><span>システム管理</span></span>
                       <span className="material-icons">arrow_forward</span>
                     </button>
                   ) : null}

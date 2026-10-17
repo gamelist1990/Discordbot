@@ -397,7 +397,26 @@ export class Database {
     private async writeJson(root: string, relativePath: string, data: unknown): Promise<void> {
         const filePath = this.toFilePath(root, relativePath);
         await fs.mkdir(path.dirname(filePath), { recursive: true });
-        await fs.writeFile(filePath, JSON.stringify(data, null, 2), 'utf-8');
+        const payload = JSON.stringify(data, null, 2);
+        const incomingBytes = Buffer.byteLength(payload, 'utf8');
+        const oldBytes = (await fs.stat(filePath).catch(() => null))?.size || 0;
+        const disk = await fs.statfs(path.dirname(filePath));
+        const available = disk.bavail * disk.bsize;
+        const total = disk.blocks * disk.bsize;
+        const reserve = Math.max(128 * 1024 * 1024, Math.floor(total * 0.05));
+        // JSON writes may temporarily need space for the old and new file.
+        // Refuse growth before eating into the OS safety reserve.
+        if (incomingBytes > oldBytes && available - incomingBytes < reserve) {
+            throw new Error('ディスクの空き容量が安全上限を下回るためDB書き込みを停止しました');
+        }
+        const temp = filePath + '.writing-' + process.pid + '-' + Math.random().toString(36).slice(2);
+        try {
+            await fs.writeFile(temp, payload, { encoding: 'utf8', flag: 'wx' });
+            await fs.rename(temp, filePath);
+        } catch (error) {
+            await fs.unlink(temp).catch(() => {});
+            throw error;
+        }
     }
 
     private async migrateLegacyDataIfNeeded(): Promise<void> {
