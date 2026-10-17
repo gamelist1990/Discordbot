@@ -15,7 +15,7 @@ type Metrics = {
   totalTokens: number; generatedSeconds: number; cacheHitTokens: number; cacheInputTokens: number;
 };
 type Memory = {
-  id: string; kind: 'daily' | 'user' | 'ai' | 'ai_channel'; guildId: string; userId?: string; day?: string;
+  id: string; kind: 'daily' | 'user' | 'ai_channel'; guildId: string; userId?: string; day?: string;
   title: string; content: string; publicInterests?: string; evidenceCount: number;
   updatedAt: string; editedByStaff?: boolean;
 };
@@ -78,7 +78,7 @@ const StaffAIPage: React.FC = () => {
   const [resetPersonalityConfirm, setResetPersonalityConfirm] = useState(false);
   const [error, setError] = useState('');
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
-  const [tab, setTab] = useState<'daily' | 'user' | 'ai' | 'ai_channel'>('daily');
+  const [tab, setTab] = useState<'daily' | 'user' | 'ai_channel'>('daily');
   const [search, setSearch] = useState('');
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
@@ -288,7 +288,6 @@ const StaffAIPage: React.FC = () => {
   const counts = useMemo(() => ({
     daily: memories.filter(item => item.kind === 'daily').length,
     user: memories.filter(item => item.kind === 'user').length,
-    ai: memories.filter(item => item.kind === 'ai').length,
     ai_channel: memories.filter(item => item.kind === 'ai_channel').length,
   }), [memories]);
   const speed = metrics.generatedSeconds > 0 ? metrics.outputTokens / metrics.generatedSeconds : null;
@@ -304,7 +303,7 @@ const StaffAIPage: React.FC = () => {
         <Link to="/staff" className={ui.muted}>{icon('arrow_back')} スタッフ運用に戻る</Link>
         <div style={{ marginTop: 14 }}><span className={ui.eyebrow}>{icon('auto_awesome')} AI Operations</span></div>
         <h1>Staff AI</h1>
-        <p>会話の利用状況、AI自身の経験、日々の振り返りやプロフィールをまとめて管理。</p>
+        <p>会話の利用状況、日々の振り返りやユーザープロフィールをまとめて管理。</p>
       </div>
       <div className={ui.heroActions}>
         <label className={ui.label}>対象サーバー
@@ -415,7 +414,7 @@ const StaffAIPage: React.FC = () => {
           <section className={ui.panel} aria-labelledby="staff-ai-memories-title">
             <div className={ui.sectionHeader}>
               <div><span className={ui.eyebrow}>Memory workspace</span><h2 id="staff-ai-memories-title" style={{ marginTop: 10 }}>メモリーライブラリ</h2>
-                <p>選んだチャンネルの直近15日分から参加者全員のプロフィールと日次記録を初期作成し、その後は/staff aiの会話やAI自身の経験もバックグラウンドで蓄積します。口調設定はAIChannelと共通で、記憶データは用途ごとに分けて保存します。</p></div>
+                <p>選んだチャンネルの直近15日分から参加者全員のプロフィールと日次記録を初期作成し、その後は/staff aiの会話から話したユーザーのプロフィールも更新します。口調設定はAIChannelと共通で、AIChannel自身の経験メモリーは専用に保存します。</p></div>
               <button type="button" className={ui.buttonDanger} disabled={busy || hasActiveChannelImport || (!memories.length && !personality.learnedSummary)} onClick={() => { setDeleting('all'); setConfirmation(''); }}>
                 {icon('delete_outline')} 全件削除
               </button>
@@ -427,9 +426,6 @@ const StaffAIPage: React.FC = () => {
                 </button>
                 <button role="tab" aria-selected={tab === 'user'} type="button" className={`${ui.tab} ${tab === 'user' ? ui.tabActive : ''}`} onClick={() => setTab('user')}>
                   ユーザー別 <small>{counts.user}</small>
-                </button>
-                <button role="tab" aria-selected={tab === 'ai'} type="button" className={`${ui.tab} ${tab === 'ai' ? ui.tabActive : ''}`} onClick={() => setTab('ai')}>
-                  Staff AI自身 <small>{counts.ai}</small>
                 </button>
                 <button role="tab" aria-selected={tab === 'ai_channel'} type="button" className={`${ui.tab} ${tab === 'ai_channel' ? ui.tabActive : ''}`} onClick={() => setTab('ai_channel')}>
                   AIChannel自身 <small>{counts.ai_channel}</small>
@@ -471,7 +467,7 @@ const StaffAIPage: React.FC = () => {
                   <div>
                     <h3 className={ui.listTitle}>{item.title}</h3>
                     <div className={ui.listMeta}>
-                      <span>{item.kind === 'ai' ? 'Staff AI自身の経験' : item.kind === 'ai_channel' ? 'AIChannel自身の経験' : item.day || (item.userId ? 'User ' + item.userId : '')}</span>
+                      <span>{item.kind === 'ai_channel' ? 'AIChannel自身の経験' : item.day || (item.userId ? 'User ' + item.userId : '')}</span>
                       {item.kind === 'ai_channel' ? <span>AIChannel専用メモリー</span> : item.sourceChannelName && <span>#{item.sourceChannelName} の履歴</span>}
                       <span>{fmt(item.evidenceCount)} 件の会話</span>
                       <span>更新 {new Date(item.updatedAt).toLocaleDateString('ja-JP')}</span>
@@ -502,10 +498,10 @@ const StaffAIPage: React.FC = () => {
               </div> : <div className={ui.emptyInner}>
                 <div className={ui.emptyIcon}>{icon(search ? 'search_off' : tab === 'daily' ? 'event_note' : tab === 'user' ? 'person_search' : 'psychology')}</div>
                 <h3>{search ? '一致するメモリーがありません' : 'まだメモリーがありません'}</h3>
-                <p>{search ? '検索条件を変えてみてください。' : tab === 'daily' ? 'チャンネル履歴や/staff aiの会話から、日々の振り返りをバックグラウンドで作成します。' : tab === 'ai' ? '/staff aiでの具体的な相談、共同作業、問題解決、約束や学びを記録します。' : tab === 'ai_channel' ? 'AIChannelで実際に経験した相談や作業を、AIChannel専用の経験として記録します。' : 'チャンネル履歴から参加者全員のプロフィールを初期作成できます。その後は/staff aiで話したユーザーのプロフィールも更新されます。'}</p>
+                <p>{search ? '検索条件を変えてみてください。' : tab === 'daily' ? 'チャンネル履歴や/staff aiの会話から、日々の振り返りをバックグラウンドで作成します。' : tab === 'ai_channel' ? 'AIChannelで実際に経験した相談や作業を、AIChannel専用の経験として記録します。' : 'チャンネル履歴から参加者全員のプロフィールを初期作成できます。その後は/staff aiで話したユーザーのプロフィールも更新されます。'}</p>
               </div>}
           </section>
-          <div className={ui.notice}>{icon('verified_user')} <div><strong style={{ color: 'var(--app-ink)' }}>メモリーの取り扱い</strong><p>メモリーはサーバーごとに分離して保存します。初期プロフィールはStaffが選んだチャンネルの履歴から参加者全員について作ります。興味・活動・話し方は会話で観測できる範囲に限り、私的情報や性格診断は保存しません。AIChannelとStaff AIは共通の話し方設定を使い、会話・経験メモリーは別に管理します。</p></div></div>
+          <div className={ui.notice}>{icon('verified_user')} <div><strong style={{ color: 'var(--app-ink)' }}>メモリーの取り扱い</strong><p>メモリーはサーバーごとに分離して保存します。初期プロフィールはStaffが選んだチャンネルの履歴から参加者全員について作ります。興味・活動・話し方は会話で観測できる範囲に限り、私的情報や性格診断は保存しません。AIChannelとStaff AIは共通の話し方設定を使い、AIChannel自身の経験は専用メモリーに保存します。</p></div></div>
         </>}
 
     {deleting && <div className={ui.modalBackdrop} role="presentation" onMouseDown={e => { if (e.target === e.currentTarget && !busy) setDeleting(null); }}>
@@ -528,7 +524,7 @@ const StaffAIPage: React.FC = () => {
       <div className={ui.dialog} role="alertdialog" aria-modal="true" aria-labelledby="staff-ai-personality-reset-title">
         <span className={ui.eyebrow}>{icon('restart_alt')} 性格設定の初期化</span>
         <h2 id="staff-ai-personality-reset-title">このサーバーのAI設定を初期状態に戻しますか？</h2>
-        <p>Staffが調整した共通の話し方と学習済みの雰囲気、Staff AI自身の経験メモリーを初期化します。ユーザー別プロフィール、日次ダイジェスト、AIChannel専用メモリーは残ります。</p>
+        <p>Staffが調整した共通の話し方と学習済みの雰囲気を初期化します。ユーザー別プロフィール、日次ダイジェスト、AIChannel専用メモリーは残ります。</p>
         <div className={ui.dialogActions}>
           <button className={ui.button} type="button" disabled={personalityBusy} onClick={() => setResetPersonalityConfirm(false)}>キャンセル</button>
           <button className={ui.buttonDanger} type="button" disabled={personalityBusy} onClick={() => void resetPersonality()}>
