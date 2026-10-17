@@ -196,13 +196,11 @@ export async function classifyContent(
   requests: AiRequestMetrics[] = [], customRules = "",
 ): Promise<ContentVerdict> {
   const uniqueFrames = [...new Set(frames)];
+  // Jeff handles every text-only moderation request. Gemma is reserved for
+  // requests that actually include visual or other multimodal content; a
+  // high Jeff score alone must not change the model for a text-only post.
   if (uniqueFrames.length) return classifyWithGemma(text, uniqueFrames, timeoutMs, formatRetry, scoring, requests, customRules);
-  const started = Date.now();
-  const jev = await classifyWithJev(text, [], timeoutMs, formatRetry, scoring, model, requests, customRules);
-  // The current /decide adapter can assign high probabilities to unrelated
-  // categories. Confirm any possible violation with the language model.
-  if (Math.max(...CONTENT_CATEGORIES.map(category => jev[category])) < .5 && !jev.customRuleViolations?.length) return jev;
-  return classifyWithGemma(text, [], Math.max(1, timeoutMs - (Date.now() - started)), formatRetry, scoring, requests, customRules);
+  return classifyWithJev(text, [], timeoutMs, formatRetry, scoring, model, requests, customRules);
 }
 
 export class ContentSafetyDetector implements Detector {

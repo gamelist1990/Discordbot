@@ -5,7 +5,8 @@
 | 機能 | モデル |
 | --- | --- |
 | 常駐チャンネルAI・会話メモ更新 | Gemini (`pexAi.channelModel`) |
-| コンテンツ検査（文章・画像・GIF・MP4） | Jeff-base on A8 (`pexAi.contentSafetyModel`) |
+| コンテンツ検査（文章） | Jeff-base on A8 (`pexAi.contentSafetyModel`)、違反らしい判定でもGemmaへ切り替えない |
+| コンテンツ検査（画像・GIF・MP4など視覚入力あり） | Gemma 4 E4B on A8 (`GEMMA_MODEL`) |
 | その他の既存汎用AI | Gemma 4 E4B on A8 (`pexAi.model` / `openai.defaultModel`) |
 | 通常チャンネルでのメンションAI | 廃止 |
 
@@ -15,6 +16,7 @@
 ## コンテンツ検査
 
 会話モデルのsubmit_verdictツール呼び出しは廃止し、jevへ型付き質問を渡す。
+テキストのみの投稿はJeff-baseで判定し、違反らしいスコアが出てもGemmaで再判定しない。画像・GIF・MP4などの視覚入力がある投稿だけGemmaへ送り、Jeff-baseとは併用しない。
 6カテゴリについて、Noulで証拠の有無、Scoreで0〜3の強さを1つのshared_stateで評価。
 有無の確率が0.5未満ならスコア0。それ以外は `min(有無の確率, 強さ/3)` を0〜1スコアとする。
 実入力比較でカテゴリ混同が出たため、カテゴリを限定した英語の質問・候補を使用した。
