@@ -45,6 +45,17 @@ function normalizeContent(value: string): string {
     return value.replace(/\s+/g, ' ').trim();
 }
 
+/** Remove Discord's live stream decorations before bot messages become chat context. */
+export function stripDiscordStreamMetadata(value: string): string {
+    return value
+        .replace(/```ansi[\s\S]*?```/gi, '')
+        .replace(/(?:^|\n)\s*(?:-#\s*)?(?:💭\s*Thinking\b|▌\s*(?:生成中|処理中|考え中)|[\d,.]+(?:\.\d+)?\s*toks\/s\s*·\s*toks:)[^\n]*/giu, '')
+        .replace(/\s*(?:-#\s*)?[\d,.]+(?:\.\d+)?\s*toks\/s\s*·\s*toks:\s*[\d,]+(?:\s*\(in\s*[\d,]+\s*\/\s*out\s*[\d,]+\))?/giu, '')
+        .replace(/(?:^|\n)\s*-#\s*$/gm, '')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+}
+
 function trimContent(value: string, maxLength = 4000): string {
     const trimmed = value.trim();
     return trimmed.length > maxLength ? `${trimmed.slice(0, maxLength)}…` : trimmed;
@@ -82,7 +93,7 @@ export function buildConversationHistory(options: BuildConversationHistoryOption
                 timestamp: entry.timestamp + 1,
                 message: {
                     role: 'assistant',
-                    content: trimContent(entry.response)
+                    content: trimContent(stripDiscordStreamMetadata(entry.response))
                 }
             });
         }
@@ -90,11 +101,17 @@ export function buildConversationHistory(options: BuildConversationHistoryOption
 
     for (const entry of options.channelMessages.slice(-maxChannelMessages)) {
         if (!entry.content.trim()) continue;
+        const replyContent = entry.replyTo
+            ? stripDiscordStreamMetadata(entry.replyTo.content)
+            : '';
         const reply = entry.replyTo
-            ? `\n[この投稿の返信先: ${entry.replyTo.authorName} / ID ${entry.replyTo.id}] ${trimContent(entry.replyTo.content, 1000)}${entry.replyTo.attachments?.length ? ` [添付: ${entry.replyTo.attachments.join(', ')}]` : ''}`
+            ? `\n[この投稿の返信先: ${entry.replyTo.authorName} / ID ${entry.replyTo.id}] ${trimContent(replyContent, 1000)}${entry.replyTo.attachments?.length ? ` [添付: ${entry.replyTo.attachments.join(', ')}]` : ''}`
             : '';
         const attachments = entry.attachments?.length ? `\n[添付: ${entry.attachments.join(', ')}]` : '';
-        const body = `${trimContent(entry.content)}${attachments}${reply}`;
+        const content = entry.role === 'assistant'
+            ? stripDiscordStreamMetadata(entry.content)
+            : entry.content;
+        const body = `${trimContent(content)}${attachments}${reply}`;
         timedMessages.push({
             timestamp: entry.timestamp,
             message: {

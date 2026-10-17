@@ -3,6 +3,7 @@ import { escapeMarkdown } from 'discord.js';
 import { renderStaffAnsiStatus } from './StaffAIAnsiStatus.js';
 import type { OpenAIChatCompletionChunk } from '../../../types/openai.js';
 import type { ToolExecutionStep, ResponseApiStreamDelta } from '../../../core/ai/ChatGPTClient.js';
+import { stripDiscordStreamMetadata } from '../../../core/ai/AIConversationHistory.js';
 
 type ToolPreview = {
     id: string;
@@ -154,7 +155,8 @@ export class StaffAIStreamState {
             const info = describeStaffTool(tool);
             return `-# ${info.name} — ${info.value}`;
         });
-        const showThinking = !isComplete && this.hasReasoning && !this.content.trim();
+        // Keep the rolling thought preview visible while answer text streams too.
+        const showThinking = !isComplete && this.hasReasoning;
         if (!this.ansiColors && showThinking) {
             statusLines.unshift(`-# 💭 Thinking · ストリーミング中（${this.reasoningCharacters}文字）`);
         }
@@ -185,7 +187,7 @@ export class StaffAIStreamState {
             : '';
         // Keep token usage at the very bottom, after optional tool progress.
         const suffix = (showThinking ? '' : status) + '\n' + footer;
-        const response = answer.trim() || (
+        const response = stripDiscordStreamMetadata(answer) || (
             showThinking ? '' : isComplete ? '（応答なし）' : this.tools.length ? '処理中…' : '考え中…'
         );
         const separatorLength = showThinking && prefix && response ? 1 : 0;

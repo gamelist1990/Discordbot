@@ -20,6 +20,7 @@ import {
     AIConversationEntry,
     ChannelConversationMessage,
     buildConversationHistory,
+    stripDiscordStreamMetadata,
 } from '../../../core/ai/AIConversationHistory.js';
 
 // レート制限の設定
@@ -424,16 +425,31 @@ ${reason}` });
         let lastUpdateTime = 0;
         let isCompleted = false;
         let interactionExpired = false;
+        let previewClosed = false;
+        let previewTimer: ReturnType<typeof setTimeout> | null = null;
         let pendingPreview: ReturnType<StaffAIStreamState['renderDiscord']> | null = null;
         let editPump: Promise<void> | null = null;
 
         function queuePreview(force = false): void {
-            if (interactionExpired) return;
+            if (interactionExpired || previewClosed) return;
             const now = Date.now();
-            if (!force && now - lastUpdateTime < UPDATE_INTERVAL) return;
-            lastUpdateTime = now;
             pendingPreview = streamState.renderDiscord(false);
             if (editPump) return;
+            const waitMs = UPDATE_INTERVAL - (now - lastUpdateTime);
+            if (!force && lastUpdateTime > 0 && waitMs > 0) {
+                if (!previewTimer) {
+                    previewTimer = setTimeout(() => {
+                        previewTimer = null;
+                        queuePreview(true);
+                    }, waitMs);
+                }
+                return;
+            }
+            if (previewTimer) {
+                clearTimeout(previewTimer);
+                previewTimer = null;
+            }
+            lastUpdateTime = now;
             editPump = (async () => {
                 while (pendingPreview !== null) {
                     const content = pendingPreview;
@@ -449,6 +465,13 @@ ${reason}` });
             })().finally(() => { editPump = null; });
         }
 
+        function finishPreview(): void {
+            previewClosed = true;
+            if (previewTimer) clearTimeout(previewTimer);
+            previewTimer = null;
+            pendingPreview = null;
+        }
+
         async function drainPreview(): Promise<void> {
             while (editPump) await editPump;
         }
@@ -460,12 +483,11 @@ ${reason}` });
         }
 
         function handleResponseDelta(delta: ResponseApiStreamDelta): void {
-            const firstReasoning = delta.type === 'thinking' && !responseContent;
+            const firstReasoning = delta.type === 'thinking' && !thinkingPreviewStarted;
             streamState.consumeResponse(delta);
             responseContent = streamState.content;
-            // Make the first Thinking event visible immediately, then throttle edits.
-            queuePreview(firstReasoning && responseContent.length === 0
-                && delta.text.length > 0 && !thinkingPreviewStarted);
+            // Make the first Thinking event visible immediately; later chunks use a trailing update.
+            queuePreview(firstReasoning && delta.text.length > 0);
             if (firstReasoning && delta.text.length > 0) thinkingPreviewStarted = true;
         }
         let thinkingPreviewStarted = false;
@@ -519,7 +541,8 @@ ${reason}` });
                 throw new Error('The model completed without final answer text');
             }
             isCompleted = true;
-            const { cleanedResponse, codeFiles } = processCodeBlocks(responseContent);
+            finishPreview();
+            const { cleanedResponse, codeFiles } = processCodeBlocks(stripDiscordStreamMetadata(responseContent));
             await drainPreview();
             await safeRespond({
                 ...streamState.renderDiscord(true, cleanedResponse),
@@ -552,6 +575,8 @@ ${reason}` });
             const isContentFilterError = messageStr.includes('content_filter') || messageStr.includes('ResponsibleAIPolicyViolation');
 
             if (isContentFilterError) {
+                finishPreview();
+                await drainPreview();
                 // ユーザへ通知
                 try {
                     await safeRespond({ content: '⚠️ 入力がコンテンツポリシーに抵触したためリクエストが拒否されました。過激な表現・自己傷害・ヘイト表現・暴力表現などが含まれている可能性があります。入力を修正するか、より穏当な表現で再試行してください。', ephemeral: true });
@@ -582,12 +607,17 @@ ${reason}` });
                         try {
                             streamState = new StaffAIStreamState();
                             responseContent = '';
+                            pendingPreview = null;
+                            lastUpdateTime = 0;
+                            thinkingPreviewStarted = false;
+                            previewClosed = false;
                             await chatManager.streamMessage(retryMessages, handleChunk, streamOptions);
+                            finishPreview();
                             await drainPreview();
                             await safeRespond(streamState.renderDiscord(true));
                             isCompleted = true;
                             try {
-                                await saveConversationDatasetEntry(interaction, sanitized, responseContent, false);
+                                await saveConversationDatasetEntry(interaction, sanitized, stripDiscordStreamMetadata(responseContent), false);
                             } catch (dbErr) {
                                 console.error('dataset save error:', dbErr);
                             }
@@ -602,8 +632,13 @@ ${reason}` });
                 }
 
                 // 再試行ができなかった／失敗した場合はここで終了
+                finishPreview();
+                await drainPreview();
                 return;
             }
+
+            finishPreview();
+            await drainPreview();
 
             // OpenAIのレート制限エラーを検知して適切なメッセージを表示
             let errorMessage = '❌ リクエストの処理中にエラーが発生しました。';
@@ -641,6 +676,7 @@ ${reason}` });
 
         // 何らかの理由で完了せずに終了した場合、現在の内容で更新
         if (!isCompleted && !interactionExpired && responseContent.trim()) {
+            finishPreview();
             try {
                 await safeRespond(streamState.renderDiscord(true));
             } catch (e) {
@@ -650,7 +686,7 @@ ${reason}` });
             // 未完了レスポンスでも部分的な結果があればデータセットに保存（incomplete=true）
             if (responseContent && responseContent.trim().length > 0) {
                 try {
-                    await saveConversationDatasetEntry(interaction, prompt, responseContent, true);
+                    await saveConversationDatasetEntry(interaction, prompt, stripDiscordStreamMetadata(responseContent), true);
                 } catch (dbErr) {
                     console.error('dataset save error (incomplete):', dbErr);
                 }
