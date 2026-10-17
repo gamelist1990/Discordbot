@@ -4,7 +4,8 @@
 
 | 機能 | モデル |
 | --- | --- |
-| AIChannel・Staff AIの会話とメモリー生成 | `pexAi.channelModel` の生成モデル |
+| AIChannelの会話とバックグラウンドメモリー要約 | `pexAi.channelModel` の生成モデル |
+| `/staff ai` の返信 | Gemma 4 E4B (`gemma-4-E4B-it`) |
 | その他のPEX AI機能 | `pexAi.model` の生成モデル |
 | テキストのみのコンテンツ検査 | Jeff decision model (`jeff-base`, `/v1/decide`) |
 | 画像・動画を含むコンテンツ検査 | Gemma 4 E4B (`gemma-4-E4B-it`) |
@@ -12,7 +13,7 @@
 | 通常チャンネルでのメンションAI | 廃止 |
 
 `MentionAISupportManager` の起動・終了処理、実装、専用テストを削除。
-常駐AIチャンネル自体と既存のslashコマンドは維持する。Staff AIもAIChannelと同じ`channelModel`を使い、会話の仕方や設定を共有する。Jeffは`/v1/decide`専用の判定モデルであり、Responses APIや通常の生成には使わない。
+常駐AIチャンネル自体と既存のslashコマンドは維持する。`/staff ai`はGemmaで返信を生成し、AIChannelと話し方・性格の設定を共有する。Jeffは`/v1/decide`専用の判定モデルであり、Responses APIや通常の生成には使わない。
 
 ## コンテンツ検査
 
@@ -52,7 +53,7 @@ API失敗や不完全な判定は既存の失敗経路へ渡し、テストで�
 ```
 
 認証情報を含むファイル全体をこの例で置き換えない。
-`model`と`channelModel`には生成対応モデルを設定する。Jeffはコンテンツ検査専用で、生成モデルとして指定すると`unsupported_endpoint`になる。Staff AIとAIChannelは`channelModel`を共有し、背景のメモリー要約も同じ生成モデルを使う。
+`model`と`channelModel`には生成対応モデルを設定する。Jeffはコンテンツ検査専用で、生成モデルとして指定すると`unsupported_endpoint`になる。AIChannelと背景のメモリー要約は`channelModel`を使い、`/staff ai`の返信はGemmaを使う。
 古い設定に`model`、`channelModel`、または`steps`の生成先として`jeff-base`/`jev`が残っている場合、起動時にPEX AIの生成既定値（GemmaとGemini）へ補正し、警告を記録する。
 コンテンツ検査機能のサーバーごとの有効/無効は変更していない。
 このPCに稼働Botは確認できなかったため、Botコードは次回デプロイ・起動で反映。

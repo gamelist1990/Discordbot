@@ -2,7 +2,7 @@
 import { ChatInputCommandInteraction, Message, MessageFlags, DiscordAPIError } from 'discord.js';
 import path from 'node:path';
 import { OpenAIChatManager } from '../../../core/ai/OpenAIChatManager.js';
-import { config } from '../../../config.js';
+import { GEMMA_MODEL } from '../../../config.js';
 import { OpenAIChatCompletionMessage, OpenAIChatCompletionChunk } from '../../../types/openai.js';
 import type { ResponseApiStreamDelta } from '../../../core/ai/ChatGPTClient.js';
 import { StaffAIStreamState } from './StaffAIStreamState.js';
@@ -548,7 +548,7 @@ ${reason}` });
         let thinkingPreviewStarted = false;
 
         const streamOptions = {
-            model: config.pexAi.channelModel || config.pexAi.model, strictModel: true, maxTokens: 1024,
+            model: GEMMA_MODEL, strictModel: true, maxTokens: 1024,
             ...(forceTextFileTools ? { forceToolSequence: ['create_text_file', 'upload_files'] } : {}),
             includeUsage: true,
             onToolStep: (step: Parameters<StaffAIStreamState['recordToolStep']>[0]) => {
