@@ -30,11 +30,12 @@ test('Discord固有の操作に必要なツールを選択する', () => {
     assert.ok(selectStaffToolNames('AntiCheatの違反履歴を確認').has('get_anticheat_user_profile'));
 });
 
-test('メモ操作はcreate/update/deleteなど関連ツールを保持する', () => {
+test('メモ操作は単一の統合メモリーツールにルーティングする', () => {
     const names = selectStaffToolNames('昨日のメモを編集して');
-    assert.ok(names.has('get_memo'));
-    assert.ok(names.has('update_memo'));
-    assert.ok(names.has('delete_memo'));
+    assert.ok(names.has('manage_memory'));
+    for (const name of ['list_memos', 'get_memo', 'create_memo', 'update_memo', 'delete_memo', 'search_memos', 'recall_staff_memory']) {
+        assert.equal(names.has(name), false);
+    }
 });
 
 test('短い続きの発言は直前の会話にあるツールを使える', () => {

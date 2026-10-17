@@ -9,13 +9,36 @@ type Metrics = {
   totalTokens: number; generatedSeconds: number; cacheHitTokens: number; cacheInputTokens: number;
 };
 type Memory = {
-  id: string; kind: 'daily' | 'user'; guildId: string; userId?: string; day?: string;
+  id: string; kind: 'daily' | 'user' | 'ai'; guildId: string; userId?: string; day?: string;
   title: string; content: string; publicInterests?: string; evidenceCount: number;
   updatedAt: string; editedByStaff?: boolean;
 };
+type PersonalitySettings = {
+  learningEnabled: boolean;
+  tone: 'auto' | 'casual' | 'balanced' | 'polite';
+  humor: 'auto' | 'low' | 'medium' | 'high';
+  emoji: 'auto' | 'low' | 'medium' | 'high';
+  verbosity: 'auto' | 'brief' | 'normal' | 'detailed';
+  customInstructions: string;
+};
+type Personality = PersonalitySettings & {
+  learnedSummary: string; learnedMessageCount: number; learningRevision: number; updatedAt: string;
+};
+const defaultPersonality: Personality = {
+  learningEnabled: true, tone: 'auto', humor: 'auto', emoji: 'auto', verbosity: 'auto',
+  customInstructions: '', learnedSummary: '', learnedMessageCount: 0, learningRevision: 0, updatedAt: '',
+};
 const zero: Metrics = { requests: 0, inputTokens: 0, outputTokens: 0, totalTokens: 0,
   generatedSeconds: 0, cacheHitTokens: 0, cacheInputTokens: 0 };
-const fmt = (n: number) => Math.round(n).toLocaleString('ja-JP');
+const fmt = (n: number) => {
+  const value = Math.round(n);
+  const absolute = Math.abs(value);
+  const compact = (scaled: number, suffix: 'K' | 'M') =>
+    scaled.toFixed(2).replace(/\.?0+$/, '') + suffix;
+  if (absolute >= 999_995) return compact(value / 1_000_000, 'M');
+  if (absolute >= 1_000) return compact(value / 1_000, 'K');
+  return value.toLocaleString('ja-JP');
+};
 const icon = (value: string, className = '') =>
   <span className={`material-icons ${className || ui.icon}`} aria-hidden="true">{value}</span>;
 
@@ -34,17 +57,29 @@ const StaffAIPage: React.FC = () => {
   selectedGuildRef.current = guildId;
   const [metrics, setMetrics] = useState<Metrics>(zero);
   const [memories, setMemories] = useState<Memory[]>([]);
+  const [personality, setPersonality] = useState<Personality>(defaultPersonality);
+  const [personalityDraft, setPersonalityDraft] = useState<PersonalitySettings>(defaultPersonality);
+  const [personalityDirty, setPersonalityDirty] = useState(false);
+  const personalityDirtyRef = useRef(false);
   const [loadingGuilds, setLoadingGuilds] = useState(true);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [personalityBusy, setPersonalityBusy] = useState(false);
+  const [resetPersonalityConfirm, setResetPersonalityConfirm] = useState(false);
   const [error, setError] = useState('');
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
-  const [tab, setTab] = useState<'daily' | 'user'>('daily');
+  const [tab, setTab] = useState<'daily' | 'user' | 'ai'>('daily');
   const [search, setSearch] = useState('');
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
   const [deleting, setDeleting] = useState<Memory | 'all' | null>(null);
   const [confirmation, setConfirmation] = useState('');
+
+  const updatePersonalityDraft = (next: PersonalitySettings) => {
+    personalityDirtyRef.current = true;
+    setPersonalityDirty(true);
+    setPersonalityDraft(next);
+  };
 
   useEffect(() => {
     let active = true;
@@ -68,6 +103,20 @@ const StaffAIPage: React.FC = () => {
       if (selectedGuild !== selectedGuildRef.current) return;
       setMetrics(data.metrics ?? zero);
       setMemories(data.memories ?? []);
+      const nextPersonality = data.personality ?? defaultPersonality;
+      setPersonality(nextPersonality);
+      if (showLoading || !personalityDirtyRef.current) {
+        personalityDirtyRef.current = false;
+        setPersonalityDirty(false);
+        setPersonalityDraft({
+          learningEnabled: nextPersonality.learningEnabled,
+          tone: nextPersonality.tone,
+          humor: nextPersonality.humor,
+          emoji: nextPersonality.emoji,
+          verbosity: nextPersonality.verbosity,
+          customInstructions: nextPersonality.customInstructions,
+        });
+      }
       setLastUpdated(new Date());
       setError('');
     } catch (e) {
@@ -77,9 +126,59 @@ const StaffAIPage: React.FC = () => {
     }
   }, [guildId]);
 
+  const savePersonality = async () => {
+    const selectedGuild = guildId;
+    if (!selectedGuild || personalityBusy) return;
+    setPersonalityBusy(true);
+    try {
+      const data = await readJson(`/api/staff/ai/${selectedGuild}/personality`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(personalityDraft),
+      });
+      if (selectedGuild === selectedGuildRef.current) {
+        const next = data.personality as Personality;
+        setPersonality(next);
+        personalityDirtyRef.current = false; setPersonalityDirty(false);
+        setPersonalityDraft({
+          learningEnabled: next.learningEnabled, tone: next.tone, humor: next.humor,
+          emoji: next.emoji, verbosity: next.verbosity, customInstructions: next.customInstructions,
+        });
+        addToast('AIの話し方を保存しました', 'success');
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'AIの話し方を保存できませんでした');
+      addToast('AIの話し方を保存できませんでした', 'error');
+    } finally { setPersonalityBusy(false); }
+  };
+
+  const resetPersonality = async () => {
+    const selectedGuild = guildId;
+    if (!selectedGuild || personalityBusy) return;
+    setPersonalityBusy(true);
+    try {
+      const data = await readJson(`/api/staff/ai/${selectedGuild}/personality/reset`, { method: 'POST' });
+      if (selectedGuild === selectedGuildRef.current) {
+        const next = data.personality as Personality;
+        setPersonality(next);
+        personalityDirtyRef.current = false; setPersonalityDirty(false);
+        setPersonalityDraft({
+          learningEnabled: next.learningEnabled, tone: next.tone, humor: next.humor,
+          emoji: next.emoji, verbosity: next.verbosity, customInstructions: next.customInstructions,
+        });
+        setResetPersonalityConfirm(false);
+        addToast('AIの性格設定を初期状態に戻しました', 'success');
+        await refresh(selectedGuild);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'AIの性格設定を初期化できませんでした');
+      addToast('AIの性格設定を初期化できませんでした', 'error');
+    } finally { setPersonalityBusy(false); }
+  };
+
   useEffect(() => {
     if (!guildId) return;
     setMetrics(zero); setMemories([]); setEditing(null); setSearch(''); setLastUpdated(null);
+    personalityDirtyRef.current = false; setPersonalityDirty(false);
     void refresh(guildId, true);
     const timer = window.setInterval(() => void refresh(guildId), 30_000);
     return () => window.clearInterval(timer);
@@ -122,6 +221,7 @@ const StaffAIPage: React.FC = () => {
   const counts = useMemo(() => ({
     daily: memories.filter(item => item.kind === 'daily').length,
     user: memories.filter(item => item.kind === 'user').length,
+    ai: memories.filter(item => item.kind === 'ai').length,
   }), [memories]);
   const speed = metrics.generatedSeconds > 0 ? metrics.outputTokens / metrics.generatedSeconds : null;
   const cache = metrics.cacheInputTokens > 0 ? metrics.cacheHitTokens / metrics.cacheInputTokens * 100 : null;
@@ -133,7 +233,7 @@ const StaffAIPage: React.FC = () => {
         <Link to="/staff" className={ui.muted}>{icon('arrow_back')} スタッフ運用に戻る</Link>
         <div style={{ marginTop: 14 }}><span className={ui.eyebrow}>{icon('auto_awesome')} AI Operations</span></div>
         <h1>Staff AI</h1>
-        <p>会話の利用状況と、日々蓄積するメモリーをひとつの場所で管理。</p>
+        <p>会話の利用状況、AI自身の経験、日々の振り返りやプロフィールをまとめて管理。</p>
       </div>
       <div className={ui.heroActions}>
         <label className={ui.label}>対象サーバー
@@ -143,7 +243,7 @@ const StaffAIPage: React.FC = () => {
             {guilds.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
           </select>
         </label>
-        <button type="button" className={ui.button} onClick={() => void refresh(guildId, true)} disabled={loading || !guildId}>
+        <button type="button" className={`${ui.button} ${ui.serverRefreshButton}`} onClick={() => void refresh(guildId, true)} disabled={loading || !guildId}>
           {icon('refresh')} {loading ? '更新中…' : '更新'}
         </button>
       </div>
@@ -173,11 +273,79 @@ const StaffAIPage: React.FC = () => {
             </div>
           </section>
 
+          <section className={ui.panel} aria-labelledby="staff-ai-personality-title">
+            <div className={ui.sectionHeader}>
+              <div>
+                <span className={ui.eyebrow}>{icon('psychology')} Server personality</span>
+                <h2 id="staff-ai-personality-title" style={{ marginTop: 10 }}>サーバーになじむAI</h2>
+                <p>サーバー共通の話題や言い回しに加え、AI自身が経験した出来事・約束・学びを会話へ引き継ぎます。AI自身の記憶は下のメモリーライブラリで確認できます。</p>
+              </div>
+              <span className={`${ui.badge} ${personalityDraft.learningEnabled ? ui.badgeSuccess : ui.badgeWarn}`}>
+                {icon(personalityDraft.learningEnabled ? 'auto_awesome' : 'pause_circle')}
+                {personalityDraft.learningEnabled ? '会話から学習中' : '自動学習停止中'}
+              </span>
+            </div>
+            <div className={ui.personalityBody}>
+              <div className={ui.personalityGrid}>
+                <label className={ui.label}>基本の口調
+                  <select className={ui.select} value={personalityDraft.tone} onChange={e => updatePersonalityDraft({ ...personalityDraft, tone: e.target.value as PersonalitySettings['tone'] })}>
+                    <option value="auto">サーバーに合わせる</option><option value="casual">親しみやすく</option>
+                    <option value="balanced">自然で中立</option><option value="polite">丁寧に</option>
+                  </select>
+                </label>
+                <label className={ui.label}>ユーモア
+                  <select className={ui.select} value={personalityDraft.humor} onChange={e => updatePersonalityDraft({ ...personalityDraft, humor: e.target.value as PersonalitySettings['humor'] })}>
+                    <option value="auto">学習に合わせる</option><option value="low">控えめ</option>
+                    <option value="medium">ほどよく</option><option value="high">多め</option>
+                  </select>
+                </label>
+                <label className={ui.label}>絵文字
+                  <select className={ui.select} value={personalityDraft.emoji} onChange={e => updatePersonalityDraft({ ...personalityDraft, emoji: e.target.value as PersonalitySettings['emoji'] })}>
+                    <option value="auto">学習に合わせる</option><option value="low">控えめ</option>
+                    <option value="medium">ほどよく</option><option value="high">多め</option>
+                  </select>
+                </label>
+                <label className={ui.label}>回答の詳しさ
+                  <select className={ui.select} value={personalityDraft.verbosity} onChange={e => updatePersonalityDraft({ ...personalityDraft, verbosity: e.target.value as PersonalitySettings['verbosity'] })}>
+                    <option value="auto">会話に合わせる</option><option value="brief">短く</option>
+                    <option value="normal">標準</option><option value="detailed">詳しく</option>
+                  </select>
+                </label>
+              </div>
+              <label className={ui.label}>Staffからの追加調整
+                <textarea className={ui.textarea} maxLength={1200} rows={3} value={personalityDraft.customInstructions}
+                  placeholder="例: Minecraftの話題では少しくだけた口調にする。結論を先に伝える。"
+                  onChange={e => updatePersonalityDraft({ ...personalityDraft, customInstructions: e.target.value })} />
+                <span className={ui.muted}>{personalityDraft.customInstructions.length} / 1200文字</span>
+              </label>
+              <div className={ui.personalityInsight}>
+                <strong>{icon('auto_awesome')} 会話から学んだサーバーの雰囲気</strong>
+                <p>{personality.learnedSummary || 'まだ十分な傾向はありません。会話が増えると、複数人に共通する話題や口調だけを少しずつ学びます。'}</p>
+                <span className={ui.muted}>観測した発言: {fmt(personality.learnedMessageCount)} 件</span>
+              </div>
+              <div className={ui.personalityFooter}>
+                <label className={ui.personalityToggle}>
+                  <input type="checkbox" checked={personalityDraft.learningEnabled}
+                    onChange={e => updatePersonalityDraft({ ...personalityDraft, learningEnabled: e.target.checked })} />
+                  会話から自動で学ぶ
+                </label>
+                <div className={ui.personalityActions}>
+                  <button type="button" className={ui.button} disabled={personalityBusy} onClick={() => setResetPersonalityConfirm(true)}>
+                    {icon('restart_alt')} 初期状態に戻す
+                  </button>
+                  <button type="button" className={ui.buttonPrimary} disabled={personalityBusy || !personalityDirty} onClick={() => void savePersonality()}>
+                    {icon('save')} {personalityBusy ? '保存中…' : '話し方を保存'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </section>
+
           <section className={ui.panel} aria-labelledby="staff-ai-memories-title">
             <div className={ui.sectionHeader}>
               <div><span className={ui.eyebrow}>Memory workspace</span><h2 id="staff-ai-memories-title" style={{ marginTop: 10 }}>メモリーライブラリ</h2>
-                <p>日次の振り返りとユーザーのプロフィールを確認・編集できます。</p></div>
-              <button type="button" className={ui.buttonDanger} disabled={busy || !memories.length} onClick={() => { setDeleting('all'); setConfirmation(''); }}>
+                <p>日次の振り返り、ユーザー別プロフィールに加え、AI自身が会話で経験した出来事・約束・学びも蓄積します。AI自身の記憶は次の会話へ渡され、関連する経験を自然に思い出せるように使われます。</p></div>
+              <button type="button" className={ui.buttonDanger} disabled={busy || (!memories.length && !personality.learnedSummary)} onClick={() => { setDeleting('all'); setConfirmation(''); }}>
                 {icon('delete_outline')} 全件削除
               </button>
             </div>
@@ -189,6 +357,9 @@ const StaffAIPage: React.FC = () => {
                 <button role="tab" aria-selected={tab === 'user'} type="button" className={`${ui.tab} ${tab === 'user' ? ui.tabActive : ''}`} onClick={() => setTab('user')}>
                   ユーザー別 <small>{counts.user}</small>
                 </button>
+                <button role="tab" aria-selected={tab === 'ai'} type="button" className={`${ui.tab} ${tab === 'ai' ? ui.tabActive : ''}`} onClick={() => setTab('ai')}>
+                  AI自身 <small>{counts.ai}</small>
+                </button>
               </div>
               <label className={ui.searchWrap}>{icon('search')}<input aria-label="メモリー検索" placeholder="タイトル・本文を検索" value={search} onChange={e => setSearch(e.target.value)} /></label>
               <span className={ui.muted}>{filtered.length} 件表示</span>
@@ -199,7 +370,7 @@ const StaffAIPage: React.FC = () => {
                   <div>
                     <h3 className={ui.listTitle}>{item.title}</h3>
                     <div className={ui.listMeta}>
-                      <span>{item.day || (item.userId ? 'User ' + item.userId : '')}</span>
+                      <span>{item.kind === 'ai' ? 'AI自身の経験' : item.day || (item.userId ? 'User ' + item.userId : '')}</span>
                       <span>{fmt(item.evidenceCount)} 件の会話</span>
                       <span>更新 {new Date(item.updatedAt).toLocaleDateString('ja-JP')}</span>
                       {item.editedByStaff && <span className={`${ui.badge} ${ui.badgeSuccess}`}>Staff編集済み</span>}
@@ -227,19 +398,19 @@ const StaffAIPage: React.FC = () => {
                   </div>
                 </article>)}
               </div> : <div className={ui.emptyInner}>
-                <div className={ui.emptyIcon}>{icon(search ? 'search_off' : tab === 'daily' ? 'event_note' : 'person_search')}</div>
+                <div className={ui.emptyIcon}>{icon(search ? 'search_off' : tab === 'daily' ? 'event_note' : tab === 'ai' ? 'psychology' : 'person_search')}</div>
                 <h3>{search ? '一致するメモリーがありません' : 'まだメモリーがありません'}</h3>
-                <p>{search ? '検索条件を変えてみてください。' : tab === 'daily' ? '会話が蓄積されると、日ごとの出来事がここに保存されます。' : '会話から確認できた興味・得意分野がここに蓄積されます。'}</p>
+                <p>{search ? '検索条件を変えてみてください。' : tab === 'daily' ? '会話が蓄積されると、日ごとの出来事がここに保存されます。' : tab === 'ai' ? 'AIが印象に残る会話や一緒に解決したことを経験として記録すると、ここに蓄積されます。' : '会話から確認できた興味・得意分野がここに蓄積されます。'}</p>
               </div>}
           </section>
-          <div className={ui.notice}>{icon('verified_user')} <div><strong style={{ color: 'var(--app-ink)' }}>メモリーの取り扱い</strong><p>サーバーごとに分離して保存します。個人プロフィール全体は本人限定、一般的な趣味のみ共有可能。要約には誤りが含まれる場合があります。</p></div></div>
+          <div className={ui.notice}>{icon('verified_user')} <div><strong style={{ color: 'var(--app-ink)' }}>メモリーの取り扱い</strong><p>サーバーごとに分離して保存します。AI自身の記憶は印象に残る会話・約束・学びを一人称で記録し、次の会話で関連するときに参照します。ユーザーのプロフィール全体は本人との会話だけで使い、他の人へ共有しません。AI自身の記憶や日次要約は編集・削除できます。</p></div></div>
         </>}
 
     {deleting && <div className={ui.modalBackdrop} role="presentation" onMouseDown={e => { if (e.target === e.currentTarget && !busy) setDeleting(null); }}>
       <div className={ui.dialog} role="alertdialog" aria-modal="true" aria-labelledby="staff-ai-delete-title" aria-describedby="staff-ai-delete-description">
         <span className={ui.eyebrow}>{icon('warning_amber')} 削除の確認</span>
         <h2 id="staff-ai-delete-title">{deleting === 'all' ? 'すべてのメモリーを削除しますか？' : 'このメモリーを削除しますか？'}</h2>
-        <p id="staff-ai-delete-description">{deleting === 'all' ? `${memories.length} 件のメモリーが削除されます。この操作は元に戻せません。` : `「${deleting.title}」を削除します。この操作は元に戻せません。`}</p>
+        <p id="staff-ai-delete-description">{deleting === 'all' ? `${memories.length} 件の記憶と、学習したサーバーの雰囲気を削除します。Staffが設定した口調は残ります。この操作は元に戻せません。` : `「${deleting.title}」を削除します。この操作は元に戻せません。`}</p>
         {deleting === 'all' && <label className={ui.label}>確認のため「すべて削除」と入力
           <input className={ui.input} autoFocus value={confirmation} onChange={e => setConfirmation(e.target.value)} placeholder="すべて削除" />
         </label>}
@@ -247,6 +418,19 @@ const StaffAIPage: React.FC = () => {
           <button className={ui.button} type="button" disabled={busy} onClick={() => setDeleting(null)}>キャンセル</button>
           <button className={ui.buttonDanger} type="button" disabled={busy || (deleting === 'all' && confirmation !== 'すべて削除')} onClick={() => void remove()}>
             {busy ? '削除中…' : '削除する'}
+          </button>
+        </div>
+      </div>
+    </div>}
+    {resetPersonalityConfirm && <div className={ui.modalBackdrop} role="presentation" onMouseDown={e => { if (e.target === e.currentTarget && !personalityBusy) setResetPersonalityConfirm(false); }}>
+      <div className={ui.dialog} role="alertdialog" aria-modal="true" aria-labelledby="staff-ai-personality-reset-title">
+        <span className={ui.eyebrow}>{icon('restart_alt')} 性格設定の初期化</span>
+        <h2 id="staff-ai-personality-reset-title">このサーバーのAI設定を初期状態に戻しますか？</h2>
+        <p>Staffが調整した話し方、サーバーの雰囲気、AI自身が蓄積した経験の記憶を初期化します。ユーザー別プロフィールと日次ダイジェストは残ります。</p>
+        <div className={ui.dialogActions}>
+          <button className={ui.button} type="button" disabled={personalityBusy} onClick={() => setResetPersonalityConfirm(false)}>キャンセル</button>
+          <button className={ui.buttonDanger} type="button" disabled={personalityBusy} onClick={() => void resetPersonality()}>
+            {personalityBusy ? '初期化中…' : '初期状態に戻す'}
           </button>
         </div>
       </div>

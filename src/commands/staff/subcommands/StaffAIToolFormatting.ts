@@ -16,12 +16,7 @@ const LABELS: Record<string, string> = {
     count_phrase_in_channel: 'フレーズ調査',
     collect_channel_history: '会話履歴',
     fetch_message_link_context: 'メッセージ取得',
-    list_memos: 'メモ一覧',
-    get_memo: 'メモ取得',
-    create_memo: 'メモ作成',
-    update_memo: 'メモ更新',
-    delete_memo: 'メモ削除',
-    search_memos: 'メモ検索',
+    manage_memory: 'メモリー',
 };
 
 function safePreview(value: unknown): string {
@@ -50,7 +45,19 @@ export function describeStaffTool(tool: StaffToolView): { name: string; value: s
             case 'get_server_status': return 'サーバーの情報を取得';
             case 'collect_channel_history': return '最近の投稿を確認';
             case 'fetch_message_link_context': return '指定メッセージを確認';
-            case 'search_memos': return safePreview(args.query) ? `「${safePreview(args.query)}」のメモを検索` : 'メモを検索';
+            case 'manage_memory': {
+                const store = args.store === 'server_memos' ? '共有メモ'
+                    : args.store === 'daily' ? '日次要約'
+                    : args.store === 'my_profile' ? '本人プロフィール'
+                    : args.store === 'public_interests' ? '公開プロフィール' : 'メモリー';
+                const action = args.action === 'search' ? 'を検索'
+                    : args.action === 'list' ? '一覧を取得'
+                    : args.action === 'create' ? 'を作成'
+                    : args.action === 'update' ? 'を更新'
+                    : args.action === 'delete' ? 'を削除'
+                    : args.action === 'get' || args.action === 'recall' ? 'を取得' : 'を処理';
+                return `${store}${action}`;
+            }
             default: return label + 'を処理';
         }
     })();

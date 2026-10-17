@@ -81,6 +81,7 @@
 .toolbar { padding: 16px 24px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; border-bottom: 1px solid var(--app-border); }
 .select, .input, .textarea { background: var(--app-surface-strong); color: var(--app-ink); border: 1px solid var(--app-border-strong); border-radius: var(--radius-xs); min-height: 42px; padding: 10px 12px; font-size: .86rem; }
 .select { max-width: min(100%,310px); }
+.serverRefreshButton { min-height: 45px; align-self: flex-end; }
 .input { min-width: 0; }
 .searchWrap { display: flex; align-items: center; gap: 10px; padding: 0 12px; border: 1px solid var(--app-border-strong); border-radius: var(--radius-xs); background: var(--app-surface-strong); flex: 1; min-width: 190px; max-width: 370px; }
 .searchWrap:focus-within { outline: 2px solid color-mix(in srgb,var(--app-accent) 20%,transparent); }
@@ -136,7 +137,19 @@
 .dialogActions { display: flex; justify-content: end; flex-wrap: wrap; gap: 9px; }
 .label { display: grid; gap: 8px; font-size: .8rem; font-weight: 650; }
 .alignRight { text-align: right; white-space: nowrap; }
+.personalityBody { display: grid; gap: 18px; padding: 22px 24px; }
+.personalityGrid { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 14px; }
+.personalityGrid .select { width: 100%; max-width: none; }
+.personalityInsight { display: grid; gap: 8px; padding: 15px 17px; border: 1px solid var(--app-border); border-radius: var(--radius-xs); background: var(--app-surface-soft); }
+.personalityInsight strong { display: flex; align-items: center; gap: 8px; color: var(--app-accent-strong); font-size: .85rem; }
+.personalityInsight p { color: var(--app-ink); font-size: .84rem; line-height: 1.75; white-space: pre-wrap; overflow-wrap: anywhere; }
+.personalityFooter { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; }
+.personalityToggle { display: inline-flex; align-items: center; gap: 9px; font-size: .84rem; font-weight: 600; }
+.personalityToggle input { width: 17px; height: 17px; accent-color: var(--app-accent); }
+.personalityActions { display: flex; gap: 9px; flex-wrap: wrap; }
 @media(max-width:1000px){.metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:1000px){.personalityGrid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:720px){.hero{align-items:flex-start;flex-direction:column}.heroActions{justify-content:flex-start}.sectionHeader,.toolbar{padding:18px}.list{padding:0 18px}.barRow{grid-template-columns:minmax(0,1fr) auto}.barRow .track{grid-column:1/-1;grid-row:2}.listItem{grid-template-columns:1fr}.listActions{justify-content:flex-start}.sectionHeader p{font-size:.83rem}}
-@media(max-width:470px){.page{width:calc(100% - 24px);gap:13px;padding-bottom:44px}.hero{padding:20px}.metrics{gap:10px}.metric{padding:15px;gap:8px}.metricValue{font-size:1.5rem}.metricMeta{font-size:.68rem}.toolbar{align-items:stretch}.tabs{width:100%;display:grid;grid-template-columns:1fr 1fr}.searchWrap{max-width:none;width:100%}.dialog{padding:20px}.barNumber{min-width:66px}}
+@media(max-width:470px){.page{width:calc(100% - 24px);gap:13px;padding-bottom:44px}.hero{padding:20px}.metrics{gap:10px}.metric{padding:15px;gap:8px}.metricValue{font-size:1.5rem}.metricMeta{font-size:.68rem}.toolbar{align-items:stretch}.tabs{width:100%;display:grid;grid-template-columns:1fr 1fr}.searchWrap{max-width:none;width:100%}.dialog{padding:20px}.barNumber{min-width:66px}.personalityBody{padding:18px}.personalityGrid{grid-template-columns:1fr}.personalityActions{width:100%}.personalityActions button{flex:1}}
+@media(max-width:470px){.tabs button:nth-child(3){grid-column:1/-1}}
 @media(prefers-reduced-motion:reduce){.skeleton{animation:none}.trackFill{transition:none}}

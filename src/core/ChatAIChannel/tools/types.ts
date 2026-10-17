@@ -25,6 +25,8 @@ export interface ChatAIToolContext {
     sandboxPaths?: ChatAISandboxPaths;
     generatedImages?: ChatAIGeneratedImage[];
     uploadedImageIndices?: Set<number>;
+    uploadSessionId?: string;
+    downloadSessionId?: string;
     [key: string]: unknown;
 }
 

@@ -10,6 +10,7 @@ import { registerUploadImageTool } from './uploadImage.js';
 import { registerImageEditorTool } from './imageEditor.js';
 import { registerUserMemoryEditTool } from './userMemoryEdit.js';
 import { registerChannelUserTimeoutTool } from './channelUserTimeout.js';
+import { registerTextFileTools } from './textFiles.js';
 
 const toolRegistrars: ChatAIToolRegistrar[] = [
     registerFetchUrlTool,
@@ -21,6 +22,7 @@ const toolRegistrars: ChatAIToolRegistrar[] = [
     registerSandboxBashTool,
     registerUserMemoryEditTool,
     registerChannelUserTimeoutTool,
+    registerTextFileTools,
 ];
 
 export function registerChatAIChannelTools(

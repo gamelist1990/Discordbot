@@ -57,11 +57,11 @@ test('生成速度はprefill時間を含まない値を出す', () => {
     assert.match(stream.render(true), /9\.8 toks\/s · toks: 2002/);
 });
 
-test('Thinkingの生内容は絶対に表示せず小さな進捗だけを出す', () => {
+test('Thinking中は短い内容プレビューを出し、完了時は本文を隠す', () => {
     const stream = new StaffAIStreamState();
     stream.consume({ choices: [{ delta: { reasoning_content: 'Internal hidden reasoning must not leak' } }] } as any);
     assert.match(stream.render(), /💭 Thinking/);
-    assert.doesNotMatch(stream.render(), /Internal/);
+    assert.match(stream.render(), /Internal hidden reasoning/);
     stream.consume({ choices: [{ delta: { content: '調べたよ！' } }] } as any);
     const result = stream.renderDiscord(true);
     assert.equal(result.embeds.length, 0);

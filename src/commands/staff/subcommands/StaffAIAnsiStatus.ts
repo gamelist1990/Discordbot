@@ -37,7 +37,7 @@ export function renderStaffAnsiStatus(
     const lines: string[] = [];
     if (thinking) {
         lines.push(colored(
-            `💭 Thinking · ${thinking.active ? '処理中' : '完了'} (${thinking.characters}文字)`,
+            `💭 Thinking · ${thinking.active ? 'ストリーミング中' : '完了'} (${thinking.characters}文字)`,
             COLORS.thinking,
         ));
     }

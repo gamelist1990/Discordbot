@@ -1,4 +1,5 @@
 import { describeStaffTool } from './StaffAIToolFormatting.js';
+import { escapeMarkdown } from 'discord.js';
 import { renderStaffAnsiStatus } from './StaffAIAnsiStatus.js';
 import type { OpenAIChatCompletionChunk } from '../../../types/openai.js';
 import type { ToolExecutionStep, ResponseApiStreamDelta } from '../../../core/ai/ChatGPTClient.js';
@@ -12,6 +13,18 @@ type ToolPreview = {
 };
 
 const DISCORD_LIMIT = 2000;
+const THINKING_PREVIEW_LIMIT = 200;
+
+function escapeMarkdownTail(value: string, maxLength: number): { text: string; trimmed: boolean } {
+    const characters = Array.from(value);
+    let start = 0;
+    let text = escapeMarkdown(value);
+    while (text.length > maxLength && start < characters.length) {
+        start = Math.min(characters.length, start + Math.max(1, text.length - maxLength));
+        text = escapeMarkdown(characters.slice(start).join(''));
+    }
+    return { text, trimmed: start > 0 };
+}
 
 export class StaffAIStreamState {
     constructor(private readonly ansiColors = true) {}
@@ -19,6 +32,7 @@ export class StaffAIStreamState {
     public content = '';
     private hasReasoning = false;
     private reasoningCharacters = 0;
+    private thinkingPreview = '';
     private tools: ToolPreview[] = [];
     private promptTokens = 0;
     private cacheTokens = 0;
@@ -29,6 +43,16 @@ export class StaffAIStreamState {
     private timedOutputTokens = 0;
     private timedOutputSeconds = 0;
     private callIndex = 0;
+
+    private appendThinking(text: string): void {
+        if (!text) return;
+        this.hasReasoning = true;
+        this.reasoningCharacters += text.length;
+        // Keep a rolling window so new thoughts replace the oldest text.
+        this.thinkingPreview = Array.from(this.thinkingPreview + text)
+            .slice(-THINKING_PREVIEW_LIMIT)
+            .join('');
+    }
 
     consume(chunk: OpenAIChatCompletionChunk): void {
         const usage = chunk.usage;
@@ -48,11 +72,8 @@ export class StaffAIStreamState {
             }
         }
         const delta = chunk.choices?.[0]?.delta;
-        // Never show raw model reasoning in public Discord. Show a small progress indicator.
-        if (delta?.reasoning_content || delta?.reasoning) {
-            this.hasReasoning = true;
-            this.reasoningCharacters += (delta.reasoning_content || delta.reasoning || '').length;
-        }
+        const reasoning = delta?.reasoning_content || delta?.reasoning || '';
+        this.appendThinking(reasoning);
         if (delta?.content) this.content += delta.content;
         for (const entry of delta?.tool_calls ?? []) {
             const id = entry.id || '';
@@ -76,8 +97,7 @@ export class StaffAIStreamState {
         if (delta.type === 'thinking') {
             if (delta.text) {
                 if (!this.streamingFrom) this.streamingFrom = Date.now();
-                this.hasReasoning = true;
-                this.reasoningCharacters += delta.text.length;
+                this.appendThinking(delta.text);
             }
             return;
         }
@@ -122,7 +142,7 @@ export class StaffAIStreamState {
             : step.phase === 'completed' ? '完了' : '失敗';
     }
 
-    /** Discord's standard markdown: no embeds, JSON dumps, or raw reasoning. */
+    /** Discord's standard markdown: no embeds or raw tool JSON. */
     render(isComplete = false, answer = this.content): string {
         const speed = this.timedOutputSeconds > 0
             ? (this.timedOutputTokens / this.timedOutputSeconds).toFixed(1) : '—';
@@ -149,14 +169,34 @@ export class StaffAIStreamState {
                 ? { active: showThinking, characters: this.reasoningCharacters }
                 : undefined)
             : '';
+        const status = activity + ansi;
+        const statusText = status.trim();
+        const thinkingText = this.thinkingPreview.replace(/\s+/g, ' ').trim();
+        const escapedThinking = escapeMarkdownTail(
+            thinkingText,
+            Math.max(0, DISCORD_LIMIT - statusText.length - footer.length - 5),
+        );
+        const previewWasTrimmed = this.reasoningCharacters > this.thinkingPreview.length || escapedThinking.trimmed;
+        const quotedThinking = showThinking && escapedThinking.text
+            ? `> ${previewWasTrimmed ? '…' : ''}${escapedThinking.text}`
+            : '';
+        const prefix = showThinking
+            ? [statusText, quotedThinking].filter(Boolean).join('\n')
+            : '';
         // Keep token usage at the very bottom, after optional tool progress.
-        const suffix = activity + ansi + '\n' + footer;
-        const available = Math.max(0, DISCORD_LIMIT - suffix.length - 1);
-        const response = answer.trim() || (isComplete ? '（応答なし）' : this.tools.length ? '処理中…' : '考え中…');
+        const suffix = (showThinking ? '' : status) + '\n' + footer;
+        const response = answer.trim() || (
+            showThinking ? '' : isComplete ? '（応答なし）' : this.tools.length ? '処理中…' : '考え中…'
+        );
+        const separatorLength = showThinking && prefix && response ? 1 : 0;
+        const available = Math.max(0, DISCORD_LIMIT - prefix.length - suffix.length - separatorLength);
         const visible = response.length > available
             ? response.slice(0, Math.max(0, available - 1)) + '…'
             : response;
-        return (visible + suffix).slice(0, DISCORD_LIMIT);
+        const body = showThinking
+            ? [prefix, visible].filter(Boolean).join('\n')
+            : visible;
+        return (body + suffix).slice(0, DISCORD_LIMIT);
     }
 
     usageMetrics() {

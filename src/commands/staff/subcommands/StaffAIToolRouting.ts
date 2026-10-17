@@ -37,11 +37,8 @@ export function selectStaffToolNames(prompt: string, recentMessages: string[] = 
     if (/チャンネル.*(履歴|発言|ログ)|発言履歴|過去の会話|以前の発言|チャット履歴|ログを調べ/i.test(text)) {
         chosen.add('collect_channel_history');
     }
-    if (/メモ|memo|覚えて|記録して|保存して|忘れて|思い出し|メモリー|備忘録|好きなもの|好きな物|趣味|得意|どんな人/i.test(text)) {
-        chosen.add('recall_staff_memory');
-        for (const name of ['list_memos','get_memo','create_memo','update_memo','delete_memo','search_memos']) {
-            chosen.add(name);
-        }
+    if (/メモ|memo|覚えて|記録して|保存して|忘れて|思い出し|メモリー|備忘録|昨日|一昨日|先週|過去の出来事|以前の会話|好きなもの|好きな物|趣味|得意|どんな人/i.test(text)) {
+        chosen.add('manage_memory');
     }
     // For research questions keep the actual Endpoint-backed web search available.
     // Casual greetings and chat have no tool schema overhead.
