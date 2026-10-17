@@ -25,6 +25,8 @@ export class StaffAIStreamState {
     private promptTokens = 0;
     private completionTokens = 0;
     private usageReceived = false;
+    private timedOutputTokens = 0;
+    private timedOutputSeconds = 0;
     private callIndex = 0;
 
     consume(chunk: OpenAIChatCompletionChunk): void {
@@ -33,6 +35,19 @@ export class StaffAIStreamState {
             this.promptTokens += usage.prompt_tokens;
             this.completionTokens += usage.completion_tokens;
             this.usageReceived = true;
+        }
+        // llama.cpp emits real generation throughput on its final usage chunk.
+        // Aggregate multiple tool-call rounds without including prefill/tool execution time.
+        const timing = chunk.timings;
+        if (timing) {
+            const measuredSpeed = timing.predicted_per_second;
+            const measuredTokens = timing.predicted_n;
+            if (typeof measuredSpeed === 'number' && Number.isFinite(measuredSpeed) && measuredSpeed > 0) {
+                const weight = typeof measuredTokens === 'number' && Number.isFinite(measuredTokens) && measuredTokens > 0
+                    ? measuredTokens : 1;
+                this.timedOutputTokens += weight;
+                this.timedOutputSeconds += weight / measuredSpeed;
+            }
         }
         this.content += chunk.choices?.[0]?.delta?.content ?? '';
         for (const tool of chunk.choices?.[0]?.delta?.tool_calls ?? []) {
@@ -74,8 +89,11 @@ export class StaffAIStreamState {
                 ...(args ? { args: args + (tool.arguments.length > TOOL_ARGS_LIMIT ? '…' : '') } : {}),
             }, null, 2) + '\n```';
         }).join('\n');
+        const speed = this.timedOutputSeconds > 0
+            ? (this.timedOutputTokens / this.timedOutputSeconds).toFixed(1)
+            : '—';
         const footer = isComplete
-            ? `\n-# toks: ${this.usageReceived ? `${this.promptTokens + this.completionTokens} (in ${this.promptTokens} / out ${this.completionTokens})` : '未取得 (API未提供)'}`
+            ? `\n-# ${speed} toks/s · toks: ${this.usageReceived ? `${this.promptTokens + this.completionTokens} (in ${this.promptTokens} / out ${this.completionTokens})` : '未取得 (API未提供)'}`
             : '\n▌';
         const prefix = toolLog ? toolLog + '\n' : '';
         const room = Math.max(0, DISCORD_LIMIT - prefix.length - footer.length);

@@ -110,6 +110,7 @@ export interface OpenAIChatCompletionChunk {
         logprobs?: any; // For log probability information, if requested
     }[];
     usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number } | null;
+    timings?: { predicted_n?: number; predicted_ms?: number; predicted_per_second?: number } | null;
     system_fingerprint?: string;
 }
 
