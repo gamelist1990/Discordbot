@@ -4,13 +4,15 @@
 
 | 機能 | モデル |
 | --- | --- |
-| PEX AIのテキスト会話・日次要約・テキスト検査 | Jeff-base (`jeff-base`) |
-| PEX AIの画像・動画を含む会話・コンテンツ検査 | Gemma 4 E4B (`gemma-4-E4B-it`) |
+| AIChannel・Staff AIの会話とメモリー生成 | `pexAi.channelModel` の生成モデル |
+| その他のPEX AI機能 | `pexAi.model` の生成モデル |
+| テキストのみのコンテンツ検査 | Jeff decision model (`jeff-base`, `/v1/decide`) |
+| 画像・動画を含むコンテンツ検査 | Gemma 4 E4B (`gemma-4-E4B-it`) |
 | 旧モデル名 `jev` | Jeff-base (`jeff-base`) へ読み替え |
 | 通常チャンネルでのメンションAI | 廃止 |
 
 `MentionAISupportManager` の起動・終了処理、実装、専用テストを削除。
-常駐AIチャンネル自体と既存のslashコマンドは維持する。PEX AIの会話モデルは実際に画像入力が含まれるかを見て選び、テキストのみならJeff、画像入力があればGemmaを使う。
+常駐AIチャンネル自体と既存のslashコマンドは維持する。Staff AIもAIChannelと同じ`channelModel`を使い、会話の仕方や設定を共有する。Jeffは`/v1/decide`専用の判定モデルであり、Responses APIや通常の生成には使わない。
 
 ## コンテンツ検査
 
@@ -39,18 +41,19 @@ API失敗や不完全な判定は既存の失敗経路へ渡し、テストで�
 {
   "pexAi": {
     "endpoint": "http://api.pexserver.com:9000/v1",
-    "model": "jeff-base",
-    "channelModel": "jeff-base",
+    "model": "gemma-4-E4B-it",
+    "channelModel": "gemini-3.5-flash-lite",
     "contentSafetyModel": "jeff-base",
     "fallbackModel": "",
-    "steps": [{ "model": "jeff-base", "level": 3 }],
+    "steps": [{ "model": "gemini-3.5-flash-lite", "level": 3 }],
     "visionModel": "gemma-4-E4B-it"
   }
 }
 ```
 
 認証情報を含むファイル全体をこの例で置き換えない。
-PEX AIの会話・要約は、設定済みの旧モデル名に関わらず実際の入力に応じてモデルを選び、テキストにはJeff、画像入力にはGemmaを使用する。
+`model`と`channelModel`には生成対応モデルを設定する。Jeffはコンテンツ検査専用で、生成モデルとして指定すると`unsupported_endpoint`になる。Staff AIとAIChannelは`channelModel`を共有し、背景のメモリー要約も同じ生成モデルを使う。
+古い設定に`model`、`channelModel`、または`steps`の生成先として`jeff-base`/`jev`が残っている場合、起動時にPEX AIの生成既定値（GemmaとGemini）へ補正し、警告を記録する。
 コンテンツ検査機能のサーバーごとの有効/無効は変更していない。
 このPCに稼働Botは確認できなかったため、Botコードは次回デプロイ・起動で反映。
 
@@ -73,4 +76,4 @@ PEX AIの会話・要約は、設定済みの旧モデル名に関わらず実�
 
 GIF・MP4はvideo_urlのbase64データとしてjevへ送ります。サーバーで全時間範囲を16フレーム・最大辺256pxの動画に変換して判定します。Bot側の既存scanImagesで有効/無効を切り替え、maxFileSizeMbとmaxImagesで取得量を制限します。アニメWebPは従来の画像フレーム抽出を維持します。動画の類似判定キャッシュは使わず、同じbytesと本文だけ再利用します。元ファイルはネタバレ代理投稿で保持します。
 
-2026-10-17に推論先をA8へ移しました。PEX AIはテキストでJeff-base、画像などの視覚入力がある場合だけGemma 4 E4Bを使用します。公開APIはvideo_urlのGIF/MP4（最大16MiB・120秒）に対応します。
+2026-10-17に推論先をA8へ移しました。テキストのみのコンテンツ検査はJeff-base、画像などの視覚入力がある検査だけGemma 4 E4Bを使用します。公開APIはvideo_urlのGIF/MP4（最大16MiB・120秒）に対応します。

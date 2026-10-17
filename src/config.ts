@@ -71,6 +71,16 @@ const configuredContentSafetyModel = raw.pexAi?.contentSafetyModel?.trim();
 const contentSafetyModel = !configuredContentSafetyModel || configuredContentSafetyModel.toLowerCase() === 'jev'
     ? JEFF_MODEL
     : configuredContentSafetyModel;
+const defaultChannelModel = 'gemini-3.5-flash-lite';
+const isJeffDecisionModel = (model: string | undefined): boolean =>
+    model?.trim().toLowerCase() === JEFF_MODEL || model?.trim().toLowerCase() === 'jev';
+const configuredPexModel = raw.pexAi?.model?.trim();
+const configuredChannelModel = raw.pexAi?.channelModel?.trim();
+const pexModel = isJeffDecisionModel(configuredPexModel) ? GEMMA_MODEL : configuredPexModel || GEMMA_MODEL;
+const channelModel = isJeffDecisionModel(configuredChannelModel)
+    ? defaultChannelModel
+    : configuredChannelModel || defaultChannelModel;
+const hasJeffGenerationStep = raw.pexAi?.steps?.some(step => isJeffDecisionModel(step?.model));
 
 export const config: Required<AppConfig> = {
     token: raw.token || '',
@@ -84,7 +94,7 @@ export const config: Required<AppConfig> = {
     openai: {
         apiKey: raw.openai?.apiKey || '',
         apiEndpoint: raw.openai?.apiEndpoint || '',
-        defaultModel: raw.openai?.defaultModel || JEFF_MODEL,
+        defaultModel: raw.openai?.defaultModel || GEMMA_MODEL,
         proxyEndpoints: Array.isArray(raw.openai?.proxyEndpoints)
             ? raw.openai?.proxyEndpoints.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
             : [],
@@ -94,8 +104,8 @@ export const config: Required<AppConfig> = {
     },
     pexAi: {
         endpoint: raw.pexAi?.endpoint || 'http://api.pexserver.com:9000/v1',
-        model: raw.pexAi?.model || JEFF_MODEL,
-        channelModel: raw.pexAi?.channelModel || JEFF_MODEL,
+        model: pexModel,
+        channelModel,
         contentSafetyModel,
         fallbackModel: raw.pexAi?.fallbackModel || '',
         steps: Array.isArray(raw.pexAi?.steps)
@@ -107,7 +117,7 @@ export const config: Required<AppConfig> = {
                     && [0, 1, 2, 3].includes(step.level),
                 )
                 .map(step => ({
-                    model: step.model.trim(),
+                    model: isJeffDecisionModel(step.model) ? channelModel : step.model.trim(),
                     level: step.level,
                 }))
             : [],
@@ -124,6 +134,9 @@ export const config: Required<AppConfig> = {
 
 if (configuredContentSafetyModel?.toLowerCase() === 'jev') {
     Logger.warn('[Config] pexAi.contentSafetyModel "jev" is a legacy name; using Jeff model "jeff-base".');
+}
+if (isJeffDecisionModel(configuredPexModel) || isJeffDecisionModel(configuredChannelModel) || hasJeffGenerationStep) {
+    Logger.warn(`[Config] Jeff is a /v1/decide moderation model, not a generation model; using configured generation defaults (${pexModel}, ${channelModel}).`);
 }
 
 // Updating the application also migrates an older host's local config on startup.
