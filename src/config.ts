@@ -8,6 +8,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 export const GEMMA_MODEL = 'gemma-4-E4B-it';
+export const JEFF_MODEL = 'jeff-base';
 
 export interface AppConfig {
     token?: string;
@@ -68,7 +69,7 @@ try {
 
 const configuredContentSafetyModel = raw.pexAi?.contentSafetyModel?.trim();
 const contentSafetyModel = !configuredContentSafetyModel || configuredContentSafetyModel.toLowerCase() === 'jev'
-    ? 'jeff-base'
+    ? JEFF_MODEL
     : configuredContentSafetyModel;
 
 export const config: Required<AppConfig> = {
@@ -83,7 +84,7 @@ export const config: Required<AppConfig> = {
     openai: {
         apiKey: raw.openai?.apiKey || '',
         apiEndpoint: raw.openai?.apiEndpoint || '',
-        defaultModel: raw.openai?.defaultModel || GEMMA_MODEL,
+        defaultModel: raw.openai?.defaultModel || JEFF_MODEL,
         proxyEndpoints: Array.isArray(raw.openai?.proxyEndpoints)
             ? raw.openai?.proxyEndpoints.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
             : [],
@@ -93,8 +94,8 @@ export const config: Required<AppConfig> = {
     },
     pexAi: {
         endpoint: raw.pexAi?.endpoint || 'http://api.pexserver.com:9000/v1',
-        model: raw.pexAi?.model || GEMMA_MODEL,
-        channelModel: raw.pexAi?.channelModel || 'gemini-3.5-flash-lite',
+        model: raw.pexAi?.model || JEFF_MODEL,
+        channelModel: raw.pexAi?.channelModel || JEFF_MODEL,
         contentSafetyModel,
         fallbackModel: raw.pexAi?.fallbackModel || '',
         steps: Array.isArray(raw.pexAi?.steps)

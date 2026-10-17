@@ -6,8 +6,12 @@ import {
     ChatOptions,
     ResponseApiStreamDelta,
 } from './ChatGPTClient.js';
-import { OpenAIChatCompletionMessage } from '../../types/openai.js';
-import { config } from '../../config.js';
+import { config, GEMMA_MODEL, JEFF_MODEL } from '../../config.js';
+import {
+    OpenAIChatCompletionChunk,
+    OpenAIChatCompletionMessage,
+    OpenAIChatCompletionResponse,
+} from '../../types/openai.js';
 
 export const PEX_AI_ENDPOINT = config.pexAi.endpoint;
 export const PEX_AI_MODEL = config.pexAi.model;
@@ -25,12 +29,53 @@ export class OpenAIChatManager extends ChatGPTClient {
         });
     }
 
+    /** Text-only requests use Jeff; image-bearing requests use Gemma. */
+    private routeConversationModel(
+        messages: OpenAIChatCompletionMessage[],
+        options?: ChatOptions,
+    ): ChatOptions {
+        const multimodal = messages.some(message => Array.isArray(message.content)
+            && message.content.some(part => part.type !== 'text'));
+        return {
+            ...options,
+            model: multimodal ? GEMMA_MODEL : JEFF_MODEL,
+            strictModel: true,
+            fallbackOnLimitOnly: false,
+        };
+    }
+
+    public override sendMessage(
+        messages: OpenAIChatCompletionMessage[],
+        options?: ChatOptions,
+        toolRound = 0,
+    ): Promise<OpenAIChatCompletionResponse> {
+        return super.sendMessage(messages, this.routeConversationModel(messages, options), toolRound);
+    }
+
+    public override streamMessage(
+        messages: OpenAIChatCompletionMessage[],
+        onChunkReceive: (chunk: OpenAIChatCompletionChunk) => void,
+        options?: ChatOptions,
+        toolRound = 0,
+    ): Promise<void> {
+        return super.streamMessage(messages, onChunkReceive, this.routeConversationModel(messages, options), toolRound);
+    }
+
+    public override streamResponse(
+        messages: OpenAIChatCompletionMessage[],
+        onDeltaReceive: (delta: ResponseApiStreamDelta) => void,
+        options?: ChatOptions,
+        toolRound = 0,
+    ): Promise<void> {
+        return super.streamResponse(messages, onDeltaReceive, this.routeConversationModel(messages, options), toolRound);
+    }
+
     /** Chat Completions の通常応答から本文だけを返す簡易 API。 */
     public async generateText(
         messages: OpenAIChatCompletionMessage[],
         options?: GenerateTextOptions
     ): Promise<string> {
-        const response = await this.sendMessage(messages, this.withPexModelFallback(options));
+        const response = await this.sendMessage(messages, options);
         const content = response.choices[0]?.message?.content;
         return typeof content === 'string' ? content : '';
     }
@@ -46,7 +91,7 @@ export class OpenAIChatManager extends ChatGPTClient {
             if (content) {
                 onText(content);
             }
-        }, this.withPexModelFallback(options));
+        }, options);
     }
 
     /** Responses API のストリームを使い、通常出力と API レベルの thinking/reasoning を分けて返す。 */
@@ -55,33 +100,7 @@ export class OpenAIChatManager extends ChatGPTClient {
         onDelta: (delta: ResponseApiStreamDelta) => void,
         options?: GenerateTextOptions
     ): Promise<void> {
-        await this.streamResponse(messages, onDelta, this.withPexModelFallback(options));
-    }
-
-    private withPexModelFallback(options?: GenerateTextOptions): GenerateTextOptions {
-        const requestedModels = Array.isArray(options?.model)
-            ? options.model
-            : options?.model
-                ? [options.model]
-                : [config.pexAi.model];
-        const primaryRequested = requestedModels.length === 1
-            && String(requestedModels[0]) === config.pexAi.model;
-
-        // strictModelは「指定モデル以外を呼ばない」という呼び出し側の明示指定。
-        // ここでfallbackModelを配列へ追加すると、ChatGPTClient側では両方が
-        // 明示候補になり、Gemini失敗時に意図せずGemmaへ進んでしまう。
-        if (options?.strictModel || !primaryRequested || !config.pexAi.fallbackModel) {
-            return { ...options };
-        }
-
-        return {
-            ...options,
-            model: Array.from(new Set([
-                config.pexAi.model,
-                config.pexAi.fallbackModel,
-            ])),
-            fallbackOnLimitOnly: true,
-        };
+        await this.streamResponse(messages, onDelta, options);
     }
 
     /** GET /v1/models 相当のモデルカタログを返す。 */

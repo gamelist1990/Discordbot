@@ -1,4 +1,4 @@
-import { config } from '../../../config.js';
+import { config, GEMMA_MODEL } from '../../../config.js';
 import type { OpenAITool, ToolHandler } from '../../../types/openai.js';
 import type { ChatAIToolRegistrar } from './types.js';
 
@@ -14,7 +14,7 @@ const visionDescribeDefinition: OpenAITool = {
     type: 'function',
     function: {
         name: 'vision_describe_image',
-        description: '画像認識が必要な場合だけ、指定された直近添付画像をmoondreamで解析します。通常会話モデルをmoondreamへ切り替えるためのものではありません。',
+        description: '画像認識が必要な場合だけ、指定された直近添付画像をGemmaで解析します。',
         parameters: {
             type: 'object',
             properties: {
@@ -43,7 +43,7 @@ const visionDescribeHandler: ToolHandler = async (args, context?: VisionToolCont
                 ...(config.pexAi.apiKey ? { authorization: `Bearer ${config.pexAi.apiKey}` } : {}),
             },
             body: JSON.stringify({
-                model: config.pexAi.visionModel,
+                model: GEMMA_MODEL,
                 messages: [
                     {
                         role: 'user',

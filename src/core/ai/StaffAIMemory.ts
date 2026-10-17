@@ -1,7 +1,7 @@
 import { database } from '../persistence/Database.js';
 import type { AIConversationEntry } from './AIConversationHistory.js';
 import { OpenAIChatManager } from './OpenAIChatManager.js';
-import { GEMMA_MODEL } from '../../config.js';
+import { JEFF_MODEL } from '../../config.js';
 import { randomUUID } from 'node:crypto';
 import { queueAIBackgroundWork } from './AIBackgroundWork.js';
 import { clearAIChannelExperienceMemory } from '../ChatAIChannel/AIChannelExperienceMemory.js';
@@ -166,7 +166,7 @@ async function summarize(input: string, instruction: string, signal: AbortSignal
         { role: 'user', content: toWellFormedUnicode(input.slice(0, 13000)) },
     ], delta => {
         if (delta.type === 'text') result += delta.text;
-    }, { model: GEMMA_MODEL, strictModel: true, maxTokens: 520, priority: 'background', signal });
+    }, { model: JEFF_MODEL, strictModel: true, maxTokens: 520, priority: 'background', signal });
     return result.trim();
 }
 

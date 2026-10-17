@@ -1,8 +1,8 @@
 import { PersonalityArchetypeDefinition, PersonalityKey } from './types.js';
-import { config } from '../../config.js';
+import { config, JEFF_MODEL } from '../../config.js';
 
 export const CORE_FEATURE_MODEL_FALLBACKS = [
-    config.pexAi.model
+    JEFF_MODEL
 ] as const;
 
 export const CORE_FEATURE_API_ENDPOINT = config.pexAi.endpoint;

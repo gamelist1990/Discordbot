@@ -4,14 +4,13 @@
 
 | 機能 | モデル |
 | --- | --- |
-| 常駐チャンネルAI・会話メモ更新 | Gemini (`pexAi.channelModel`) |
-| コンテンツ検査（文章） | Jeff-base on A8 (`pexAi.contentSafetyModel`)、違反らしい判定でもGemmaへ切り替えない |
-| コンテンツ検査（画像・GIF・MP4など視覚入力あり） | Gemma 4 E4B on A8 (`GEMMA_MODEL`) |
-| その他の既存汎用AI | Gemma 4 E4B on A8 (`pexAi.model` / `openai.defaultModel`) |
+| PEX AIのテキスト会話・日次要約・テキスト検査 | Jeff-base (`jeff-base`) |
+| PEX AIの画像・動画を含む会話・コンテンツ検査 | Gemma 4 E4B (`gemma-4-E4B-it`) |
+| 旧モデル名 `jev` | Jeff-base (`jeff-base`) へ読み替え |
 | 通常チャンネルでのメンションAI | 廃止 |
 
 `MentionAISupportManager` の起動・終了処理、実装、専用テストを削除。
-常駐AIチャンネル自体と既存のslashコマンドは維持する。
+常駐AIチャンネル自体と既存のslashコマンドは維持する。PEX AIの会話モデルは実際に画像入力が含まれるかを見て選び、テキストのみならJeff、画像入力があればGemmaを使う。
 
 ## コンテンツ検査
 
@@ -40,18 +39,18 @@ API失敗や不完全な判定は既存の失敗経路へ渡し、テストで�
 {
   "pexAi": {
     "endpoint": "http://api.pexserver.com:9000/v1",
-    "model": "gemma-4-E4B-it",
-    "channelModel": "gemini-3.5-flash-lite",
+    "model": "jeff-base",
+    "channelModel": "jeff-base",
     "contentSafetyModel": "jeff-base",
     "fallbackModel": "",
-    "steps": [{ "model": "gemini-3.5-flash-lite", "level": 3 }],
-    "visionModel": "gemini-3.5-flash-lite"
+    "steps": [{ "model": "jeff-base", "level": 3 }],
+    "visionModel": "gemma-4-E4B-it"
   }
 }
 ```
 
 認証情報を含むファイル全体をこの例で置き換えない。
-チャンネルAIのGeminiはplus/proの既存APIキーを使用する。
+PEX AIの会話・要約は、設定済みの旧モデル名に関わらず実際の入力に応じてモデルを選び、テキストにはJeff、画像入力にはGemmaを使用する。
 コンテンツ検査機能のサーバーごとの有効/無効は変更していない。
 このPCに稼働Botは確認できなかったため、Botコードは次回デプロイ・起動で反映。
 
@@ -74,4 +73,4 @@ API失敗や不完全な判定は既存の失敗経路へ渡し、テストで�
 
 GIF・MP4はvideo_urlのbase64データとしてjevへ送ります。サーバーで全時間範囲を16フレーム・最大辺256pxの動画に変換して判定します。Bot側の既存scanImagesで有効/無効を切り替え、maxFileSizeMbとmaxImagesで取得量を制限します。アニメWebPは従来の画像フレーム抽出を維持します。動画の類似判定キャッシュは使わず、同じbytesと本文だけ再利用します。元ファイルはネタバレ代理投稿で保持します。
 
-2026-10-17に推論先をA8へ移しました。汎用AIはGemma 4 E4B（MTP有効）、コンテンツ検査はJeff-baseを使用します。HomePCではDiscordbot設定の更新を行いました。公開APIはvideo_urlのGIF/MP4（最大16MiB・120秒）に対応します。
+2026-10-17に推論先をA8へ移しました。PEX AIはテキストでJeff-base、画像などの視覚入力がある場合だけGemma 4 E4Bを使用します。公開APIはvideo_urlのGIF/MP4（最大16MiB・120秒）に対応します。

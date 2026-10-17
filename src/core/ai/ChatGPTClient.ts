@@ -780,6 +780,11 @@ export class ChatGPTClient {
                         cachedInputTokens: tokenCount(usage?.input_tokens_details?.cached_tokens),
                     });
                 }
+                if (Array.isArray(data?.response?.output)) {
+                    data.response.output.forEach((item: any, index: number) => {
+                        outputItemsByIndex.set(index, item);
+                    });
+                }
             }
             const textDelta = this.extractResponseTextDelta(data, eventType);
             if (textDelta) {
@@ -839,6 +844,23 @@ export class ChatGPTClient {
         for await (const event of stream as AsyncIterable<OpenAI.Responses.ResponseStreamEvent>) {
             this.throwIfAborted(signal);
             handleEvent(event);
+        }
+
+        // Some compatible Responses endpoints omit output_text delta/done events
+        // but still include the completed assistant message in response.output.
+        // Recover that final text without re-emitting items already streamed.
+        for (const [index, item] of Array.from(outputItemsByIndex.entries()).sort(([left], [right]) => left - right)) {
+            if (item?.type !== 'message' || !Array.isArray(item.content)) continue;
+            const itemKey = String(item.id ?? index);
+            if (textDeltaItems.has(itemKey) || textDeltaItems.has(String(index))) continue;
+            const text = item.content
+                .filter((part: any) => part?.type === 'output_text' || part?.type === 'text')
+                .map((part: any) => typeof part.text === 'string' ? part.text : '')
+                .join('');
+            if (!text) continue;
+            textDeltaItems.add(itemKey);
+            textDeltaItems.add(String(index));
+            onDeltaReceive({ type: 'text', text });
         }
 
         return {
