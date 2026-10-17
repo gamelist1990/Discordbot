@@ -98,6 +98,6 @@ test('Responses SSE のThinkingと本文は別に描画し、usage/timingsを合
     assert.equal(final.embeds.length, 0);
     assert.match(final.content, /画像は赤だよ/);
     assert.match(final.content, /25\.0 toks\/s · toks: 150 \(in 100 \/ out 50\)/);
-    assert.doesNotMatch(final.content, /💭 Thinking/);
+    assert.match(final.content, /💭 Thinking · 完了/);
     assert.doesNotMatch(final.content, /abcdefgh/);
 });

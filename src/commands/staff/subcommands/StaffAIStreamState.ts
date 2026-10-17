@@ -126,6 +126,9 @@ export class StaffAIStreamState {
             if (tail) statusLines.unshift(`> ${tail}`);
             statusLines.unshift(`-# 💭 Thinking · ストリーミング中（${this.reasoningCharacters}文字）`);
         }
+        if (isComplete && this.hasReasoning) {
+            statusLines.unshift(`-# 💭 Thinking · 完了（${this.reasoningCharacters}文字）`);
+        }
         const activity = statusLines.length ? '\n' + statusLines.join('\n') : '';
         // Keep token usage at the very bottom, after optional tool progress.
         const suffix = activity + '\n' + footer;
