@@ -1,4 +1,4 @@
-import { EmbedBuilder, escapeMarkdown } from 'discord.js';
+import { escapeMarkdown } from 'discord.js';
 
 export type StaffToolView = {
     name: string;
@@ -61,30 +61,4 @@ export function describeStaffTool(tool: StaffToolView): { name: string; value: s
         name: `${symbol} ${label}`,
         value: `${subject} · ${tool.phase}`,
     };
-}
-
-export function buildStaffToolEmbed(tools: StaffToolView[]): EmbedBuilder | null {
-    if (!tools.length) return null;
-    const latest = tools.slice(-3);
-    const failed = latest.some(tool => tool.phase === '失敗');
-    const active = latest.some(tool => tool.phase === '実行中' || tool.phase === '準備中');
-    return new EmbedBuilder()
-        .setColor(failed ? 0xef4444 : active ? 0xf59e0b : 0x22c55e)
-        .setTitle(active ? '🛠️ ツール実行中' : '🛠️ ツール実行履歴')
-        .addFields(latest.map(describeStaffTool));
-}
-
-export function buildStaffThinkingEmbed(
-    thinking: string,
-    isComplete: boolean,
-    isWaiting: boolean,
-): EmbedBuilder | null {
-    if (!thinking && (!isWaiting || isComplete)) return null;
-    const text = thinking
-        ? thinking.slice(-700)
-        : '応答を準備中…';
-    return new EmbedBuilder()
-        .setColor(0x8b5cf6)
-        .setTitle(isComplete ? '🧠 Thinking' : '🧠 Thinking · 進行中')
-        .setDescription(text);
 }

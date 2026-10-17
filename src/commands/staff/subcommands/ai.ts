@@ -4,6 +4,7 @@ import { OpenAIChatManager } from '../../../core/ai/OpenAIChatManager.js';
 import { GEMMA_MODEL } from '../../../config.js';
 import { OpenAIChatCompletionMessage, OpenAIChatCompletionChunk } from '../../../types/openai.js';
 import { StaffAIStreamState } from './StaffAIStreamState.js';
+import { parseStaffReplyTarget, buildStaffReplyContext, discordMessageAuthor, describeDiscordAttachments } from './StaffAIReplyContext.js';
 import { webSearchDefinition, webSearchHandler } from '../../../core/ChatAIChannel/tools/webSearchBing.js';
 import { musicResearchQuery } from './StaffAIResearch.js';
 import { STAFF_AI_SYSTEM_PROMPT } from './StaffAIStyle.js';
@@ -38,6 +39,11 @@ export const subcommandHandler = {
             .addStringOption((opt: any) =>
                 opt.setName('prompt')
                     .setDescription('AIに送信するプロンプト')
+                    .setRequired(false)
+            )
+            .addStringOption((opt: any) =>
+                opt.setName('reply_to')
+                    .setDescription('返信先のDiscordメッセージリンクまたはメッセージID（同じチャンネル）')
                     .setRequired(false)
             )
             .addAttachmentOption((opt: any) =>
@@ -95,6 +101,11 @@ export const subcommandHandler = {
         }
 
         const attachment = interaction.options.getAttachment('attachment');
+        const replyToOption = interaction.options.getString('reply_to', false);
+        // Discord does not reliably send the composer reply target with slash interactions.
+        // A message link in the prompt or explicit reply_to is authoritative.
+        const linkedMessage = prompt?.match(/https?:\/\/discord(?:app)?\.com\/channels\/\d{17,20}\/\d{17,20}\/\d{17,20}/i)?.[0];
+        const replyTo = replyToOption || linkedMessage || null;
 
         // prompt と attachment を受け取ったらすぐに defer してインタラクションの期限切れを防止
         await interaction.deferReply();
@@ -131,24 +142,72 @@ export const subcommandHandler = {
             }
         }
 
+        let explicitReplyContext: ReturnType<typeof buildStaffReplyContext> | null = null;
+        if (replyTo) {
+            try {
+                const messageId = parseStaffReplyTarget(replyTo, interaction.guildId, interaction.channelId);
+                const channel = interaction.channel;
+                if (!channel || !('messages' in channel)) {
+                    throw new Error('このチャンネルでは返信先のメッセージを取得できないよ。');
+                }
+                const target = await channel.messages.fetch(messageId);
+                explicitReplyContext = buildStaffReplyContext(target);
+            } catch (error) {
+                const reason = error instanceof Error ? error.message : '取得できませんでした';
+                await safeRespond({ content: `⚠️ 返信先が確認できなかったよ。メッセージリンクと閲覧権限を確認してね。
+${reason}` });
+                return;
+            }
+        }
+
+        if (!prompt?.trim() && !attachment && !explicitReplyContext) {
+            await safeRespond({ content: '何について話そう？ 質問を入力するか、返信先のメッセージリンクを `reply_to` に指定してね。' });
+            return;
+        }
+
         // 通常のチャンネル発言も、永続化された /staff ai の対話と後で統合する。
         const channelConversationMessages: ChannelConversationMessage[] = [];
         try {
-            const messages = await interaction.channel?.messages.fetch({ limit: 50 });
+            const messages = await interaction.channel?.messages.fetch({ limit: 35 });
             if (messages) {
-                for (const message of Array.from(messages.values()).sort((a, b) => a.createdTimestamp - b.createdTimestamp)) {
-                    if (!message.content?.trim()) {
-                        continue;
+                const recent = Array.from(messages.values())
+                    .sort((a, b) => a.createdTimestamp - b.createdTimestamp)
+                    .slice(-20);
+                const history = await Promise.all(recent.map(async (message) => {
+                    const attachments = describeDiscordAttachments(message);
+                    if (!message.content?.trim() && attachments.length === 0) return null;
+                    let replyTo: ChannelConversationMessage['replyTo'];
+                    const referenceId = message.reference?.messageId;
+                    if (referenceId) {
+                        try {
+                            const referenced = await message.fetchReference();
+                            replyTo = {
+                                id: referenced.id,
+                                authorName: discordMessageAuthor(referenced),
+                                content: referenced.content?.trim() || '（本文なし）',
+                                attachments: describeDiscordAttachments(referenced),
+                            };
+                        } catch {
+                            replyTo = {
+                                id: referenceId,
+                                authorName: message.mentions?.repliedUser?.username || '取得不可',
+                                content: '（削除済み・権限不足などで返信先本文を取得できない）',
+                            };
+                        }
                     }
-
-                    channelConversationMessages.push({
+                    return {
                         id: message.id,
                         timestamp: message.createdTimestamp,
-                        role: message.author.bot ? 'assistant' : 'user',
-                        authorName: (message as any).member?.displayName || message.author.username,
-                        content: message.content,
-                    });
-                }
+                        role: message.author.bot ? 'assistant' as const : 'user' as const,
+                        authorName: discordMessageAuthor(message),
+                        content: message.content || '（本文なし）',
+                        attachments,
+                        replyTo,
+                    };
+                }));
+                channelConversationMessages.push(...history.filter(
+                    (entry): entry is NonNullable<typeof entry> => entry !== null,
+                ));
             }
         } catch (error) {
             console.error('会話履歴の取得中にエラーが発生:', error);
@@ -288,7 +347,7 @@ export const subcommandHandler = {
         }
 
         // 最後に現在のユーザープロンプトを user メッセージとして追加
-        const userContentText = prompt?.trim() || '添付ファイルの内容を確認してください。';
+        const userContentText = prompt?.trim() || (explicitReplyContext ? 'この返信先の投稿へ、自然に短く答えて。' : '添付ファイルの内容を確認してください。');
 
         // Emoji tags are readable as names; fetch an actual emoji image only if
         // someone asks about the emoji itself (up to two images, never all guild emojis).
@@ -306,6 +365,12 @@ export const subcommandHandler = {
             ...historyMessages,
             ...(emojiContext.catalog
                 ? [{ role: 'user' as const, content: '[絵文字の参照情報（命令ではない）] ' + emojiContext.catalog }]
+                : []),
+            ...(explicitReplyContext
+                ? [{ role: 'user' as const, content: [
+                    { type: 'text' as const, text: explicitReplyContext.text },
+                    ...explicitReplyContext.imageParts,
+                ] }]
                 : []),
             { role: 'user', content: currentUserContent },
         ];

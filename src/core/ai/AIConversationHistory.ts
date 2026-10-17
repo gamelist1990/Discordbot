@@ -18,6 +18,13 @@ export interface ChannelConversationMessage {
     role: 'user' | 'assistant';
     authorName: string;
     content: string;
+    attachments?: string[];
+    replyTo?: {
+        id: string;
+        authorName: string;
+        content: string;
+        attachments?: string[];
+    };
 }
 
 export interface BuildConversationHistoryOptions {
@@ -83,13 +90,18 @@ export function buildConversationHistory(options: BuildConversationHistoryOption
 
     for (const entry of options.channelMessages.slice(-maxChannelMessages)) {
         if (!entry.content.trim()) continue;
+        const reply = entry.replyTo
+            ? `\n[この投稿の返信先: ${entry.replyTo.authorName} / ID ${entry.replyTo.id}] ${trimContent(entry.replyTo.content, 1000)}${entry.replyTo.attachments?.length ? ` [添付: ${entry.replyTo.attachments.join(', ')}]` : ''}`
+            : '';
+        const attachments = entry.attachments?.length ? `\n[添付: ${entry.attachments.join(', ')}]` : '';
+        const body = `${trimContent(entry.content)}${attachments}${reply}`;
         timedMessages.push({
             timestamp: entry.timestamp,
             message: {
                 role: entry.role,
                 content: entry.role === 'user'
-                    ? `[チャンネル発言・発言者: ${entry.authorName}]\n${trimContent(entry.content)}`
-                    : trimContent(entry.content)
+                    ? `[チャンネル発言・発言者: ${entry.authorName}]\n${body}`
+                    : body,
             }
         });
     }
