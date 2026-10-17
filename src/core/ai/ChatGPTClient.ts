@@ -672,14 +672,20 @@ export class ChatGPTClient {
             .filter(message => message.role !== 'tool')
             .map(message => {
                 const role = message.role === 'function' ? 'user' : message.role;
+                // llama.cpp /v1/responses requires assistant history items to
+                // explicitly identify themselves as output messages. Without
+                // type=message it returns 400: Cannot determine type of 'item'.
+                const messageType = role === 'assistant' ? { type: 'message' as const } : {};
                 if (typeof message.content === 'string' || message.content === null) {
                     return {
+                        ...messageType,
                         role,
                         content: message.content ?? '',
                     };
                 }
 
                 return {
+                    ...messageType,
                     role,
                     content: message.content.map(part => {
                         if (part.type === 'image_url') {

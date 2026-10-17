@@ -28,9 +28,9 @@ test('Truecolor ANSI gives thinking purple, web running cyan and success green',
     assert.match(error, /\u001b\[38;2;244;105;105m/);
 });
 
-test('plain Markdown remains default for mobile and ANSI is an opt-in', () => {
-    const basic = new StaffAIStreamState();
-    const colored = new StaffAIStreamState(true);
+test('ANSI is default while optional plain Markdown fallback remains available', () => {
+    const basic = new StaffAIStreamState(false);
+    const colored = new StaffAIStreamState();
     for (const view of [basic, colored]) {
         view.consumeResponse({ type: 'thinking', text: 'abc' });
         view.recordToolStep({ phase: 'completed', name: 'web_search', round: 0 });

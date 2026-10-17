@@ -36,7 +36,8 @@ test('ツールの秘密引数・生JSON・コードブロック注入を出さ�
     stream.consume({ choices: [{ delta: { tool_calls: [{ index: 0, id: 'secret', function: { name: 'tool', arguments: '{"token":"top-secret","name":"```"}' } }] } }] } as any);
     const text = stream.renderDiscord().content;
     assert.ok(!text.includes('top-secret'));
-    assert.ok(!text.includes('```'));
+    assert.match(text, /```ansi/);
+    assert.equal((text.match(/```/g) || []).length, 2);
     assert.match(text, /ツール/);
 });
 

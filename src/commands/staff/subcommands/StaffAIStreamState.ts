@@ -15,7 +15,7 @@ type ToolPreview = {
 const DISCORD_LIMIT = 2000;
 
 export class StaffAIStreamState {
-    constructor(private readonly ansiColors = false) {}
+    constructor(private readonly ansiColors = true) {}
 
     public content = '';
     private hasReasoning = false;
@@ -136,8 +136,8 @@ export class StaffAIStreamState {
         // Optional ANSI decoration for desktop Discord. Plain Markdown above it
         // stays readable on mobile and other clients without ANSI rendering.
         const ansi = this.ansiColors
-            ? renderStaffAnsiStatus(latest, this.hasReasoning
-                ? { active: !isComplete && !this.content.trim(), characters: this.reasoningCharacters }
+            ? renderStaffAnsiStatus(latest, this.hasReasoning && (showThinking || isComplete)
+                ? { active: showThinking, characters: this.reasoningCharacters }
                 : undefined)
             : '';
         // Keep token usage at the very bottom, after optional tool progress.

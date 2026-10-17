@@ -68,11 +68,6 @@ export const subcommandHandler = {
                 opt.setName('safety')
                     .setDescription('（任意）true にするとユーザーの system_prompt を補助的に扱います（保守的モード）')
                     .setRequired(false)
-            )
-            .addBooleanOption((opt: any) =>
-                opt.setName('ansi_color')
-                    .setDescription('PC版Discord向けの色付き進捗表示（スマホは通常表示を推奨）')
-                    .setRequired(false)
             );
     },
 
@@ -89,7 +84,6 @@ export const subcommandHandler = {
         }
 
         const prompt = interaction.options.getString('prompt', false);
-        const ansiColors = interaction.options.getBoolean('ansi_color', false) === true;
         const exportDataset = interaction.options.getBoolean('export_dataset', false);
 
         // dataset のエクスポートがリクエストされている場合はそれを優先して送信
@@ -422,7 +416,7 @@ ${reason}` });
         }
 
         // SSEは受信したまま描画。Discord edit は単一キューで順序を保証する。
-        let streamState = new StaffAIStreamState(ansiColors);
+        let streamState = new StaffAIStreamState();
         let responseContent = '';
         let lastUpdateTime = 0;
         let isCompleted = false;
@@ -567,7 +561,7 @@ ${reason}` });
 
                         // 再試行時も同じ Gemma 4 E4B を使う。
                         try {
-                            streamState = new StaffAIStreamState(ansiColors);
+                            streamState = new StaffAIStreamState();
                             responseContent = '';
                             await chatManager.streamMessage(retryMessages, handleChunk, streamOptions);
                             await drainPreview();

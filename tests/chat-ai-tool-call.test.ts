@@ -240,3 +240,65 @@ test('chat-ai-channelはprimaryとfallbackだけを制限時フォールバッ�
         ['gemini-3.1-flash-lite'],
     );
 });
+test('Responses APIの会話履歴にassistant type=messageを明示しllama.cpp 400を回避', async () => {
+    const requests: any[] = [];
+    const server = http.createServer(async (request, response) => {
+        if (request.url === '/models') {
+            response.writeHead(200, { 'content-type': 'application/json' });
+            response.end(JSON.stringify({ object: 'list', data: [{ id: 'test-model', object: 'model', created: 0, owned_by: 'test' }] }));
+            return;
+        }
+        if (request.url !== '/responses') {
+            response.writeHead(404).end();
+            return;
+        }
+        const chunks: Buffer[] = [];
+        for await (const chunk of request) chunks.push(Buffer.from(chunk));
+        const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+        requests.push(body);
+        const assistantMessages = body.input.filter((item: any) => item.role === 'assistant');
+        if (assistantMessages.some((item: any) => item.type !== 'message')) {
+            response.writeHead(400, { 'content-type': 'application/json' });
+            response.end(JSON.stringify({ error: { type: 'invalid_request_error', message: "Cannot determine type of 'item'" } }));
+            return;
+        }
+        sendSse(response, [
+            { type: 'response.created', response: { id: 'resp_test_3' } },
+            { type: 'response.output_text.delta', item_id: 'msg_3', delta: '動作OK' },
+            { type: 'response.completed', response: { id: 'resp_test_3', output: [] } },
+        ]);
+    });
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    assert.ok(address && typeof address !== 'string');
+    try {
+        const client = new ChatGPTClient({
+            apiEndpoint: `http://127.0.0.1:${address.port}`,
+            apiKey: 'test-key',
+            defaultModel: 'test-model',
+        });
+        let output = '';
+        await client.streamResponse([
+            { role: 'system', content: '自然に話して。' },
+            { role: 'user', content: 'こんにちは' },
+            { role: 'assistant', content: 'こんにちは！' },
+            { role: 'user', content: '画像も見てね' },
+            { role: 'assistant', content: 'この画像は面白いね' },
+            { role: 'user', content: [
+                { type: 'text', text: 'これは何色？' },
+                { type: 'image_url', image_url: { url: 'data:image/png;base64,dGVzdA==', detail: 'auto' } },
+            ] },
+        ], delta => { if (delta.type === 'text') output += delta.text; },
+        { model: 'test-model', strictModel: true });
+        assert.equal(output, '動作OK');
+        assert.equal(requests.length, 1);
+        const input = requests[0].input;
+        assert.equal(input.filter((item: any) => item.role === 'assistant').length, 2);
+        assert.ok(input.filter((item: any) => item.role === 'assistant').every((item: any) => item.type === 'message'));
+        assert.equal(input[0].role, 'system');
+        assert.equal(input[0].type, undefined);
+        assert.equal(input.at(-1).content[1].type, 'input_image');
+    } finally {
+        await new Promise<void>((resolve, reject) => server.close(err => err ? reject(err) : resolve()));
+    }
+});
