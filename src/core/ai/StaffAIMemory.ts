@@ -4,10 +4,10 @@ import { OpenAIChatManager } from './OpenAIChatManager.js';
 import { GEMMA_MODEL } from '../../config.js';
 import { randomUUID } from 'node:crypto';
 import { queueAIBackgroundWork } from './AIBackgroundWork.js';
-import { clearAIChannelExperienceMemory, editAIChannelExperienceMemory, listAIChannelExperienceMemories } from '../ChatAIChannel/AIChannelExperienceMemory.js';
+import { clearAIChannelExperienceMemory } from '../ChatAIChannel/AIChannelExperienceMemory.js';
 
 export type StaffMemory = {
-    id: string; kind: 'daily' | 'user' | 'ai' | 'ai_channel'; guildId: string; userId?: string;
+    id: string; kind: 'daily' | 'user' | 'ai'; guildId: string; userId?: string;
     day?: string; title: string; content: string; publicInterests?: string; evidenceCount: number;
     updatedAt: string; editedByStaff?: boolean; sourceChannelId?: string; sourceChannelName?: string;
 };
@@ -30,17 +30,36 @@ const ZERO: StaffMetrics = { requests: 0, inputTokens: 0, outputTokens: 0, total
 const attempted = new Set<string>();
 const currentMemoryTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const selfMemoryTails = new Map<string, Promise<void>>();
+const legacySelfMemoryCleanup = new Map<string, Promise<void>>();
 const dayInJst = (time: number): string => new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Asia/Tokyo', year: 'numeric', month: '2-digit', day: '2-digit',
 }).format(new Date(time));
 
 export async function staffMemoryList(guildId: string): Promise<StaffMemory[]> {
-    const [saved, channelMemories] = await Promise.all([
-        database.get<StaffMemory[]>(guildId, KEY(guildId), []),
-        listAIChannelExperienceMemories(guildId),
-    ]);
-    // Legacy Staff AI self-memories are no longer part of this workspace.
-    return [...(saved || []).filter(memory => memory.kind !== 'ai'), ...channelMemories];
+    // Remove old AI-self records after retiring both self-memory categories.
+    let cleanup = legacySelfMemoryCleanup.get(guildId);
+    if (!cleanup) {
+        cleanup = Promise.all([
+            clearAIChannelExperienceMemory(guildId),
+            (async () => {
+                const memories = await guildAIExperienceMemories(guildId);
+                const saved = await database.get<StaffMemory[]>(guildId, KEY(guildId), []) || [];
+                await Promise.all([
+                    database.set(guildId, AI_SELF_MEMORY_KEY(guildId), []),
+                    database.set(guildId, AI_SELF_MEMORY_REVISION_KEY(guildId), await guildAIExperienceMemoryRevision(guildId) + 1),
+                    database.set(guildId, KEY(guildId), saved.filter(memory => memory.kind !== 'ai')),
+                ]);
+                return memories.length;
+            })(),
+        ]).then(() => undefined);
+        legacySelfMemoryCleanup.set(guildId, cleanup);
+        void cleanup.catch(() => {
+            if (legacySelfMemoryCleanup.get(guildId) === cleanup) legacySelfMemoryCleanup.delete(guildId);
+        });
+    }
+    await cleanup;
+    const saved = await database.get<StaffMemory[]>(guildId, KEY(guildId), []);
+    return (saved || []).filter(memory => memory.kind !== 'ai');
 }
 async function guildAIExperienceMemories(guildId: string): Promise<StaffMemory[]> {
     return await database.get<StaffMemory[]>(guildId, AI_SELF_MEMORY_KEY(guildId), []) || [];
@@ -82,20 +101,6 @@ export async function recordStaffUsage(guildId: string, input: number, output: n
 }
 export async function editStaffMemory(guildId: string, id: string, content: string): Promise<StaffMemory> {
     if (!content.trim() || content.length > 6000) throw new Error('メモリー本文は1〜6000文字で指定してください');
-    if (id.startsWith('chat-ai-channel:ai:')) return editAIChannelExperienceMemory(guildId, id, content);
-    const savedAI = await guildAIExperienceMemories(guildId);
-    const aiItem = savedAI.find(record => record.id === id);
-    if (aiItem) {
-        return withSelfMemoryLock(guildId, async () => {
-            const current = await guildAIExperienceMemories(guildId);
-            const item = current.find(record => record.id === id);
-            if (!item) throw new Error('メモリーが見つかりません');
-            item.content = content.trim(); item.updatedAt = new Date().toISOString(); item.editedByStaff = true;
-            await database.set(guildId, AI_SELF_MEMORY_KEY(guildId), current);
-            await database.set(guildId, AI_SELF_MEMORY_REVISION_KEY(guildId), await guildAIExperienceMemoryRevision(guildId) + 1);
-            return item;
-        });
-    }
     const list = await database.get<StaffMemory[]>(guildId, KEY(guildId), []) || [];
     const item = list.find(record => record.id === id);
     if (!item) throw new Error('メモリーが見つかりません');
@@ -107,40 +112,29 @@ export async function clearStaffMemory(guildId: string, id?: string): Promise<nu
     return withSelfMemoryLock(guildId, async () => {
         const list = await staffMemoryList(guildId);
         if (!id) {
-            const channelCount = await clearAIChannelExperienceMemory(guildId);
             await Promise.all([
                 database.set(guildId, KEY(guildId), []),
                 database.set(guildId, AI_SELF_MEMORY_KEY(guildId), []),
                 database.set(guildId, AI_SELF_MEMORY_REVISION_KEY(guildId), await guildAIExperienceMemoryRevision(guildId) + 1),
             ]);
-            return Math.max(list.length, list.filter(record => record.kind !== 'ai_channel').length + channelCount);
+            return list.length;
         }
         const selected = list.find(record => record.id === id);
         if (!selected) return 0;
-        if (selected.kind === 'ai_channel') {
-            return clearAIChannelExperienceMemory(guildId, id);
-        }
-        if (selected.kind === 'ai') {
-            const selfMemories = await guildAIExperienceMemories(guildId);
-            await Promise.all([
-                database.set(guildId, AI_SELF_MEMORY_KEY(guildId), selfMemories.filter(record => record.id !== id)),
-                database.set(guildId, AI_SELF_MEMORY_REVISION_KEY(guildId), await guildAIExperienceMemoryRevision(guildId) + 1),
-            ]);
-        } else {
-            const saved = await database.get<StaffMemory[]>(guildId, KEY(guildId), []) || [];
-            await database.set(guildId, KEY(guildId), saved.filter(record => record.id !== id));
-        }
+        const saved = await database.get<StaffMemory[]>(guildId, KEY(guildId), []) || [];
+        await database.set(guildId, KEY(guildId), saved.filter(record => record.id !== id));
         return 1;
     });
 }
 export async function clearAIExperienceMemories(guildId: string): Promise<number> {
     return withSelfMemoryLock(guildId, async () => {
         const memories = await guildAIExperienceMemories(guildId);
+        const channelMemories = await clearAIChannelExperienceMemory(guildId);
         await Promise.all([
             database.set(guildId, AI_SELF_MEMORY_KEY(guildId), []),
             database.set(guildId, AI_SELF_MEMORY_REVISION_KEY(guildId), await guildAIExperienceMemoryRevision(guildId) + 1),
         ]);
-        return memories.length;
+        return memories.length + channelMemories;
     });
 }
 export async function staffMemoryContext(guildId: string, userId: string, query: string): Promise<string> {
@@ -320,7 +314,7 @@ async function updateStaffMemoriesForDay(guildId: string, day: string, updateExi
         && dayInJst(entry.timestamp) === day && entry.prompt?.trim());
     if (!entries.length) return;
 
-    const initial = (await staffMemoryList(guildId)).filter(memory => memory.kind !== 'ai' && memory.kind !== 'ai_channel');
+    const initial = (await staffMemoryList(guildId)).filter(memory => memory.kind !== 'ai');
     const previousDaily = initial.find(memory => memory.id === `daily:${day}`);
     const shouldUpdateDaily = !previousDaily?.editedByStaff && (!previousDaily || updateExistingDaily);
     const summary = shouldUpdateDaily
@@ -331,7 +325,7 @@ async function updateStaffMemoriesForDay(guildId: string, day: string, updateExi
     if (shouldUpdateDaily && !summary) throw new Error('Staff AI daily summary was empty');
 
     // Re-read before writing so an edit made while the model was summarizing is preserved.
-    const next = (await staffMemoryList(guildId)).filter(memory => memory.kind !== 'ai' && memory.kind !== 'ai_channel');
+    const next = (await staffMemoryList(guildId)).filter(memory => memory.kind !== 'ai');
     const currentDailyIndex = next.findIndex(memory => memory.id === `daily:${day}`);
     const currentDaily = currentDailyIndex >= 0 ? next[currentDailyIndex] : undefined;
     const updatedIds = new Set<string>();
@@ -387,7 +381,7 @@ async function updateStaffMemoriesForDay(guildId: string, day: string, updateExi
 
     // Merge only records generated in this job onto the latest library state.
     // This avoids overwriting a staff edit made while profile summaries were running.
-    const latest = (await staffMemoryList(guildId)).filter(memory => memory.kind !== 'ai' && memory.kind !== 'ai_channel');
+    const latest = (await staffMemoryList(guildId)).filter(memory => memory.kind !== 'ai');
     for (const id of updatedIds) {
         const generated = next.find(memory => memory.id === id);
         if (!generated) continue;
