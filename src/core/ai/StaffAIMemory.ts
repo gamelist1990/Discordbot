@@ -25,7 +25,6 @@ const AI_SELF_MEMORY_KEY = (guildId: string) => `Guild/${guildId}/ai-self-memori
 const AI_SELF_MEMORY_REVISION_KEY = (guildId: string) => `Guild/${guildId}/ai-self-memory-revision`;
 const CHANNEL_IMPORTS_KEY = (guildId: string) => `Guild/${guildId}/staff-ai-memory-channel-imports`;
 const METRICS = (guildId: string) => `Guild/${guildId}/staff-ai-metrics`;
-const MAX_DAILY_MEMORY_CHARS = 6000;
 const ZERO: StaffMetrics = { requests: 0, inputTokens: 0, outputTokens: 0, totalTokens: 0,
     generatedSeconds: 0, cacheHitTokens: 0, cacheInputTokens: 0 };
 const attempted = new Set<string>();
@@ -160,38 +159,20 @@ export async function staffMemoryContext(guildId: string, userId: string, query:
         .map(record => `[${record.title} / 更新 ${record.updatedAt}] ${record.content.slice(0, 700)}${record.kind === 'user' && record.publicInterests ? ` / 公開可能な興味: ${record.publicInterests.slice(0, 500)}` : ''}`);
     return personalAndDaily.join('\n').slice(0, 3_500);
 }
-async function summarize(input: string, instruction: string, signal: AbortSignal): Promise<string> {
+async function summarize(
+    input: string,
+    instruction: string,
+    signal: AbortSignal,
+    options: { maxInputChars?: number; maxTokens?: number } = {},
+): Promise<string> {
     let result = '';
     await new OpenAIChatManager().streamResponseText([
         { role: 'system', content: toWellFormedUnicode(instruction) + '\n推測や診断は禁止。私的情報・健康・思想・属性は記録しない。会話で確認できた事実のみを簡潔な日本語でまとめる。引用された他人の発言を本人の属性と混同しない。' },
-        { role: 'user', content: toWellFormedUnicode(input.slice(0, 13000)) },
+        { role: 'user', content: toWellFormedUnicode(input.slice(0, options.maxInputChars ?? 13000)) },
     ], delta => {
         if (delta.type === 'text') result += delta.text;
-    }, { model: config.pexAi.channelModel || config.pexAi.model, strictModel: true, maxTokens: 520, priority: 'background', signal });
+    }, { model: config.pexAi.channelModel || config.pexAi.model, strictModel: true, maxTokens: options.maxTokens ?? 520, priority: 'background', signal });
     return result.trim();
-}
-
-/** Keep an existing daily digest and append only new, non-duplicate summary lines. */
-function appendDailySummary(existingContent: string | undefined, addition: string): { content: string; complete: boolean } {
-    const lines = (existingContent || '').split(/\r?\n/).map(line => line.trim()).filter(Boolean);
-    const normalizedLines = new Set(lines.map(line => line.normalize('NFKC').replace(/\s+/g, ' ').toLowerCase()));
-    let contentLength = lines.reduce((total, line) => total + line.length, 0) + Math.max(0, lines.length - 1);
-    let complete = true;
-
-    for (const line of addition.split(/\r?\n/).map(value => value.trim()).filter(Boolean)) {
-        const normalized = line.normalize('NFKC').replace(/\s+/g, ' ').toLowerCase();
-        if (normalizedLines.has(normalized)) continue;
-        const separatorLength = lines.length > 0 ? 1 : 0;
-        if (contentLength + separatorLength + line.length > MAX_DAILY_MEMORY_CHARS) {
-            complete = false;
-            break;
-        }
-        lines.push(line);
-        normalizedLines.add(normalized);
-        contentLength += separatorLength + line.length;
-    }
-
-    return { content: lines.join('\n'), complete };
 }
 
 export async function staffMemoryChannelImports(guildId: string): Promise<StaffMemoryChannelImport[]> {
@@ -355,10 +336,21 @@ async function updateStaffMemoriesForDay(guildId: string, day: string, updateExi
     const shouldUpdateDaily = !previousDaily?.editedByStaff
         && (!previousDaily || updateExistingDaily)
         && newDailyEntries.length > 0;
+    const newTranscript = newDailyEntries.map(entry =>
+        `${entry.userName || entry.userId}: ${entry.prompt.slice(0, 650)}\nAI: ${(entry.response || '').slice(0, 350)}`).join('\n');
+    const dailyUpdateInput = [
+        `既存の${day}の日次メモ（この内容を土台に更新）:`,
+        previousDaily?.content?.trim() || 'まだ記録なし',
+        `今回追加された新しい会話:`,
+        newTranscript,
+    ].join('\n');
     const summary = shouldUpdateDaily
-        ? await summarize(newDailyEntries.map(entry =>
-            `${entry.userName || entry.userId}: ${entry.prompt.slice(0, 650)}\nAI: ${(entry.response || '').slice(0, 350)}`).join('\n'),
-        `Discordサーバーの${day}の新しい会話だけを、話題・取り組み・決まったことを中心に短い箇条書きにする。過去の出来事を再要約せず、今回の入力にある新しい事実だけを書く。`, signal)
+        ? await summarize(
+            dailyUpdateInput,
+            `既存の日次メモを${day}の更新版として書き直す。既存メモの確認済み出来事は、新しい会話で明確に訂正されない限り必ず残す。新しい会話から分かった出来事・話題・活動・決定事項を追加し、重複は統合して読みやすい短い箇条書きにする。同じ日付の見出しは本文に繰り返さない。`,
+            signal,
+            { maxInputChars: 22000, maxTokens: 1400 },
+        )
         : '';
     if (shouldUpdateDaily && !summary) throw new Error('Staff AI daily summary was empty');
 
@@ -410,14 +402,16 @@ async function updateStaffMemoriesForDay(guildId: string, day: string, updateExi
     const latest = (await staffMemoryList(guildId)).filter(memory => memory.kind !== 'ai');
     const latestDailyIndex = latest.findIndex(memory => memory.id === `daily:${day}`);
     const latestDaily = latestDailyIndex >= 0 ? latest[latestDailyIndex] : undefined;
-    if (summary && !latestDaily?.editedByStaff && (latestDaily?.evidenceCount || 0) < entries.length) {
-        const appended = appendDailySummary(latestDaily?.content, summary);
+    if (summary
+        && !latestDaily?.editedByStaff
+        && (latestDaily?.evidenceCount || 0) <= previousEvidenceCount
+        && (latestDaily?.evidenceCount || 0) < entries.length) {
         const dailyRecord: StaffMemory = {
             ...(latestDaily || {} as StaffMemory),
             id: `daily:${day}`, kind: 'daily', guildId, day,
             title: `${day} の出来事`,
-            content: appended.content,
-            evidenceCount: appended.complete ? entries.length : latestDaily?.evidenceCount || 0,
+            content: summary.slice(0, 6000),
+            evidenceCount: entries.length,
             updatedAt: new Date().toISOString(),
         };
         if (latestDailyIndex >= 0) latest[latestDailyIndex] = dailyRecord;
