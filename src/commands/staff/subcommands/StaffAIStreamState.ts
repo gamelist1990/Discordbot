@@ -1,5 +1,6 @@
 import { describeStaffTool } from './StaffAIToolFormatting.js';
 import { escapeMarkdown } from 'discord.js';
+import { renderStaffAnsiStatus } from './StaffAIAnsiStatus.js';
 import type { OpenAIChatCompletionChunk } from '../../../types/openai.js';
 import type { ToolExecutionStep, ResponseApiStreamDelta } from '../../../core/ai/ChatGPTClient.js';
 
@@ -14,6 +15,8 @@ type ToolPreview = {
 const DISCORD_LIMIT = 2000;
 
 export class StaffAIStreamState {
+    constructor(private readonly ansiColors = false) {}
+
     public content = '';
     private hasReasoning = false;
     private reasoningCharacters = 0;
@@ -130,8 +133,15 @@ export class StaffAIStreamState {
             statusLines.unshift(`-# 💭 Thinking · 完了（${this.reasoningCharacters}文字）`);
         }
         const activity = statusLines.length ? '\n' + statusLines.join('\n') : '';
+        // Optional ANSI decoration for desktop Discord. Plain Markdown above it
+        // stays readable on mobile and other clients without ANSI rendering.
+        const ansi = this.ansiColors
+            ? renderStaffAnsiStatus(latest, this.hasReasoning
+                ? { active: !isComplete && !this.content.trim(), characters: this.reasoningCharacters }
+                : undefined)
+            : '';
         // Keep token usage at the very bottom, after optional tool progress.
-        const suffix = activity + '\n' + footer;
+        const suffix = activity + ansi + '\n' + footer;
         const available = Math.max(0, DISCORD_LIMIT - suffix.length - 1);
         const response = answer.trim() || (isComplete ? '（応答なし）' : this.tools.length ? '処理中…' : '考え中…');
         const visible = response.length > available
