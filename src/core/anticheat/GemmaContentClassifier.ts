@@ -35,7 +35,7 @@ export function buildGemmaModerationRequest(text: string, frames: string[], cust
 
 export async function classifyWithGemma(text: string, frames: string[], timeoutMs: number,
     retry: boolean, scoring: ContentScoringPolicy | undefined, requests: AiRequestMetrics[],
-    customRules: string): Promise<ContentVerdict> {
+    customRules: string, transportRetry = 0): Promise<ContentVerdict> {
     const start = Date.now();
     const metrics: AiRequestMetrics = { model: CONTENT_SAFETY_IMAGE_MODEL, frames: frames.length, retry };
     requests.push(metrics);
@@ -60,7 +60,20 @@ export async function classifyWithGemma(text: string, frames: string[], timeoutM
                 ...(scoring ? { suggestedPoints: Math.max(left.suggestedPoints || 0, right.suggestedPoints || 0) } : {}),
             } as ContentVerdict;
         }
-        if (!response.ok) throw new Error(`Moderation API HTTP ${response.status}`);
+        if (!response.ok) {
+            // Model load/switch or a busy inference server can temporarily
+            // return a gateway error. Retry once with the remaining deadline,
+            // never convert a failed scan into a safe moderation verdict.
+            if ([502, 503, 504].includes(response.status) && transportRetry === 0) {
+                await response.body?.cancel();
+                await new Promise(resolve => setTimeout(resolve, 400));
+                const remaining = timeoutMs - (Date.now() - start);
+                if (remaining > 1000) {
+                    return classifyWithGemma(text, frames, remaining, true, scoring, requests, customRules, 1);
+                }
+            }
+            throw new Error(`Moderation API HTTP ${response.status}`);
+        }
         const data = await response.json() as any;
         metrics.inputTokens = data.usage?.prompt_tokens;
         metrics.outputTokens = data.usage?.completion_tokens;

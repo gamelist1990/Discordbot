@@ -1,5 +1,4 @@
 import { describeStaffTool } from './StaffAIToolFormatting.js';
-import { escapeMarkdown } from 'discord.js';
 import { renderStaffAnsiStatus } from './StaffAIAnsiStatus.js';
 import type { OpenAIChatCompletionChunk } from '../../../types/openai.js';
 import type { ToolExecutionStep, ResponseApiStreamDelta } from '../../../core/ai/ChatGPTClient.js';
@@ -20,7 +19,6 @@ export class StaffAIStreamState {
     public content = '';
     private hasReasoning = false;
     private reasoningCharacters = 0;
-    private thinkingPreview = '';
     private tools: ToolPreview[] = [];
     private promptTokens = 0;
     private completionTokens = 0;
@@ -76,9 +74,6 @@ export class StaffAIStreamState {
             if (delta.text) {
                 this.hasReasoning = true;
                 this.reasoningCharacters += delta.text.length;
-                // Native A8 reasoning is externally streamed content. Only show
-                // a brief rolling preview while processing, not the entire trace.
-                this.thinkingPreview = (this.thinkingPreview + delta.text).slice(-260);
             }
             return;
         }
@@ -124,15 +119,13 @@ export class StaffAIStreamState {
             return `-# ${info.name} — ${info.value}`;
         });
         const showThinking = !isComplete && this.hasReasoning && !this.content.trim();
-        if (showThinking) {
-            const tail = escapeMarkdown(this.thinkingPreview.replace(/\s+/g, ' ').trim());
-            if (tail) statusLines.unshift(`> ${tail}`);
+        if (!this.ansiColors && showThinking) {
             statusLines.unshift(`-# 💭 Thinking · ストリーミング中（${this.reasoningCharacters}文字）`);
         }
-        if (isComplete && this.hasReasoning) {
+        if (!this.ansiColors && isComplete && this.hasReasoning) {
             statusLines.unshift(`-# 💭 Thinking · 完了（${this.reasoningCharacters}文字）`);
         }
-        const activity = statusLines.length ? '\n' + statusLines.join('\n') : '';
+        const activity = !this.ansiColors && statusLines.length ? '\n' + statusLines.join('\n') : '';
         // Optional ANSI decoration for desktop Discord. Plain Markdown above it
         // stays readable on mobile and other clients without ANSI rendering.
         const ansi = this.ansiColors

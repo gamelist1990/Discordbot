@@ -41,6 +41,8 @@ test('ANSI is default while optional plain Markdown fallback remains available',
     assert.match(colored.renderDiscord(true).content, /\`\`\`ansi/);
     assert.match(colored.renderDiscord(true).content, /✅ Web検索/);
     assert.match(colored.renderDiscord(true).content, /結果は晴れ！/);
+    assert.equal((colored.renderDiscord(true).content.match(/Thinking/g) || []).length, 1);
+    assert.equal((colored.renderDiscord(true).content.match(/Web検索/g) || []).length, 1);
     assert.equal(colored.renderDiscord(true).embeds.length, 0);
 });
 

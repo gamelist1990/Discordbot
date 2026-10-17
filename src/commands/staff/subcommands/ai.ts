@@ -509,6 +509,11 @@ ${reason}` });
             }
             // 全ラウンド（ツール呼び出し含む）のテキストとtoken usageを受け取る。
             await chatManager.streamResponseText(messages, handleResponseDelta, streamOptions);
+            // A response with reasoning only, no final text and no tool result is
+            // not successful. Never publish '(応答なし)' as a completed answer.
+            if (!responseContent.trim()) {
+                throw new Error('The model completed without final answer text');
+            }
             isCompleted = true;
             const { cleanedResponse, codeFiles } = processCodeBlocks(responseContent);
             await drainPreview();
@@ -588,6 +593,9 @@ ${reason}` });
 
             // OpenAIのレート制限エラーを検知して適切なメッセージを表示
             let errorMessage = '❌ リクエストの処理中にエラーが発生しました。';
+            if (messageStr.includes('without final answer text')) {
+                errorMessage = '⚠️ Thinkingのみで回答本文が返らなかったよ。もう一度試してね。';
+            }
             if (error instanceof Error && error.message.includes('RateLimitReached')) {
                 errorMessage = '⚠️ OpenAIのレート制限に達しました。1日あたり50リクエストの制限を超えています。しばらく待ってから再試行してください。';
             }

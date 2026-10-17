@@ -90,7 +90,7 @@ test('Responses SSE のThinkingと本文は別に描画し、usage/timingsを合
     assert.match(before, /3文字/);
     stream.consumeResponse({ type: 'thinking', text: 'defgh' });
     assert.match(stream.render(), /8文字/);
-    assert.match(stream.render(), /> abcdefgh/);
+    assert.equal((stream.render().match(/Thinking/g) || []).length, 1);
     stream.consumeResponse({ type: 'text', text: '画像は赤だよ。' });
     assert.doesNotMatch(stream.render(), /Thinking/);
     stream.consumeResponse({ type: 'usage', inputTokens: 100, outputTokens: 50, totalTokens: 150,
