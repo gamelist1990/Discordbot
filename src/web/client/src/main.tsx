@@ -14,14 +14,23 @@ import { ThemeProvider } from './theme/ThemeProvider';
 const handlePostAuthRedirect = () => {
   const returnPath = localStorage.getItem('returnPath');
   const currentPath = window.location.pathname;
+  const safeReturnPath = (() => {
+    if (!returnPath || !returnPath.startsWith('/') || returnPath.startsWith('//')
+        || /[\\\r\n]/.test(returnPath)) return false;
+    try { return !decodeURIComponent(returnPath).startsWith('//'); }
+    catch { return false; }
+  })();
+  if (returnPath && !safeReturnPath) localStorage.removeItem('returnPath');
 
   // Only redirect if there is a stored returnPath, it's different from root and
   // it's not the same as the current path AND the user is currently on the root
   // (or an auth callback). This prevents unexpected redirects when visiting
   // deep links to an already-selected page.
-  const isAuthCallback = currentPath.startsWith('/auth') || currentPath.startsWith('/callback');
+  // Never auto-redirect away from the dedicated OAuth failure/cancel screen.
+  const isAuthCallback = currentPath === '/callback' || currentPath === '/auth/callback';
   if (
     returnPath &&
+    safeReturnPath &&
     returnPath !== '/' &&
     returnPath !== currentPath &&
     (currentPath === '/' || isAuthCallback)

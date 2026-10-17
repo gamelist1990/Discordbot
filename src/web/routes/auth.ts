@@ -9,6 +9,7 @@ import { PermissionFlagsBits } from 'discord.js';
 import { database } from '../../core/persistence/Database.js';
 import fs from 'fs';
 import path from 'path';
+import { appendPendingOAuthNonce, consumePendingOAuthNonce, createDiscordOAuthState, verifyDiscordOAuthState, safeOAuthRedirectPath, OAUTH_STATE_MAX_AGE_MS } from '../services/DiscordOAuthState.js';
 
 // 安全なロガー参照（global.Logger が未定義の場合は console にフォールバック）
 const safeLogger = (global as any).Logger ?? {
@@ -20,15 +21,6 @@ const safeLogger = (global as any).Logger ?? {
 };
 
 /**
- * OAuth2 state情報
- */
-interface OAuth2State {
-    guildId: string;
-    redirectPath: string;
-    createdAt: number;
-}
-
-/**
  * 認証ルート
  * Discord OAuth2認証を処理
  */
@@ -38,8 +30,18 @@ export function createAuthRoutes(
 ): Router {
     const router = Router();
 
-    // OAuth2 state管理
-    const states = new Map<string, OAuth2State>();
+    // Stateless, HMAC-signed OAuth state survives bot restarts. The browser
+    // cookie binds it to the tab/browser that initiated the login.
+    const stateCookieOptions = {
+        httpOnly: true, sameSite: 'lax' as const,
+        secure: config.BASE_URL.startsWith('https://'),
+        path: '/api/auth',
+    };
+    const redirectAuthResult = (res: Response, status: string, redirectPath = '/') => {
+        const query = new URLSearchParams({ status, redirect: safeOAuthRedirectPath(redirectPath) });
+        res.setHeader('Cache-Control', 'no-store');
+        res.redirect(303, '/auth/result?' + query.toString());
+    };
 
     // Persisted OAuth sessions (Database/system/auth/sessions.json)
     const authPersistPath = path.join(database.getDataDir(), 'system', 'auth', 'sessions.json');
@@ -70,17 +72,6 @@ export function createAuthRoutes(
 
     loadOauthFromDisk();
 
-    // 期限切れstateのクリーンアップ（10分ごと）
-    setInterval(() => {
-        const now = Date.now();
-        const maxAge = 10 * 60 * 1000; // 10分
-        for (const [state, data] of states.entries()) {
-            if (now - data.createdAt > maxAge) {
-                states.delete(state);
-            }
-        }
-    }, 10 * 60 * 1000);
-
     /**
      * 現在のセッション情報を取得
      */
@@ -93,15 +84,6 @@ export function createAuthRoutes(
             res.setHeader('Surrogate-Control', 'no-store');
 
             const sessionId = req.cookies?.sessionId;
-
-            // DEBUG: log incoming cookies and session table keys to help diagnose "Session not found" issues
-            try {
-                console.info('[DEBUG][/api/auth/session] incoming Cookie header:', req.headers['cookie']);
-                console.info('[DEBUG][/api/auth/session] parsed sessionId cookie:', sessionId);
-                console.info('[DEBUG][/api/auth/session] sessions keys:', Array.from(sessions.keys()).slice(0,50));
-            } catch (dbgErr) {
-                console.warn('[DEBUG][/api/auth/session] failed to log debug info', dbgErr);
-            }
 
             if (!sessionId) {
                 res.status(401).json({ authenticated: false });
@@ -165,7 +147,7 @@ export function createAuthRoutes(
      */
     router.get('/discord', async (req: Request, res: Response) => {
         try {
-            let redirectPath = req.query.redirect as string || '/';
+            let redirectPath = safeOAuthRedirectPath(req.query.redirect || '/');
             // Prefer explicit guildId query param（今後の拡張用に残すが、Refererパースは削除）
             let guildId = req.query.guildId as string || '';
             if (!guildId) guildId = 'default';
@@ -201,7 +183,7 @@ export function createAuthRoutes(
                 });
 
                 safeLogger.info(`[Mock OAuth] Guest session created for guild=${mockGuildId}`);
-                res.redirect(redirectPath.startsWith('/') ? redirectPath : '/');
+                res.redirect(redirectPath);
                 return;
             }
 
@@ -209,14 +191,19 @@ export function createAuthRoutes(
             const clientId = botClient.getClientId();
             const baseUrl = config.BASE_URL;
             const redirectUri = `${baseUrl}/api/auth/callback`;
+            if (!config.DISCORD_CLIENT_SECRET) {
+                redirectAuthResult(res, 'configuration', redirectPath);
+                return;
+            }
             safeLogger.info(`[OAuth] initiating Discord auth - baseUrl=${baseUrl} redirect_uri=${redirectUri}`);
 
-            // stateを生成
-            const state = crypto.randomBytes(16).toString('hex');
-            states.set(state, {
-                guildId,
-                redirectPath,
-                createdAt: Date.now()
+            // Signed state and HttpOnly nonce cookie, both needed for a valid callback.
+            const { state, nonce } = createDiscordOAuthState(
+                config.DISCORD_CLIENT_SECRET, guildId, redirectPath,
+            );
+            res.setHeader('Cache-Control', 'no-store');
+            res.cookie('oauthPending', appendPendingOAuthNonce(req.cookies?.oauthPending, nonce), {
+                ...stateCookieOptions, maxAge: OAUTH_STATE_MAX_AGE_MS,
             });
 
             // Discord OAuth2 URLを生成
@@ -237,7 +224,7 @@ export function createAuthRoutes(
                         // When initiating Discord OAuth fails, redirect the browser to a dedicated
                         // error page so the user sees a friendly message instead of raw JSON.
                         try {
-                                res.redirect('/api/auth/error');
+                                redirectAuthResult(res, 'failed');
                         } catch (e) {
                                 // Fallback to JSON if redirecting fails for any reason
                                 res.status(500).json({ error: 'Internal server error' });
@@ -245,64 +232,58 @@ export function createAuthRoutes(
                 }
     });
 
-        /**
-         * OAuthエラー専用ページ
-         * ブラウザで直接訪れた際に簡易的なエラーページを表示する
-         */
-        router.get('/error', (_req: Request, res: Response) => {
-                try {
-                        res.setHeader('Content-Type', 'text/html; charset=utf-8');
-                        res.status(500).send(`<!doctype html>
-<html lang="ja">
-    <head>
-        <meta charset="utf-8" />
-        <meta name="viewport" content="width=device-width,initial-scale=1" />
-        <title>認証エラー</title>
-        <style>
-            body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial; background:#f7f7fb; color:#111; display:flex; align-items:center; justify-content:center; height:100vh; margin:0 }
-            .card { background:#fff; padding:24px; border-radius:8px; box-shadow:0 6px 24px rgba(17,24,39,0.08); max-width:680px; text-align:left }
-            h1{ margin:0 0 8px 0; font-size:20px }
-            p{ margin:0 0 12px 0; color:#333 }
-            a.button{ display:inline-block; padding:8px 12px; background:#5865f2; color:#fff; text-decoration:none; border-radius:6px }
-        </style>
-    </head>
-    <body>
-        <div class="card">
-            <h1>認証を開始できませんでした</h1>
-            <p>現在、Discord認証を開始できません。サーバー側で問題が発生している可能性があります。</p>
-            <p>時間を置いて再度お試しください。問題が続く場合は管理者にお問い合わせください。</p>
-            <p><a class="button" href="/">アプリに戻る</a> <a style="margin-left:8px; color:#5865f2; text-decoration:underline" href="/api/auth/discord">再試行</a></p>
-        </div>
-    </body>
-</html>`);
-                } catch (e) {
-                        console.error('Failed to render auth error page:', e);
-                        res.status(500).json({ error: 'Internal server error' });
-                }
-        });
+    // Retain backwards compatibility with existing error links.
+    router.get('/error', (_req: Request, res: Response) => {
+        redirectAuthResult(res, 'failed');
+    });
 
     /**
      * OAuth2コールバック
      */
     router.get('/callback', async (req: Request, res: Response) => {
         try {
-            const code = req.query.code as string;
-            const state = req.query.state as string;
+            const code = req.query.code;
+            const state = req.query.state;
+            const discordError = req.query.error;
 
-            if (!code || !state) {
-                res.status(400).send('Invalid callback parameters');
+            res.setHeader('Cache-Control', 'no-store');
+            // Discord returns error=access_denied when the user presses Cancel.
+            // No access token has been issued, so this is an expected outcome.
+            if (discordError === 'access_denied') {
+                const parsed = verifyDiscordOAuthState(config.DISCORD_CLIENT_SECRET, state);
+                const back = parsed.status === 'valid' ? parsed.value.redirectPath : '/';
+                if (parsed.status === 'valid') {
+                    const consumed = consumePendingOAuthNonce(req.cookies?.oauthPending, parsed.value.nonce);
+                    res.cookie('oauthPending', consumed.remaining, {
+                        ...stateCookieOptions, maxAge: OAUTH_STATE_MAX_AGE_MS,
+                    });
+                }
+                redirectAuthResult(res, 'canceled', back);
                 return;
             }
-
-            // stateを検証
-            const stateData = states.get(state);
-            if (!stateData) {
-                res.status(400).send('Invalid or expired state');
+            if (discordError) {
+                redirectAuthResult(res, 'discord_error');
                 return;
             }
-
-            // stateを削除（使い捨て）
-            states.delete(state);
+            if (typeof code !== 'string' || typeof state !== 'string') {
+                redirectAuthResult(res, 'invalid');
+                return;
+            }
+            const validated = verifyDiscordOAuthState(config.DISCORD_CLIENT_SECRET, state);
+            if (validated.status !== 'valid') {
+                redirectAuthResult(res, validated.status);
+                return;
+            }
+            const stateData = validated.value;
+            const consumed = consumePendingOAuthNonce(req.cookies?.oauthPending, stateData.nonce);
+            if (!consumed.found) {
+                redirectAuthResult(res, 'invalid');
+                return;
+            }
+            // Consume before exchanging code. Prevents reusing this browser state.
+            res.cookie('oauthPending', consumed.remaining, {
+                ...stateCookieOptions, maxAge: OAUTH_STATE_MAX_AGE_MS,
+            });
 
             // 環境変数から設定を取得
             const clientId = botClient.getClientId();
@@ -313,7 +294,7 @@ export function createAuthRoutes(
 
             if (!clientSecret) {
                 console.error('DISCORD_CLIENT_SECRET not configured');
-                res.status(500).send('Server configuration error');
+                redirectAuthResult(res, 'configuration');
                 return;
             }
 
@@ -335,7 +316,7 @@ export function createAuthRoutes(
             if (!tokenResponse.ok) {
                 const errorText = await tokenResponse.text();
                 console.error('Token exchange failed:', tokenResponse.status, errorText);
-                res.status(500).send('Authentication failed');
+                redirectAuthResult(res, 'failed', stateData.redirectPath);
                 return;
             }
 
@@ -350,7 +331,7 @@ export function createAuthRoutes(
 
             if (!userResponse.ok) {
                 console.error('Failed to fetch user info');
-                res.status(500).send('Failed to fetch user info');
+                redirectAuthResult(res, 'failed', stateData.redirectPath);
                 return;
             }
 
@@ -487,7 +468,7 @@ export function createAuthRoutes(
             // クッキーを設定してリダイレクト
             res.cookie('sessionId', sessionId, {
                 httpOnly: true,
-                secure: config.NODE_ENV === 'production',
+                secure: config.BASE_URL.startsWith('https://'),
                 maxAge: sessionTTL,
                 sameSite: 'lax'
             });
@@ -504,7 +485,7 @@ export function createAuthRoutes(
             res.redirect(redirectPath);
         } catch (error) {
             console.error('OAuth2 callback error:', error);
-            res.status(500).send('Authentication failed');
+            redirectAuthResult(res, 'failed');
         }
     });
 

@@ -15,15 +15,6 @@ export class AuthMiddleware {
      * トークンを検証するミドルウェア
      */
     validateToken = (req: Request, res: Response, next: NextFunction): void => {
-        // DEBUG: incoming cookie and session table snapshot for troubleshooting "Session not found"
-        try {
-            console.info('[DEBUG][auth.validateToken] incoming Cookie header:', req.headers['cookie']);
-            console.info('[DEBUG][auth.validateToken] parsed sessionId cookie:', (req as any).cookies?.sessionId);
-            console.info('[DEBUG][auth.validateToken] sessions keys (first 50):', Array.from(this.sessions.keys()).slice(0, 50));
-        } catch (dbgErr) {
-            // ignore logging errors
-        }
-
         // Accept token from path param or sessionId cookie (cookie-based sessions)
         const token = req.params?.token || (req as any).cookies?.sessionId;
 

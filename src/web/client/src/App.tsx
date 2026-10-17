@@ -2,6 +2,7 @@ import React, { Suspense } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 import AppHeader from "./components/Common/AppHeader";
 import SystemManagementPage from "./pages/SystemManagement";
+import AuthResultPage from "./pages/AuthResultPage";
 import SettingsPage from "./pages/Settings";
 import SettingsListPage from "./pages/SettingsList";
 import PrivateChatPage from "./pages/PrivateChat";
@@ -66,6 +67,7 @@ const App: React.FC = () => {
       <main className="appMain" id="main-content" tabIndex={-1}>
         <Routes>
           <Route path="/" element={<HomePage />} />
+          <Route path="/auth/result" element={<AuthResultPage />} />
           <Route path="/profile" element={<UserProfile />} />
           <Route path="/system-management" element={<SystemManagementPage />} />
           <Route path="/profile/:userId" element={<UserProfile />} />
