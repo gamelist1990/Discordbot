@@ -1,10 +1,11 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { AttachmentBuilder } from 'discord.js';
+import { AttachmentBuilder, type Message } from 'discord.js';
 import type { OpenAITool, ToolHandler } from '../../../types/openai.js';
 import type { ChatAISandboxPaths } from '../types.js';
 import type { ChatAIToolContext, ChatAIToolRegistrar, ChatAIToolRegisterContext } from './types.js';
 import { CHAT_AI_TEXT_FILE_MAX_BYTES, normalizeChatAITextFilename } from './textFilePolicy.js';
+import { stripDiscordStreamMetadata } from '../../ai/AIConversationHistory.js';
 
 export { CHAT_AI_TEXT_FILE_MAX_BYTES } from './textFilePolicy.js';
 
@@ -51,7 +52,8 @@ export function createTextFileHandler(paths: ChatAISandboxPaths): ToolHandler {
         if (!filename) return 'FILE_ERROR: 対応していない拡張子、または安全でないファイル名です。';
         if (typeof args?.content !== 'string') return 'FILE_ERROR: contentは文字列で指定してください。';
 
-        const buffer = Buffer.from(args.content, 'utf8');
+        const cleanContent = stripDiscordStreamMetadata(args.content);
+        const buffer = Buffer.from(cleanContent, 'utf8');
         if (buffer.byteLength > CHAT_AI_TEXT_FILE_MAX_BYTES) {
             return `FILE_ERROR: ファイルは${CHAT_AI_TEXT_FILE_MAX_BYTES / 1024}KiB以内にしてください。`;
         }
@@ -110,12 +112,17 @@ export function createUploadFilesHandler(paths: ChatAISandboxPaths): ToolHandler
             files.push(new AttachmentBuilder(file, { name: filename }));
         }
 
-        const sendable = channel as typeof channel & { send: (payload: unknown) => Promise<unknown> };
-        await sendable.send({
+        const sendable = channel as typeof channel & { send: (payload: unknown) => Promise<Message> };
+        const sentMessage = await sendable.send({
             files,
             allowedMentions: { parse: [], repliedUser: false },
         });
-        return `FILES_UPLOADED: ${files.map(file => file.name).join(', ')} をDiscordへ添付しました。`;
+        const links = files.map(file => {
+            const filename = file.name ?? 'file.txt';
+            const attachment = sentMessage.attachments?.find(entry => entry.name === filename);
+            return attachment ? `[${filename}](${attachment.url})` : filename;
+        });
+        return `FILES_UPLOADED: ${links.join(', ')} をDiscordへ添付しました。`;
     };
 }
 

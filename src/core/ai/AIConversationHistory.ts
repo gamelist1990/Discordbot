@@ -49,6 +49,8 @@ function normalizeContent(value: string): string {
 export function stripDiscordStreamMetadata(value: string): string {
     return value
         .replace(/```ansi[\s\S]*?```/gi, '')
+        .replace(/\u001B\[[0-?]*[ -/]*[@-~]/g, '')
+        .replace(/\[(?:\d{1,3};)*\d{1,3}m/g, '')
         .replace(/(?:^|\n)\s*(?:-#\s*)?(?:💭\s*Thinking\b|▌\s*(?:生成中|処理中|考え中)|[\d,.]+(?:\.\d+)?\s*toks\/s\s*·\s*toks:)[^\n]*/giu, '')
         .replace(/\s*(?:-#\s*)?[\d,.]+(?:\.\d+)?\s*toks\/s\s*·\s*toks:\s*[\d,]+(?:\s*\(in\s*[\d,]+\s*\/\s*out\s*[\d,]+\))?/giu, '')
         .replace(/(?:^|\n)\s*-#\s*$/gm, '')

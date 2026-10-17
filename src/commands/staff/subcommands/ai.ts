@@ -1,5 +1,5 @@
 // src/commands/staff/subcommands/ai.ts
-import { ChatInputCommandInteraction, MessageFlags, DiscordAPIError } from 'discord.js';
+import { ChatInputCommandInteraction, Message, MessageFlags, DiscordAPIError } from 'discord.js';
 import { OpenAIChatManager } from '../../../core/ai/OpenAIChatManager.js';
 import { GEMMA_MODEL } from '../../../config.js';
 import { OpenAIChatCompletionMessage, OpenAIChatCompletionChunk } from '../../../types/openai.js';
@@ -115,7 +115,7 @@ export const subcommandHandler = {
         await interaction.deferReply();
 
         // 安全なレスポンス関数: interaction が期限切れの場合は followUp、さらに失敗したらチャンネルに直接送信してフォールバックする
-        async function safeRespond(payload: { content?: string; embeds?: any[]; files?: any[]; ephemeral?: boolean }) {
+        async function safeRespond(payload: { content?: string; embeds?: any[]; files?: any[]; ephemeral?: boolean }): Promise<Message | null> {
             // contentが空の場合はデフォルトメッセージを設定
             if (!payload.content || payload.content.trim() === '') {
                 payload.content = '（応答が空でした）';
@@ -123,27 +123,25 @@ export const subcommandHandler = {
 
             try {
                 // まず編集を試みる（既に返信がある想定）
-                await interaction.editReply({ content: payload.content, embeds: payload.embeds ?? [], files: payload.files, allowedMentions: { parse: [] } });
-                return;
+                return await interaction.editReply({ content: payload.content, embeds: payload.embeds ?? [], files: payload.files, allowedMentions: { parse: [] } });
             } catch (err: any) {
                 // Unknown interaction や期限切れの場合、followUp かチャンネル送信でフォールバック
                 try {
-                    await interaction.followUp({ content: payload.content || '', embeds: payload.embeds ?? [], files: payload.files, ephemeral: payload.ephemeral, allowedMentions: { parse: [] } });
-                    return;
+                    return await interaction.followUp({ content: payload.content || '', embeds: payload.embeds ?? [], files: payload.files, ephemeral: payload.ephemeral, allowedMentions: { parse: [] } });
                 } catch (followErr: any) {
                     // 最終フォールバック: チャンネルに直接送信（パブリック）
                     try {
                         const channel = interaction.channel;
                         if (channel && 'send' in channel) {
                             // @ts-ignore send exists
-                            await (channel as any).send({ content: payload.content || '', embeds: payload.embeds ?? [], files: payload.files, allowedMentions: { parse: [] } });
-                            return;
+                            return await (channel as any).send({ content: payload.content || '', embeds: payload.embeds ?? [], files: payload.files, allowedMentions: { parse: [] } }) as Message;
                         }
                     } catch (chErr: any) {
                         console.error('safeRespond: final channel send failed', chErr);
                     }
                 }
             }
+            return null;
         }
 
         let explicitReplyContext: Awaited<ReturnType<typeof buildStaffVisualReplyContext>> | null = null;
@@ -545,11 +543,20 @@ ${reason}` });
             finishPreview();
             const { cleanedResponse, codeFiles } = processCodeBlocks(stripDiscordStreamMetadata(responseContent));
             await drainPreview();
-            await safeRespond({
+            const sentMessage = await safeRespond({
                 ...streamState.renderDiscord(true, cleanedResponse),
                 files: codeFiles.length > 0 ? codeFiles : undefined,
                 ephemeral: interactionExpired,
             });
+            if (sentMessage && codeFiles.length > 0) {
+                const linkedResponse = linkCodeFileMarkers(cleanedResponse, sentMessage);
+                if (linkedResponse !== cleanedResponse) {
+                    await sentMessage.edit({
+                        ...streamState.renderDiscord(true, linkedResponse),
+                        attachments: [...sentMessage.attachments.values()],
+                    }).catch(error => console.warn('[StaffAI] Could not add links to code attachments:', error));
+                }
+            }
 
             // Persist cumulative statistics only after a successful response;
             // summarization is queued in the background, outside the interaction.
@@ -732,7 +739,13 @@ function processCodeBlocks(response: string): { cleanedResponse: string, codeFil
 
     while ((match = codeBlockRegex.exec(response)) !== null) {
         const language = match[1] || 'txt';
-        const code = match[2];
+        const code = stripDiscordStreamMetadata(match[2]);
+
+        // ANSI status blocks are Discord presentation metadata, never user files.
+        if (language.toLowerCase() === 'ansi' || !code.trim()) {
+            cleanedResponse = cleanedResponse.replace(match[0], '\n');
+            continue;
+        }
 
         // ファイル拡張子を決定
         const extension = getFileExtension(language);
@@ -750,12 +763,14 @@ function processCodeBlocks(response: string): { cleanedResponse: string, codeFil
         index++;
     }
 
-    // コードブロックがない場合は元の応答を返す
-    if (codeFiles.length === 0) {
-        return { cleanedResponse: response, codeFiles: [] };
-    }
-
     return { cleanedResponse, codeFiles };
+}
+
+function linkCodeFileMarkers(response: string, message: Message): string {
+    return response.replace(/\[コードファイル: ([^\]]+)\]/g, (marker, filename: string) => {
+        const attachment = message.attachments.find(item => item.name === filename);
+        return attachment ? `[${filename}](${attachment.url})` : marker;
+    });
 }
 
 // 言語からファイル拡張子を取得
