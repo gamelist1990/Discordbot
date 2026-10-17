@@ -35,6 +35,16 @@ const dayInJst = (time: number): string => new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Asia/Tokyo', year: 'numeric', month: '2-digit', day: '2-digit',
 }).format(new Date(time));
 
+/** Replace lone UTF-16 surrogates that can be introduced by slicing Discord text. */
+function toWellFormedUnicode(value: string): string {
+    let result = '';
+    for (const character of value) {
+        const codePoint = character.codePointAt(0)!;
+        result += codePoint >= 0xD800 && codePoint <= 0xDFFF ? '\uFFFD' : character;
+    }
+    return result;
+}
+
 export async function staffMemoryList(guildId: string): Promise<StaffMemory[]> {
     // Remove old AI-self records after retiring both self-memory categories.
     let cleanup = legacySelfMemoryCleanup.get(guildId);
@@ -152,8 +162,8 @@ export async function staffMemoryContext(guildId: string, userId: string, query:
 async function summarize(input: string, instruction: string, signal: AbortSignal): Promise<string> {
     let result = '';
     await new OpenAIChatManager().streamResponseText([
-        { role: 'system', content: instruction + '\n推測や診断は禁止。私的情報・健康・思想・属性は記録しない。会話で確認できた事実のみを簡潔な日本語でまとめる。引用された他人の発言を本人の属性と混同しない。' },
-        { role: 'user', content: input.slice(0, 13000) },
+        { role: 'system', content: toWellFormedUnicode(instruction) + '\n推測や診断は禁止。私的情報・健康・思想・属性は記録しない。会話で確認できた事実のみを簡潔な日本語でまとめる。引用された他人の発言を本人の属性と混同しない。' },
+        { role: 'user', content: toWellFormedUnicode(input.slice(0, 13000)) },
     ], delta => {
         if (delta.type === 'text') result += delta.text;
     }, { model: GEMMA_MODEL, strictModel: true, maxTokens: 520, priority: 'background', signal });
