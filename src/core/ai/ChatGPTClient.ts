@@ -4,6 +4,7 @@ import { config } from '../../config.js';
 import { ChatGPTModel } from './ChatGPTModels.js';
 import { Logger } from '../../utils/Logger.js';
 import { normalizeProxyError } from './normalizeProxyError.js';
+import { runAIRequestWithPriority, type AIRequestPriority } from './AIBackgroundWork.js';
 import {
     OpenAIChatCompletionChunk,
     OpenAIChatCompletionMessage,
@@ -32,6 +33,7 @@ export interface ChatOptions {
     onRateLimitWait?: (info: RateLimitWaitInfo) => void | Promise<void>;
     onToolStep?: (step: ToolExecutionStep) => void | Promise<void>;
     signal?: AbortSignal;
+    priority?: AIRequestPriority;
 }
 
 export interface ToolExecutionStep {
@@ -247,7 +249,8 @@ export class ChatGPTClient {
         options?: ChatOptions,
         toolRound = 0
     ): Promise<OpenAIChatCompletionResponse> {
-        return this.sendMessageInternal(messages, options, toolRound, 0);
+        return runAIRequestWithPriority(options?.priority, () =>
+            this.sendMessageInternal(messages, options, toolRound, 0));
     }
 
     public async streamMessage(
@@ -256,7 +259,8 @@ export class ChatGPTClient {
         options?: ChatOptions,
         toolRound = 0
     ): Promise<void> {
-        return this.streamMessageInternal(messages, onChunkReceive, options, toolRound, 0);
+        return runAIRequestWithPriority(options?.priority, () =>
+            this.streamMessageInternal(messages, onChunkReceive, options, toolRound, 0));
     }
 
     public async streamResponse(
@@ -265,7 +269,8 @@ export class ChatGPTClient {
         options?: ChatOptions,
         toolRound = 0
     ): Promise<void> {
-        return this.streamResponseInternal(messages, onDeltaReceive, options, toolRound, 0);
+        return runAIRequestWithPriority(options?.priority, () =>
+            this.streamResponseInternal(messages, onDeltaReceive, options, toolRound, 0));
     }
 
     private async sendMessageInternal(

@@ -10,6 +10,7 @@ import {
 import { config } from '../../config.js';
 import { Logger } from '../../utils/Logger.js';
 import { OpenAIChatManager } from '../ai/OpenAIChatManager.js';
+import { beginAIRequestPriority, queueAIBackgroundWork } from '../ai/AIBackgroundWork.js';
 import {
     applyGuildAIPersonalityLearning,
     buildGuildAIPersonalityPrompt,
@@ -157,6 +158,7 @@ export class ChatAIChannelManager {
     private processing = false;
     private pending = false;
     private timer: NodeJS.Timeout | null = null;
+    private releaseAIRequestPriority: (() => void) | null = null;
     private activeTypingStop: (() => void) | null = null;
     private activeConversationUserId: string | null = null;
     private activeConversationUntil = 0;
@@ -214,6 +216,8 @@ export class ChatAIChannelManager {
             this.timer = null;
         }
         this.stopActiveTyping();
+        this.releaseAIRequestPriority?.();
+        this.releaseAIRequestPriority = null;
         this.client = null;
         this.processing = false;
         this.pending = false;
@@ -338,6 +342,7 @@ export class ChatAIChannelManager {
     }
 
     private queueResponse(): void {
+        this.releaseAIRequestPriority ??= beginAIRequestPriority();
         this.pending = true;
         if (this.timer) {
             clearTimeout(this.timer);
@@ -365,6 +370,8 @@ export class ChatAIChannelManager {
             await this.sendFallbackError().catch(() => null);
         } finally {
             this.processing = false;
+            this.releaseAIRequestPriority?.();
+            this.releaseAIRequestPriority = null;
         }
     }
 
@@ -539,7 +546,10 @@ export class ChatAIChannelManager {
             queueStreamingUpdate(true);
             await updateChain;
             this.activeConversationUntil = Date.now() + CONTINUATION_WINDOW_MS;
-            await this.updateMemoryWithAi(history, response).catch(error => Logger.debug('[ChatAIChannel] AI memory update failed:', error));
+            const memoryHistory = history.slice();
+            void queueAIBackgroundWork(`ai-channel-memory:${this.options.guildId}:${this.options.channelId}`, signal =>
+                this.updateMemoryWithAi(memoryHistory, response, signal))
+                .catch(error => Logger.debug('[ChatAIChannel] AI memory update failed:', error));
         } finally {
             stopTyping();
             if (this.activeTypingStop === stopTyping) {
@@ -1163,7 +1173,7 @@ export class ChatAIChannelManager {
         await this.saveMemory(memory);
     }
 
-    private async updateMemoryWithAi(history: Message[], assistantResponse: string): Promise<void> {
+    private async updateMemoryWithAi(history: Message[], assistantResponse: string, signal: AbortSignal): Promise<void> {
         const recentHumanMessages = history.filter(message => !message.author.bot).slice(-12);
         if (recentHumanMessages.length === 0) return;
 
@@ -1250,8 +1260,11 @@ export class ChatAIChannelManager {
             temperature: 0.2,
             maxTokens: 950,
             requestLabel: 'chat-ai-channel-memory',
+            priority: 'background',
+            signal,
         });
 
+        if (signal.aborted) throw signal.reason ?? new Error('Memory processing was preempted.');
         const parsed = this.parseJsonObject(update);
         if (!parsed) return;
 

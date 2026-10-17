@@ -3,6 +3,7 @@ import type { AIConversationEntry } from './AIConversationHistory.js';
 import { OpenAIChatManager } from './OpenAIChatManager.js';
 import { GEMMA_MODEL } from '../../config.js';
 import { randomUUID } from 'node:crypto';
+import { queueAIBackgroundWork } from './AIBackgroundWork.js';
 
 export type StaffMemory = {
     id: string; kind: 'daily' | 'user' | 'ai'; guildId: string; userId?: string;
@@ -25,10 +26,8 @@ const AI_SELF_BACKFILL_CURSOR_KEY = (guildId: string) => `Guild/${guildId}/staff
 const METRICS = (guildId: string) => `Guild/${guildId}/staff-ai-metrics`;
 const ZERO: StaffMetrics = { requests: 0, inputTokens: 0, outputTokens: 0, totalTokens: 0,
     generatedSeconds: 0, cacheHitTokens: 0, cacheInputTokens: 0 };
-const running = new Set<string>();
 const attempted = new Set<string>();
 const currentMemoryTimers = new Map<string, ReturnType<typeof setTimeout>>();
-const dailyMemoryTails = new Map<string, Promise<void>>();
 const selfMemoryTails = new Map<string, Promise<void>>();
 const experienceCaptureTails = new Map<string, Promise<void>>();
 const MAX_AI_SELF_MEMORIES = 500;
@@ -178,6 +177,7 @@ async function captureAIExperienceMemory(
     prompt: string,
     response: string,
     expectedMemoryRevision: number,
+    signal: AbortSignal,
 ): Promise<void> {
     const previous = await selectAIExperienceMemories(guildId, prompt, 10);
     const previousForModel = previous.map(memory => ({ id: memory.id, title: memory.title, content: memory.content }));
@@ -198,7 +198,11 @@ async function captureAIExperienceMemory(
                 currentExchange: { user: prompt.slice(0, 4500), ai: response.slice(0, 4500) },
             }),
         },
-    ], { model: GEMMA_MODEL, strictModel: true, temperature: 0.2, maxTokens: 420, requestLabel: 'staff-ai-self-memory' });
+    ], {
+        model: GEMMA_MODEL, strictModel: true, temperature: 0.2, maxTokens: 420,
+        requestLabel: 'staff-ai-self-memory', priority: 'background', signal,
+    });
+    if (signal.aborted) throw signal.reason ?? new Error('Memory processing was preempted.');
     const parsed = parseJsonObject(result);
     if (!parsed || !['create', 'update'].includes(parsed.action)) return;
     await saveAIExperienceMemory(guildId, expectedMemoryRevision, {
@@ -213,7 +217,8 @@ export function queueAIExperienceMemory(guildId: string, prompt: string, respons
     const previous = experienceCaptureTails.get(guildId) ?? Promise.resolve();
     const current = previous.catch(() => undefined).then(async () => {
         const memoryRevision = await guildAIExperienceMemoryRevision(guildId);
-        await captureAIExperienceMemory(guildId, prompt, response, memoryRevision);
+        await queueAIBackgroundWork(`staff-ai-experience:${guildId}:${randomUUID()}`, signal =>
+            captureAIExperienceMemory(guildId, prompt, response, memoryRevision, signal));
     });
     experienceCaptureTails.set(guildId, current);
     void current.catch(error => console.warn('[StaffAIMemory] AI experience capture failed:', error))
@@ -326,17 +331,17 @@ export async function staffMemoryContext(guildId: string, userId: string, query:
         .map(record => `[${record.title} / 更新 ${record.updatedAt}] ${record.content.slice(0, 700)}`);
     return [...self, ...personalAndDaily].join('\n').slice(0, 3_500);
 }
-async function summarize(input: string, instruction: string): Promise<string> {
+async function summarize(input: string, instruction: string, signal: AbortSignal): Promise<string> {
     let result = '';
     await new OpenAIChatManager().streamResponseText([
         { role: 'system', content: instruction + '\n推測や診断は禁止。私的情報・健康・思想・属性は記録しない。会話で確認できた事実のみを簡潔な日本語でまとめる。引用された他人の発言を本人の属性と混同しない。' },
         { role: 'user', content: input.slice(0, 13000) },
     ], delta => {
         if (delta.type === 'text') result += delta.text;
-    }, { model: GEMMA_MODEL, strictModel: true, maxTokens: 520 });
+    }, { model: GEMMA_MODEL, strictModel: true, maxTokens: 520, priority: 'background', signal });
     return result.trim();
 }
-async function updateStaffMemoriesForDay(guildId: string, day: string, updateExistingDaily: boolean): Promise<void> {
+async function updateStaffMemoriesForDay(guildId: string, day: string, updateExistingDaily: boolean, signal: AbortSignal): Promise<void> {
     const dataset = await database.get<AIConversationEntry[]>(guildId, DATASET(guildId), []) || [];
     const entries = dataset.filter(entry => !entry.incomplete
         && dayInJst(entry.timestamp) === day && entry.prompt?.trim());
@@ -348,7 +353,7 @@ async function updateStaffMemoriesForDay(guildId: string, day: string, updateExi
     const summary = shouldUpdateDaily
         ? await summarize(entries.map(entry =>
             `${entry.userName || entry.userId}: ${entry.prompt.slice(0, 650)}\nAI: ${(entry.response || '').slice(0, 350)}`).join('\n'),
-        `Discordサーバーの${day}の出来事を、話題・取り組み・決まったことを中心に短く箇条書きで要約。`)
+        `Discordサーバーの${day}の出来事を、話題・取り組み・決まったことを中心に短く箇条書きで要約。`, signal)
         : '';
     if (shouldUpdateDaily && !summary) throw new Error('Staff AI daily summary was empty');
 
@@ -375,6 +380,7 @@ async function updateStaffMemoriesForDay(guildId: string, day: string, updateExi
     const activeUserIds = new Set(entries.map(entry => entry.userId));
     const rollingByUser = Object.groupBy(rollingEntries, entry => entry.userId);
     for (const userId of activeUserIds) {
+        if (signal.aborted) throw signal.reason ?? new Error('Memory processing was preempted.');
         const own = rollingByUser[userId];
         if (!own?.length) continue;
         const id = `user:${userId}`;
@@ -384,11 +390,13 @@ async function updateStaffMemoriesForDay(guildId: string, day: string, updateExi
         const facts = await summarize(
             `既存の確認済みプロフィール: ${old?.content || 'なし'}\n最近90日間の本人発言:\n${ownPrompts}`,
             'このユーザー本人について、本人が明言した興味・得意分野・活動・継続中の取り組みをプロフィールに更新。会話内容の要約ではなく、次回の会話で役立つ本人情報だけを短く書く。材料がなければ空文字を返す。推測や断定できない属性は含めない。',
+            signal,
         );
         if (!facts) continue;
         const publicInterests = await summarize(
             own.slice(-20).map(entry => entry.prompt.slice(0, 400)).join('\n'),
-            '本人が明示した趣味、好きなゲームや曲、一般的な興味、公開している制作活動や得意分野のみを短く抽出。連絡先・本名・住所・健康・恋愛・思想・家族・秘密・推測は記録しない。確証がなければ空文字を返す。'
+            '本人が明示した趣味、好きなゲームや曲、一般的な興味、公開している制作活動や得意分野のみを短く抽出。連絡先・本名・住所・健康・恋愛・思想・家族・秘密・推測は記録しない。確証がなければ空文字を返す。',
+            signal,
         );
         const record: StaffMemory = {
             id, kind: 'user', guildId, userId,
@@ -413,28 +421,24 @@ async function updateStaffMemoriesForDay(guildId: string, day: string, updateExi
         if (currentIndex >= 0) latest[currentIndex] = generated;
         else latest.push(generated);
     }
+    if (signal.aborted) throw signal.reason ?? new Error('Memory processing was preempted.');
     await database.set(guildId, KEY(guildId), latest.slice(-1000));
 }
 
 function enqueueStaffMemoryUpdate(guildId: string, day: string, updateExistingDaily: boolean): Promise<void> {
-    const previous = dailyMemoryTails.get(guildId) ?? Promise.resolve();
-    const current = previous.catch(() => undefined).then(() => updateStaffMemoriesForDay(guildId, day, updateExistingDaily));
-    dailyMemoryTails.set(guildId, current);
-    void current.catch(error => console.warn('[StaffAIMemory] background summary failed:', error))
-        .finally(() => { if (dailyMemoryTails.get(guildId) === current) dailyMemoryTails.delete(guildId); });
-    return current;
+    const mode = updateExistingDaily ? 'upsert' : 'create';
+    return queueAIBackgroundWork(`staff-daily-memory:${guildId}:${day}:${mode}`, signal =>
+        updateStaffMemoriesForDay(guildId, day, updateExistingDaily, signal));
 }
 
 /** Build yesterday's summary once; used by the scheduler and after Staff AI replies. */
 export function queueStaffDailyMemory(guildId: string): void {
     const yesterday = dayInJst(Date.now() - 86400000);
     const job = `${guildId}:${yesterday}`;
-    if (running.has(job) || attempted.has(job)) return;
-    running.add(job);
+    if (attempted.has(job)) return;
     void enqueueStaffMemoryUpdate(guildId, yesterday, false)
         .then(() => { attempted.add(job); })
-        .catch(() => undefined)
-        .finally(() => { running.delete(job); });
+        .catch(error => console.warn('[StaffAIMemory] yesterday summary failed:', error));
 }
 
 /** Debounced upsert for today's Staff AI digest and rolling user profiles. */
@@ -444,7 +448,8 @@ export function queueCurrentStaffDailyMemory(guildId: string): void {
     const timer = setTimeout(() => {
         currentMemoryTimers.delete(guildId);
         const today = dayInJst(Date.now());
-        void enqueueStaffMemoryUpdate(guildId, today, true);
+        void enqueueStaffMemoryUpdate(guildId, today, true)
+            .catch(error => console.warn('[StaffAIMemory] current-day summary failed:', error));
     }, 20_000);
     timer.unref?.();
     currentMemoryTimers.set(guildId, timer);
