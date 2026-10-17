@@ -30,6 +30,7 @@ import {
     buildConversationHistory,
     stripDiscordStreamMetadata,
 } from '../../../core/ai/AIConversationHistory.js';
+import { acquireStaffAIRequest } from './StaffAIRequestQueue.js';
 
 // レート制限の設定
 const userRateLimits = new Map<string, { lastUsed: number, count: number }>();
@@ -121,6 +122,12 @@ export const subcommandHandler = {
 
         // prompt と attachment を受け取ったらすぐに defer してインタラクションの期限切れを防止
         await interaction.deferReply();
+
+        // 履歴取得から生成・保存までをFIFOで処理し、同時リクエスト間の競合を防ぐ。
+        const releaseStaffAIRequest = await acquireStaffAIRequest(interaction);
+        if (!releaseStaffAIRequest) return;
+
+        try {
 
         // 安全なレスポンス関数: interaction が期限切れの場合は followUp、さらに失敗したらチャンネルに直接送信してフォールバックする
         async function safeRespond(payload: { content?: string; embeds?: any[]; files?: any[]; ephemeral?: boolean }): Promise<Message | null> {
@@ -761,6 +768,9 @@ ${reason}` });
                     console.error('dataset save error (incomplete):', dbErr);
                 }
             }
+        }
+        } finally {
+            releaseStaffAIRequest();
         }
     }
 };
