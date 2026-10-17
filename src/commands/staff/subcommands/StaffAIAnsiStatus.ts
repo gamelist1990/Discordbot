@@ -32,12 +32,14 @@ function colored(value: string, rgb: Rgb): string {
 
 export function renderStaffAnsiStatus(
     toolViews: StaffToolView[],
-    thinking?: { active: boolean; characters: number },
+    thinking?: { active: boolean; characters: number; waiting?: boolean },
 ): string {
     const lines: string[] = [];
     if (thinking) {
         lines.push(colored(
-            `💭 Thinking · ${thinking.active ? 'ストリーミング中' : '完了'} (${thinking.characters}文字)`,
+            thinking.waiting
+                ? '💭 Thinking · 詳細待機中'
+                : `💭 Thinking · ${thinking.active ? 'ストリーミング中' : '完了'} (${thinking.characters}文字)`,
             COLORS.thinking,
         ));
     }

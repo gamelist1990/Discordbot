@@ -533,6 +533,7 @@ ${reason}` });
                 queuePreview(true);
             }
             // 全ラウンド（ツール呼び出し含む）のテキストとtoken usageを受け取る。
+            queuePreview(true);
             await staffMemoryToolScope.run({ guildId: interaction.guildId || 'global', userId }, () =>
                 chatManager.streamResponseText(messages, handleResponseDelta, streamOptions));
             // A response with reasoning only, no final text and no tool result is
@@ -611,6 +612,7 @@ ${reason}` });
                             lastUpdateTime = 0;
                             thinkingPreviewStarted = false;
                             previewClosed = false;
+                            queuePreview(true);
                             await chatManager.streamMessage(retryMessages, handleChunk, streamOptions);
                             finishPreview();
                             await drainPreview();

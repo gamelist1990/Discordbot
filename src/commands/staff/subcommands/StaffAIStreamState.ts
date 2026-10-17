@@ -163,13 +163,18 @@ export class StaffAIStreamState {
         if (!this.ansiColors && isComplete && this.hasReasoning) {
             statusLines.unshift(`-# 💭 Thinking · 完了（${this.reasoningCharacters}文字）`);
         }
+        if (!this.ansiColors && !isComplete && !this.hasReasoning) {
+            statusLines.unshift('-# 💭 Thinking · 詳細待機中');
+        }
         const activity = !this.ansiColors && statusLines.length ? '\n' + statusLines.join('\n') : '';
         // Optional ANSI decoration for desktop Discord. Plain Markdown above it
         // stays readable on mobile and other clients without ANSI rendering.
         const ansi = this.ansiColors
-            ? renderStaffAnsiStatus(latest, this.hasReasoning && (showThinking || isComplete)
-                ? { active: showThinking, characters: this.reasoningCharacters }
-                : undefined)
+            ? renderStaffAnsiStatus(latest, isComplete
+                ? this.hasReasoning ? { active: false, characters: this.reasoningCharacters } : undefined
+                : this.hasReasoning
+                    ? { active: true, characters: this.reasoningCharacters }
+                    : { active: true, characters: 0, waiting: true })
             : '';
         const status = activity + ansi;
         const statusText = status.trim();
