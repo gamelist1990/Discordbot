@@ -2,7 +2,7 @@ import type { OpenAITool, ToolHandler } from '../../../types/openai.js';
 import type { ChatAIToolRegistrar } from './types.js';
 import { config } from '../../../config.js';
 
-const webSearchDefinition: OpenAITool = {
+export const webSearchDefinition: OpenAITool = {
     type: 'function',
     function: {
         name: 'web_search',

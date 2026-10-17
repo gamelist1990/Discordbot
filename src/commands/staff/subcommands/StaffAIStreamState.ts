@@ -1,3 +1,4 @@
+import { buildStaffToolEmbed, buildStaffThinkingEmbed } from './StaffAIEmbed.js';
 import type { OpenAIChatCompletionChunk } from '../../../types/openai.js';
 import type { ToolExecutionStep } from '../../../core/ai/ChatGPTClient.js';
 
@@ -10,17 +11,11 @@ type ToolPreview = {
 };
 
 const DISCORD_LIMIT = 2000;
-const TOOL_ARGS_LIMIT = 280;
-
-function redact(text: string): string {
-    return text
-        .replace(/("(?:api[_-]?key|token|authorization|password|secret)"\s*:\s*")([^"]+)(")/gi, '$1***$3')
-        .replace(/Bearer\s+[A-Za-z0-9._~+/-]+/gi, 'Bearer ***')
-        .replace(/```/g, "'''");
-}
 
 export class StaffAIStreamState {
     public content = '';
+    public thinking = '';
+    private hadContentOrThinking = false;
     private tools: ToolPreview[] = [];
     private promptTokens = 0;
     private completionTokens = 0;
@@ -49,7 +44,13 @@ export class StaffAIStreamState {
                 this.timedOutputSeconds += weight / measuredSpeed;
             }
         }
-        this.content += chunk.choices?.[0]?.delta?.content ?? '';
+        const delta = chunk.choices?.[0]?.delta;
+        if (delta?.reasoning_content) this.thinking += delta.reasoning_content;
+        else if (delta?.reasoning) this.thinking += delta.reasoning;
+        if (delta?.content) this.content += delta.content;
+        if (delta?.content || delta?.reasoning_content || delta?.reasoning) {
+            this.hadContentOrThinking = true;
+        }
         for (const tool of chunk.choices?.[0]?.delta?.tool_calls ?? []) {
             const id = tool.id || '';
             let current = id ? this.tools.find(entry => entry.id === id) : undefined;
@@ -81,25 +82,31 @@ export class StaffAIStreamState {
 
     /** Keep the visible tool log compact and leave the complete answer in the dataset. */
     render(isComplete = false, answer = this.content): string {
-        const toolLog = this.tools.slice(-2).map(tool => {
-            const args = redact(tool.arguments).slice(0, TOOL_ARGS_LIMIT);
-            return '```json\n' + JSON.stringify({
-                tool: tool.name || '準備中',
-                status: tool.phase,
-                ...(args ? { args: args + (tool.arguments.length > TOOL_ARGS_LIMIT ? '…' : '') } : {}),
-            }, null, 2) + '\n```';
-        }).join('\n');
         const speed = this.timedOutputSeconds > 0
             ? (this.timedOutputTokens / this.timedOutputSeconds).toFixed(1)
             : '—';
         const footer = isComplete
             ? `\n-# ${speed} toks/s · toks: ${this.usageReceived ? `${this.promptTokens + this.completionTokens} (in ${this.promptTokens} / out ${this.completionTokens})` : '未取得 (API未提供)'}`
             : '\n▌';
-        const prefix = toolLog ? toolLog + '\n' : '';
+        const prefix = '';
         const room = Math.max(0, DISCORD_LIMIT - prefix.length - footer.length);
         const visible = answer.length > room
             ? answer.slice(0, Math.max(0, room - 1)) + '…'
             : answer;
         return (prefix + (visible || (isComplete ? '（応答なし）' : '考え中…')) + footer).slice(0, DISCORD_LIMIT);
+    }
+
+    /** Discord-specific presentation: normal prose stays in content, activity stays in embeds. */
+    renderDiscord(isComplete = false, answer = this.content) {
+        const toolEmbed = buildStaffToolEmbed(this.tools);
+        const thinkingEmbed = buildStaffThinkingEmbed(
+            this.thinking, isComplete,
+            !this.hadContentOrThinking && this.tools.length === 0,
+        );
+        return {
+            content: this.render(isComplete, answer),
+            embeds: [thinkingEmbed, toolEmbed].filter((entry): entry is NonNullable<typeof entry> => !!entry),
+            allowedMentions: { parse: [] as [] },
+        };
     }
 }

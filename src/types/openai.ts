@@ -91,6 +91,8 @@ export interface OpenAIChatCompletionChunk {
         index: number;
         delta: {
             content?: string;
+            reasoning_content?: string | null;
+            reasoning?: string | null;
             role?: 'system' | 'user' | 'assistant' | 'function' | 'tool';
             function_call?: {
                 name?: string;
