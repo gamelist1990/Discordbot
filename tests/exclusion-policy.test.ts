@@ -103,3 +103,24 @@ test('settings endpoint saves valid selective exclusions and refuses an ID of th
         assert.equal(status, 400); assert.deepEqual(stored.excludedRoles, []);
     } finally { antiCheatManager.getSettings = oldGet; antiCheatManager.setSettings = oldSet; }
 });
+
+test('settings endpoints do not echo runtime trust and log history into the editable payload', async () => {
+    const controller = new AntiCheatController({} as any);
+    const oldGet = antiCheatManager.getSettings, oldTrust = antiCheatManager.getAllUserTrust;
+    const settings = makeSettings();
+    settings.userTrust = { user: { score: 5, lastUpdated: new Date().toISOString(), history: [] } };
+    settings.recentLogs = [{ userId: 'user', messageId: 'message', detector: 'test', scoreDelta: 1, reason: 'test', timestamp: new Date().toISOString() }];
+    let body: any;
+    const res: any = { status: () => res, json: (value: any) => { body = value; } };
+    antiCheatManager.getSettings = async () => settings;
+    antiCheatManager.getAllUserTrust = async () => settings.userTrust;
+    try {
+        await controller.getSettings({ params: { guildId: 'guild' }, session: { guildIds: ['guild'] } } as any, res);
+        assert.equal(body.userTrustCount, 1);
+        assert.equal('userTrust' in body.settings, false);
+        assert.equal('recentLogs' in body.settings, false);
+    } finally {
+        antiCheatManager.getSettings = oldGet;
+        antiCheatManager.getAllUserTrust = oldTrust;
+    }
+});

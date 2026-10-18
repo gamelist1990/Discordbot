@@ -77,7 +77,9 @@ export class SettingsServer {
             credentials: true,
             origin: true
         }));
-        this.app.use(express.json());
+        // AntiCheat can contain a sizeable custom word-rule list. Keep a
+        // bounded, explicit limit instead of Express' small 100 KB default.
+        this.app.use(express.json({ limit: '1mb' }));
 
         // Cookie parser (簡易実装)
         this.app.use((req, res, next) => {
@@ -222,6 +224,16 @@ export class SettingsServer {
             res.sendFile(indexPath, (err) => {
                 if (err) next(err);
             });
+        });
+
+        // Return JSON for body-parser failures so the settings UI can display
+        // a useful message instead of the generic HTTP status text.
+        this.app.use((error: any, _req: Request, res: Response, next: (error?: any) => void) => {
+            if (error?.type === 'entity.too.large') {
+                res.status(413).json({ error: '設定データが大きすぎます（上限 1 MB）。ルール数や文字数を減らしてください。' });
+                return;
+            }
+            next(error);
         });
 
     }

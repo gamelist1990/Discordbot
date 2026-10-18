@@ -7,6 +7,14 @@ import { Logger } from '../../../utils/Logger.js';
 import { TextChannel, PermissionFlagsBits } from 'discord.js';
 import { validateExclusions } from '../../../core/anticheat/ExclusionPolicy.js';
 
+/** Runtime state is exposed by dedicated endpoints and must not be echoed into
+ * the editable settings document. Apart from leaking history to the browser,
+ * echoing it made subsequent saves grow past Express' request-body limit. */
+function editableSettings(settings: GuildAntiCheatSettings): Omit<GuildAntiCheatSettings, 'userTrust' | 'recentLogs'> {
+    const { userTrust: _userTrust, recentLogs: _recentLogs, ...editable } = settings;
+    return editable;
+}
+
 /**
  * AntiCheat Controller
  * Handles AntiCheat-related web API endpoints
@@ -65,7 +73,7 @@ export class AntiCheatController {
             const userTrust = await antiCheatManager.getAllUserTrust(guildId);
 
             res.json({
-                settings,
+                settings: editableSettings(settings),
                 userTrustCount: Object.keys(userTrust).length
             });
         } catch (error) {
@@ -141,7 +149,7 @@ export class AntiCheatController {
 
             res.json({ 
                 success: true,
-                settings: newSettings
+                settings: editableSettings(newSettings)
             });
         } catch (error) {
             Logger.error('Error updating AntiCheat settings:', error);
