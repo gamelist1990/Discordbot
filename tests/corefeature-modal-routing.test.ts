@@ -6,7 +6,7 @@ import { CoreFeatureManager } from '../src/core/corepanel/CoreFeatureManager.ts'
 
 test('registerModalRouteで登録したCorePanelモーダルをonModalSubmitが実行する', async () => {
     const manager = new CoreFeatureManager();
-    const customId = 'corefeature:debate:create:combined:ai';
+    const customId = 'corefeature:request:create:combined';
     let receivedCustomId = '';
 
     manager.registerModalRoute(customId, async (interaction) => {

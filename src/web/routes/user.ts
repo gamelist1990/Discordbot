@@ -6,59 +6,10 @@ import { PermissionFlagsBits } from 'discord.js';
 import { SettingsSession } from '../types';
 import { PermissionLevel } from '../types/permission.js';
 import { ProfileService } from '../services/ProfileService.js';
-import { UserCustomProfile } from '../types/profile.js';
 import { database } from '../../core/persistence/Database.js';
+import { publicProfileFields } from '../shared/profileSafety.js';
 import fs from 'fs';
 import path from 'path';
-
-/**
- * ユーザー統計情報
- */
-interface UserStatistics {
-    totalMessages: number;
-    linkMessages: number;
-    mediaMessages: number;
-    role?: string;
-    joinedAt?: string;
-}
-
-/**
- * サーバー情報
- */
-interface GuildInfo {
-    id: string;
-    name: string;
-    icon?: string;
-    memberCount?: number;
-    userStats: UserStatistics;
-    // frontend expects top-level numeric fields; keep optional for compatibility
-    totalMessages?: number;
-    linkMessages?: number;
-    mediaMessages?: number;
-    role?: string;
-    joinedAt?: string;
-    viewerIsMember?: boolean;
-}
-
-/**
- * ユーザー情報
- */
-interface UserProfile {
-    id: string;
-    username: string;
-    discriminator: string;
-    avatar?: string;
-    banner?: string;
-    guilds: GuildInfo[];
-    totalStats: {
-        totalMessages: number;
-        totalLinks: number;
-        totalMedia: number;
-        totalServers: number;
-    };
-    customProfile?: UserCustomProfile;
-}
-
 /**
  * ユーザー関連ルート
  */
@@ -68,6 +19,7 @@ export function createUserRoutes(
     profileService: ProfileService
 ): Router {
     const router = Router();
+    const profileSearchRequests = new Map<string, number>();
 
     const getSessionGuildLevel = (session: SettingsSession, guildId: string): number => {
         if (Array.isArray(session.permissions)) {
@@ -154,320 +106,105 @@ export function createUserRoutes(
      * ユーザープロフィールを取得
      * ?userId=<userId> で他のユーザーのプロフィールも取得可能
      */
-    // verifyAuth is a higher-order function that must be called with the sessions map
-    router.get('/profile', verifyAuth(sessions), async (req: Request, res: Response) => {
+    router.get('/profile/search', verifyAuth(sessions), async (req: Request, res: Response) => {
+        const viewer = getCurrentUser(req);
+        const query = typeof req.query.q === 'string' ? req.query.q.trim().replace(/^@/, '') : '';
+        if (query.length < 2) { res.json({ users: [] }); return; }
+        if (query.length > 80) { res.status(400).json({ error: '検索語は80文字以内で入力してください。' }); return; }
+        const now = Date.now();
+        if (now - (profileSearchRequests.get(viewer.userId) || 0) < 1000) { res.status(429).json({ error: '検索の間隔を少し空けてください。' }); return; }
+        profileSearchRequests.set(viewer.userId, now);
+        if (profileSearchRequests.size > 1000) profileSearchRequests.delete(profileSearchRequests.keys().next().value!);
+        res.setHeader('Cache-Control', 'private, no-store');
         try {
-            const currentUser = getCurrentUser(req);
-
-            // デバッグログ: セッション情報とユーザー情報を出力
-
-
-            if (!currentUser) {
-                res.status(401).json({ error: 'Unauthorized' });
-                return;
+            const candidates = new Map<string, any>();
+            const mutual = new Map<string, any>();
+            let searched = 0;
+            for (const guild of botClient.client.guilds.cache.values()) {
+                const membership = guild.members.cache.get(viewer.userId) || await guild.members.fetch(viewer.userId).catch(() => null);
+                if (!membership) continue;
+                const matches = (member: any) => [member.user.username, member.displayName, member.id].some(value => String(value).toLowerCase().includes(query.toLowerCase()));
+                for (const member of guild.members.cache.values()) if (!member.user.bot) {
+                    if (mutual.size < 200) mutual.set(member.id, member.user);
+                    if (matches(member)) candidates.set(member.id, member.user);
+                }
+                if (candidates.size < 20 && searched++ < 5) {
+                    const results = /^[1-9]\d{0,19}$/.test(query)
+                        ? [await guild.members.fetch(query).catch(() => null)]
+                        : [...(await guild.members.fetch({ query, limit: 20 }).catch(() => new Map())).values()];
+                    for (const member of results) if (member && !member.user.bot && matches(member)) candidates.set(member.id, member.user);
+                }
+                if (candidates.size >= 50) break;
             }
-
-            // Query parameter で指定されたユーザーIDまたは自分のID
-            let requestedUserId = (req.query.userId as string) || currentUser.userId;
-
-            // If the client supplied a username slug (e.g. "@koukun_#0" or "koukun_#0" or "koukun_"),
-            // normalize it and try to resolve to a Discord user ID.
-            if (requestedUserId && !/^[0-9]+$/.test(requestedUserId)) {
-                const slug = String(requestedUserId).replace(/^@/, '').split('#')[0];
-
-                console.info(`[UserProfile] resolving slug='${requestedUserId}' -> slug='${slug}'`);
-
-                // 1) Try to resolve from in-memory sessions (active sessions)
-                let resolved: string | null = null;
-                for (const s of sessions.values()) {
-                    try {
-                        const sname = (s.username || '').replace(/^@/, '').split('#')[0];
-                        if (sname && sname.toLowerCase() === slug.toLowerCase()) {
-                            resolved = s.userId;
-                            break;
-                        }
-                    } catch (err) { console.warn('[UserProfile] session iteration error', err); }
-                }
-
-                // 2) Try to resolve from bot's user cache
-                if (!resolved) {
-                    try {
-                        const found = botClient.client.users.cache.find(u => u.username && u.username.toLowerCase() === slug.toLowerCase());
-                        if (found) {
-                            resolved = found.id;
-                        }
-                    } catch (e) { console.warn('[UserProfile] user cache lookup failed', e); }
-                }
-
-                // 3) If still unresolved, try searching guild members (will use Discord member search per guild).
-                if (!resolved) {
-                    try {
-                        const botGuilds = botClient.getGuildList();
-                        for (const g of botGuilds) {
-                            try {
-                                const guildObj = botClient.client.guilds.cache.get(g.id as string);
-                                if (!guildObj) continue;
-
-                                // Try cached members first
-                                const cachedMember = guildObj.members.cache.find(m => m.user && m.user.username && m.user.username.toLowerCase() === slug.toLowerCase());
-                                if (cachedMember) {
-                                    resolved = cachedMember.user.id;
-                                    break;
-                                }
-
-                                // Fallback: use guild member search (may require GUILD_MEMBERS intent)
-                                try {
-                                    const fetched = await guildObj.members.fetch({ query: slug, limit: 1 });
-                                    if (fetched && fetched.size > 0) {
-                                        const first = fetched.first();
-                                        if (first) {
-                                            resolved = first.user.id;
-                                            break;
-                                        }
-                                    }
-                                } catch (fetchErr) { console.warn(`[UserProfile] guild member fetch failed for guild=${g.id}`, fetchErr); }
-                            } catch (perGuildErr) { console.warn('[UserProfile] per-guild resolution error', perGuildErr); }
-                        }
-                    } catch (e) { console.warn('[UserProfile] guilds iteration failed', e); }
-                }
-
-                if (resolved) {
-                    requestedUserId = resolved;
-                } else {
-                    console.info(`[UserProfile] failed to resolve slug='${slug}' to a userId`);
-                }
+            if (candidates.size < 20) {
+                const names = await Promise.all([...mutual.values()].filter(user => !candidates.has(user.id)).map(async user => ({ user, profile: await profileService.getCustomProfile(user.id) })));
+                for (const item of names) if (item.profile?.privacy?.allowPublicView && item.profile.displayName?.toLowerCase().includes(query.toLowerCase())) candidates.set(item.user.id, item.user);
             }
+            const users = (await Promise.all([...candidates.values()].slice(0, 50).map(async user => {
+                const custom = await profileService.getCustomProfile(user.id);
+                if (user.id !== viewer.userId && !custom?.privacy?.allowPublicView) return null;
+                return { id: user.id, username: user.username, displayName: custom?.displayName || user.globalName || user.username,
+                    avatar: typeof user.displayAvatarURL === 'function' ? user.displayAvatarURL({ size: 128 }) : null };
+            }))).filter(Boolean).slice(0, 20);
+            res.json({ users });
+        } catch (error) {
+            console.error('Profile search failed:', error);
+            res.status(503).json({ error: 'ユーザーを検索できませんでした。もう一度お試しください。' });
+        }
+    });
 
-            // Botクライアントから参加中のサーバーを取得
-            // Botが参加しているギルド一覧
-            const botGuilds = botClient.getGuildList();
-
-            // Try to read persisted OAuth sessions to get user's access token
-            const authPersistPath = path.join(database.getDataDir(), 'system', 'auth', 'sessions.json');
-            let userOauth: any = null;
-            try {
-                if (fs.existsSync(authPersistPath)) {
-                    const raw = fs.readFileSync(authPersistPath, 'utf8') || '{}';
-                    const obj = JSON.parse(raw) as Record<string, any>;
-                    userOauth = obj[requestedUserId];
-                } else {
-                }
-            } catch (e) {
-                console.warn('[UserProfile] Failed to read OAuth sessions from disk:', e);
+    router.get('/profile', verifyAuth(sessions), async (req: Request, res: Response) => {
+        res.setHeader('Cache-Control', 'private, no-store');
+        try {
+            const viewer = getCurrentUser(req);
+            if (req.query.userId !== undefined && (typeof req.query.userId !== 'string' || req.query.userId.length > 100)) {
+                res.status(400).json({ error: 'ユーザーの指定が不正です。' }); return;
             }
-
-            // If we have an OAuth access token, use it to get the user's guilds from Discord API
-            let userGuildIds: string[] | null = null;
-            if (userOauth && userOauth.accessToken) {
-                try {
-                    const resp = await fetch('https://discord.com/api/users/@me/guilds', {
-                        headers: {
-                            Authorization: `Bearer ${userOauth.accessToken}`
-                        }
-                    });
-                    if (resp.ok) {
-                        const guilds = await resp.json() as Array<{ id: string; name: string }>;
-                        userGuildIds = guilds.map(g => g.id);
-                    } else {
-                        console.warn('[UserProfile] Failed to fetch user guilds, status=', resp.status);
+            let targetId = typeof req.query.userId === 'string' && req.query.userId ? req.query.userId : viewer.userId;
+            if (!/^[1-9]\d{0,19}$/.test(targetId)) {
+                const slug = targetId.replace(/^@/, '').split('#')[0].toLowerCase();
+                const exact = botClient.client.users.cache.find(user => user.username.toLowerCase() === slug);
+                const session = [...sessions.values()].find(item => item.username?.replace(/^@/, '').split('#')[0].toLowerCase() === slug);
+                targetId = exact?.id || session?.userId || '';
+            }
+            if (!/^[1-9]\d{0,19}$/.test(targetId)) { res.status(404).json({ error: 'ユーザーが見つかりません。' }); return; }
+            const own = targetId === viewer.userId;
+            const customProfile = await profileService.getCustomProfile(targetId);
+            if (!own && !customProfile?.privacy?.allowPublicView) { res.status(403).json({ error: 'このプロフィールは非公開です。' }); return; }
+            const discordUser = await botClient.client.users.fetch(targetId).catch(() => null);
+            if (!discordUser && !own) { res.status(404).json({ error: 'ユーザーが見つかりません。' }); return; }
+            const showStats = own || customProfile?.privacy?.showStats === true;
+            const showServers = own || customProfile?.privacy?.showServers === true;
+            const showActivity = own || customProfile?.privacy?.showActivity === true;
+            const guilds: any[] = [];
+            const totalStats = { totalMessages: 0, totalLinks: 0, totalMedia: 0, totalServers: 0 };
+            if (showStats || showServers) {
+                for (const guild of botClient.client.guilds.cache.values()) {
+                    if (!own && !await guild.members.fetch(viewer.userId).catch(() => null)) continue;
+                    const member = await guild.members.fetch(targetId).catch(() => null);
+                    if (!member) continue;
+                    const stats = showStats ? await database.getUserGuildData<any>(targetId, guild.id, 'stats', null).catch(() => null) : null;
+                    const numbers = { totalMessages: stats?.totalMessages || 0, linkMessages: stats?.linkMessages || 0, mediaMessages: stats?.mediaMessages || 0 };
+                    totalStats.totalMessages += numbers.totalMessages;
+                    totalStats.totalLinks += numbers.linkMessages;
+                    totalStats.totalMedia += numbers.mediaMessages;
+                    if (showServers) {
+                        totalStats.totalServers++;
+                        guilds.push({ id: guild.id, name: guild.name, iconURL: guild.iconURL(), ...numbers, viewerIsMember: true,
+                            role: member.roles.highest.name, joinedAt: member.joinedAt?.toISOString() });
                     }
-                } catch (e) {
-                    console.warn('[UserProfile] Error fetching user guilds:', e);
                 }
             }
-
-            // Build userGuilds only for mutual guilds (where both user and bot are present)
-            const userGuilds: GuildInfo[] = [];
-            const statsMgr = (await import('../../core/stats/StatsManager.js')).statsManagerSingleton.instance;
-
-            for (const g of botGuilds) {
-                // If we have user's guild list, ensure the user is actually in this guild
-                if (Array.isArray(userGuildIds) && userGuildIds.indexOf(g.id) === -1) continue;
-
-                // Try to fetch member info from bot cache for roles/joinedAt details
-                let role: string | undefined = undefined;
-                let roles: string[] = [];
-                let joinedAt: string | undefined = undefined;
-                let isMember = false;
-
-                let guildObj: any = null;
-                try {
-                    guildObj = botClient.client.guilds.cache.get(g.id as string);
-                    if (guildObj) {
-                        const member = await guildObj.members.fetch(requestedUserId).catch(() => null);
-                        if (member) {
-                            isMember = true;
-                            role = member.roles?.highest?.name || undefined;
-                            joinedAt = member.joinedAt ? member.joinedAt.toISOString() : undefined;
-                            // get full role names (exclude @everyone)
-                            roles = member.roles.cache
-                                .filter(r => r.name !== '@everyone')
-                                .map(r => r.name);
-                        }
-                    }
-                } catch (e) {
-                    // ignore
-                }
-
-                // If user is not a member of this guild (as seen by the bot), skip it
-                if (!isMember) continue;
-
-                // Read real counts from StatsManager/database if available
-                let totalMessages = 0;
-                let linkMessages = 0;
-                let mediaMessages = 0;
-                try {
-                    if (statsMgr) {
-                        const s = await statsMgr.getUserStats(g.id, requestedUserId);
-                        if (s) {
-                            totalMessages = s.totalMessages || 0;
-                            linkMessages = s.linkMessages || 0;
-                            mediaMessages = s.mediaMessages || 0;
-                        }
-                    }
-
-                    // 2) If still zeros, try persisted per-guild per-user file
-                    if (totalMessages === 0 && linkMessages === 0 && mediaMessages === 0) {
-                        try {
-                            const perUser = await database.getUserGuildData<any>(requestedUserId, g.id, 'stats', null);
-                            if (perUser) {
-                                totalMessages = perUser.totalMessages || 0;
-                                linkMessages = perUser.linkMessages || 0;
-                                mediaMessages = perUser.mediaMessages || 0;
-                            }
-                        } catch (e) {
-                            // ignore and keep zeros
-                        }
-                    }
-                } catch (e) {
-                    // ignore and keep zeros
-                }
-
-                // Check whether the current session viewer is also a member of the guild
-                let viewerIsMember = false;
-                try {
-                    const viewerMember = await guildObj.members.fetch(currentUser.userId).catch(() => null);
-                    if (viewerMember) viewerIsMember = true;
-                } catch (e) { /* ignore */ }
-
-                userGuilds.push({
-                    id: g.id,
-                    name: g.name,
-                    // BotClient.getGuildList() now includes `icon` (hash) when available
-                    icon: (g as any).icon || undefined,
-                    memberCount: g.memberCount,
-                    userStats: {
-                        totalMessages,
-                        linkMessages,
-                        mediaMessages,
-                        role: role || 'Member',
-                        joinedAt,
-                    },
-                    totalMessages,
-                    linkMessages,
-                    mediaMessages,
-                    role: role || 'Member',
-                    // expose full roles array in a new property for frontend use (not breaking existing role)
-                    // Use a string joined representation in UserProfile if you prefer
-                    // but here we add joinedAt already above
-                    // add roles as well
-                    // @ts-ignore - extend GuildInfo at runtime
-                    roles,
-                    joinedAt,
-                    viewerIsMember,
-                });
-            }
-            // 総統計を計算 - 各サーバーの統計を合算
-            let totalMessagesAll = 0;
-            let totalLinksAll = 0;
-            let totalMediaAll = 0;
-
-            // userGuilds から直接集計
-            for (const guild of userGuilds) {
-                totalMessagesAll += guild.totalMessages || 0;
-                totalLinksAll += guild.linkMessages || 0;
-                totalMediaAll += guild.mediaMessages || 0;
-            }
-
-            // Ensure totalStats is defined in this scope for the response
-            const totalStats = {
-                totalMessages: totalMessagesAll,
-                totalLinks: totalLinksAll,
-                totalMedia: totalMediaAll,
-                totalServers: userGuilds.length,
-            };
-
-            // カスタムプロフィール情報を取得
-            const customProfile = await profileService.getCustomProfile(requestedUserId);
-
-            // プライバシーチェック: 他人のプロフィールを見る場合
-            let filteredCustomProfile = customProfile;
-            if (requestedUserId !== currentUser.userId && customProfile) {
-                if (!customProfile.privacy?.allowPublicView) {
-                    // プロフィールが非公開の場合、カスタム情報を返さない
-                    filteredCustomProfile = null;
-                } else {
-                    // 公開設定に従って情報をフィルタリング
-                    // プライバシー設定に応じて情報を制限する場合はここで処理
-                    filteredCustomProfile = {
-                        ...customProfile,
-                    };
-                }
-            }
-
-            // Discordユーザー情報（実際の実装ではOAuthトークンを使って取得）
-            // Get user info from Discord API or OAuth session
-            let targetUserInfo: any = null;
-            if (requestedUserId === currentUser.userId) {
-                targetUserInfo = currentUser;
-            } else {
-                // Try to fetch from Discord API
-                try {
-                    const discordUser = await botClient.client.users.fetch(requestedUserId).catch(() => null);
-                    if (discordUser) {
-                        targetUserInfo = {
-                            userId: discordUser.id,
-                            username: `${discordUser.username}#${discordUser.discriminator}`,
-                            avatar: discordUser.avatar,
-                        };
-                    }
-                } catch (e) {
-                    console.warn(`Failed to fetch user info for ${requestedUserId}:`, e);
-                }
-            }
-
-            if (!targetUserInfo) {
-                // Fallback to basic info
-                targetUserInfo = {
-                    userId: requestedUserId,
-                    username: requestedUserId,
-                    avatar: null,
-                };
-            }
-
-            const userProfile: UserProfile = {
-                id: targetUserInfo.userId || requestedUserId,
-                username: (targetUserInfo.username && targetUserInfo.username.split('#')[0]) || requestedUserId,
-                discriminator: (targetUserInfo.username && targetUserInfo.username.split('#')[1]) || '0000',
-                avatar: targetUserInfo.avatar ? `https://cdn.discordapp.com/avatars/${requestedUserId}/${targetUserInfo.avatar}.png` : undefined,
-                banner: undefined, // モックデータ
-                // Add iconURL convenience property for frontend
-                guilds: userGuilds.map(g => ({
-                    ...g,
-                    // if an icon hash exists, expose full CDN URL; otherwise null
-                    // @ts-ignore
-                    iconURL: (g as any).icon ? `https://cdn.discordapp.com/icons/${g.id}/${(g as any).icon}.png` : null
-                })),
-                totalStats: totalStats,
-                customProfile: filteredCustomProfile || undefined,
-            };
-
-
-
-            res.json(userProfile);
+            res.json({
+                id: targetId, username: discordUser?.username || viewer.username?.split('#')[0] || targetId,
+                discriminator: discordUser?.discriminator || '0',
+                avatar: discordUser?.displayAvatarURL({ size: 256 }) || null,
+                isOwnProfile: own, visibility: { stats: showStats, servers: showServers, activity: showActivity },
+                guilds, totalStats, customProfile: own ? customProfile || undefined : publicProfileFields(customProfile),
+            });
         } catch (error) {
             console.error('Failed to get user profile:', error);
-            res.status(500).json({ error: 'Internal server error' });
+            res.status(500).json({ error: 'プロフィールを読み込めませんでした。' });
         }
     });
 

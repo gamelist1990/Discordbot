@@ -1,10 +1,12 @@
 import { ChatGPTClient, RateLimitWaitInfo } from '../ai/ChatGPTClient.js';
 import { CORE_FEATURE_API_ENDPOINT, CORE_FEATURE_MODEL_FALLBACKS } from './constants.js';
 import { clamp, extractJsonObject, pickAiPersonaName } from './helpers.js';
+import { GEMMA_MODEL } from '../../config.js';
 
 export interface CoreFeatureModelHooks {
     requestLabel?: string;
     onRateLimitWait?: (info: RateLimitWaitInfo) => void | Promise<void>;
+    model?: string;
 }
 
 export async function requestCoreFeatureModelText(
@@ -16,7 +18,8 @@ export async function requestCoreFeatureModelText(
     const client = new ChatGPTClient();
     const response = await client.sendMessage(messages, {
         apiEndpoint: CORE_FEATURE_API_ENDPOINT,
-        model: [...CORE_FEATURE_MODEL_FALLBACKS],
+        model: hooks?.model || [...CORE_FEATURE_MODEL_FALLBACKS],
+        strictModel: Boolean(hooks?.model),
         maxTokens,
         temperature,
         requestLabel: hooks?.requestLabel,
@@ -24,7 +27,17 @@ export async function requestCoreFeatureModelText(
     });
 
     const content = response.choices[0]?.message?.content;
-    return typeof content === 'string' ? content : '';
+    if (typeof content !== 'string' || !content.trim()) throw new Error('AIから有効な応答がありませんでした。');
+    return content;
+}
+
+export function requestPersonalityModelText(
+    messages: Array<{ role: 'system' | 'user'; content: string }>,
+    maxTokens: number,
+    temperature: number,
+    hooks?: CoreFeatureModelHooks
+): Promise<string> {
+    return requestCoreFeatureModelText(messages, maxTokens, temperature, { ...hooks, model: GEMMA_MODEL });
 }
 
 function sanitizePersonaName(value: unknown): string | null {
@@ -147,7 +160,7 @@ export async function requestCoreFeatureNaturalFollowUp(
 
     for (const systemPrompt of systemPrompts) {
         try {
-            const raw = await requestCoreFeatureModelText([
+            const raw = await requestPersonalityModelText([
                 { role: 'system', content: systemPrompt },
                 { role: 'user', content: userPrompt }
             ], 220, 0.6, hooks);
@@ -201,7 +214,7 @@ export async function requestCoreFeatureConfidenceCalibration(
     ].join('\n\n');
 
     try {
-        const raw = await requestCoreFeatureModelText([
+        const raw = await requestPersonalityModelText([
             { role: 'system', content: systemPrompt },
             { role: 'user', content: userPrompt }
         ], 150, 0.1, hooks);

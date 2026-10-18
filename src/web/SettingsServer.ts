@@ -13,11 +13,13 @@ import { dirname, join } from 'path';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 import cors from 'cors';
+import config from '../config.js';
+import { browserSecurityHeaders, browserMutationGuard, configuredOrigins, spaContentSecurityPolicy } from './middleware/browserSecurity.js';
 import { Logger } from '../utils/Logger.js';
 import { BotClient } from '../core/platform/BotClient.js';
 import { SessionService } from './services/SessionService.js';
 import { ProfileService } from './services/ProfileService.js';
-import { createStatusRoutes, createSessionRoutes, createSettingsRoutes, createStaffRoutes, createAuthRoutes, createUserRoutes, createModRoutes, createRolePresetRoutes, createRankRoutes, createWebRankRoutes, createPublicRankRoutes, createGameRankingRoutes, createAntiCheatRoutes, createCorePanelRoutes, createChannelManagerRoutes, createTodoRoutes, createJoinLogRoutes } from './routes/index.js';
+import { createStatusRoutes, createSessionRoutes, createSettingsRoutes, createStaffRoutes, createAuthRoutes, createUserRoutes, createModRoutes, createRolePresetRoutes, createRankRoutes, createWebRankRoutes, createPublicRankRoutes, createGameRankingRoutes, createAntiCheatRoutes, createCorePanelRoutes, createTodoRoutes, createJoinLogRoutes } from './routes/index.js';
 import { createGuildRoutes } from './routes/guild.js';
 import { createProfileController } from './controllers/ProfileController.js';
 import { setupWebSocketServer } from './routes/websocket.js';
@@ -73,10 +75,13 @@ export class SettingsServer {
      * ミドルウェアの設定
      */
     private setupMiddleware(): void {
+        this.app.use(browserSecurityHeaders);
+        const allowedOrigins = configuredOrigins([config.BASE_URL, config.WEB_BASE_URL]);
         this.app.use(cors({
             credentials: true,
-            origin: true
+            origin: (origin, callback) => callback(null, !origin || allowedOrigins.has(origin))
         }));
+        this.app.use('/api', browserMutationGuard(allowedOrigins));
         // AntiCheat can contain a sizeable custom word-rule list. Keep a
         // bounded, explicit limit instead of Express' small 100 KB default.
         this.app.use(express.json({ limit: '1mb' }));
@@ -153,7 +158,6 @@ export class SettingsServer {
         this.app.use('/api', createGuildRoutes(sessions, this.botClient));
         this.app.use('/api/staff/anticheat', createAntiCheatRoutes(sessions, this.botClient));
         this.app.use('/api/staff/corepanel', createCorePanelRoutes(sessions, this.botClient));
-        this.app.use('/api/staff/channel-manager', createChannelManagerRoutes(sessions, this.botClient));
         this.app.use('/api/staff/todo', createTodoRoutes(sessions, this.botClient));
         this.app.use('/api/staff/join-log', createJoinLogRoutes(sessions, this.botClient));
 
@@ -202,6 +206,10 @@ export class SettingsServer {
 
     // Generic preview handler (mount before static files so crawlers see OG meta)
     this.app.get(/^\/preview\/.*$/, previewHandler as any);
+
+        // The SPA uses external module scripts; user-authored inline scripts,
+        // event handlers, plugins and base-URL overrides are never executable.
+        this.app.use(spaContentSecurityPolicy);
 
         // 静的ファイルの配信
         this.app.use(express.static(join(__dirname, '..', '..', 'dist', 'web')));

@@ -19,7 +19,6 @@ import StaffAIPage from "./pages/Staff/StaffAI";
 import AntiCheatSelector from "./pages/Staff/AntiCheatSelector";
 import CorePanelPage from "./pages/Staff/CorePanel";
 import OthelloPage from "./pages/Othello";
-import ChannelManagerPage from "./pages/Staff/ChannelManager";
 import TodoPage from "./pages/Staff/Todo";
 import JoinLogPage from "./pages/Staff/JoinLog";
 const MinecraftViewer = React.lazy(
@@ -115,14 +114,6 @@ const App: React.FC = () => {
             element={
               <StaffGuard>
                 <CorePanelPage />
-              </StaffGuard>
-            }
-          />
-          <Route
-            path="/staff/channel-manager"
-            element={
-              <StaffGuard>
-                <ChannelManagerPage />
               </StaffGuard>
             }
           />

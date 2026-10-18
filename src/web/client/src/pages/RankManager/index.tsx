@@ -1,55 +1,42 @@
-import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useAppToast } from '../../AppToastProvider';
-import styles from './RankManager.module.css';
-
-interface RankPreset {
-  name: string;
-  description?: string;
-  ranks: RankTier[];
-  rewards: RankReward[];
-}
-
-interface RankTier {
+import { useEffect, useState } from "react";
+import {
+  ServerWorkspace,
+  useResource,
+  useAction,
+  Feedback,
+  ResourceState,
+  ChannelSelect,
+  RoleSelect,
+  SaveBar,
+  Tabs,
+  request,
+  confirmWorkspaceLeave,
+  useUnsavedChanges,
+  ui,
+  type Channel,
+  type Role,
+} from "../../components/Workspace/Workspace";
+type Tier = {
   name: string;
   minXp: number;
   maxXp: number;
   color?: string;
   icon?: string;
-}
-
-interface RankReward {
+};
+type Reward = {
   rankName: string;
   giveRoleId?: string;
   notify?: boolean;
   webhookUrl?: string;
   customMessage?: string;
-}
-
-interface XpConditionRule {
-  id: string;
+};
+type Preset = {
   name: string;
-  actionType: 'message' | 'reaction' | 'voiceChat' | 'invite' | 'custom';
   description?: string;
-  channels?: string[];
-  roles?: string[];
-  xpReward: number;
-  xpRewardMin?: number;
-  xpRewardMax?: number;
-  cooldownSec?: number;
-  maxPerDay?: number;
-  isActive: boolean;
-}
-
-interface RankPanel {
-  channelId: string;
-  messageId: string;
-  preset: string;
-  lastUpdate: string;
-  topCount?: number;
-}
-
-interface RankSettings {
+  ranks: Tier[];
+  rewards: Reward[];
+};
+type Settings = {
   notifyChannelId?: string;
   updateIntervalMs: number;
   xpRates: {
@@ -66,1557 +53,1066 @@ interface RankSettings {
     excludeRoles: string[];
     globalMultiplier: number;
   };
-}
-
-interface Guild {
+};
+type Rule = {
   id: string;
   name: string;
-  icon?: string | null;
-}
-
-interface GuildChannel {
-  id: string;
-  name: string;
-  type: number;
-}
-
-interface GuildRole {
-  id: string;
-  name: string;
-  color: number;
-}
-
-const RankManagerPage: React.FC = () => {
-  const navigate = useNavigate();
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [accessibleGuilds, setAccessibleGuilds] = useState<Guild[]>([]);
-  const [selectedGuildId, setSelectedGuildId] = useState<string | null>(null);
-  const [presets, setPresets] = useState<RankPreset[]>([]);
-  const [panels, setPanels] = useState<Record<string, RankPanel>>({});
-  const [settings, setSettings] = useState<RankSettings | null>(null);
-  const [channels, setChannels] = useState<GuildChannel[]>([]);
-  const [roles, setRoles] = useState<GuildRole[]>([]);
-  const [activeTab, setActiveTab] = useState<'presets' | 'panels' | 'settings' | 'rules' | 'advanced'>('presets');
-  
-  // Modal states
-  const [showPresetModal, setShowPresetModal] = useState(false);
-  const [showPanelModal, setShowPanelModal] = useState(false);
-  const [, setShowSettingsModal] = useState(false);
-  const [editingPreset, setEditingPreset] = useState<RankPreset | null>(null);
-  const [] = useState<number | null>(null);
-  const [presetModalTab, setPresetModalTab] = useState<'ranks' | 'rewards'>('ranks');
-  
-  // XP条件ルール管理
-  const [xpRules, setXpRules] = useState<XpConditionRule[]>([]);
-  const [showRuleModal, setShowRuleModal] = useState(false);
-  const [editingRule, setEditingRule] = useState<XpConditionRule | null>(null);
-  const [selectedPresetForRules, setSelectedPresetForRules] = useState<string | null>(null);
-  
-  // リセット確認ダイアログ
-  const [showResetConfirm, setShowResetConfirm] = useState(false);
-  const [resetTarget, setResetTarget] = useState<'all' | 'user'>('all');
-  const [resetUserId, setResetUserId] = useState('');
-  
-  // Panel creation state
-  const [, setNewPanel] = useState({
-    preset: '',
-    channelId: '',
-    topCount: 10
-  });
-
-  const { addToast } = (() => {
-    try {
-      return useAppToast();
-    } catch {
-      return { addToast: undefined } as any;
-    }
-  })();
-
-  // Load accessible guilds
-  useEffect(() => {
-    const loadGuilds = async () => {
-      try {
-        const res = await fetch('/api/staff/guilds', {
-          credentials: 'include',
-        });
-        if (res.ok) {
-          const data = await res.json();
-          setAccessibleGuilds(data.guilds || []);
-          if (data.guilds && data.guilds.length > 0) {
-            setSelectedGuildId(data.guilds[0].id);
-          }
-        } else {
-          addToast?.('ギルド一覧の読み込みに失敗しました', 'error');
-        }
-      } catch (err) {
-        console.error('Failed to load guilds:', err);
-        addToast?.('ギルド一覧の読み込みに失敗しました', 'error');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadGuilds();
-  }, []);
-
-  // Load rank data when guild is selected
-  useEffect(() => {
-    if (!selectedGuildId) return;
-
-    const loadRankData = async () => {
-      setLoading(true);
-      try {
-        // Load presets
-        const presetsRes = await fetch(
-          `/api/staff/rankmanager/presets?guildId=${selectedGuildId}`,
-          { credentials: 'include' }
-        );
-        if (presetsRes.ok) {
-          const data = await presetsRes.json();
-          setPresets(Array.isArray(data) ? data : []);
-        } else {
-          console.error('Failed to load presets:', await presetsRes.text());
-          setPresets([]);
-        }
-
-        // Load panels
-        const panelsRes = await fetch(
-          `/api/staff/rankmanager/panels?guildId=${selectedGuildId}`,
-          { credentials: 'include' }
-        );
-        if (panelsRes.ok) {
-          const data = await panelsRes.json();
-          setPanels(data || {});
-        } else {
-          console.error('Failed to load panels:', await panelsRes.text());
-          setPanels({});
-        }
-
-        // Load settings
-        const settingsRes = await fetch(
-          `/api/staff/rankmanager/settings?guildId=${selectedGuildId}`,
-          { credentials: 'include' }
-        );
-        if (settingsRes.ok) {
-          const data = await settingsRes.json();
-          setSettings(data);
-        } else {
-          console.error('Failed to load settings:', await settingsRes.text());
-        }
-
-        // Load channels from guilds endpoint
-        const channelsRes = await fetch(
-          `/api/staff/guilds/${selectedGuildId}/channels`,
-          { credentials: 'include' }
-        );
-        if (channelsRes.ok) {
-          const data = await channelsRes.json();
-          setChannels(data.channels || []);
-        }
-
-        // Load roles
-        const rolesRes = await fetch(
-          `/api/staff/guilds/${selectedGuildId}/roles`,
-          { credentials: 'include' }
-        );
-        if (rolesRes.ok) {
-          const data = await rolesRes.json();
-          setRoles(data.roles || []);
-        }
-      } catch (err) {
-        console.error('Failed to load rank data:', err);
-        addToast?.('ランクデータの読み込みに失敗しました', 'error');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadRankData();
-  }, [selectedGuildId]);
-
-  const handleCreatePreset = () => {
-    setEditingPreset({
-      name: '',
-      description: '',
-      ranks: [
-        { name: 'Bronze', minXp: 0, maxXp: 999, color: '#CD7F32' },
-        { name: 'Silver', minXp: 1000, maxXp: 4999, color: '#C0C0C0' },
-        { name: 'Gold', minXp: 5000, maxXp: 9999, color: '#FFD700' },
-      ],
-      rewards: []
-    });
-    setShowPresetModal(true);
-  };
-
-  const handleEditPreset = (preset: RankPreset) => {
-    setEditingPreset({ ...preset });
-    setShowPresetModal(true);
-  };
-
-  const handleSavePreset = async () => {
-    if (!editingPreset || !selectedGuildId) return;
-
-    // Validation
-    if (!editingPreset.name.trim()) {
-      addToast?.('プリセット名を入力してください', 'error');
-      return;
-    }
-
-    setSaving(true);
-    try {
-      const isNew = !presets.find(p => p.name === editingPreset.name);
-      const url = isNew
-        ? `/api/staff/rankmanager/presets`
-        : `/api/staff/rankmanager/presets/${editingPreset.name}`;
-      
-      const method = isNew ? 'POST' : 'PUT';
-
-      const res = await fetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ ...editingPreset, guildId: selectedGuildId }),
-      });
-
-      if (res.ok) {
-        addToast?.(`プリセット「${editingPreset.name}」を保存しました`, 'success');
-        setShowPresetModal(false);
-        setEditingPreset(null);
-        // Reload presets
-        const presetsRes = await fetch(
-          `/api/staff/rankmanager/presets?guildId=${selectedGuildId}`,
-          { credentials: 'include' }
-        );
-        if (presetsRes.ok) {
-          const data = await presetsRes.json();
-          setPresets(Array.isArray(data) ? data : []);
-        }
-      } else {
-        const error = await res.json();
-        addToast?.(error.error || 'プリセットの保存に失敗しました', 'error');
-      }
-    } catch (err) {
-      console.error('Failed to save preset:', err);
-      addToast?.('プリセットの保存に失敗しました', 'error');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleDeletePreset = async (presetName: string) => {
-    if (!selectedGuildId) return;
-    if (!confirm(`プリセット「${presetName}」を削除しますか？`)) return;
-
-    try {
-      const res = await fetch(
-        `/api/staff/rankmanager/presets/${presetName}?guildId=${selectedGuildId}`,
-        {
-          method: 'DELETE',
-          credentials: 'include',
-        }
-      );
-
-      if (res.ok) {
-        addToast?.(`プリセット「${presetName}」を削除しました`, 'success');
-        setPresets(presets.filter(p => p.name !== presetName));
-      } else {
-        const error = await res.json();
-        addToast?.(error.error || 'プリセットの削除に失敗しました', 'error');
-      }
-    } catch (err) {
-      console.error('Failed to delete preset:', err);
-      addToast?.('プリセットの削除に失敗しました', 'error');
-    }
-  };
-
-  const handleCreatePanel = () => {
-    setNewPanel({
-      preset: presets[0]?.name || '',
-      channelId: '',
-      topCount: 10
-    });
-    setShowPanelModal(true);
-  };
-
-
-  const handleDeletePanel = async (panelId: string) => {
-    if (!selectedGuildId) return;
-    if (!confirm('このパネルを削除しますか？')) return;
-
-    try {
-      const res = await fetch(
-        `/api/staff/rankmanager/panels/${panelId}?guildId=${selectedGuildId}`,
-        {
-          method: 'DELETE',
-          credentials: 'include',
-        }
-      );
-
-      if (res.ok) {
-        addToast?.('パネルを削除しました', 'success');
-        const newPanels = { ...panels };
-        delete newPanels[panelId];
-        setPanels(newPanels);
-      } else {
-        const error = await res.json();
-        addToast?.(error.error || 'パネルの削除に失敗しました', 'error');
-      }
-    } catch (err) {
-      console.error('Failed to delete panel:', err);
-      addToast?.('パネルの削除に失敗しました', 'error');
-    }
-  };
-
-  const handleSaveSettings = async () => {
-    if (!settings || !selectedGuildId) return;
-
-    setSaving(true);
-    try {
-      const res = await fetch(`/api/staff/rankmanager/settings`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ ...settings, guildId: selectedGuildId }),
-      });
-
-      if (res.ok) {
-        addToast?.('設定を保存しました', 'success');
-        setShowSettingsModal(false);
-      } else {
-        const error = await res.json();
-        addToast?.(error.error || '設定の保存に失敗しました', 'error');
-      }
-    } catch (err) {
-      console.error('Failed to save settings:', err);
-      addToast?.('設定の保存に失敗しました', 'error');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const addRankToPreset = () => {
-    if (!editingPreset) return;
-    const lastRank = editingPreset.ranks[editingPreset.ranks.length - 1];
-    setEditingPreset({
-      ...editingPreset,
-      ranks: [
-        ...editingPreset.ranks,
-        {
-          name: 'New Rank',
-          minXp: lastRank ? lastRank.maxXp + 1 : 0,
-          maxXp: lastRank ? lastRank.maxXp + 1000 : 999,
-          color: '#4A90E2'
-        }
-      ]
-    });
-  };
-
-  const updateRank = (index: number, field: keyof RankTier, value: any) => {
-    if (!editingPreset) return;
-    const newRanks = [...editingPreset.ranks];
-    newRanks[index] = { ...newRanks[index], [field]: value };
-    setEditingPreset({ ...editingPreset, ranks: newRanks });
-  };
-
-  const removeRank = (index: number) => {
-    if (!editingPreset || editingPreset.ranks.length <= 1) return;
-    const newRanks = editingPreset.ranks.filter((_, i) => i !== index);
-    setEditingPreset({ ...editingPreset, ranks: newRanks });
-  };
-
-  const addReward = () => {
-    if (!editingPreset || editingPreset.ranks.length === 0) return;
-    const newReward: RankReward = {
-      rankName: editingPreset.ranks[0].name,
-      notify: true
-    };
-    setEditingPreset({
-      ...editingPreset,
-      rewards: [...editingPreset.rewards, newReward]
-    });
-  };
-
-  const updateReward = (index: number, field: keyof RankReward, value: any) => {
-    if (!editingPreset) return;
-    const newRewards = [...editingPreset.rewards];
-    newRewards[index] = { ...newRewards[index], [field]: value };
-    setEditingPreset({ ...editingPreset, rewards: newRewards });
-  };
-
-  const removeReward = (index: number) => {
-    if (!editingPreset) return;
-    const newRewards = editingPreset.rewards.filter((_, i) => i !== index);
-    setEditingPreset({ ...editingPreset, rewards: newRewards });
-  };
-
-  // XP条件ルール管理
-  const loadXpRules = async (presetName: string) => {
-    if (!selectedGuildId) return;
-    try {
-      const res = await fetch(
-        `/api/staff/rankmanager/guilds/${selectedGuildId}/presets/${presetName}/rules`,
-        { credentials: 'include' }
-      );
-      if (res.ok) {
-        const data = await res.json();
-        setXpRules(Array.isArray(data) ? data : []);
-      }
-    } catch (err) {
-      console.error('Failed to load XP rules:', err);
-    }
-  };
-
-  const handleSaveRule = async () => {
-    if (!editingRule || !selectedGuildId || !selectedPresetForRules) return;
-
-    setSaving(true);
-    try {
-      const method = editingRule.id && editingRule.id.startsWith('new-') ? 'POST' : 'PUT';
-      const url = method === 'POST'
-        ? `/api/staff/rankmanager/guilds/${selectedGuildId}/presets/${selectedPresetForRules}/rules`
-        : `/api/staff/rankmanager/guilds/${selectedGuildId}/presets/${selectedPresetForRules}/rules/${editingRule.id}`;
-
-      const res = await fetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify(editingRule)
-      });
-
-      if (res.ok) {
-        addToast?.('ルールを保存しました', 'success');
-        setShowRuleModal(false);
-        loadXpRules(selectedPresetForRules);
-      } else {
-        const error = await res.json();
-        addToast?.(error.error || 'ルール保存に失敗しました', 'error');
-      }
-    } catch (err) {
-      console.error('Failed to save rule:', err);
-      addToast?.('ルール保存に失敗しました', 'error');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleDeleteRule = async (ruleId: string) => {
-    if (!selectedGuildId || !selectedPresetForRules) return;
-
-    try {
-      const res = await fetch(
-        `/api/staff/rankmanager/guilds/${selectedGuildId}/presets/${selectedPresetForRules}/rules/${ruleId}`,
-        { method: 'DELETE', credentials: 'include' }
-      );
-
-      if (res.ok) {
-        addToast?.('ルールを削除しました', 'success');
-        loadXpRules(selectedPresetForRules);
-      } else {
-        const error = await res.json();
-        addToast?.(error.error || 'ルール削除に失敗しました', 'error');
-      }
-    } catch (err) {
-      console.error('Failed to delete rule:', err);
-      addToast?.('ルール削除に失敗しました', 'error');
-    }
-  };
-
-  const handleResetRank = async () => {
-    if (!selectedGuildId) return;
-
-    setSaving(true);
-    try {
-      const res = await fetch(
-        `/api/staff/rankmanager/guilds/${selectedGuildId}/reset`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify({ userId: resetTarget === 'user' ? resetUserId : undefined })
-        }
-      );
-
-      if (res.ok) {
-        addToast?.(resetTarget === 'user' ? 'ユーザーのランクをリセットしました' : 'すべてのランクをリセットしました', 'success');
-        setShowResetConfirm(false);
-      } else {
-        const error = await res.json();
-        addToast?.(error.error || 'リセットに失敗しました', 'error');
-      }
-    } catch (err) {
-      console.error('Failed to reset rank:', err);
-      addToast?.('リセットに失敗しました', 'error');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  if (loading) {
-    return (
-      <div className={styles.container}>
-        <div className={styles.loading}>
-          <i className="material-icons-outlined">hourglass_empty</i>
-          <h2>読み込み中...</h2>
-        </div>
-      </div>
-    );
-  }
-
+  actionType: "message" | "reaction" | "voiceChat" | "invite" | "custom";
+  description?: string;
+  channels?: string[];
+  roles?: string[];
+  xpReward: number;
+  xpRewardMin?: number;
+  xpRewardMax?: number;
+  cooldownSec?: number;
+  maxPerDay?: number;
+  isActive: boolean;
+};
+type Panel = {
+  preset: string;
+  channelId: string;
+  messageId: string;
+  lastUpdate: string;
+  topCount?: number;
+};
+type Tab = "presets" | "settings" | "rules" | "panels" | "reset";
+const base = "/api/staff/rankmanager";
+export default function RankManagerPage() {
   return (
-    <div className={styles.container}>
-      {/* Top Bar */}
-      <div className={styles.topBar}>
-        <div className={styles.topBarContent}>
-          <div className={styles.titleSection}>
-            <button className={styles.backButton} onClick={() => navigate('/staff')}>
-              <i className="material-icons">arrow_back</i>
-            </button>
-            <div>
-              <h1>ランキング管理</h1>
-              <p className={styles.subtitle}>ギルドのランクシステムを管理</p>
-            </div>
-          </div>
-          <div className={styles.guildSelector}>
-            <i className="material-icons-outlined">dns</i>
-            <select
-              value={selectedGuildId || ''}
-              onChange={(e) => setSelectedGuildId(e.target.value)}
-              className={styles.select}
-            >
-              {accessibleGuilds.map(guild => (
-                <option key={guild.id} value={guild.id}>{guild.name}</option>
-              ))}
-            </select>
-          </div>
-        </div>
+    <ServerWorkspace
+      title="ランキング管理"
+      description="ランク、XPの獲得条件、報酬とランキングパネルを順番に設定できます。"
+    >
+      {(guild) => <Ranking guildId={guild.id} guildName={guild.name} />}
+    </ServerWorkspace>
+  );
+}
+function Ranking({
+  guildId,
+  guildName,
+}: {
+  guildId: string;
+  guildName: string;
+}) {
+  const [tab, setTab] = useState<Tab>("presets");
+  const presets = useResource<Preset[]>(`${base}/presets?guildId=${guildId}`);
+  const channels = useResource<{ channels: Channel[] }>(
+    `/api/staff/guilds/${guildId}/channels`,
+  );
+  const roles = useResource<{ roles: Role[] }>(
+    `/api/staff/guilds/${guildId}/roles`,
+  );
+  return (
+    <>
+      <Tabs
+        value={tab}
+        onChange={(next) => {
+          if (confirmWorkspaceLeave()) setTab(next);
+        }}
+        options={[
+          ["presets", "ランクと報酬"],
+          ["settings", "XPの基本設定"],
+          ["rules", "XP獲得ルール"],
+          ["panels", "投稿済みパネル"],
+          ["reset", "データのリセット"],
+        ]}
+      />
+      {presets.loading ||
+      presets.error ||
+      channels.loading ||
+      channels.error ||
+      roles.loading ||
+      roles.error ? (
+        <ResourceState
+          loading={presets.loading || channels.loading || roles.loading}
+          error={presets.error || channels.error || roles.error}
+          retry={() => {
+            presets.reload();
+            channels.reload();
+            roles.reload();
+          }}
+        />
+      ) : (
+        <>
+          {tab === "presets" && (
+            <PresetManager
+              guildId={guildId}
+              presets={presets.data || []}
+              reload={presets.reload}
+              roles={roles.data?.roles || []}
+            />
+          )}
+          {tab === "settings" && (
+            <XpSettings
+              guildId={guildId}
+              channels={channels.data?.channels || []}
+              roles={roles.data?.roles || []}
+            />
+          )}
+          {tab === "rules" && (
+            <Rules
+              guildId={guildId}
+              presets={presets.data || []}
+              channels={channels.data?.channels || []}
+              roles={roles.data?.roles || []}
+            />
+          )}
+          {tab === "panels" && (
+            <Panels
+              guildId={guildId}
+              channels={channels.data?.channels || []}
+            />
+          )}
+          {tab === "reset" && <Reset guildId={guildId} guildName={guildName} />}
+        </>
+      )}
+    </>
+  );
+}
+function PresetManager({
+  guildId,
+  presets,
+  reload,
+  roles,
+}: {
+  guildId: string;
+  presets: Preset[];
+  reload: () => void;
+  roles: Role[];
+}) {
+  const [query, setQuery] = useState("");
+  const [draft, setDraft] = useState<Preset | null>(null);
+  const [originalName, setOriginalName] = useState("");
+  const [baseline, setBaseline] = useState("");
+  const action = useAction();
+  const dirty = !!draft && JSON.stringify(draft) !== baseline;
+  const edit = (value?: Preset) => {
+    if (!confirmWorkspaceLeave()) return;
+    const next = structuredClone(
+      value || {
+        name: "",
+        description: "",
+        ranks: [{ name: "ビギナー", minXp: 0, maxXp: 100, color: "#6b8e7e" }],
+        rewards: [],
+      },
+    );
+    setDraft(next);
+    setOriginalName(value?.name || "");
+    setBaseline(value ? JSON.stringify(next) : "");
+  };
+  const patch = (value: Partial<Preset>) =>
+    setDraft((current) => (current ? { ...current, ...value } : current));
+  const rank = (index: number, value: Partial<Tier>) => {
+    if (draft)
+      patch({
+        ranks: draft.ranks.map((entry, i) =>
+          i === index ? { ...entry, ...value } : entry,
+        ),
+      });
+  };
+  const reward = (index: number, value: Partial<Reward>) => {
+    if (draft)
+      patch({
+        rewards: draft.rewards.map((entry, i) =>
+          i === index ? { ...entry, ...value } : entry,
+        ),
+      });
+  };
+  return (
+    <>
+      <Feedback {...action} />
+      <div className={ui.toolbar}>
+        <input
+          aria-label="ランク設定を検索"
+          type="search"
+          placeholder="プリセット名で検索"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+        <button type="button" className={ui.primary} onClick={() => edit()}>
+          ランク設定を作成
+        </button>
       </div>
-
-      {selectedGuildId && (
-        <div className={styles.mainContent}>
-          {/* Tabs */}
-          <div className={styles.tabs}>
-            <button
-              className={`${styles.tab} ${activeTab === 'presets' ? styles.tabActive : ''}`}
-              onClick={() => setActiveTab('presets')}
-            >
-              <i className="material-icons-outlined">category</i>
-              プリセット
-            </button>
-            <button
-              className={`${styles.tab} ${activeTab === 'panels' ? styles.tabActive : ''}`}
-              onClick={() => setActiveTab('panels')}
-            >
-              <i className="material-icons-outlined">dashboard</i>
-              パネル
-            </button>
-            <button
-              className={`${styles.tab} ${activeTab === 'settings' ? styles.tabActive : ''}`}
-              onClick={() => setActiveTab('settings')}
-            >
-              <i className="material-icons-outlined">settings</i>
-              設定
-            </button>
-            <button
-              className={`${styles.tab} ${activeTab === 'rules' ? styles.tabActive : ''}`}
-              onClick={() => {
-                if (presets.length > 0) {
-                  setSelectedPresetForRules(presets[0].name);
-                  loadXpRules(presets[0].name);
+      <div className={ui.split}>
+        <div className={ui.list}>
+          {presets
+            .filter((entry) =>
+              entry.name.toLowerCase().includes(query.toLowerCase()),
+            )
+            .map((entry) => (
+              <button
+                key={entry.name}
+                type="button"
+                className={ui.listButton}
+                onClick={() => edit(entry)}
+                aria-current={originalName === entry.name ? "true" : undefined}
+              >
+                <span>
+                  <strong>{entry.name}</strong>
+                  <small>
+                    {entry.ranks.length} 段階 · 報酬 {entry.rewards.length} 件
+                  </small>
+                </span>
+              </button>
+            ))}
+          {!presets.length && (
+            <ResourceState
+              loading={false}
+              empty="ランク設定を作成すると、XPと報酬を運用できます。"
+            />
+          )}
+        </div>
+        {draft ? (
+          <form
+            id="rank-preset"
+            className={ui.card}
+            onSubmit={(e) => {
+              e.preventDefault();
+              void action.run(async () => {
+                if (
+                  draft.ranks.some(
+                    (entry) => !entry.name.trim() || entry.minXp >= entry.maxXp,
+                  )
+                )
+                  throw new Error(
+                    "各ランクの名前とXP範囲（開始 < 終了）を確認してください。",
+                  );
+                const data = await request<{ preset: Preset }>(
+                  `${base}/presets${originalName ? "/" + encodeURIComponent(originalName) : ""}`,
+                  originalName ? "PUT" : "POST",
+                  { ...draft, guildId },
+                );
+                setDraft(data.preset);
+                setOriginalName(data.preset.name);
+                setBaseline(JSON.stringify(data.preset));
+                reload();
+              }, "ランク設定を保存しました。");
+            }}
+          >
+            <fieldset className={ui.stack} disabled={action.busy}>
+              <h2>{originalName ? "ランク設定を編集" : "ランク設定を作成"}</h2>
+              <label>
+                プリセット名
+                <input
+                  required
+                  maxLength={100}
+                  disabled={!!originalName}
+                  value={draft.name}
+                  onChange={(e) => patch({ name: e.target.value })}
+                />
+              </label>
+              <label>
+                説明
+                <textarea
+                  maxLength={1000}
+                  value={draft.description || ""}
+                  onChange={(e) => patch({ description: e.target.value })}
+                />
+              </label>
+              <h3>ランクの段階</h3>
+              {draft.ranks.map((entry, index) => (
+                <section className={ui.card} key={index}>
+                  <div className={ui.formGrid}>
+                    <label>
+                      ランク名
+                      <input
+                        aria-label={`ランク${index + 1}の名前`}
+                        required
+                        value={entry.name}
+                        onChange={(e) => rank(index, { name: e.target.value })}
+                      />
+                    </label>
+                    <label>
+                      色
+                      <input
+                        aria-label={`ランク${index + 1}の色`}
+                        type="color"
+                        value={
+                          /^#[0-9a-f]{6}$/i.test(entry.color || "")
+                            ? entry.color
+                            : "#6b8e7e"
+                        }
+                        onChange={(e) => rank(index, { color: e.target.value })}
+                      />
+                    </label>
+                    <label>
+                      開始XP
+                      <input
+                        type="number"
+                        min={0}
+                        required
+                        value={entry.minXp}
+                        onChange={(e) =>
+                          rank(index, { minXp: Number(e.target.value) })
+                        }
+                      />
+                    </label>
+                    <label>
+                      終了XP
+                      <input
+                        type="number"
+                        min={entry.minXp + 1}
+                        required
+                        value={entry.maxXp}
+                        onChange={(e) =>
+                          rank(index, { maxXp: Number(e.target.value) })
+                        }
+                      />
+                    </label>
+                    <label>
+                      アイコン（絵文字）
+                      <input
+                        value={entry.icon || ""}
+                        maxLength={100}
+                        onChange={(e) => rank(index, { icon: e.target.value })}
+                      />
+                    </label>
+                  </div>
+                  <button
+                    type="button"
+                    className={ui.danger}
+                    disabled={draft.ranks.length <= 1}
+                    onClick={() =>
+                      patch({
+                        ranks: draft.ranks.filter((_, i) => i !== index),
+                      })
+                    }
+                  >
+                    この段階を削除
+                  </button>
+                </section>
+              ))}
+              <button
+                type="button"
+                className={ui.secondary}
+                onClick={() => {
+                  const min = draft.ranks[draft.ranks.length - 1]?.maxXp || 0;
+                  patch({
+                    ranks: [
+                      ...draft.ranks,
+                      {
+                        name: "新しいランク",
+                        minXp: min,
+                        maxXp: min + 100,
+                        color: "#6b8e7e",
+                      },
+                    ],
+                  });
+                }}
+              >
+                段階を追加
+              </button>
+              <h3>ランクアップ報酬</h3>
+              {draft.rewards.map((entry, index) => (
+                <section key={index} className={ui.card}>
+                  <div className={ui.stack}>
+                    <label>
+                      対象ランク
+                      <select
+                        aria-label="報酬の対象ランク"
+                        value={entry.rankName}
+                        onChange={(e) =>
+                          reward(index, { rankName: e.target.value })
+                        }
+                      >
+                        {draft.ranks.map((tier) => (
+                          <option key={tier.name} value={tier.name}>
+                            {tier.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <RoleSelect
+                      label="付与ロール"
+                      value={entry.giveRoleId || ""}
+                      roles={roles}
+                      onChange={(giveRoleId) => reward(index, { giveRoleId })}
+                    />
+                    <label className={ui.check}>
+                      <input
+                        type="checkbox"
+                        checked={!!entry.notify}
+                        onChange={(e) =>
+                          reward(index, { notify: e.target.checked })
+                        }
+                      />
+                      ランクアップを通知する
+                    </label>
+                    <label>
+                      通知メッセージ
+                      <textarea
+                        value={entry.customMessage || ""}
+                        onChange={(e) =>
+                          reward(index, { customMessage: e.target.value })
+                        }
+                      />
+                    </label>
+                    <details>
+                      <summary>Webhookの設定</summary>
+                      <label>
+                        Webhook URL
+                        <input
+                          type="url"
+                          value={entry.webhookUrl || ""}
+                          onChange={(e) =>
+                            reward(index, { webhookUrl: e.target.value })
+                          }
+                        />
+                      </label>
+                    </details>
+                    <button
+                      type="button"
+                      className={ui.danger}
+                      onClick={() =>
+                        patch({
+                          rewards: draft.rewards.filter((_, i) => i !== index),
+                        })
+                      }
+                    >
+                      報酬を削除
+                    </button>
+                  </div>
+                </section>
+              ))}
+              <button
+                type="button"
+                className={ui.secondary}
+                onClick={() =>
+                  patch({
+                    rewards: [
+                      ...draft.rewards,
+                      { rankName: draft.ranks[0]?.name || "", notify: true },
+                    ],
+                  })
                 }
-                setActiveTab('rules');
+              >
+                報酬を追加
+              </button>
+              {originalName && (
+                <button
+                  type="button"
+                  className={ui.danger}
+                  onClick={() => {
+                    if (window.confirm(`「${originalName}」を削除しますか？`))
+                      void action.run(async () => {
+                        await request(
+                          `${base}/presets/${encodeURIComponent(originalName)}?guildId=${guildId}`,
+                          "DELETE",
+                        );
+                        setDraft(null);
+                        reload();
+                      }, "ランク設定を削除しました。");
+                  }}
+                >
+                  このランク設定を削除
+                </button>
+              )}
+            </fieldset>
+            <SaveBar
+              busy={action.busy}
+              dirty={dirty}
+              form="rank-preset"
+              onDiscard={() => {
+                if (baseline) setDraft(JSON.parse(baseline));
+                else setDraft(null);
+              }}
+            />
+          </form>
+        ) : (
+          <ResourceState
+            loading={false}
+            empty="ランク設定を選択するか、新しく作成してください。"
+          />
+        )}
+      </div>
+    </>
+  );
+}
+function XpSettings({
+  guildId,
+  channels,
+  roles,
+}: {
+  guildId: string;
+  channels: Channel[];
+  roles: Role[];
+}) {
+  const resource = useResource<Settings>(`${base}/settings?guildId=${guildId}`);
+  const [draft, setDraft] = useState<Settings | null>(null);
+  const action = useAction();
+  useEffect(() => {
+    if (resource.data) setDraft(resource.data);
+  }, [resource.data]);
+  if (resource.loading || resource.error || !draft)
+    return <ResourceState {...resource} retry={resource.reload} />;
+  const patch = (key: keyof Settings["xpRates"], value: number | string[]) =>
+    setDraft({ ...draft, xpRates: { ...draft.xpRates, [key]: value } });
+  return (
+    <>
+      <Feedback {...action} />
+      <form
+        id="xp-settings"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void action.run(async () => {
+            const next = await request<{ settings: Settings }>(
+              `${base}/settings`,
+              "PUT",
+              { ...draft, guildId },
+            );
+            resource.setData(next.settings);
+          }, "XPの設定を保存しました。");
+        }}
+      >
+        <fieldset disabled={action.busy} className={ui.stack}>
+          <section className={ui.card}>
+            <h2>XPの獲得量と制限</h2>
+            <p>メッセージや通話への参加で獲得するXPを設定します。</p>
+            <div className={ui.formGrid}>
+              {(
+                [
+                  ["messageXp", "メッセージ1件のXP", 0],
+                  ["messageXpMin", "メッセージXPの最小値", 0],
+                  ["messageXpMax", "メッセージXPの最大値", 0],
+                  ["messageCooldownSec", "メッセージXPの待機時間（秒）", 1],
+                  ["vcXpPerMinute", "通話1分のXP", 0],
+                  ["vcXpPerMinuteMin", "通話XPの最小値", 0],
+                  ["vcXpPerMinuteMax", "通話XPの最大値", 0],
+                  ["dailyXpCap", "1日のXP上限（0で無制限）", 0],
+                  ["globalMultiplier", "全体のXP倍率", 0.1],
+                ] as const
+              ).map(([key, label, min]) => (
+                <label key={key}>
+                  {label}
+                  <input
+                    type="number"
+                    required
+                    min={min}
+                    step={key === "globalMultiplier" ? 0.1 : 1}
+                    value={draft.xpRates[key] ?? 0}
+                    onChange={(e) => patch(key, Number(e.target.value))}
+                  />
+                </label>
+              ))}
+            </div>
+          </section>
+          <section className={ui.card}>
+            <h2>通知とパネル更新</h2>
+            <div className={ui.formGrid}>
+              <ChannelSelect
+                optional
+                label="ランクアップ通知先"
+                value={draft.notifyChannelId || ""}
+                onChange={(notifyChannelId) =>
+                  setDraft({ ...draft, notifyChannelId })
+                }
+                channels={channels}
+              />
+              <label>
+                パネル更新間隔（分）
+                <input
+                  type="number"
+                  min={1}
+                  value={draft.updateIntervalMs / 60000}
+                  onChange={(e) =>
+                    setDraft({
+                      ...draft,
+                      updateIntervalMs: Number(e.target.value) * 60000,
+                    })
+                  }
+                />
+              </label>
+            </div>
+          </section>
+          <section className={ui.card}>
+            <h2>XPを付与しない対象</h2>
+            <div className={ui.grid}>
+              <section>
+                <h3>チャンネル</h3>
+                {channels.map((channel) => (
+                  <label key={channel.id} className={ui.check}>
+                    <input
+                      type="checkbox"
+                      checked={draft.xpRates.excludeChannels.includes(
+                        channel.id,
+                      )}
+                      onChange={(e) =>
+                        patch(
+                          "excludeChannels",
+                          e.target.checked
+                            ? [...draft.xpRates.excludeChannels, channel.id]
+                            : draft.xpRates.excludeChannels.filter(
+                                (id) => id !== channel.id,
+                              ),
+                        )
+                      }
+                    />
+                    #{channel.name}
+                  </label>
+                ))}
+              </section>
+              <section>
+                <h3>ロール</h3>
+                {roles.map((role) => (
+                  <label key={role.id} className={ui.check}>
+                    <input
+                      type="checkbox"
+                      checked={draft.xpRates.excludeRoles.includes(role.id)}
+                      onChange={(e) =>
+                        patch(
+                          "excludeRoles",
+                          e.target.checked
+                            ? [...draft.xpRates.excludeRoles, role.id]
+                            : draft.xpRates.excludeRoles.filter(
+                                (id) => id !== role.id,
+                              ),
+                        )
+                      }
+                    />
+                    @{role.name}
+                  </label>
+                ))}
+              </section>
+            </div>
+          </section>
+        </fieldset>
+        <SaveBar
+          form="xp-settings"
+          busy={action.busy}
+          dirty={JSON.stringify(draft) !== JSON.stringify(resource.data)}
+          onDiscard={() => setDraft(resource.data)}
+        />
+      </form>
+    </>
+  );
+}
+function Rules({
+  guildId,
+  presets,
+  channels,
+  roles,
+}: {
+  guildId: string;
+  presets: Preset[];
+  channels: Channel[];
+  roles: Role[];
+}) {
+  const [preset, setPreset] = useState(presets[0]?.name || "");
+  const resource = useResource<Rule[]>(
+    preset
+      ? `${base}/guilds/${guildId}/presets/${encodeURIComponent(preset)}/rules`
+      : null,
+  );
+  const action = useAction();
+  const [draft, setDraft] = useState<Rule | null>(null);
+  const [existing, setExisting] = useState(false);
+  useUnsavedChanges(!!draft);
+  const ruleUrl = `${base}/guilds/${guildId}/presets/${encodeURIComponent(preset)}/rules`;
+  return (
+    <div className={ui.stack}>
+      <Feedback {...action} />
+      <label>
+        ルールを設定するプリセット
+        <select
+          aria-label="ルールを設定するプリセット"
+          value={preset}
+          onChange={(e) => {
+            if (
+              !draft ||
+              window.confirm("ルールの編集中です。切り替えますか？")
+            ) {
+              setPreset(e.target.value);
+              setDraft(null);
+            }
+          }}
+        >
+          {presets.map((entry) => (
+            <option key={entry.name} value={entry.name}>
+              {entry.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      {!preset ? (
+        <ResourceState
+          loading={false}
+          empty="先に「ランクと報酬」でプリセットを作成してください。"
+        />
+      ) : (
+        <>
+          <button
+            type="button"
+            className={ui.primary}
+            disabled={!!draft}
+            onClick={() => {
+              setExisting(false);
+              setDraft({
+                id: crypto.randomUUID(),
+                name: "",
+                actionType: "message",
+                xpReward: 10,
+                isActive: true,
+                channels: [],
+                roles: [],
+              });
+            }}
+          >
+            XPルールを作成
+          </button>
+          {resource.loading || resource.error ? (
+            <ResourceState {...resource} retry={resource.reload} />
+          ) : (
+            <div className={ui.list}>
+              {resource.data?.map((rule) => (
+                <button
+                  type="button"
+                  key={rule.id}
+                  className={ui.listButton}
+                  onClick={() => {
+                    if (
+                      !draft ||
+                      window.confirm("編集中のルールを閉じますか？")
+                    ) {
+                      setExisting(true);
+                      setDraft(structuredClone(rule));
+                    }
+                  }}
+                >
+                  <span>
+                    <strong>{rule.name}</strong>
+                    <small>
+                      {rule.xpReward} XP · {rule.isActive ? "有効" : "停止中"}
+                    </small>
+                  </span>
+                  <span>編集 ›</span>
+                </button>
+              ))}
+              {!resource.data?.length && <p>XPルールはありません。</p>}
+            </div>
+          )}
+          {draft && (
+            <form
+              className={ui.card}
+              onSubmit={(e) => {
+                e.preventDefault();
+                void action.run(async () => {
+                  await request(
+                    ruleUrl +
+                      (existing ? "/" + encodeURIComponent(draft.id) : ""),
+                    existing ? "PUT" : "POST",
+                    draft,
+                  );
+                  setDraft(null);
+                  resource.reload();
+                }, "XPルールを保存しました。");
               }}
             >
-              <i className="material-icons-outlined">rule</i>
-              XP条件
-            </button>
-            <button
-              className={`${styles.tab} ${activeTab === 'advanced' ? styles.tabActive : ''}`}
-              onClick={() => setActiveTab('advanced')}
-            >
-              <i className="material-icons-outlined">tune</i>
-              アドバンス
-            </button>
-          </div>
-
-          {/* Tab Content */}
-          <div className={styles.tabContent}>
-            {activeTab === 'presets' && (
-              <div className={styles.tabPanel}>
-                <div className={styles.panelHeader}>
-                  <h2>ランクプリセット</h2>
-                  <button className={styles.primaryButton} onClick={handleCreatePreset}>
-                    <i className="material-icons">add</i>
-                    新規作成
-                  </button>
-                </div>
-
-                {presets.length === 0 ? (
-                  <div className={styles.emptyState}>
-                    <i className="material-icons-outlined">category</i>
-                    <p>プリセットがありません</p>
-                    <button className={styles.primaryButton} onClick={handleCreatePreset}>
-                      最初のプリセットを作成
-                    </button>
-                  </div>
-                ) : (
-                  <div className={styles.presetsList}>
-                    {presets.map(preset => (
-                      <div key={preset.name} className={styles.presetCard}>
-                        <div className={styles.cardHeader}>
-                          <div>
-                            <h3>{preset.name}</h3>
-                            <p className={styles.cardDescription}>{preset.description || '説明なし'}</p>
-                          </div>
-                          <div className={styles.cardActions}>
-                            <button 
-                              className={styles.iconButton}
-                              onClick={() => handleEditPreset(preset)}
-                              title="編集"
-                            >
-                              <i className="material-icons-outlined">edit</i>
-                            </button>
-                            <button 
-                              className={styles.iconButton}
-                              onClick={() => handleDeletePreset(preset.name)}
-                              title="削除"
-                            >
-                              <i className="material-icons-outlined">delete</i>
-                            </button>
-                          </div>
-                        </div>
-                        <div className={styles.ranksList}>
-                          {preset.ranks.map((rank, idx) => (
-                            <div key={idx} className={styles.rankBadge} style={{ borderLeftColor: rank.color }}>
-                              <span style={{ color: rank.color, fontWeight: 500 }}>{rank.name}</span>
-                              <span className={styles.xpRange}>{rank.minXp} - {rank.maxXp} XP</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {activeTab === 'panels' && (
-              <div className={styles.tabPanel}>
-                <div className={styles.panelHeader}>
-                  <h2>ランクパネル</h2>
-                  <button className={styles.primaryButton} onClick={handleCreatePanel}>
-                    <i className="material-icons">add</i>
-                    パネル作成
-                  </button>
-                </div>
-
-                {Object.keys(panels).length === 0 ? (
-                  <div className={styles.emptyState}>
-                    <i className="material-icons-outlined">dashboard</i>
-                    <p>パネルがありません</p>
-                    <button className={styles.primaryButton} onClick={handleCreatePanel}>
-                      最初のパネルを作成
-                    </button>
-                  </div>
-                ) : (
-                  <div className={styles.panelsList}>
-                    {Object.entries(panels).map(([panelId, panel]) => (
-                      <div key={panelId} className={styles.panelCard}>
-                        <div className={styles.cardHeader}>
-                          <h3>パネル: {panel.preset}</h3>
-                          <button 
-                            className={styles.iconButton}
-                            onClick={() => handleDeletePanel(panelId)}
-                            title="削除"
-                          >
-                            <i className="material-icons-outlined">delete</i>
-                          </button>
-                        </div>
-                        <div className={styles.panelInfo}>
-                          <div className={styles.infoRow}>
-                            <i className="material-icons-outlined">tag</i>
-                            <span>チャンネル ID:</span>
-                            <code>{panel.channelId}</code>
-                          </div>
-                          <div className={styles.infoRow}>
-                            <i className="material-icons-outlined">schedule</i>
-                            <span>最終更新:</span>
-                            <span>{new Date(panel.lastUpdate).toLocaleString('ja-JP')}</span>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {activeTab === 'settings' && settings && (
-              <div className={styles.tabPanel}>
-                <div className={styles.panelHeader}>
-                  <h2>XP設定</h2>
-                  <button 
-                    className={styles.primaryButton}
-                    onClick={handleSaveSettings}
-                    disabled={saving}
-                  >
-                    {saving ? '保存中...' : '保存'}
-                  </button>
-                </div>
-
-                <div className={styles.settingsForm}>
-                  <div className={styles.formSection}>
-                    <h3>メッセージ設定</h3>
-                    <div className={styles.formGrid}>
-                      <div className={styles.formGroup}>
-                        <label>メッセージXP (固定)</label>
-                        <input
-                          type="number"
-                          value={settings.xpRates.messageXp}
-                          onChange={(e) => setSettings({
-                            ...settings,
-                            xpRates: { ...settings.xpRates, messageXp: parseInt(e.target.value) || 0 }
-                          })}
-                          min="0"
-                        />
-                        <span className={styles.helpText}>固定XP値 (ランダム無効時はこちらを使用)</span>
-                      </div>
-                      <div className={styles.formGroup}>
-                        <label>メッセージXP Min</label>
-                        <input
-                          type="number"
-                          value={settings.xpRates.messageXpMin || ''}
-                          onChange={(e) => setSettings({
-                            ...settings,
-                            xpRates: { ...settings.xpRates, messageXpMin: parseInt(e.target.value) || undefined }
-                          })}
-                          min="0"
-                          placeholder="ランダム無効"
-                        />
-                        <span className={styles.helpText}>ランダムXPの下限</span>
-                      </div>
-                      <div className={styles.formGroup}>
-                        <label>メッセージXP Max</label>
-                        <input
-                          type="number"
-                          value={settings.xpRates.messageXpMax || ''}
-                          onChange={(e) => setSettings({
-                            ...settings,
-                            xpRates: { ...settings.xpRates, messageXpMax: parseInt(e.target.value) || undefined }
-                          })}
-                          min="0"
-                          placeholder="ランダム無効"
-                        />
-                        <span className={styles.helpText}>ランダムXPの上限</span>
-                      </div>
-                      <div className={styles.formGroup}>
-                        <label>クールダウン (秒)</label>
-                        <input
-                          type="number"
-                          value={settings.xpRates.messageCooldownSec}
-                          onChange={(e) => setSettings({
-                            ...settings,
-                            xpRates: { ...settings.xpRates, messageCooldownSec: parseInt(e.target.value) || 0 }
-                          })}
-                          min="0"
-                        />
-                        <span className={styles.helpText}>XP獲得のクールダウン時間</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className={styles.formSection}>
-                    <h3>ボイスチャット設定</h3>
-                    <div className={styles.formGrid}>
-                      <div className={styles.formGroup}>
-                        <label>VC XP (毎分・固定)</label>
-                        <input
-                          type="number"
-                          value={settings.xpRates.vcXpPerMinute}
-                          onChange={(e) => setSettings({
-                            ...settings,
-                            xpRates: { ...settings.xpRates, vcXpPerMinute: parseInt(e.target.value) || 0 }
-                          })}
-                          min="0"
-                        />
-                        <span className={styles.helpText}>固定XP値 (ランダム無効時はこちらを使用)</span>
-                      </div>
-                      <div className={styles.formGroup}>
-                        <label>VC XP Min (毎分)</label>
-                        <input
-                          type="number"
-                          value={settings.xpRates.vcXpPerMinuteMin || ''}
-                          onChange={(e) => setSettings({
-                            ...settings,
-                            xpRates: { ...settings.xpRates, vcXpPerMinuteMin: parseInt(e.target.value) || undefined }
-                          })}
-                          min="0"
-                          placeholder="ランダム無効"
-                        />
-                        <span className={styles.helpText}>ランダムXPの下限</span>
-                      </div>
-                      <div className={styles.formGroup}>
-                        <label>VC XP Max (毎分)</label>
-                        <input
-                          type="number"
-                          value={settings.xpRates.vcXpPerMinuteMax || ''}
-                          onChange={(e) => setSettings({
-                            ...settings,
-                            xpRates: { ...settings.xpRates, vcXpPerMinuteMax: parseInt(e.target.value) || undefined }
-                          })}
-                          min="0"
-                          placeholder="ランダム無効"
-                        />
-                        <span className={styles.helpText}>ランダムXPの上限</span>
-                      </div>
-                      <div className={styles.formGroup}>
-                        <label>VC計測間隔 (秒)</label>
-                        <input
-                          type="number"
-                          value={settings.xpRates.vcIntervalSec}
-                          onChange={(e) => setSettings({
-                            ...settings,
-                            xpRates: { ...settings.xpRates, vcIntervalSec: parseInt(e.target.value) || 60 }
-                          })}
-                          min="1"
-                          max="3600"
-                        />
-                        <span className={styles.helpText}>VCのXP計算間隔</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className={styles.formSection}>
-                    <h3>制限設定</h3>
-                    <div className={styles.formGrid}>
-                      <div className={styles.formGroup}>
-                        <label>日次XP上限</label>
-                        <input
-                          type="number"
-                          value={settings.xpRates.dailyXpCap}
-                          onChange={(e) => setSettings({
-                            ...settings,
-                            xpRates: { ...settings.xpRates, dailyXpCap: parseInt(e.target.value) || 0 }
-                          })}
-                          min="0"
-                        />
-                        <span className={styles.helpText}>0 = 無制限</span>
-                      </div>
-                      <div className={styles.formGroup}>
-                        <label>グローバル倍率</label>
-                        <input
-                          type="number"
-                          step="0.1"
-                          value={settings.xpRates.globalMultiplier}
-                          onChange={(e) => setSettings({
-                            ...settings,
-                            xpRates: { ...settings.xpRates, globalMultiplier: parseFloat(e.target.value) || 1.0 }
-                          })}
-                          min="0.1"
-                          max="10"
-                        />
-                        <span className={styles.helpText}>イベント時などのXP倍率</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className={styles.formSection}>
-                    <h3>パネル設定</h3>
-                    <div className={styles.formGrid}>
-                      <div className={styles.formGroup}>
-                        <label>更新間隔 (分)</label>
-                        <input
-                          type="number"
-                          value={Math.round(settings.updateIntervalMs / 60000)}
-                          onChange={(e) => setSettings({
-                            ...settings,
-                            updateIntervalMs: (parseInt(e.target.value) || 5) * 60000
-                          })}
-                          min="1"
-                          max="60"
-                        />
-                        <span className={styles.helpText}>パネルの自動更新間隔</span>
-                      </div>
-                      <div className={styles.formGroup}>
-                        <label>通知チャンネル</label>
-                        <select
-                          value={settings.notifyChannelId || ''}
-                          onChange={(e) => setSettings({
-                            ...settings,
-                            notifyChannelId: e.target.value || undefined
-                          })}
-                        >
-                          <option value="">未設定</option>
-                          {channels.filter(ch => ch.type === 0).map(channel => (
-                            <option key={channel.id} value={channel.id}>{channel.name}</option>
-                          ))}
-                        </select>
-                        <span className={styles.helpText}>ランクアップ通知を送信するチャンネル</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className={styles.formSection}>
-                    <h3>除外設定</h3>
-                    <div className={styles.formGroup}>
-                      <label>除外チャンネル</label>
-                      <div className={styles.multiSelect}>
-                        {channels.filter(ch => ch.type === 0).map(channel => (
-                          <label key={channel.id} className={styles.checkboxLabel}>
-                            <input
-                              type="checkbox"
-                              checked={settings.xpRates.excludeChannels.includes(channel.id)}
-                              onChange={(e) => {
-                                const newExclude = e.target.checked
-                                  ? [...settings.xpRates.excludeChannels, channel.id]
-                                  : settings.xpRates.excludeChannels.filter(id => id !== channel.id);
-                                setSettings({
-                                  ...settings,
-                                  xpRates: { ...settings.xpRates, excludeChannels: newExclude }
-                                });
-                              }}
-                            />
-                            <span>#{channel.name}</span>
-                          </label>
-                        ))}
-                      </div>
-                      <span className={styles.helpText}>これらのチャンネルではXPを獲得できません</span>
-                    </div>
-
-                    <div className={styles.formGroup}>
-                      <label>除外ロール</label>
-                      <div className={styles.multiSelect}>
-                        {roles.map(role => (
-                          <label key={role.id} className={styles.checkboxLabel}>
-                            <input
-                              type="checkbox"
-                              checked={settings.xpRates.excludeRoles.includes(role.id)}
-                              onChange={(e) => {
-                                const newExclude = e.target.checked
-                                  ? [...settings.xpRates.excludeRoles, role.id]
-                                  : settings.xpRates.excludeRoles.filter(id => id !== role.id);
-                                setSettings({
-                                  ...settings,
-                                  xpRates: { ...settings.xpRates, excludeRoles: newExclude }
-                                });
-                              }}
-                            />
-                            <span style={{ color: role.color ? `#${role.color.toString(16).padStart(6, '0')}` : undefined }}>
-                              @{role.name}
-                            </span>
-                          </label>
-                        ))}
-                      </div>
-                      <span className={styles.helpText}>これらのロールを持つユーザーはXPを獲得できません</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {activeTab === 'rules' && selectedPresetForRules && (
-              <div className={styles.tabPanel}>
-                <div className={styles.panelHeader}>
-                  <div>
-                    <h2>XP獲得条件ルール</h2>
-                    <p className={styles.cardDescription}>プリセット: {selectedPresetForRules}</p>
-                  </div>
-                  <button className={styles.primaryButton} onClick={() => {
-                    setEditingRule({
-                      id: `new-${Date.now()}`,
-                      name: '新規ルール',
-                      actionType: 'message',
-                      xpReward: 10,
-                      isActive: true
-                    });
-                    setShowRuleModal(true);
-                  }}>
-                    <i className="material-icons">add</i>
-                    ルール追加
-                  </button>
-                </div>
-
-                <div className={styles.rulesEditor}>
-                  {xpRules.length === 0 ? (
-                    <div className={styles.emptyState}>
-                      <i className="material-icons-outlined">rule</i>
-                      <p>ルールがありません</p>
-                    </div>
-                  ) : (
-                    xpRules.map((rule) => (
-                      <div key={rule.id} className={styles.ruleCard}>
-                        <div className={styles.cardHeader}>
-                          <div>
-                            <h3>{rule.name}</h3>
-                            <p className={styles.cardDescription}>{rule.description || 'アクション: ' + rule.actionType}</p>
-                          </div>
-                          <div className={styles.cardActions}>
-                            <button className={styles.iconButton} onClick={() => {
-                              setEditingRule(rule);
-                              setShowRuleModal(true);
-                            }} title="編集">
-                              <i className="material-icons-outlined">edit</i>
-                            </button>
-                            <button className={styles.iconButton} onClick={() => handleDeleteRule(rule.id)} title="削除">
-                              <i className="material-icons-outlined">delete</i>
-                            </button>
-                          </div>
-                        </div>
-                        <div className={styles.ruleDetails}>
-                          <div className={styles.detail}>
-                            <span>アクション:</span>
-                            <strong>{rule.actionType}</strong>
-                          </div>
-                          <div className={styles.detail}>
-                            <span>獲得XP:</span>
-                            <strong>
-                              {rule.xpRewardMin && rule.xpRewardMax 
-                                ? `${rule.xpRewardMin}-${rule.xpRewardMax} (ランダム)`
-                                : rule.xpReward
-                              }
-                            </strong>
-                          </div>
-                          {rule.cooldownSec && (
-                            <div className={styles.detail}>
-                              <span>クールダウン:</span>
-                              <strong>{rule.cooldownSec}秒</strong>
-                            </div>
-                          )}
-                          {rule.maxPerDay && (
-                            <div className={styles.detail}>
-                              <span>1日の上限:</span>
-                              <strong>{rule.maxPerDay}回</strong>
-                            </div>
-                          )}
-                          <div className={styles.detail}>
-                            <span>ステータス:</span>
-                            <strong style={{ color: rule.isActive ? '#4CAF50' : '#F44336' }}>
-                              {rule.isActive ? '有効' : '無効'}
-                            </strong>
-                          </div>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-            )}
-
-            {activeTab === 'advanced' && (
-              <div className={styles.tabPanel}>
-                <div className={styles.panelHeader}>
-                  <h2>アドバンスオプション</h2>
-                </div>
-
-                <div className={styles.advancedOptions}>
-                  <div className={styles.optionCard}>
-                    <div className={styles.optionHeader}>
-                      <i className="material-icons-outlined">restart_alt</i>
-                      <h3>ランクリセット</h3>
-                    </div>
-                    <p className={styles.optionDescription}>ユーザーまたはすべてのユーザーのランク/XPをリセットします</p>
-                    <button className={styles.secondaryButton} onClick={() => setShowResetConfirm(true)}>
-                      <i className="material-icons-outlined">restart_alt</i>
-                      リセット実行
-                    </button>
-                  </div>
-
-                  <div className={styles.optionCard}>
-                    <div className={styles.optionHeader}>
-                      <i className="material-icons-outlined">info</i>
-                      <h3>XP条件の詳細設定</h3>
-                    </div>
-                    <p className={styles.optionDescription}>「XP条件」タブで、ユーザーがXPを獲得できるアクションを細かく設定できます</p>
-                    <button className={styles.secondaryButton} onClick={() => setActiveTab('rules')}>
-                      <i className="material-icons-outlined">rule</i>
-                      条件ルールの管理
-                    </button>
-                  </div>
-
-                  <div className={styles.optionCard}>
-                    <div className={styles.optionHeader}>
-                      <i className="material-icons-outlined">webhook</i>
-                      <h3>外部Webhook連携</h3>
-                    </div>
-                    <p className={styles.optionDescription}>報酬設定でWebhook URLを指定すると、ランクアップ時に外部APIに通知します</p>
-                    <button className={styles.secondaryButton} onClick={() => setActiveTab('presets')}>
-                      <i className="material-icons-outlined">category</i>
-                      プリセットの編集
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Preset Modal */}
-      {showPresetModal && editingPreset && (
-        <div className={styles.modal} onClick={() => setShowPresetModal(false)}>
-          <div className={styles.modalContent} onClick={(e) => e.stopPropagation()}>
-            <div className={styles.modalHeader}>
-              <h2>{presets.find(p => p.name === editingPreset.name) ? 'プリセット編集' : 'プリセット作成'}</h2>
-              <button className={styles.closeButton} onClick={() => setShowPresetModal(false)}>
-                <i className="material-icons">close</i>
-              </button>
-            </div>
-
-            {/* Modal Tabs */}
-            <div className={styles.modalTabs}>
-              <button
-                className={`${styles.modalTab} ${presetModalTab === 'ranks' ? styles.modalTabActive : ''}`}
-                onClick={() => setPresetModalTab('ranks')}
-              >
-                <i className="material-icons-outlined">military_tech</i>
-                ランク設定
-              </button>
-              <button
-                className={`${styles.modalTab} ${presetModalTab === 'rewards' ? styles.modalTabActive : ''}`}
-                onClick={() => setPresetModalTab('rewards')}
-              >
-                <i className="material-icons-outlined">card_giftcard</i>
-                報酬設定
-              </button>
-            </div>
-
-            <div className={styles.modalBody}>
-              {presetModalTab === 'ranks' && (
-                <>
-                  <div className={styles.formGroup}>
-                    <label>プリセット名 *</label>
-                    <input
-                      type="text"
-                      value={editingPreset.name}
-                      onChange={(e) => setEditingPreset({ ...editingPreset, name: e.target.value })}
-                      placeholder="例: default, vip, seasonal"
-                    />
-                  </div>
-                  <div className={styles.formGroup}>
-                    <label>説明</label>
-                    <textarea
-                      value={editingPreset.description || ''}
-                      onChange={(e) => setEditingPreset({ ...editingPreset, description: e.target.value })}
-                      placeholder="このプリセットの説明"
-                      rows={2}
-                    />
-                  </div>
-                  
-                  <div className={styles.ranksEditor}>
-                    <div className={styles.ranksHeader}>
-                      <h3>ランク一覧</h3>
-                      <button className={styles.secondaryButton} onClick={addRankToPreset}>
-                        <i className="material-icons">add</i>
-                        ランク追加
-                      </button>
-                    </div>
-                    
-                    {editingPreset.ranks.map((rank, idx) => (
-                      <div key={idx} className={styles.rankEditor}>
-                        <div className={styles.rankEditorHeader}>
-                          <span className={styles.rankNumber}>#{idx + 1}</span>
-                          {editingPreset.ranks.length > 1 && (
-                            <button 
-                              className={styles.iconButton}
-                              onClick={() => removeRank(idx)}
-                              title="削除"
-                            >
-                              <i className="material-icons-outlined">delete</i>
-                            </button>
-                          )}
-                        </div>
-                        <div className={styles.rankFields}>
-                          <div className={styles.formGroup}>
-                            <label>ランク名</label>
-                            <input
-                              type="text"
-                              value={rank.name}
-                              onChange={(e) => updateRank(idx, 'name', e.target.value)}
-                            />
-                          </div>
-                          <div className={styles.formGroup}>
-                            <label>最小XP</label>
-                            <input
-                              type="number"
-                              value={rank.minXp}
-                              onChange={(e) => updateRank(idx, 'minXp', parseInt(e.target.value) || 0)}
-                              min="0"
-                            />
-                          </div>
-                          <div className={styles.formGroup}>
-                            <label>最大XP</label>
-                            <input
-                              type="number"
-                              value={rank.maxXp}
-                              onChange={(e) => updateRank(idx, 'maxXp', parseInt(e.target.value) || 0)}
-                              min="0"
-                            />
-                          </div>
-                          <div className={styles.formGroup}>
-                            <label>色</label>
-                            <input
-                              type="color"
-                              value={rank.color || '#4A90E2'}
-                              onChange={(e) => updateRank(idx, 'color', e.target.value)}
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </>
-              )}
-
-              {presetModalTab === 'rewards' && (
-                <div className={styles.rewardsEditor}>
-                  <div className={styles.ranksHeader}>
-                    <h3>ランクアップ報酬</h3>
-                    <button className={styles.secondaryButton} onClick={addReward}>
-                      <i className="material-icons">add</i>
-                      報酬追加
-                    </button>
-                  </div>
-
-                  {editingPreset.rewards.length === 0 ? (
-                    <div className={styles.emptyRewards}>
-                      <i className="material-icons-outlined">card_giftcard</i>
-                      <p>報酬が設定されていません</p>
-                      <button className={styles.secondaryButton} onClick={addReward}>
-                        <i className="material-icons">add</i>
-                        報酬を追加
-                      </button>
-                    </div>
-                  ) : (
-                    editingPreset.rewards.map((reward, idx) => (
-                      <div key={idx} className={styles.rewardEditor}>
-                        <div className={styles.rankEditorHeader}>
-                          <span className={styles.rankNumber}>報酬 #{idx + 1}</span>
-                          <button 
-                            className={styles.iconButton}
-                            onClick={() => removeReward(idx)}
-                            title="削除"
-                          >
-                            <i className="material-icons-outlined">delete</i>
-                          </button>
-                        </div>
-                        <div className={styles.rewardFields}>
-                          <div className={styles.formGroup}>
-                            <label>対象ランク</label>
-                            <select
-                              value={reward.rankName}
-                              onChange={(e) => updateReward(idx, 'rankName', e.target.value)}
-                            >
-                              {editingPreset.ranks.map(rank => (
-                                <option key={rank.name} value={rank.name}>{rank.name}</option>
-                              ))}
-                            </select>
-                          </div>
-                          <div className={styles.formGroup}>
-                            <label>付与ロール</label>
-                            <select
-                              value={reward.giveRoleId || ''}
-                              onChange={(e) => updateReward(idx, 'giveRoleId', e.target.value || undefined)}
-                            >
-                              <option value="">なし</option>
-                              {roles.map(role => (
-                                <option key={role.id} value={role.id}>{role.name}</option>
-                              ))}
-                            </select>
-                            <span className={styles.helpText}>ランク到達時に付与するロール</span>
-                          </div>
-                          <div className={styles.formGroup}>
-                            <label className={styles.checkboxLabel}>
-                              <input
-                                type="checkbox"
-                                checked={reward.notify || false}
-                                onChange={(e) => updateReward(idx, 'notify', e.target.checked)}
-                              />
-                              <span>ランクアップ通知を送信</span>
-                            </label>
-                          </div>
-                          <div className={styles.formGroup}>
-                            <label>カスタムメッセージ</label>
-                            <textarea
-                              value={reward.customMessage || ''}
-                              onChange={(e) => updateReward(idx, 'customMessage', e.target.value)}
-                              placeholder="例: おめでとうございます！{rank}に到達しました！"
-                              rows={2}
-                            />
-                            <span className={styles.helpText}>変数: {`{rank}`} = ランク名, {`{user}`} = ユーザー名, {`{mention}`} = メンション, {`{oldRank}`} = 前のランク, {`{newRank}`} = 新しいランク, {`{userId}`} = ユーザーID, {`{date}`} = 日付, {`{time}`} = 時刻, {`{timestamp}`} = ISO日時, {`{emoji}`} = 絵文字</span>
-                          </div>
-                          <div className={styles.formGroup}>
-                            <label>Webhook URL</label>
-                            <input
-                              type="url"
-                              value={reward.webhookUrl || ''}
-                              onChange={(e) => updateReward(idx, 'webhookUrl', e.target.value || undefined)}
-                              placeholder="https://example.com/webhook"
-                            />
-                            <span className={styles.helpText}>ランクアップ時に外部APIに通知を送信します</span>
-                          </div>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-              )}
-            </div>
-            <div className={styles.modalFooter}>
-              <button 
-                className={styles.secondaryButton}
-                onClick={() => setShowPresetModal(false)}
-              >
-                キャンセル
-              </button>
-              <button 
-                className={styles.primaryButton}
-                onClick={handleSavePreset}
-                disabled={saving}
-              >
-                {saving ? '保存中...' : '保存'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Panel Modal */}
-      {showPanelModal && (
-        <div className={styles.modal} onClick={() => setShowPanelModal(false)}>
-          <div className={styles.modalContent} onClick={(e) => e.stopPropagation()}>
-            <div className={styles.modalHeader}>
-              <h2>パネル作成</h2>
-              <button className={styles.closeButton} onClick={() => setShowPanelModal(false)}>
-                <i className="material-icons">close</i>
-              </button>
-            </div>
-            <div className={styles.modalBody}>
-              <div className={styles.infoBox}>
-                <i className="material-icons-outlined">info</i>
-                <p>パネルは Discord コマンド <code>/staff rank action:create-panel</code> から作成してください。</p>
-              </div>
-            </div>
-            <div className={styles.modalFooter}>
-              <button 
-                className={styles.secondaryButton}
-                onClick={() => setShowPanelModal(false)}
-              >
-                閉じる
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* XP Rule Modal */}
-      {showRuleModal && editingRule && (
-        <div className={styles.modal} onClick={() => setShowRuleModal(false)}>
-          <div className={styles.modalContent} onClick={(e) => e.stopPropagation()}>
-            <div className={styles.modalHeader}>
-              <h2>{editingRule.id.startsWith('new-') ? 'ルール作成' : 'ルール編集'}</h2>
-              <button className={styles.closeButton} onClick={() => setShowRuleModal(false)}>
-                <i className="material-icons">close</i>
-              </button>
-            </div>
-            <div className={styles.modalBody}>
-              <div className={styles.formGroup}>
-                <label>ルール名 *</label>
-                <input
-                  type="text"
-                  value={editingRule.name}
-                  onChange={(e) => setEditingRule({ ...editingRule, name: e.target.value })}
-                  placeholder="例: メッセージ投稿"
-                />
-              </div>
-
-              <div className={styles.formGroup}>
-                <label>説明</label>
-                <textarea
-                  value={editingRule.description || ''}
-                  onChange={(e) => setEditingRule({ ...editingRule, description: e.target.value })}
-                  placeholder="このルールの説明"
-                  rows={2}
-                />
-              </div>
-
-              <div className={styles.formGrid}>
-                <div className={styles.formGroup}>
-                  <label>アクション種別 *</label>
-                  <select
-                    value={editingRule.actionType}
-                    onChange={(e) => setEditingRule({ 
-                      ...editingRule, 
-                      actionType: e.target.value as any 
-                    })}
-                  >
-                    <option value="message">メッセージ投稿</option>
-                    <option value="reaction">リアクション</option>
-                    <option value="voiceChat">ボイスチャット</option>
-                    <option value="invite">招待</option>
-                    <option value="custom">カスタム</option>
-                  </select>
-                </div>
-                <div className={styles.formGroup}>
-                  <label>獲得XP (固定) *</label>
+              <fieldset disabled={action.busy} className={ui.stack}>
+                <h2>ルールを編集</h2>
+                <label>
+                  ルール名
                   <input
-                    type="number"
-                    value={editingRule.xpReward}
-                    onChange={(e) => setEditingRule({ ...editingRule, xpReward: parseInt(e.target.value) || 0 })}
-                    min="1"
+                    required
+                    maxLength={100}
+                    value={draft.name}
+                    onChange={(e) =>
+                      setDraft({ ...draft, name: e.target.value })
+                    }
                   />
-                  <span className={styles.helpText}>固定XP値 (ランダム無効時はこちらを使用)</span>
-                </div>
-                <div className={styles.formGroup}>
-                  <label>獲得XP Min</label>
-                  <input
-                    type="number"
-                    value={editingRule.xpRewardMin || ''}
-                    onChange={(e) => setEditingRule({ ...editingRule, xpRewardMin: e.target.value ? parseInt(e.target.value) : undefined })}
-                    placeholder="ランダム無効"
-                    min="1"
+                </label>
+                <label>
+                  説明
+                  <textarea
+                    value={draft.description || ""}
+                    onChange={(e) =>
+                      setDraft({ ...draft, description: e.target.value })
+                    }
                   />
-                  <span className={styles.helpText}>ランダムXPの下限</span>
+                </label>
+                <div className={ui.formGrid}>
+                  <label>
+                    対象の操作
+                    <select
+                      aria-label="対象の操作"
+                      value={draft.actionType}
+                      onChange={(e) =>
+                        setDraft({
+                          ...draft,
+                          actionType: e.target.value as Rule["actionType"],
+                        })
+                      }
+                    >
+                      {Object.entries({
+                        message: "メッセージ",
+                        reaction: "リアクション",
+                        voiceChat: "通話",
+                        invite: "招待",
+                        custom: "カスタム",
+                      }).map(([key, label]) => (
+                        <option key={key} value={key}>
+                          {label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  {(
+                    [
+                      ["xpReward", "獲得XP"],
+                      ["xpRewardMin", "獲得XPの最小値"],
+                      ["xpRewardMax", "獲得XPの最大値"],
+                      ["cooldownSec", "待機時間（秒）"],
+                      ["maxPerDay", "1日の上限回数"],
+                    ] as const
+                  ).map(([key, label]) => (
+                    <label key={key}>
+                      {label}
+                      <input
+                        type="number"
+                        min={0}
+                        value={draft[key] ?? ""}
+                        onChange={(e) =>
+                          setDraft({
+                            ...draft,
+                            [key]:
+                              e.target.value === ""
+                                ? undefined
+                                : Number(e.target.value),
+                          })
+                        }
+                      />
+                    </label>
+                  ))}
                 </div>
-                <div className={styles.formGroup}>
-                  <label>獲得XP Max</label>
-                  <input
-                    type="number"
-                    value={editingRule.xpRewardMax || ''}
-                    onChange={(e) => setEditingRule({ ...editingRule, xpRewardMax: e.target.value ? parseInt(e.target.value) : undefined })}
-                    placeholder="ランダム無効"
-                    min="1"
-                  />
-                  <span className={styles.helpText}>ランダムXPの上限</span>
-                </div>
-              </div>
-
-              <div className={styles.formGrid}>
-                <div className={styles.formGroup}>
-                  <label>クールダウン (秒)</label>
-                  <input
-                    type="number"
-                    value={editingRule.cooldownSec || ''}
-                    onChange={(e) => setEditingRule({ ...editingRule, cooldownSec: e.target.value ? parseInt(e.target.value) : undefined })}
-                    placeholder="クールダウンなし"
-                    min="0"
-                  />
-                  <span className={styles.helpText}>同じユーザーが短時間に何度も獲得できないようにします</span>
-                </div>
-                <div className={styles.formGroup}>
-                  <label>1日の上限</label>
-                  <input
-                    type="number"
-                    value={editingRule.maxPerDay || ''}
-                    onChange={(e) => setEditingRule({ ...editingRule, maxPerDay: e.target.value ? parseInt(e.target.value) : undefined })}
-                    placeholder="上限なし"
-                    min="1"
-                  />
-                  <span className={styles.helpText}>1日に何回までこのルールでXPを獲得できるか</span>
-                </div>
-              </div>
-
-              <div className={styles.formGroup}>
-                <label className={styles.checkboxLabel}>
+                <label className={ui.check}>
                   <input
                     type="checkbox"
-                    checked={editingRule.isActive}
-                    onChange={(e) => setEditingRule({ ...editingRule, isActive: e.target.checked })}
+                    checked={draft.isActive}
+                    onChange={(e) =>
+                      setDraft({ ...draft, isActive: e.target.checked })
+                    }
                   />
-                  <span>このルールを有効にする</span>
+                  このルールを有効にする
                 </label>
-              </div>
-            </div>
-            <div className={styles.modalFooter}>
-              <button 
-                className={styles.secondaryButton}
-                onClick={() => setShowRuleModal(false)}
-              >
-                キャンセル
-              </button>
-              <button 
-                className={styles.primaryButton}
-                onClick={handleSaveRule}
-                disabled={saving}
-              >
-                {saving ? '保存中...' : '保存'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Reset Confirmation Dialog */}
-      {showResetConfirm && (
-        <div className={styles.modal} onClick={() => setShowResetConfirm(false)}>
-          <div className={styles.modalContent} onClick={(e) => e.stopPropagation()}>
-            <div className={styles.modalHeader}>
-              <h2>ランクリセット確認</h2>
-              <button className={styles.closeButton} onClick={() => setShowResetConfirm(false)}>
-                <i className="material-icons">close</i>
-              </button>
-            </div>
-            <div className={styles.modalBody}>
-              <div className={styles.warningBox}>
-                <i className="material-icons-outlined">warning</i>
-                <p>このアクションは取り消せません。本当に実行しますか？</p>
-              </div>
-
-              <div className={styles.formGroup}>
-                <label>リセット対象</label>
-                <div className={styles.radioGroup}>
-                  <label className={styles.radioLabel}>
-                    <input
-                      type="radio"
-                      checked={resetTarget === 'all'}
-                      onChange={() => setResetTarget('all')}
-                    />
-                    <span>すべてのユーザー</span>
-                  </label>
-                  <label className={styles.radioLabel}>
-                    <input
-                      type="radio"
-                      checked={resetTarget === 'user'}
-                      onChange={() => setResetTarget('user')}
-                    />
-                    <span>特定のユーザー</span>
-                  </label>
+                <details>
+                  <summary>対象チャンネル・ロール（未選択で全体）</summary>
+                  <div className={ui.grid}>
+                    {[
+                      ["channels", channels],
+                      ["roles", roles],
+                    ].map(([key, options]) => (
+                      <section key={key as string}>
+                        {(options as Role[]).map((option) => (
+                          <label className={ui.check} key={option.id}>
+                            <input
+                              type="checkbox"
+                              checked={(
+                                draft[key as "roles" | "channels"] || []
+                              ).includes(option.id)}
+                              onChange={(e) => {
+                                const ids =
+                                  draft[key as "roles" | "channels"] || [];
+                                setDraft({
+                                  ...draft,
+                                  [key as string]: e.target.checked
+                                    ? [...ids, option.id]
+                                    : ids.filter((id) => id !== option.id),
+                                });
+                              }}
+                            />
+                            {option.name}
+                          </label>
+                        ))}
+                      </section>
+                    ))}
+                  </div>
+                </details>
+                <div className={ui.actions}>
+                  <button type="submit" className={ui.primary}>
+                    ルールを保存
+                  </button>
+                  <button
+                    type="button"
+                    className={ui.secondary}
+                    onClick={() => {
+                      if (window.confirm("ルールの編集を閉じますか？"))
+                        setDraft(null);
+                    }}
+                  >
+                    キャンセル
+                  </button>
+                  {existing && (
+                    <button
+                      type="button"
+                      className={ui.danger}
+                      onClick={() => {
+                        if (window.confirm("このルールを削除しますか？"))
+                          void action.run(async () => {
+                            await request(
+                              ruleUrl + "/" + encodeURIComponent(draft.id),
+                              "DELETE",
+                            );
+                            setDraft(null);
+                            resource.reload();
+                          }, "ルールを削除しました。");
+                      }}
+                    >
+                      削除
+                    </button>
+                  )}
                 </div>
-              </div>
-
-              {resetTarget === 'user' && (
-                <div className={styles.formGroup}>
-                  <label>ユーザーID *</label>
-                  <input
-                    type="text"
-                    value={resetUserId}
-                    onChange={(e) => setResetUserId(e.target.value)}
-                    placeholder="ユーザーIDを入力"
-                  />
-                </div>
-              )}
-            </div>
-            <div className={styles.modalFooter}>
-              <button 
-                className={styles.secondaryButton}
-                onClick={() => setShowResetConfirm(false)}
-              >
-                <i className="material-icons-outlined">close</i>
-                キャンセル
-              </button>
-              <button 
-                className={styles.dangerButton}
-                onClick={handleResetRank}
-                disabled={saving || (resetTarget === 'user' && !resetUserId)}
-              >
-                <i className="material-icons-outlined">restart_alt</i>
-                {saving ? '実行中...' : 'リセット実行'}
-              </button>
-            </div>
-          </div>
-        </div>
+              </fieldset>
+            </form>
+          )}
+        </>
       )}
     </div>
   );
-};
-
-export default RankManagerPage;
+}
+function Panels({
+  guildId,
+  channels,
+}: {
+  guildId: string;
+  channels: Channel[];
+}) {
+  const resource = useResource<Record<string, Panel>>(
+    `${base}/panels?guildId=${guildId}`,
+  );
+  const action = useAction();
+  return (
+    <div className={ui.stack}>
+      <Feedback {...action} />
+      <div className={ui.hint}>
+        新規パネルはDiscordで <code>/staff rank action:create-panel</code>{" "}
+        を実行して作成します。
+      </div>
+      {resource.loading || resource.error ? (
+        <ResourceState {...resource} retry={resource.reload} />
+      ) : (
+        Object.entries(resource.data || {}).map(([id, panel]) => (
+          <article className={ui.card} key={id}>
+            <div className={ui.row}>
+              <div>
+                <h3>{panel.preset}</h3>
+                <p>
+                  #
+                  {channels.find((channel) => channel.id === panel.channelId)
+                    ?.name || panel.channelId}{" "}
+                  · 上位 {panel.topCount || 10} 人
+                </p>
+                <small>
+                  更新 {new Date(panel.lastUpdate).toLocaleString("ja-JP")}
+                </small>
+              </div>
+              <div className={ui.actions}>
+                <a
+                  className={ui.secondary}
+                  href={`https://discord.com/channels/${guildId}/${panel.channelId}/${panel.messageId}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Discordで開く
+                </a>
+                <button
+                  type="button"
+                  className={ui.danger}
+                  disabled={action.busy}
+                  onClick={() => {
+                    if (window.confirm("このランキングパネルを削除しますか？"))
+                      void action.run(async () => {
+                        await request(
+                          `${base}/panels/${encodeURIComponent(id)}?guildId=${guildId}`,
+                          "DELETE",
+                        );
+                        resource.reload();
+                      }, "パネルを削除しました。");
+                  }}
+                >
+                  削除
+                </button>
+              </div>
+            </div>
+          </article>
+        ))
+      )}
+      {resource.data && !Object.keys(resource.data).length && (
+        <ResourceState loading={false} empty="投稿済みパネルはありません。" />
+      )}
+    </div>
+  );
+}
+function Reset({ guildId, guildName }: { guildId: string; guildName: string }) {
+  const action = useAction();
+  const [target, setTarget] = useState("user");
+  const [userId, setUserId] = useState("");
+  const [confirmation, setConfirmation] = useState("");
+  return (
+    <section className={ui.card}>
+      <Feedback {...action} />
+      <h2>ランキングデータをリセット</h2>
+      <p>
+        この操作は取り消せません。対象のユーザーとサーバーを確認してください。
+      </p>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (
+            window.confirm(
+              "選択したランキングデータをリセットします。実行しますか？",
+            )
+          )
+            void action.run(
+              () =>
+                request(
+                  `${base}/guilds/${guildId}/reset`,
+                  "POST",
+                  target === "user" ? { userId } : {},
+                ),
+              "ランキングデータをリセットしました。",
+            );
+        }}
+      >
+        <fieldset disabled={action.busy} className={ui.stack}>
+          <label>
+            リセット対象
+            <select
+              aria-label="リセット対象"
+              value={target}
+              onChange={(e) => setTarget(e.target.value)}
+            >
+              <option value="user">指定ユーザーのみ</option>
+              <option value="all">サーバー全員</option>
+            </select>
+          </label>
+          {target === "user" ? (
+            <label>
+              ユーザーID
+              <input
+                required
+                pattern="[1-9][0-9]{0,19}"
+                value={userId}
+                onChange={(e) => setUserId(e.target.value)}
+              />
+            </label>
+          ) : (
+            <label>
+              確認のためサーバー名「{guildName}」を入力
+              <input
+                required
+                value={confirmation}
+                onChange={(e) => setConfirmation(e.target.value)}
+              />
+            </label>
+          )}
+          <button
+            type="submit"
+            className={ui.danger}
+            disabled={target === "all" && confirmation !== guildName}
+          >
+            対象データをリセット
+          </button>
+        </fieldset>
+      </form>
+    </section>
+  );
+}

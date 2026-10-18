@@ -139,7 +139,7 @@ const SettingsPage: React.FC = () => {
       },
       {
         title: "Core パネル",
-        description: "性格診断・レスバ・観戦パネルの設定。",
+        description: "性格診断・オセロ・リクエストパネルの設定。",
         icon: "dashboard",
         actionLabel: "Core パネルを開く",
         onClick: () =>

@@ -60,7 +60,7 @@ export function useAntiCheatSettings(guildId: string) {
         fetchSettings();
     }, [fetchSettings]);
 
-    return { settings, loading, error, updateSettings, refetch: fetchSettings };
+    return { settings, loading, error, updateSettings, refetch: fetchSettings, clearError: () => setError(null) };
 }
 
 /**

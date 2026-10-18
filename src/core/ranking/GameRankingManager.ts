@@ -25,6 +25,7 @@ export interface GameRankingBoard {
     tiers: GameRankTier[];
     players: Record<string, GameRankingProfile>;
     updatedAt: string;
+    matchResults?: Record<string, GameResultOutput>;
 }
 
 export interface GameResultInput {
@@ -37,6 +38,7 @@ export interface GameResultInput {
     initialRating?: number;
     kFactor?: number;
     tiers?: GameRankTier[];
+    matchId?: string;
 }
 
 export interface GameResultOutput {
@@ -133,6 +135,7 @@ export class GameRankingManager {
 
     async recordResult(input: GameResultInput): Promise<GameResultOutput> {
         this.validateIdentifiers(input.guildId, input.gameKey, input.playerA, input.playerB);
+        if (input.matchId) this.validateIdentifiers(input.matchId);
         if (input.playerA === input.playerB) {
             throw new Error('同一プレイヤー同士の対戦結果は記録できません。');
         }
@@ -145,6 +148,10 @@ export class GameRankingManager {
             input.gameKey,
             input.tiers || getDefaultTiers(input.gameKey)
         );
+        const recorded = input.matchId && board.matchResults && Object.hasOwn(board.matchResults, input.matchId)
+            ? board.matchResults[input.matchId] : undefined;
+        if (recorded) return structuredClone(recorded);
+        board.players = { ...board.players };
         const playerA = { ...(board.players[input.playerA] || createProfile(input.playerA, initialRating)) };
         const playerB = { ...(board.players[input.playerB] || createProfile(input.playerB, initialRating)) };
 
@@ -186,9 +193,11 @@ export class GameRankingManager {
         board.players[playerA.userId] = playerA;
         board.players[playerB.userId] = playerB;
         board.updatedAt = now;
+        const result = { playerA, playerB, playerADelta, playerBDelta };
+        if (input.matchId) board.matchResults = { ...board.matchResults, [input.matchId]: result };
         await database.set(input.guildId, rankingKey(input.guildId, input.gameKey), board);
 
-        return { playerA, playerB, playerADelta, playerBDelta };
+        return result;
         });
     }
 

@@ -6,9 +6,6 @@ export function getCorePanelKindLabel(panelKind: CoreFeaturePanelKind): string {
     if (panelKind === 'personality') {
         return '性格診断';
     }
-    if (panelKind === 'debate') {
-        return 'レスバ';
-    }
     if (panelKind === 'request') {
         return 'リクエスト';
     }
@@ -26,7 +23,7 @@ export function buildRegisteredCorePanelEmbed(
     spectatorRoleId: string | null,
     feature?: { label: string; description: string; emoji: string; color: number }
 ): EmbedBuilder {
-    if (!feature || ['combined', 'personality', 'debate', 'request'].includes(panelKind)) {
+    if (!feature || ['combined', 'personality', 'request'].includes(panelKind)) {
         return buildCorePanelEmbed(panelKind, spectatorRoleId);
     }
 
@@ -38,7 +35,7 @@ export function buildRegisteredCorePanelEmbed(
         .setTimestamp();
 }
 
-export function buildCorePanelEmbed(panelKind: CoreFeaturePanelKind, spectatorRoleId: string | null): EmbedBuilder {
+export function buildCorePanelEmbed(panelKind: CoreFeaturePanelKind, _spectatorRoleId: string | null): EmbedBuilder {
     if (panelKind === 'personality') {
         return new EmbedBuilder()
             .setTitle('性格診断パネル')
@@ -54,21 +51,6 @@ export function buildCorePanelEmbed(panelKind: CoreFeaturePanelKind, spectatorRo
             .setTimestamp();
     }
 
-    if (panelKind === 'debate') {
-        return new EmbedBuilder()
-            .setTitle('レスバパネル')
-            .setColor(0xd9534f)
-            .setDescription([
-                'このパネルでは、レスバ機能だけを個別に利用できます。',
-                '',
-                'お題を決めて 賛成/反対 を選び、AI か論破王と勝負できます。',
-                'スタッフは観戦用の AI vs AI レスバも作成できます。',
-                '勝つと論破スコアが加算され、一定成績で論破王になれます。',
-                spectatorRoleId ? `観戦ロール: <@&${spectatorRoleId}>` : '観戦ロール: 未設定'
-            ].join('\n'))
-            .setFooter({ text: 'レスバ部屋は結果後または1時間無操作で自動整理されます。' })
-            .setTimestamp();
-    }
 
     if (panelKind === 'request') {
         const requestCategoryName = '作成カテゴリ名';
@@ -99,7 +81,7 @@ export function buildCorePanelEmbed(panelKind: CoreFeaturePanelKind, spectatorRo
                 '人間同士でマッチングし、勝敗に応じてオセロレーティングが変動します。',
                 '盤面画像の番号と操作ボタンの番号は対応しています。'
             ].join('\n'))
-            .setFooter({ text: '対戦ルームは1時間で自動的に期限切れになります。' })
+            .setFooter({ text: '投了・1時間無操作は負けとなります。終了後約5分で部屋を削除します。' })
             .setTimestamp();
     }
 
@@ -107,18 +89,12 @@ export function buildCorePanelEmbed(panelKind: CoreFeaturePanelKind, spectatorRo
         .setTitle('Core機能パネル')
         .setColor(0x5865f2)
         .setDescription([
-            'このパネルでは、AI 性格診断・レスバ・オセロ・リクエストをまとめて利用できます。',
+            'このパネルでは、AI 性格診断・オセロ・リクエストをまとめて利用できます。',
             '',
             '**性格診断**',
             `AI と1対1で面談し、${Object.keys(PERSONALITY_ARCHETYPES).length}種類の性格ロールから1つを判定します。`,
             '判定結果には観測した傾向タグも付きます。',
             '判定後は専用ロールを付与し、再挑戦は1週間後です。',
-            '',
-            '**レスバ**',
-            'お題を決めて 賛成/反対 を選び、AI か論破王と勝負できます。',
-            'スタッフは観戦用の AI vs AI レスバも作成できます。',
-            '勝つと論破スコアが加算され、一定成績で論破王になれます。',
-            spectatorRoleId ? `観戦ロール: <@&${spectatorRoleId}>` : '観戦ロール: 未設定',
             '',
             '**オセロ**',
             'Easy・Normal・Hard のBot戦と、人間同士のランクマッチを遊べます。',
@@ -128,6 +104,6 @@ export function buildCorePanelEmbed(panelKind: CoreFeaturePanelKind, spectatorRo
             '機能追加、改善案、バグ報告などを送信できます。',
             '送信後は専用チャンネルが作成され、進捗管理されます。'
         ].join('\n'))
-        .setFooter({ text: '論破王対戦は論破王のみ作成・参加できます。部屋は結果後または5分間無操作で自動整理されます。' })
+        .setFooter({ text: 'オセロは投了・時間切れでも勝敗を記録し、終了後の部屋を自動整理します。' })
         .setTimestamp();
 }

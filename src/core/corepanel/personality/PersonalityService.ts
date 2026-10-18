@@ -7,7 +7,8 @@ import {
     Message,
     PermissionFlagsBits,
     Role,
-    TextChannel
+    TextChannel,
+    Events
 } from 'discord.js';
 import { database } from '../../persistence/Database.js';
 import {
@@ -34,10 +35,9 @@ import {
 } from '../helpers.js';
 import {
     CoreFeatureModelHooks,
-    requestCoreFeatureModelText,
+    requestPersonalityModelText as requestCoreFeatureModelText,
     requestCoreFeatureConfidenceCalibration,
-    requestCoreFeatureNaturalFollowUp,
-    requestCoreFeaturePersonaNames
+    requestCoreFeatureNaturalFollowUp
 } from '../model.js';
 import {
     PersonalityProfileHistoryEntry,
@@ -68,12 +68,37 @@ export class PersonalityService {
     private readonly typingTimers = new Map<string, ReturnType<typeof setInterval>>();
     private readonly delayedReplyMentions = new Set<string>();
     private readonly rateLimitNoticeSent = new Set<string>();
+    private readonly sessionStarts = new Map<string, Promise<PersonalitySession>>();
 
     setClient(client: Client): void {
         this.client = client;
+        const restore = () => { void this.restoreTimers(client).catch((error) => Logger.error('Failed to restore personality timers:', error)); };
+        if (client.isReady()) restore();
+        else client.once(Events.ClientReady, restore);
+    }
+
+    private async restoreTimers(client: Client): Promise<void> {
+        for (const guild of client.guilds.cache.values()) {
+            const sessions = await this.getSessions(guild.id);
+            for (const session of sessions) {
+                if (session.roomDeletedAt) continue;
+                const elapsed = Math.max(0, Date.now() - Date.parse(session.updatedAt));
+                if (session.status === 'active') this.scheduleInactivityTimeout(guild.id, session.sessionId, Math.max(0, INACTIVITY_TIMEOUT_MS - elapsed));
+                else this.scheduleCleanup(guild.id, session.sessionId, session.status === 'closed' ? 0 : Math.max(0, CLEANUP_DELAY_MS - elapsed));
+            }
+        }
     }
 
     async startSession(guild: Guild, userId: string): Promise<PersonalitySession> {
+        // 同じサーバーでの部屋作成とセッション配列の更新を直列化する。
+        const previous = this.sessionStarts.get(guild.id) || Promise.resolve();
+        const current = previous.catch(() => undefined).then(() => this.createSession(guild, userId));
+        this.sessionStarts.set(guild.id, current);
+        try { return await current; }
+        finally { if (this.sessionStarts.get(guild.id) === current) this.sessionStarts.delete(guild.id); }
+    }
+
+    private async createSession(guild: Guild, userId: string): Promise<PersonalitySession> {
         const sessions = await this.getSessions(guild.id);
         const activeSession = sessions.find((entry) => entry.userId === userId && entry.status === 'active');
         if (activeSession) {
@@ -128,10 +153,7 @@ export class PersonalityService {
 
         const createdAt = new Date().toISOString();
         const sessionId = createId('personality');
-        const [interviewerName] = await requestCoreFeaturePersonaNames(
-            `性格診断の面談担当AI。セッションID: ${sessionId}`,
-            1
-        );
+        const interviewerName = pickAiPersonaName(sessionId);
         const intro = [
             `今回の面談は私、${interviewerName}が担当します。`,
             `${member.displayName} さんの最近の言動をもとに見ていきます。`,
@@ -209,6 +231,7 @@ export class PersonalityService {
 
         this.clearPendingUserAdditions(session.sessionId);
         this.processing.add(session.sessionId);
+        this.clearInactivityTimeout(message.guild.id, session.sessionId);
         this.kickTypingHeartbeat(message.channel as TextChannel, session.sessionId);
         const modelHooks = this.createModelHooks(message.channel as TextChannel, session);
         let releasedProcessing = false;
@@ -264,6 +287,7 @@ export class PersonalityService {
         } catch (error) {
             Logger.error('Failed to handle personality message:', error);
             await (message.channel as TextChannel).send('診断処理でエラーが発生しました。少し時間を置いてやり直してください。').catch(() => null);
+            this.scheduleInactivityTimeout(message.guild.id, session.sessionId);
         } finally {
             if (!releasedProcessing) {
                 this.clearPendingUserAdditions(session.sessionId);
@@ -299,7 +323,7 @@ export class PersonalityService {
             ?.content || '';
         const transcriptSummary = summarizeTranscript(session.transcript, 24);
         if (userTurns >= PERSONALITY_MAX_USER_TURNS) {
-            return this.forceFinalize(session);
+            return this.forceFinalize(session, hooks);
         }
 
         const archetypeSummary = Object.entries(PERSONALITY_ARCHETYPES)
@@ -339,12 +363,10 @@ export class PersonalityService {
             `面談ログ:\n${transcriptSummary}`
         ].join('\n\n');
 
-        const raw = await requestCoreFeatureModelText([
+        const parsed = await this.requestEvaluation([
             { role: 'system', content: systemPrompt },
             { role: 'user', content: userPrompt }
         ], 900, 0.3, hooks);
-
-        const parsed = validatePersonalityEvaluation(extractJsonObject(raw));
 
         if (userTurns < PERSONALITY_MIN_USER_TURNS) {
             return await this.buildContinuationResponse(parsed, latestUserAnswer, transcriptSummary, priorProfileContext, hooks);
@@ -467,12 +489,10 @@ export class PersonalityService {
             `面談ログ:\n${summarizeTranscript(session.transcript, 24)}`
         ].join('\n\n');
 
-        const raw = await requestCoreFeatureModelText([
+        const parsed = await this.requestEvaluation([
             { role: 'system', content: systemPrompt },
             { role: 'user', content: userPrompt }
         ], 800, 0.2, hooks);
-
-        const parsed = validatePersonalityEvaluation(extractJsonObject(raw));
         if (parsed && parsed.personality_key) {
             return {
                 ...parsed,
@@ -480,14 +500,21 @@ export class PersonalityService {
             };
         }
 
-        return {
-            reply: '十分な傾向が見えたので、今回は「分析家」と判定します。状況を整理して考える姿勢が強く出ていました。',
-            complete: true,
-            personality_key: 'analyst',
-            reason: 'モデル出力が不安定だったため、安全側の最終分類を適用',
-            confidence: null,
-            traits: ['整理志向', '慎重', '状況観察']
-        };
+        throw new Error('Gemmaの判定結果を読み取れませんでした。回答を残したまま再試行できます。');
+    }
+
+    private async requestEvaluation(
+        messages: Array<{ role: 'system' | 'user'; content: string }>,
+        maxTokens: number,
+        temperature: number,
+        hooks?: CoreFeatureModelHooks
+    ): Promise<PersonalityEvaluationResponse | null> {
+        for (let attempt = 0; attempt < 2; attempt++) {
+            const raw = await requestCoreFeatureModelText(messages, maxTokens * (attempt + 1), temperature, hooks);
+            const parsed = validatePersonalityEvaluation(extractJsonObject(raw));
+            if (parsed && (!parsed.complete || parsed.personality_key)) return parsed;
+        }
+        return null;
     }
 
     private async resolveConfidence(
@@ -868,7 +895,7 @@ export class PersonalityService {
         return removed;
     }
 
-    private scheduleCleanup(guildId: string, sessionId: string): void {
+    private scheduleCleanup(guildId: string, sessionId: string, delay = CLEANUP_DELAY_MS): void {
         const key = `${guildId}:${sessionId}`;
         const existing = this.cleanupTimers.get(key);
         if (existing) {
@@ -876,12 +903,12 @@ export class PersonalityService {
         }
 
         const timer = setTimeout(() => {
+            this.cleanupTimers.delete(key);
             this.closeSession(guildId, sessionId).catch((error) => {
                 Logger.error('Failed to cleanup personality room:', error);
-            }).finally(() => {
-                this.cleanupTimers.delete(key);
+                this.scheduleCleanup(guildId, sessionId, 60_000);
             });
-        }, CLEANUP_DELAY_MS);
+        }, delay);
 
         timer.unref?.();
         this.cleanupTimers.set(key, timer);
@@ -896,7 +923,7 @@ export class PersonalityService {
         }
     }
 
-    private scheduleInactivityTimeout(guildId: string, sessionId: string): void {
+    private scheduleInactivityTimeout(guildId: string, sessionId: string, delay = INACTIVITY_TIMEOUT_MS): void {
         const key = `${guildId}:${sessionId}`;
         const existing = this.timeoutTimers.get(key);
         if (existing) {
@@ -904,12 +931,12 @@ export class PersonalityService {
         }
 
         const timer = setTimeout(() => {
+            this.timeoutTimers.delete(key);
             this.timeoutSession(guildId, sessionId).catch((error) => {
                 Logger.error('Failed to timeout personality room:', error);
-            }).finally(() => {
-                this.timeoutTimers.delete(key);
+                this.scheduleCleanup(guildId, sessionId, 60_000);
             });
-        }, INACTIVITY_TIMEOUT_MS);
+        }, delay);
 
         timer.unref?.();
         this.timeoutTimers.set(key, timer);
@@ -928,6 +955,11 @@ export class PersonalityService {
         const sessions = await this.getSessions(guildId);
         const session = sessions.find((entry) => entry.sessionId === sessionId);
         if (!session || session.status !== 'active') {
+            return;
+        }
+
+        if (this.processing.has(sessionId)) {
+            this.scheduleInactivityTimeout(guildId, sessionId);
             return;
         }
 
@@ -957,7 +989,18 @@ export class PersonalityService {
         session.status = session.status === 'active' ? 'closed' : session.status;
         session.updatedAt = new Date().toISOString();
         await this.persistSessions(guildId, sessions);
-        await deleteRoom(this.client, session.guildId, session.channelId, session.categoryId, reason);
+        try {
+            await deleteRoom(this.client, session.guildId, session.channelId, session.categoryId, reason);
+        } catch (error) {
+            this.scheduleCleanup(guildId, sessionId, 60_000);
+            throw error;
+        }
+        const refreshed = await this.getSessions(guildId);
+        const cleaned = refreshed.find((entry) => entry.sessionId === sessionId);
+        if (cleaned) {
+            cleaned.roomDeletedAt = new Date().toISOString();
+            await this.persistSessions(guildId, refreshed);
+        }
     }
 
     private async getSessions(guildId: string): Promise<PersonalitySession[]> {

@@ -10,7 +10,6 @@ import type {
 } from "./types";
 
 export type TrustEntry = UserTrustDataWithUser & { userId: string };
-export type SettingsSection = "general" | "detectors" | "policies";
 
 export interface DetectorFieldDefinition {
   kind: "number" | "list" | "toggle" | "text";
@@ -56,6 +55,7 @@ export interface AntiCheatViewProps {
   wordFilterRules: WordFilterRule[];
   onBack: () => void;
   onSave: () => void;
+  onDiscard: () => void;
   onRefreshLogs: () => void;
   onRefreshTrust: () => void;
   onRefreshTimeouts: () => void;

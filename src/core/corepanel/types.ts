@@ -1,6 +1,3 @@
-export type DebateOpponentType = 'ai' | 'king' | 'ai_vs_ai';
-export type DebateParticipantType = 'user' | 'ai';
-export type DebateStance = 'support' | 'oppose';
 export type PersonalityKey =
     | 'analyst'
     | 'mediator'
@@ -17,9 +14,7 @@ export type PersonalityKey =
     | 'volatile';
 
 export type PersonalitySessionStatus = 'active' | 'completed' | 'closed';
-export type DebateSessionStatus = 'waiting_opponent' | 'active' | 'judging' | 'completed' | 'closed';
 export type TranscriptAuthor = 'system' | 'assistant' | 'user' | 'creator' | 'opponent';
-export type DebateWinner = 'creator' | 'opponent' | 'draw';
 
 export interface PersonalityArchetypeDefinition {
     label: string;
@@ -72,6 +67,7 @@ export interface PersonalitySession {
     reason: string | null;
     traits: string[];
     transcript: TranscriptEntry[];
+    roomDeletedAt?: string;
 }
 
 export interface PersonalityProfile {
@@ -97,63 +93,6 @@ export interface PersonalityProfileHistoryEntry {
     recordedAt: string;
 }
 
-export interface DebateSession {
-    sessionId: string;
-    guildId: string;
-    channelId: string;
-    categoryId: string;
-    hostUserId: string;
-    hostUserName: string;
-    hostDisplayName: string;
-    creatorId: string | null;
-    creatorUserName: string | null;
-    creatorDisplayName: string | null;
-    opponentId: string | null;
-    opponentUserName: string | null;
-    opponentDisplayName: string | null;
-    creatorAiName: string | null;
-    opponentAiName: string | null;
-    opponentType: DebateOpponentType;
-    creatorParticipantType: DebateParticipantType;
-    opponentParticipantType: DebateParticipantType;
-    spectatorRoleId: string | null;
-    topic: string;
-    creatorStance: DebateStance;
-    opponentStance: DebateStance;
-    status: DebateSessionStatus;
-    currentTurn: 'creator' | 'opponent';
-    turnLimit: number;
-    creatorTurns: number;
-    opponentTurns: number;
-    transcript: TranscriptEntry[];
-    winner: DebateWinner | null;
-    judgementReason: string | null;
-    createdAt: string;
-    updatedAt: string;
-}
-
-export interface DebateProfile {
-    userId: string;
-    guildId: string;
-    score: number;
-    aiVsAiCooldownUntil: string | null;
-    wins: number;
-    losses: number;
-    draws: number;
-    aiWins: number;
-    kingWins: number;
-    totalBattles: number;
-    kingAwardedAt: string | null;
-    recentResults: Array<{
-        sessionId: string;
-        topic: string;
-        opponentType: DebateOpponentType;
-        result: 'win' | 'loss' | 'draw';
-        scoreDelta: number;
-        at: string;
-    }>;
-}
-
 export interface PersonalityEvaluationResponse {
     reply: string;
     complete: boolean;
@@ -161,15 +100,4 @@ export interface PersonalityEvaluationResponse {
     reason: string;
     confidence: number | null;
     traits: string[];
-}
-
-export interface DebateReplyResponse {
-    reply: string;
-}
-
-export interface DebateJudgeResponse {
-    winner: DebateWinner;
-    reason: string;
-    creator_score: number;
-    opponent_score: number;
 }

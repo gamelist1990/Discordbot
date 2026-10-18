@@ -56,6 +56,11 @@ export interface UserCustomProfile {
 
   // 概要表示の設定 (表示ウィジェットなど)
   overviewConfig?: {
+    cards?: Array<{
+      id: string; type: 'text' | 'image' | 'sticker'; content: string;
+      x?: number; y?: number; pxW?: number; pxH?: number; rotation?: number; zIndex?: number; opacity?: number;
+      meta?: { fontSize?: number; color?: string; align?: 'left' | 'center' | 'right'; fontWeight?: string; fontFamily?: string };
+    }>;
     widgets?: Array<{
       type: 'ranking' | 'rankPosition' | 'custom' | 'stats';
       guildId?: string;

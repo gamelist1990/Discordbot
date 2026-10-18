@@ -1,8 +1,4 @@
 import {
-    DebateJudgeResponse,
-    DebateReplyResponse,
-    DebateStance,
-    DebateWinner,
     PersonalityEvaluationResponse,
     PersonalityKey,
     TranscriptEntry
@@ -86,7 +82,7 @@ export function isPersonalityKey(value: unknown): value is PersonalityKey {
 }
 
 export function extractJsonObject<T>(raw: string): T | null {
-    const trimmed = raw.trim();
+    const trimmed = raw.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
     const candidates = [
         trimmed,
         trimmed.replace(/^```json\s*/i, '').replace(/```$/i, '').trim()
@@ -105,6 +101,24 @@ export function extractJsonObject<T>(raw: string): T | null {
         }
     }
 
+    // 複数のコードブロックや前置きがあっても、引用内の波括弧を壊さず抽出する。
+    for (let start = 0; start < trimmed.length; start++) {
+        if (trimmed[start] !== '{') continue;
+        let depth = 0, quoted = false, escaped = false;
+        for (let end = start; end < trimmed.length; end++) {
+            const character = trimmed[end];
+            if (quoted) {
+                if (escaped) escaped = false;
+                else if (character === '\\') escaped = true;
+                else if (character === '"') quoted = false;
+            } else if (character === '"') quoted = true;
+            else if (character === '{') depth++;
+            else if (character === '}' && --depth === 0) {
+                try { return JSON.parse(trimmed.slice(start, end + 1)) as T; } catch { break; }
+            }
+        }
+    }
+
     return null;
 }
 
@@ -120,18 +134,18 @@ export function validatePersonalityEvaluation(value: unknown): PersonalityEvalua
             ? data.personality_key
             : null;
 
-    if (typeof data.reply !== 'string' || typeof data.complete !== 'boolean' || typeof data.reason !== 'string') {
+    if (typeof data.reply !== 'string' || !data.reply.trim() || typeof data.complete !== 'boolean' || typeof data.reason !== 'string') {
         return null;
     }
 
     return {
-        reply: data.reply.trim(),
+        reply: data.reply.trim().slice(0, 1500),
         complete: data.complete,
         personality_key: personalityKey,
-        reason: data.reason.trim(),
-        confidence: typeof data.confidence === 'number' ? clamp(Math.round(data.confidence), 0, 100) : null,
+        reason: data.reason.trim().slice(0, 1000),
+        confidence: typeof data.confidence === 'number' && Number.isFinite(data.confidence) ? clamp(Math.round(data.confidence), 0, 100) : null,
         traits: Array.isArray(data.traits)
-            ? data.traits.filter((entry): entry is string => typeof entry === 'string').map((entry) => entry.trim()).filter(Boolean).slice(0, 6)
+            ? data.traits.filter((entry): entry is string => typeof entry === 'string').map((entry) => entry.trim().slice(0, 60)).filter(Boolean).slice(0, 6)
             : []
     };
 }
@@ -154,59 +168,4 @@ export function pickAiPersonaPair(seed: string): [string, string] {
     const first = pickAiPersonaName(seed, 0);
     const second = pickAiPersonaName(seed, 1, [first]);
     return [first, second];
-}
-
-export function validateDebateReply(value: unknown): DebateReplyResponse | null {
-    if (!value || typeof value !== 'object') {
-        return null;
-    }
-
-    const data = value as Record<string, unknown>;
-    if (typeof data.reply !== 'string') {
-        return null;
-    }
-
-    return {
-        reply: data.reply.trim()
-    };
-}
-
-export function validateDebateJudge(value: unknown): DebateJudgeResponse | null {
-    if (!value || typeof value !== 'object') {
-        return null;
-    }
-
-    const data = value as Record<string, unknown>;
-    if (!['creator', 'opponent', 'draw'].includes(String(data.winner))) {
-        return null;
-    }
-    if (typeof data.reason !== 'string') {
-        return null;
-    }
-
-    return {
-        winner: data.winner as DebateWinner,
-        reason: data.reason.trim(),
-        creator_score: typeof data.creator_score === 'number' ? clamp(Math.round(data.creator_score), 0, 100) : 50,
-        opponent_score: typeof data.opponent_score === 'number' ? clamp(Math.round(data.opponent_score), 0, 100) : 50
-    };
-}
-
-export function buildStanceLabel(stance: DebateStance): string {
-    return stance === 'support' ? '賛成派' : '反対派';
-}
-
-export function parseStance(input: string): DebateStance | null {
-    const normalized = input.trim().toLowerCase();
-    if (['賛成', '肯定', 'pro', 'support', 'yes', '賛成派'].includes(normalized)) {
-        return 'support';
-    }
-    if (['反対', '否定', 'con', 'oppose', 'no', '反対派'].includes(normalized)) {
-        return 'oppose';
-    }
-    return null;
-}
-
-export function getOppositeStance(stance: DebateStance): DebateStance {
-    return stance === 'support' ? 'oppose' : 'support';
 }

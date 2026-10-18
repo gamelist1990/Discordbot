@@ -83,17 +83,19 @@ export async function deleteRoom(
     reason: string
 ): Promise<void> {
     if (!client) {
-        return;
+        throw new Error('Discord client is not ready for room cleanup.');
     }
 
-    const guild = await client.guilds.fetch(guildId).catch(() => null);
-    if (!guild) {
-        return;
-    }
+    const guild = await client.guilds.fetch(guildId);
 
-    const channel = await guild.channels.fetch(channelId).catch(() => null);
+    const channel = await guild.channels.fetch(channelId).catch((error) => {
+        if (error.code === 10003) return null;
+        throw error;
+    });
     if (channel) {
-        await channel.delete(reason).catch(() => null);
+        await channel.delete(reason).catch((error) => {
+            if (error.code !== 10003) throw error;
+        });
     }
 
     const category = await guild.channels.fetch(categoryId).catch(() => null);

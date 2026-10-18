@@ -10,7 +10,10 @@ import {
     Guild,
     MessageFlags,
     PermissionFlagsBits,
-    TextChannel
+    TextChannel,
+    StringSelectMenuBuilder,
+    StringSelectMenuInteraction,
+    Events
 } from 'discord.js';
 import { CoreFeatureModule } from '../registry.js';
 import { CoreFeaturePanelKind } from '../types.js';
@@ -32,6 +35,9 @@ import {
     OTHELLO_RANK_TIERS
 } from '../../ranking/GameRankingManager.js';
 import { ensureCategory } from '../guildUtils.js';
+import { database } from '../../persistence/Database.js';
+import { Logger } from '../../../utils/Logger.js';
+import { randomInt } from 'node:crypto';
 
 type OthelloMode = 'bot' | 'ranked';
 type OthelloStatus = 'waiting' | 'active' | 'completed' | 'closed';
@@ -57,6 +63,9 @@ interface OthelloSession {
     turnNumber: number;
     createdAt: string;
     updatedAt: string;
+    deleteAt?: number;
+    winner?: OthelloDisc | null;
+    finishReason?: string;
 }
 
 const BOT_PLAYER_ID = 'othello-bot';
@@ -79,9 +88,22 @@ export class OthelloFeature implements CoreFeatureModule {
     private readonly activeByUser = new Map<string, string>();
     private readonly operationQueues = new Map<string, Promise<void>>();
     private readonly processingInteractions = new Set<string>();
+    private maintenanceTimer?: ReturnType<typeof setInterval>;
+    private maintenanceRunning = false;
+    private ready: Promise<void> = Promise.resolve();
 
-    setClient(_client: Client): void {
-        // CoreFeatureModule のライフサイクルに合わせるためのフックです。
+    setClient(client: Client): void {
+        const start = () => {
+            this.ready = this.restoreSessions(client);
+            void this.ready.catch((error) => Logger.error('Othello recovery failed:', error));
+            if (this.maintenanceTimer) clearInterval(this.maintenanceTimer);
+            this.maintenanceTimer = setInterval(() => {
+                void this.ready.then(() => this.maintainSessions(client)).catch((error) => Logger.error('Othello cleanup failed:', error));
+            }, 30_000);
+            this.maintenanceTimer.unref?.();
+        };
+        if (client.isReady()) start();
+        else client.once(Events.ClientReady, start);
     }
 
     buildPanelButton(guildId: string, panelKind: CoreFeaturePanelKind): ButtonBuilder {
@@ -101,6 +123,7 @@ export class OthelloFeature implements CoreFeatureModule {
         if (!interaction.guild) {
             return false;
         }
+        await this.ready;
 
         if (action === 'entry') {
             await interaction.reply({
@@ -177,7 +200,7 @@ export class OthelloFeature implements CoreFeatureModule {
             const sessionId = parts[0];
             const index = Number(parts[1]);
             await this.withInteractionGuard(interaction, () =>
-                this.withSessionLock(sessionId, () => this.playMove(interaction, sessionId, index))
+                this.withSessionLock(sessionId, () => this.playMove(interaction, sessionId, index, Number(parts[2])))
             );
             return true;
         }
@@ -192,12 +215,12 @@ export class OthelloFeature implements CoreFeatureModule {
             return true;
         }
 
-        if (action === 'close') {
+        if (action === 'close' || action === 'resign') {
             const sessionId = parts[0];
             await this.withInteractionGuard(interaction, () =>
                 this.withSessionLock(sessionId, async () => {
                     const session = this.sessions.get(sessionId);
-                    if (!session || ![session.hostId, session.opponentId].includes(interaction.user.id)) {
+                    if (!session || session.guildId !== interaction.guildId || session.channelId !== interaction.channelId || ![session.hostId, session.opponentId].includes(interaction.user.id)) {
                         throw new Error('この対戦を終了する権限がありません。');
                     }
                     if (session.status !== 'active') {
@@ -207,17 +230,21 @@ export class OthelloFeature implements CoreFeatureModule {
                         });
                         return;
                     }
-                    session.status = 'closed';
-                    session.updatedAt = new Date().toISOString();
-                    this.releaseSession(session);
+                    if (action === 'close') {
+                        await interaction.reply({
+                            content: '投了するとあなたの負けになります。ランクマッチではレートも変動します。投了しますか？',
+                            components: [new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder()
+                                .setCustomId(`corefeature:${session.guildId}:othello:othello:resign:${session.id}:${interaction.user.id}`)
+                                .setLabel('負けを認めて投了する').setStyle(ButtonStyle.Danger))],
+                            flags: MessageFlags.Ephemeral
+                        });
+                        return;
+                    }
+                    if (parts[1] !== interaction.user.id) throw new Error('本人だけが投了を確定できます。');
                     await interaction.deferUpdate();
-                    await this.updateBoardMessage(interaction.channel as TextChannel, session, {
-                        content: '対戦は終了されました。',
-                        title: '対戦終了',
-                        description: `<@${interaction.user.id}> が対戦を終了しました。`,
-                        color: 0x8c9a94,
-                        controls: false
-                    });
+                    await this.finishSession(interaction.channel as TextChannel, session,
+                        interaction.user.id === session.blackId ? 'white' : 'black', '投了');
+                    await interaction.editReply({ content: '投了しました。結果を対戦チャンネルに表示しました。', components: [] });
                 })
             );
             return true;
@@ -227,34 +254,47 @@ export class OthelloFeature implements CoreFeatureModule {
     }
 
     async closeSessions(guild: Guild, options: { channelId?: string; reason: string }) {
+        await this.ready;
         const results: Array<{ sessionId: string; channelId: string; summary: string }> = [];
         for (const session of this.sessions.values()) {
-            if (session.guildId !== guild.id || !['active', 'waiting'].includes(session.status)) {
-                continue;
-            }
-            if (options.channelId && session.channelId !== options.channelId) {
-                continue;
-            }
-            session.status = 'closed';
-            session.updatedAt = new Date().toISOString();
-            this.releaseSession(session);
-            const channel = await guild.channels.fetch(session.channelId).catch(() => null);
-            if (channel?.type === ChannelType.GuildText) {
-                await this.updateBoardMessage(channel, session, {
-                    content: 'この対戦は管理操作により終了しました。',
-                    title: '対戦終了',
-                    description: options.reason,
-                    color: 0x8c9a94,
-                    controls: false
-                }).catch(() => undefined);
-            }
-            results.push({
-                sessionId: session.id,
-                channelId: session.channelId,
-                summary: `オセロ対戦 ${session.id} (<#${session.channelId}>)`
-            });
+            await this.withSessionLock(`matching:${guild.id}`, () => this.withSessionLock(session.id, async () => {
+                if (session.guildId !== guild.id || !['active', 'waiting'].includes(session.status)) {
+                    return;
+                }
+                if (options.channelId && session.channelId !== options.channelId) {
+                    return;
+                }
+                session.status = 'closed';
+                session.updatedAt = new Date().toISOString();
+                this.releaseSession(session);
+                this.markForCleanup(session);
+                await this.persistSessions(guild.id);
+                const channel = await guild.channels.fetch(session.channelId).catch(() => null);
+                if (channel?.type === ChannelType.GuildText) {
+                    await this.updateBoardMessage(channel, session, {
+                        content: 'この対戦は管理操作により終了しました。',
+                        title: '対戦終了',
+                        description: options.reason,
+                        color: 0x8c9a94,
+                        controls: false
+                    }).catch(() => undefined);
+                }
+                results.push({
+                    sessionId: session.id,
+                    channelId: session.channelId,
+                    summary: `オセロ対戦 ${session.id} (<#${session.channelId}>)`
+                });
+            }));
         }
         return results.map((entry) => ({ featureKey: this.key, ...entry }));
+    }
+
+    async handleSelectMenuInteraction(interaction: StringSelectMenuInteraction, _panelKind: CoreFeaturePanelKind, action: string, parts: string[]): Promise<boolean> {
+        if (action !== 'choose' || !interaction.guild) return false;
+        await this.ready;
+        await this.withInteractionGuard(interaction, () => this.withSessionLock(parts[0], () =>
+            this.playMove(interaction, parts[0], Number(interaction.values[0]), Number(parts[1]))));
+        return true;
     }
 
     async resetUserData(guild: Guild, userId: string) {
@@ -292,14 +332,26 @@ export class OthelloFeature implements CoreFeatureModule {
         const waiting = waitingId ? this.sessions.get(waitingId) : null;
 
         if (waiting && waiting.hostId !== interaction.user.id && waiting.status === 'waiting') {
+            await interaction.deferUpdate();
             waiting.opponentId = interaction.user.id;
-            waiting.whiteId = interaction.user.id;
+            const hostIsBlack = randomInt(2) === 0;
+            waiting.blackId = hostIsBlack ? waiting.hostId : interaction.user.id;
+            waiting.whiteId = hostIsBlack ? interaction.user.id : waiting.hostId;
             waiting.status = 'active';
             waiting.updatedAt = new Date().toISOString();
             this.waitingByGuild.delete(interaction.guild!.id);
             this.activeByUser.set(userKey, waiting.id);
-            await this.activateRankedSession(interaction.guild!, waiting);
-            await interaction.update({
+            await this.persistSessions(waiting.guildId);
+            try {
+                await this.activateRankedSession(interaction.guild!, waiting);
+            } catch (error) {
+                waiting.status = 'closed';
+                this.releaseSession(waiting);
+                this.markForCleanup(waiting);
+                await this.persistSessions(waiting.guildId);
+                throw error;
+            }
+            await interaction.editReply({
                 content: `✅ マッチングしました: <@${waiting.hostId}> vs <@${interaction.user.id}>\n対戦会場: <#${waiting.channelId}>`,
                 components: []
             });
@@ -348,15 +400,14 @@ export class OthelloFeature implements CoreFeatureModule {
         session.status = 'closed';
         session.updatedAt = new Date().toISOString();
         this.releaseSession(session);
+        this.markForCleanup(session, 0);
+        await this.persistSessions(session.guildId);
         await interaction.update({
             content: 'マッチングから退出しました。オセロ対戦チャンネルを削除します。',
             components: []
         });
 
-        const channel = await interaction.guild!.channels.fetch(session.channelId).catch(() => null);
-        if (channel) {
-            await channel.delete('オセロのマッチング待機から退出').catch(() => undefined);
-        }
+        await this.cleanupSession(interaction.guild!, session);
     }
 
     private async createSession(
@@ -389,6 +440,7 @@ export class OthelloFeature implements CoreFeatureModule {
                         PermissionFlagsBits.ViewChannel,
                         PermissionFlagsBits.SendMessages,
                         PermissionFlagsBits.ManageMessages,
+                        PermissionFlagsBits.ManageChannels,
                         PermissionFlagsBits.ReadMessageHistory
                     ]
                 }
@@ -421,68 +473,37 @@ export class OthelloFeature implements CoreFeatureModule {
 
         this.sessions.set(id, session);
         this.activeByUser.set(this.userSessionKey(guild.id, hostId), id);
+        try {
+            await this.persistSessions(guild.id);
+            if (waiting) {
+                const waitingMessage = await channel.send({
+                    embeds: [new EmbedBuilder()
+                        .setColor(0x1b9b67)
+                        .setTitle('🏆 オセロ ランクマッチ')
+                        .setDescription(`<@${hostId}> が対戦相手を待っています。\nCoreパネルからランクマッチへ参加してください。\n\n待機時間は5分です。`)
+                        .setTimestamp()],
+                    components: [new ActionRowBuilder<ButtonBuilder>().addComponents(
+                        new ButtonBuilder()
+                            .setCustomId(`corefeature:${guild.id}:othello:othello:leave:${id}`)
+                            .setLabel('マッチングから退出')
+                            .setStyle(ButtonStyle.Danger)
+                    )]
+                });
+                session.messageId = waitingMessage.id;
 
-        if (waiting) {
-            const waitingMessage = await channel.send({
-                embeds: [new EmbedBuilder()
-                    .setColor(0x1b9b67)
-                    .setTitle('🏆 オセロ ランクマッチ')
-                    .setDescription(`<@${hostId}> が対戦相手を待っています。\nCoreパネルからランクマッチへ参加してください。\n\n待機時間は5分です。`)
-                    .setTimestamp()],
-                components: [new ActionRowBuilder<ButtonBuilder>().addComponents(
-                    new ButtonBuilder()
-                        .setCustomId(`corefeature:${guild.id}:othello:othello:leave:${id}`)
-                        .setLabel('マッチングから退出')
-                        .setStyle(ButtonStyle.Danger)
-                )]
-            });
-            session.messageId = waitingMessage.id;
-
-            const matchingTimer = setTimeout(() => {
-                const current = this.sessions.get(id);
-                if (!current || current.status !== 'waiting') {
-                    return;
-                }
-
-                current.status = 'closed';
-                current.updatedAt = new Date().toISOString();
-                this.releaseSession(current);
-                void guild.channels.fetch(current.channelId)
-                    .then(async (expiredChannel) => {
-                        if (expiredChannel?.type !== ChannelType.GuildText) return;
-                        await expiredChannel.send('⏱️ 5分間マッチングしなかったため、マッチングを停止します。')
-                            .catch(() => undefined);
-                        await expiredChannel.delete('オセロのマッチング待機が5分で期限切れ')
-                            .catch(() => undefined);
-                    })
-                    .catch(() => undefined);
-            }, MATCHING_TTL_MS);
-            matchingTimer.unref?.();
-        } else {
-            await this.publishBoard(channel, session);
-        }
-
-        const timer = setTimeout(() => {
-            const current = this.sessions.get(id);
-            if (current && ['active', 'waiting'].includes(current.status)) {
-                current.status = 'closed';
-                this.releaseSession(current);
-                void guild.channels.fetch(current.channelId)
-                    .then((expiredChannel) => {
-                        if (expiredChannel?.type !== ChannelType.GuildText) return;
-                        return this.updateBoardMessage(expiredChannel, current, {
-                            content: 'この対戦は有効期限切れになりました。',
-                            title: '対戦期限切れ',
-                            description: '1時間操作がなかったため、自動的に終了しました。',
-                            color: 0x8c9a94,
-                            controls: false
-                        });
-                    })
-                    .catch(() => undefined);
+            } else {
+                await this.publishBoard(channel, session);
             }
-        }, SESSION_TTL_MS);
-        timer.unref?.();
 
+            await this.persistSessions(guild.id);
+        } catch (error) {
+            session.status = 'closed';
+            this.releaseSession(session);
+            this.markForCleanup(session, 0);
+            await this.persistSessions(guild.id);
+            await this.cleanupSession(guild, session);
+            throw error;
+        }
         return session;
     }
 
@@ -513,11 +534,15 @@ export class OthelloFeature implements CoreFeatureModule {
         await this.publishBoard(channel, session);
     }
 
-    private async playMove(interaction: ButtonInteraction, sessionId: string, index: number): Promise<void> {
+    private async playMove(interaction: ButtonInteraction | StringSelectMenuInteraction, sessionId: string, index: number, turnNumber: number): Promise<void> {
         const session = this.sessions.get(sessionId);
         if (!session || session.status !== 'active') {
             throw new Error('この対戦は終了しているか、見つかりません。');
         }
+
+        if (session.guildId !== interaction.guildId || session.channelId !== interaction.channelId) throw new Error('この対戦のチャンネルではありません。');
+        if (turnNumber !== session.turnNumber) throw new Error('古い盤面の操作です。最新の盤面から選び直してください。');
+        if (!getValidMoves(session.board, session.turn).some((move) => move.index === index)) throw new Error('そのマスには置けません。');
 
         const expectedUserId = session.turn === 'black' ? session.blackId : session.whiteId;
         if (expectedUserId !== interaction.user.id) {
@@ -543,7 +568,7 @@ export class OthelloFeature implements CoreFeatureModule {
             return;
         }
 
-        if (session.mode === 'bot' && session.turn === 'white') {
+        while (session.mode === 'bot' && session.turn === 'white' && !isGameOver(session.board)) {
             const botMove = chooseBotMove(session.board, 'white', session.difficulty || 'normal');
             if (botMove) {
                 session.board = applyMove(session.board, botMove.index, 'white');
@@ -560,6 +585,7 @@ export class OthelloFeature implements CoreFeatureModule {
             return;
         }
 
+        await this.persistSessions(session.guildId);
         await this.publishBoard(interaction.channel as TextChannel, session);
     }
 
@@ -569,12 +595,16 @@ export class OthelloFeature implements CoreFeatureModule {
         }
     }
 
-    private async finishSession(channel: TextChannel, session: OthelloSession): Promise<void> {
+    private async finishSession(channel: TextChannel, session: OthelloSession, winnerOverride?: OthelloDisc, reason = '終局'): Promise<void> {
         session.status = 'completed';
         session.updatedAt = new Date().toISOString();
         this.releaseSession(session);
         const counts = countDiscs(session.board);
-        const winner = counts.black === counts.white ? null : counts.black > counts.white ? 'black' : 'white';
+        this.markForCleanup(session);
+        const winner = winnerOverride ?? (counts.black === counts.white ? null : counts.black > counts.white ? 'black' : 'white');
+        session.winner = winner;
+        session.finishReason = reason;
+        await this.persistSessions(session.guildId);
         let rankingText = '';
 
         if (session.mode === 'ranked' && session.opponentId && !session.resultRecorded) {
@@ -585,9 +615,11 @@ export class OthelloFeature implements CoreFeatureModule {
                 playerB: session.whiteId,
                 result: winner === null ? 'draw' : winner === 'black' ? 'playerA' : 'playerB',
                 ranked: true,
-                tiers: OTHELLO_RANK_TIERS
+                tiers: OTHELLO_RANK_TIERS,
+                matchId: session.id
             });
             session.resultRecorded = true;
+            await this.persistSessions(session.guildId);
             const leaderboard = await gameRankingManager.getLeaderboard(session.guildId, 'othello');
             const blackEntry = leaderboard.find((profile) => profile.userId === session.blackId);
             const whiteEntry = leaderboard.find((profile) => profile.userId === session.whiteId);
@@ -604,7 +636,7 @@ export class OthelloFeature implements CoreFeatureModule {
         await this.updateBoardMessage(channel, session, {
             content: '対戦が終了しました。結果PNGと対局リプレイGIFをダウンロードできます。\nこのチャンネルは約5分後に自動削除されます。',
             title: winner ? `${winner === 'black' ? '黒' : '白'}の勝利` : '引き分け',
-            description: `⚫ 黒 ${counts.black} - ${counts.white} 白 ⚪\n全 ${session.turnNumber - 1} 手${rankingText}`,
+            description: `**${reason} — ${winner ? (winner === 'black' ? '黒' : '白') + 'の勝利' : '引き分け'}**\n⚫ 黒 ${counts.black} - ${counts.white} 白 ⚪\n全 ${session.turnNumber - 1} 手${rankingText}`,
             color: winner === 'black' ? 0x202421 : winner === 'white' ? 0xe8eeeb : 0x8c9a94,
             controls: false,
             image,
@@ -612,10 +644,6 @@ export class OthelloFeature implements CoreFeatureModule {
             extraFiles: [new AttachmentBuilder(replay, { name: 'othello-replay.gif' })]
         });
 
-        const deleteTimer = setTimeout(() => {
-            void channel.delete('オセロ対戦終了から5分が経過したため自動削除').catch(() => undefined);
-        }, COMPLETED_CHANNEL_DELETE_DELAY_MS);
-        deleteTimer.unref?.();
     }
 
     private async publishBoard(channel: TextChannel, session: OthelloSession): Promise<void> {
@@ -632,6 +660,7 @@ export class OthelloFeature implements CoreFeatureModule {
                 '画像と同じ番号のボタンを選んでください。置ける番号だけ有効です。'
             ].join('\n'),
             files: [new AttachmentBuilder(image, { name: 'othello-board.png' })],
+            attachments: [],
             embeds: [],
             components: this.buildBoardControls(session, validMoves)
         };
@@ -646,6 +675,7 @@ export class OthelloFeature implements CoreFeatureModule {
 
         const message = await channel.send(payload);
         session.messageId = message.id;
+        await this.persistSessions(session.guildId);
     }
 
     private async buildPlayerSummary(session: OthelloSession): Promise<string> {
@@ -675,16 +705,24 @@ export class OthelloFeature implements CoreFeatureModule {
     private buildBoardControls(
         session: OthelloSession,
         validMoves: Set<number>
-    ): ActionRowBuilder<ButtonBuilder>[] {
+    ): Array<ActionRowBuilder<ButtonBuilder> | ActionRowBuilder<StringSelectMenuBuilder>> {
         const moves = [...validMoves].sort((left, right) => left - right);
-        const visible = moves.slice(0, 20);
-        const rows: ActionRowBuilder<ButtonBuilder>[] = [];
+        const visible = moves.length > 20 ? [] : moves;
+        const rows: Array<ActionRowBuilder<ButtonBuilder> | ActionRowBuilder<StringSelectMenuBuilder>> = [];
+        if (moves.length > 20) {
+            for (let offset = 0; offset < moves.length; offset += 25) {
+                rows.push(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(new StringSelectMenuBuilder()
+                    .setCustomId(`corefeature:${session.guildId}:othello:othello:choose:${session.id}:${session.turnNumber}:${offset}`)
+                    .setPlaceholder(`置くマスを選択 (${offset + 1}〜${Math.min(offset + 25, moves.length)})`)
+                    .addOptions(moves.slice(offset, offset + 25).map((index) => ({ label: String(index + 1), value: String(index) })))));
+            }
+        }
 
         for (let start = 0; start < visible.length; start += 5) {
             const row = new ActionRowBuilder<ButtonBuilder>();
             for (const index of visible.slice(start, start + 5)) {
                 row.addComponents(new ButtonBuilder()
-                    .setCustomId(`corefeature:${session.guildId}:othello:othello:move:${session.id}:${index}`)
+                    .setCustomId(`corefeature:${session.guildId}:othello:othello:move:${session.id}:${index}:${session.turnNumber}`)
                     .setLabel(String(index + 1))
                     .setStyle(ButtonStyle.Success));
             }
@@ -695,7 +733,7 @@ export class OthelloFeature implements CoreFeatureModule {
             rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(
                 new ButtonBuilder()
                     .setCustomId(`corefeature:${session.guildId}:othello:othello:close:${session.id}`)
-                    .setLabel('対戦を終了')
+                    .setLabel('投了（自分の負け）')
                     .setStyle(ButtonStyle.Danger)
             ));
         }
@@ -725,6 +763,7 @@ export class OthelloFeature implements CoreFeatureModule {
                 new AttachmentBuilder(image, { name: imageName }),
                 ...(options.extraFiles || [])
             ],
+            attachments: [],
             embeds: [],
             components: options.controls
                 ? this.buildBoardControls(
@@ -759,6 +798,95 @@ export class OthelloFeature implements CoreFeatureModule {
         }
     }
 
+    private markForCleanup(session: OthelloSession, delay = COMPLETED_CHANNEL_DELETE_DELAY_MS): void {
+        session.deleteAt = Date.now() + delay;
+    }
+
+    private async persistSessions(guildId: string): Promise<void> {
+        await this.withSessionLock(`storage:${guildId}`, async () => {
+            const snapshot = [...this.sessions.values()].filter((session) => session.guildId === guildId);
+            await database.set(guildId, `Guild/${guildId}/corefeature/othello/sessions`, structuredClone(snapshot));
+        });
+    }
+
+    private async restoreSessions(client: Client): Promise<void> {
+        for (const guild of client.guilds.cache.values()) {
+            const stored = await database.get<OthelloSession[]>(guild.id, `Guild/${guild.id}/corefeature/othello/sessions`, []);
+            for (const session of Array.isArray(stored) ? stored : []) {
+                if (session.guildId !== guild.id || !session.id || !session.channelId || session.board?.length !== 64) continue;
+                this.sessions.set(session.id, session);
+                if (session.status === 'active' || session.status === 'waiting') {
+                    for (const userId of [session.hostId, session.opponentId]) {
+                        if (userId && userId !== BOT_PLAYER_ID) this.activeByUser.set(this.userSessionKey(guild.id, userId), session.id);
+                    }
+                    if (session.status === 'waiting') this.waitingByGuild.set(guild.id, session.id);
+                } else if (!session.deleteAt) this.markForCleanup(session);
+            }
+        }
+        await this.maintainSessions(client);
+    }
+
+    private async cleanupSession(guild: Guild, session: OthelloSession): Promise<void> {
+        try {
+            const channel = await guild.channels.fetch(session.channelId);
+            if (channel) await channel.delete('オセロの終了済みルームを清掃');
+        } catch (error) {
+            if ((error as { code?: number }).code !== 10003) {
+                Logger.warn(`Othello room cleanup will retry: ${session.channelId}`, error);
+                return;
+            }
+        }
+        this.releaseSession(session);
+        this.sessions.delete(session.id);
+        await this.persistSessions(guild.id);
+    }
+
+    private async maintainSessions(client: Client): Promise<void> {
+        if (this.maintenanceRunning) return;
+        this.maintenanceRunning = true;
+        try { await this.runMaintenance(client); }
+        finally { this.maintenanceRunning = false; }
+    }
+
+    private async runMaintenance(client: Client): Promise<void> {
+        for (const session of [...this.sessions.values()]) {
+            try {
+                await this.withSessionLock(`matching:${session.guildId}`, () => this.withSessionLock(session.id, async () => {
+                    if (!this.sessions.has(session.id)) return;
+                    const guild = client.guilds.cache.get(session.guildId);
+                    if (!guild) return;
+                    if (session.status === 'completed' && session.mode === 'ranked' && !session.resultRecorded && session.winner !== undefined) {
+                        await gameRankingManager.recordResult({
+                            guildId: session.guildId, gameKey: 'othello', playerA: session.blackId, playerB: session.whiteId,
+                            result: session.winner === null ? 'draw' : session.winner === 'black' ? 'playerA' : 'playerB',
+                            matchId: session.id, ranked: true, tiers: OTHELLO_RANK_TIERS
+                        });
+                        session.resultRecorded = true;
+                        await this.persistSessions(session.guildId);
+                    }
+                    if (session.status === 'active' || session.status === 'waiting') {
+                        const ttl = session.status === 'waiting' ? MATCHING_TTL_MS : SESSION_TTL_MS;
+                        if (Date.now() - Date.parse(session.updatedAt) < ttl) return;
+                        const channel = await guild.channels.fetch(session.channelId);
+                        if (session.status === 'active' && channel?.type === ChannelType.GuildText) {
+                            // 放置でレート変動を回避できないよう、手番側の時間切れ負けとする。
+                            await this.finishSession(channel, session, opponentOf(session.turn), '1時間無操作による時間切れ');
+                        } else {
+                            session.status = 'closed';
+                            this.releaseSession(session);
+                            this.markForCleanup(session, 0);
+                            await this.persistSessions(session.guildId);
+                        }
+                    }
+                    if (session.deleteAt !== undefined && session.deleteAt <= Date.now()) await this.cleanupSession(guild, session);
+                }));
+            } catch (error) {
+                if ((error as { code?: number }).code === 10003) await this.cleanupSession(client.guilds.cache.get(session.guildId)!, session);
+                else Logger.warn(`Othello maintenance will retry: ${session.id}`, error);
+            }
+        }
+    }
+
     private userSessionKey(guildId: string, userId: string): string {
         return `${guildId}:${userId}`;
     }
@@ -783,7 +911,7 @@ export class OthelloFeature implements CoreFeatureModule {
     }
 
     private async withInteractionGuard(
-        interaction: ButtonInteraction,
+        interaction: ButtonInteraction | StringSelectMenuInteraction,
         operation: () => Promise<void>
     ): Promise<void> {
         const key = `${interaction.guildId}:${interaction.user.id}`;

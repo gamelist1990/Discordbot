@@ -27,7 +27,7 @@ const services = [
   },
   {
     title: "Core パネル",
-    description: "性格診断と レスバ のパネル設定・投稿を管理します。",
+    description: "性格診断・オセロ・リクエストのパネルを管理します。",
     path: "/staff/corepanel",
     icon: "dashboard",
   },
@@ -36,13 +36,6 @@ const services = [
     description: "XP とパネル運用の設定に進みます。",
     path: "/staff/rankmanager",
     icon: "leaderboard",
-  },
-  {
-    title: "チャンネル管理",
-    description:
-      "カテゴリやチャンネルの作成、権限、並び順をまとめて操作します。",
-    path: "/staff/channel-manager",
-    icon: "view_kanban",
   },
   {
     title: "Todo",
@@ -66,7 +59,6 @@ const serviceCategories: Record<string, string> = {
   "/staff/privatechat": "safety",
   "/staff/join-log": "safety",
   "/staff/rolemanager": "manage",
-  "/staff/channel-manager": "manage",
   "/staff/todo": "manage",
   "/staff/corepanel": "community",
   "/staff/rankmanager": "community",

@@ -42,7 +42,6 @@ export default {
                     .addChoices(
                         { name: '統合', value: 'combined' },
                         { name: '性格診断だけ', value: 'personality' },
-                        { name: 'レスバだけ', value: 'debate' },
                         { name: 'オセロだけ', value: 'othello' },
                         { name: 'リクエストだけ', value: 'request' }
                     )
@@ -54,12 +53,7 @@ export default {
             )
             .addChannelOption((opt: any) =>
                 opt.setName('target_channel')
-                    .setDescription('停止対象のレスバ/性格診断チャンネル（省略時は該当種別を全停止）')
-                    .setRequired(false)
-            )
-            .addRoleOption((opt: any) =>
-                opt.setName('spectator_role')
-                    .setDescription('レスバ観戦用のロール')
+                    .setDescription('停止対象のセッションチャンネル（省略時は該当種別を全停止）')
                     .setRequired(false)
             )
             .addUserOption((opt: any) =>
@@ -200,11 +194,11 @@ export default {
                 return;
             }
 
-            const selectedRole = interaction.options.getRole('spectator_role');
+
             const existingConfig = await coreFeatureManager.getPanelConfig(interaction.guild.id, panelKind);
             const spectatorRoleId = panelKind === 'personality'
                 ? null
-                : selectedRole?.id || existingConfig?.spectatorRoleId || null;
+                : existingConfig?.spectatorRoleId || null;
 
             const sentMessage = await (targetChannel as any).send({
                 embeds: [buildRegisteredCorePanelEmbed(

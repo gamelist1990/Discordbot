@@ -1,591 +1,306 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
-import { useAppToast } from '../../../AppToastProvider';
-import styles from './CorePanel.module.css';
-
-type GuildSummary = {
-  id: string;
-  name: string;
-  icon?: string | null;
-};
-
-type GuildChannel = {
-  id: string;
-  name: string;
-  type: number;
-  position: number;
-};
-
-type GuildRole = {
-  id: string;
-  name: string;
-  color: number;
-  position: number;
-};
-
-type CoreFeaturePanelKind = string;
-
-type CoreFeatureDescriptor = {
+import { useEffect, useState } from "react";
+import {
+  ServerWorkspace,
+  useResource,
+  useAction,
+  Feedback,
+  ResourceState,
+  ChannelSelect,
+  RoleSelect,
+  SaveBar,
+  request,
+  ui,
+  type Channel,
+  type Role,
+} from "../../../components/Workspace/Workspace";
+type Feature = {
   key: string;
   label: string;
   description: string;
-  category: 'game' | 'utility' | 'community' | 'other';
   emoji: string;
-  color: number;
-  order: number;
-  webSettings: {
-    spectatorRole: boolean;
-    requestSettings: boolean;
-  };
+  webSettings: { spectatorRole: boolean; requestSettings: boolean };
 };
-
-type CorePanelConfig = {
-  panelKind: CoreFeaturePanelKind;
-  guildId: string;
+type Config = {
+  panelKind: string;
   channelId: string;
-  messageId: string | null;
   spectatorRoleId: string | null;
   requestDoneChannelId?: string | null;
   requestCategoryName?: string | null;
   requestLabels?: string[];
   requestStaffRoleId?: string | null;
   requestTrackingChannelId?: string | null;
-  updatedBy: string;
-  updatedAt: string;
 };
-
-const CorePanelPage: React.FC = () => {
-  const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-  const initialGuildId = searchParams.get('guildId');
-  const returnTo = searchParams.get('returnTo') || '/staff';
-
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [posting, setPosting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const [guilds, setGuilds] = useState<GuildSummary[]>([]);
-  const [selectedGuildId, setSelectedGuildId] = useState<string | null>(initialGuildId);
-  const [channels, setChannels] = useState<GuildChannel[]>([]);
-  const [roles, setRoles] = useState<GuildRole[]>([]);
-  const [config, setConfig] = useState<CorePanelConfig | null>(null);
-  const [panelUrl, setPanelUrl] = useState<string | null>(null);
-  const [features, setFeatures] = useState<CoreFeatureDescriptor[]>([]);
-
-  const [panelKind, setPanelKind] = useState<CoreFeaturePanelKind>('combined');
-  const [channelId, setChannelId] = useState('');
-  const [spectatorRoleId, setSpectatorRoleId] = useState('');
-  const [requestDoneChannelId, setRequestDoneChannelId] = useState('');
-  const [requestCategoryName, setRequestCategoryName] = useState('');
-  const [requestLabels, setRequestLabels] = useState('');
-  const [requestStaffRoleId, setRequestStaffRoleId] = useState('');
-  const [requestTrackingChannelId, setRequestTrackingChannelId] = useState('');
-
-  const { addToast } = (() => {
-    try {
-      return useAppToast();
-    } catch {
-      return { addToast: undefined } as any;
-    }
-  })();
-
-  const selectedGuild = useMemo(
-    () => guilds.find((guild) => guild.id === selectedGuildId) || null,
-    [guilds, selectedGuildId]
-  );
-  const panelKindOptions = useMemo(() => [
-    {
-      value: 'combined',
-      label: '統合パネル',
-      description: `登録済みの ${features.length} 機能をまとめて投稿します。`,
-      emoji: '🧩',
-    },
-    ...features.map((feature) => ({
-      value: feature.key,
-      label: feature.label,
-      description: feature.description,
-      emoji: feature.emoji,
-    })),
-  ], [features]);
-  const panelKindMeta = useMemo(
-    () => panelKindOptions.find((option) => option.value === panelKind) || panelKindOptions[0],
-    [panelKind, panelKindOptions]
-  );
-  const currentChannelName = useMemo(() => {
-    const activeChannelId = channelId || config?.channelId || '';
-    return channels.find((channel) => channel.id === activeChannelId)?.name || '未設定';
-  }, [channelId, channels, config?.channelId]);
-  const currentRoleName = useMemo(() => {
-    const roleId = spectatorRoleId || config?.spectatorRoleId || '';
-    return roles.find((role) => role.id === roleId)?.name || (roleId ? '不明なロール' : '未設定');
-  }, [config?.spectatorRoleId, roles, spectatorRoleId]);
-  const currentRequestStaffRoleName = useMemo(() => {
-    const roleId = requestStaffRoleId || config?.requestStaffRoleId || '';
-    return roles.find((role) => role.id === roleId)?.name || (roleId ? '不明なロール' : '未設定');
-  }, [config?.requestStaffRoleId, requestStaffRoleId, roles]);
-  const savedDoneChannelDisplay = useMemo(() => {
-    const doneChannelId = requestDoneChannelId || config?.requestDoneChannelId || '';
-    if (!doneChannelId) {
-      return '未設定';
-    }
-    const doneChannel = channels.find((channel) => channel.id === doneChannelId);
-    return doneChannel?.name ? `#${doneChannel.name}` : doneChannelId;
-  }, [channels, config?.requestDoneChannelId, requestDoneChannelId]);
-  const currentRequestCategoryName = useMemo(
-    () => requestCategoryName || config?.requestCategoryName || '未設定',
-    [config?.requestCategoryName, requestCategoryName]
-  );
-  const currentRequestLabels = useMemo(
-    () => requestLabels || (config?.requestLabels || []).join(',') || '未設定',
-    [config?.requestLabels, requestLabels]
-  );
-  const savedTrackingChannelDisplay = useMemo(() => {
-    const trackingChannelId = requestTrackingChannelId || config?.requestTrackingChannelId || '';
-    if (!trackingChannelId) {
-      return '未設定';
-    }
-    const trackingChannel = channels.find((channel) => channel.id === trackingChannelId);
-    return trackingChannel?.name ? `#${trackingChannel.name}` : trackingChannelId;
-  }, [channels, config?.requestTrackingChannelId, requestTrackingChannelId]);
-  const selectedFeature = useMemo(
-    () => features.find((feature) => feature.key === panelKind) || null,
-    [features, panelKind]
-  );
-  const usesRequestSettings = panelKind === 'combined'
-    ? features.some((feature) => feature.webSettings.requestSettings)
-    : selectedFeature?.webSettings.requestSettings === true;
-  const usesSpectatorRole = panelKind === 'combined'
-    ? features.some((feature) => feature.webSettings.spectatorRole)
-    : selectedFeature?.webSettings.spectatorRole === true;
-
-  useEffect(() => {
-    const loadGuilds = async () => {
-      try {
-        const response = await fetch('/api/staff/guilds', { credentials: 'include' });
-        if (!response.ok) {
-          throw new Error('アクセス可能なサーバーを取得できませんでした。');
-        }
-        const data = await response.json();
-        const nextGuilds = (data.guilds || []) as GuildSummary[];
-        setGuilds(nextGuilds);
-
-        if (initialGuildId && nextGuilds.some((guild) => guild.id === initialGuildId)) {
-          setSelectedGuildId(initialGuildId);
-        } else if (!initialGuildId) {
-          setSelectedGuildId(null);
-        } else {
-          setSelectedGuildId(null);
-        }
-      } catch (loadError) {
-        const message = loadError instanceof Error ? loadError.message : 'サーバー一覧の取得に失敗しました。';
-        setError(message);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadGuilds();
-  }, [initialGuildId]);
-
-  useEffect(() => {
-    if (!selectedGuildId) {
-      setConfig(null);
-      setFeatures([]);
-      setChannels([]);
-      setRoles([]);
-      setPanelUrl(null);
-      setChannelId('');
-      setSpectatorRoleId('');
-      setRequestDoneChannelId('');
-      setRequestCategoryName('');
-      setRequestLabels('');
-      setRequestStaffRoleId('');
-      setRequestTrackingChannelId('');
-      setPanelKind('combined');
-      return;
-    }
-
-    const loadGuildData = async () => {
-      setLoading(true);
-      setError(null);
-
-      try {
-        const [configRes, channelsRes, rolesRes] = await Promise.all([
-          fetch(`/api/staff/corepanel/${selectedGuildId}?panelKind=${panelKind}`, { credentials: 'include' }),
-          fetch(`/api/staff/guilds/${selectedGuildId}/channels`, { credentials: 'include' }),
-          fetch(`/api/staff/guilds/${selectedGuildId}/roles`, { credentials: 'include' }),
-        ]);
-
-        if (!configRes.ok || !channelsRes.ok || !rolesRes.ok) {
-          throw new Error('Core パネル設定の読み込みに失敗しました。');
-        }
-
-        const [configData, channelsData, rolesData] = await Promise.all([
-          configRes.json(),
-          channelsRes.json(),
-          rolesRes.json(),
-        ]);
-
-        const nextConfig = (configData.config || null) as CorePanelConfig | null;
-        const nextChannels = ((channelsData.channels || []) as GuildChannel[]).filter((channel) => [0, 5, 15].includes(channel.type));
-        const nextRoles = (rolesData.roles || []) as GuildRole[];
-
-        setConfig(nextConfig);
-        setFeatures((configData.features || []) as CoreFeatureDescriptor[]);
-        setPanelUrl(configData.panelUrl || null);
-        setChannels(nextChannels);
-        setRoles(nextRoles);
-        setChannelId(nextConfig?.channelId || nextChannels[0]?.id || '');
-        setSpectatorRoleId(nextConfig?.spectatorRoleId || '');
-        setRequestDoneChannelId(nextConfig?.requestDoneChannelId || '');
-        setRequestCategoryName(nextConfig?.requestCategoryName || 'Request');
-        setRequestLabels((nextConfig?.requestLabels || []).join(','));
-        setRequestStaffRoleId(nextConfig?.requestStaffRoleId || '');
-        setRequestTrackingChannelId(nextConfig?.requestTrackingChannelId || '');
-      } catch (loadError) {
-        const message = loadError instanceof Error ? loadError.message : 'Core パネル設定の読み込みに失敗しました。';
-        setError(message);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadGuildData();
-  }, [panelKind, selectedGuildId]);
-
-  const saveConfig = async () => {
-    if (!selectedGuildId || !channelId) {
-      addToast?.('投稿先チャンネルを選択してください', 'warning');
-      return;
-    }
-
-    setSaving(true);
-    try {
-      const response = await fetch(`/api/staff/corepanel/${selectedGuildId}/config`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          panelKind,
-          channelId,
-          spectatorRoleId: usesSpectatorRole ? spectatorRoleId || null : null,
-          requestDoneChannelId: usesRequestSettings ? requestDoneChannelId || null : null,
-          requestCategoryName: usesRequestSettings ? requestCategoryName.trim() || null : null,
-          requestLabels: usesRequestSettings ? requestLabels.split(',').map((entry) => entry.trim().slice(0, 10)).filter(Boolean) : [],
-          requestStaffRoleId: usesRequestSettings ? requestStaffRoleId || null : null,
-          requestTrackingChannelId: usesRequestSettings ? requestTrackingChannelId || null : null,
-        }),
-      });
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error || '設定の保存に失敗しました。');
-      }
-      setConfig(data.config || null);
-      setPanelUrl(data.panelUrl || null);
-      addToast?.('Core パネル設定を保存しました', 'success');
-    } catch (saveError) {
-      addToast?.(saveError instanceof Error ? saveError.message : '設定の保存に失敗しました。', 'error');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const postPanel = async () => {
-    if (!selectedGuildId || !channelId) {
-      addToast?.('投稿先チャンネルを選択してください', 'warning');
-      return;
-    }
-
-    setPosting(true);
-    try {
-      const response = await fetch(`/api/staff/corepanel/${selectedGuildId}/post`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          panelKind,
-          channelId,
-          spectatorRoleId: usesSpectatorRole ? spectatorRoleId || null : null,
-          requestDoneChannelId: usesRequestSettings ? requestDoneChannelId || null : null,
-          requestCategoryName: usesRequestSettings ? requestCategoryName.trim() || null : null,
-          requestLabels: usesRequestSettings ? requestLabels.split(',').map((entry) => entry.trim().slice(0, 10)).filter(Boolean) : [],
-          requestStaffRoleId: usesRequestSettings ? requestStaffRoleId || null : null,
-          requestTrackingChannelId: usesRequestSettings ? requestTrackingChannelId || null : null,
-        }),
-      });
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error || 'パネル投稿に失敗しました。');
-      }
-      setConfig(data.config || null);
-      setPanelUrl(data.panelUrl || null);
-      addToast?.('Core パネルを Discord に投稿しました', 'success');
-    } catch (postError) {
-      addToast?.(postError instanceof Error ? postError.message : 'パネル投稿に失敗しました。', 'error');
-    } finally {
-      setPosting(false);
-    }
-  };
-
-  if (loading && guilds.length === 0) {
-    return <div className={styles.loading}>Core 機能ページを読み込んでいます...</div>;
-  }
-
-  if (error && guilds.length === 0) {
-    return <div className={styles.loading}>{error}</div>;
-  }
-
+type State = {
+  features: Feature[];
+  config: Config | null;
+  panelUrl: string | null;
+};
+export default function CorePanelPage() {
   return (
-    <div className={styles.container}>
-      <header className={styles.header}>
-        <div className={styles.headerContent}>
-          <div className={styles.headerTitle}>
-            <i className="material-icons">dashboard</i>
-            <h1>Core 機能パネル管理</h1>
-          </div>
-          <button className={styles.backButton} onClick={() => navigate(returnTo)} type="button">
-            <i className="material-icons">arrow_back</i>
-            戻る
-          </button>
-        </div>
-      </header>
-
-      {!selectedGuildId ? (
-        <div className={styles.guildSelector}>
-          <h2>サーバーを選択</h2>
-          {guilds.length === 0 ? (
-            <div className={styles.emptyState}>
-              <i className="material-icons">visibility_off</i>
-              <p>アクセス可能なサーバーがありません</p>
-            </div>
-          ) : (
-            <div className={styles.guildGrid}>
-              {guilds.map((guild) => (
-                <button key={guild.id} className={styles.guildCard} onClick={() => setSelectedGuildId(guild.id)} type="button">
-                  {guild.icon ? (
-                    <img src={`https://cdn.discordapp.com/icons/${guild.id}/${guild.icon}.png`} alt={guild.name} className={styles.guildIcon} />
-                  ) : (
-                    <div className={styles.guildIconFallback}>
-                      <i className="material-icons">group</i>
-                    </div>
-                  )}
-                  <span className={styles.guildName}>{guild.name}</span>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
+    <ServerWorkspace
+      title="Core パネル"
+      description="機能を選び、設定を確認してからDiscordへ投稿できます。"
+    >
+      {(guild) => <Panel guildId={guild.id} />}
+    </ServerWorkspace>
+  );
+}
+function Panel({ guildId }: { guildId: string }) {
+  const [kind, setKind] = useState("combined");
+  const resource = useResource<State>(
+    `/api/staff/corepanel/${guildId}?panelKind=${encodeURIComponent(kind)}`,
+  );
+  const channels = useResource<{ channels: Channel[] }>(
+    `/api/staff/guilds/${guildId}/channels`,
+  );
+  const roles = useResource<{ roles: Role[] }>(
+    `/api/staff/guilds/${guildId}/roles`,
+  );
+  const [draft, setDraft] = useState<Config | null>(null);
+  const [baseline, setBaseline] = useState("");
+  const [labels, setLabels] = useState("");
+  const action = useAction();
+  useEffect(() => {
+    if (resource.data) {
+      const next = {
+        panelKind: kind,
+        channelId: "",
+        spectatorRoleId: null,
+        ...resource.data.config,
+      };
+      setDraft(next);
+      setLabels(next.requestLabels?.join(", ") || "");
+      setBaseline(JSON.stringify(next));
+    }
+  }, [resource.data, kind]);
+  const feature = resource.data?.features.find((item) => item.key === kind);
+  const usesRequests =
+    kind === "combined"
+      ? resource.data?.features.some((item) => item.webSettings.requestSettings)
+      : feature?.webSettings.requestSettings;
+  const usesSpectator =
+    kind === "combined"
+      ? resource.data?.features.some((item) => item.webSettings.spectatorRole)
+      : feature?.webSettings.spectatorRole;
+  const dirty = !!draft && JSON.stringify(draft) !== baseline;
+  const patch = (value: Partial<Config>) =>
+    setDraft((current) => (current ? { ...current, ...value } : current));
+  const save = (post: boolean) =>
+    void action.run(
+      async () => {
+        if (!draft?.channelId)
+          throw new Error("投稿先チャンネルを選択してください。");
+        const data = await request<State>(
+          `/api/staff/corepanel/${guildId}/${post ? "post" : "config"}`,
+          "POST",
+          draft,
+        );
+        resource.setData({ ...resource.data!, ...data });
+      },
+      post
+        ? "Discordにパネルを投稿・更新しました。"
+        : "パネル設定を保存しました。",
+    );
+  const error = resource.error || channels.error || roles.error;
+  return (
+    <>
+      <Feedback {...action} />
+      <div className={ui.steps}>
+        <span>01 機能を選択</span>
+        <span>02 投稿先とオプションを設定</span>
+        <span>03 確認して投稿</span>
+      </div>
+      <label className={`${ui.card} ${ui.selectorCard}`}>
+        パネルの種類
+        <select
+          aria-label="パネルの種類"
+          value={kind}
+          disabled={action.busy}
+          onChange={(e) => {
+            if (
+              !dirty ||
+              window.confirm("未保存の変更を取り消して切り替えますか？")
+            )
+              setKind(e.target.value);
+          }}
+        >
+          <option value="combined">すべての機能をまとめる</option>
+          {resource.data?.features.map((item) => (
+            <option value={item.key} key={item.key}>
+              {item.emoji} {item.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      {resource.loading ||
+      channels.loading ||
+      roles.loading ||
+      error ||
+      !draft ? (
+        <ResourceState
+          loading={resource.loading || channels.loading || roles.loading}
+          error={error}
+          retry={() => {
+            resource.reload();
+            channels.reload();
+            roles.reload();
+          }}
+        />
       ) : (
-        <div className={styles.content}>
-          {loading ? <div className={styles.loading}>設定を読み込んでいます...</div> : null}
-          {error ? <div className={styles.emptyState}><p>{error}</p></div> : null}
-
-          <div className={styles.toolbar}>
-            <div className={styles.toolbarMeta}>
-              <div className={styles.toolbarTitle}>{selectedGuild?.name || selectedGuildId}</div>
-              <div className={styles.toolbarSub}>現在の種類: {panelKindMeta.label}</div>
-            </div>
-            <button className={styles.changeGuildButton} onClick={() => setSelectedGuildId(null)} type="button">
-              <i className="material-icons">swap_horiz</i>
-              サーバー変更
-            </button>
-          </div>
-
-          <div className={styles.mainGrid}>
-            <section className={styles.card}>
-              <h2>パネル設定</h2>
-              <p className={styles.hint}>{panelKindMeta.description}</p>
-
-              <div className={styles.infoItem}>
-                <span>登録済み機能</span>
-                <strong>{features.length} 件</strong>
-              </div>
-
-              <div className={styles.field}>
-                <label htmlFor="corepanel-kind">パネル種類</label>
-                <select id="corepanel-kind" value={panelKind} onChange={(event) => setPanelKind(event.target.value as CoreFeaturePanelKind)}>
-                  {panelKindOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.emoji} {option.label}{option.value === 'combined' ? '' : 'だけ'}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className={styles.field}>
-                <label htmlFor="corepanel-channel">投稿チャンネル</label>
-                <select id="corepanel-channel" value={channelId} onChange={(event) => setChannelId(event.target.value)}>
-                  <option value="">チャンネルを選択</option>
-                  {channels.map((channel) => (
-                    <option key={channel.id} value={channel.id}>
-                      #{channel.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className={styles.field}>
-                <label htmlFor="corepanel-spectator-role">観戦ロール</label>
-                <select
-                  id="corepanel-spectator-role"
-                  value={spectatorRoleId}
-                  onChange={(event) => setSpectatorRoleId(event.target.value)}
-                  disabled={!usesSpectatorRole}
-                >
-                  <option value="">未設定</option>
-                  {roles.map((role) => (
-                    <option key={role.id} value={role.id}>
-                      {role.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {usesRequestSettings ? (
-                <div className={styles.subsection}>
-                  <div className={styles.subsectionHeader}>
-                    <h3>Request 設定</h3>
-                    <p className={styles.hint}>
-                      {panelKind === 'combined' ? '統合パネル内の Request に適用されます。' : 'Request 専用パネルで使う設定です。'}
-                    </p>
-                  </div>
-
-                  <div className={styles.field}>
-                    <label htmlFor="corepanel-request-category">作成カテゴリ名</label>
-                    <input
-                      id="corepanel-request-category"
-                      value={requestCategoryName}
-                      onChange={(event) => setRequestCategoryName(event.target.value)}
-                      placeholder="Request"
-                    />
-                  </div>
-
-                  <div className={styles.field}>
-                    <label htmlFor="corepanel-request-labels">ラベル設定</label>
-                    <input
-                      id="corepanel-request-labels"
-                      value={requestLabels}
-                      onChange={(event) => setRequestLabels(event.target.value)}
-                      placeholder="未設定でも可。必要なら機能リクエスト,バグ修正,その他"
-                    />
-                    <p className={styles.hint}>未設定のままでも使えます。設定する場合はカンマ区切りで入力してください。</p>
-                  </div>
-
-                  <div className={styles.field}>
-                    <label htmlFor="corepanel-request-staff-role">対応スタッフロール</label>
-                    <select
-                      id="corepanel-request-staff-role"
-                      value={requestStaffRoleId}
-                      onChange={(event) => setRequestStaffRoleId(event.target.value)}
-                    >
-                      <option value="">未設定</option>
-                      {roles.map((role) => (
-                        <option key={role.id} value={role.id}>
-                          {role.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className={styles.field}>
-                    <label htmlFor="corepanel-request-done-channel">完了通知チャンネル</label>
-                    <select
-                      id="corepanel-request-done-channel"
-                      value={requestDoneChannelId}
-                      onChange={(event) => setRequestDoneChannelId(event.target.value)}
-                    >
-                      <option value="">未設定</option>
-                      {channels.map((channel) => (
-                        <option key={channel.id} value={channel.id}>
-                          #{channel.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className={styles.field}>
-                    <label htmlFor="corepanel-request-tracking-channel">追跡一覧チャンネル</label>
-                    <select
-                      id="corepanel-request-tracking-channel"
-                      value={requestTrackingChannelId}
-                      onChange={(event) => setRequestTrackingChannelId(event.target.value)}
-                    >
-                      <option value="">未設定</option>
-                      {channels.map((channel) => (
-                        <option key={channel.id} value={channel.id}>
-                          #{channel.name}
-                        </option>
-                      ))}
-                    </select>
-                    <p className={styles.hint}>スタッフが Request 一覧を追跡する専用チャンネルです。各 Embed から元の Request に移動できます。</p>
-                  </div>
-                </div>
-              ) : null}
-
-              <div className={styles.actionRow}>
-                <button className={styles.secondaryButton} disabled={saving || posting} onClick={saveConfig} type="button">
-                  <i className="material-icons">save</i>
-                  {saving ? '保存中...' : '設定を保存'}
-                </button>
-                <button className={styles.primaryButton} disabled={saving || posting} onClick={postPanel} type="button">
-                  <i className="material-icons">send</i>
-                  {posting ? '投稿中...' : config?.messageId ? 'パネルを更新' : 'パネルを投稿'}
-                </button>
+        <form
+          id="core-panel-settings"
+          className={ui.stack}
+          onSubmit={(e) => {
+            e.preventDefault();
+            save(false);
+          }}
+        >
+          <fieldset disabled={action.busy} className={ui.grid}>
+            <section className={ui.card}>
+              <h2>投稿の設定</h2>
+              <p>
+                {feature?.description ||
+                  "登録済みの機能を1つのパネルにまとめます。"}
+              </p>
+              <div className={ui.stack}>
+                <ChannelSelect
+                  label="パネルの投稿先"
+                  value={draft.channelId}
+                  onChange={(channelId) => patch({ channelId })}
+                  channels={channels.data?.channels || []}
+                />
+                {usesSpectator && (
+                  <RoleSelect
+                    label="観戦ロール"
+                    value={draft.spectatorRoleId || ""}
+                    roles={roles.data?.roles || []}
+                    onChange={(value) =>
+                      patch({ spectatorRoleId: value || null })
+                    }
+                  />
+                )}
+                {usesRequests && (
+                  <details>
+                    <summary>リクエスト機能の設定</summary>
+                    <div className={ui.stack}>
+                      <label>
+                        作成するカテゴリ名
+                        <input
+                          value={draft.requestCategoryName || ""}
+                          maxLength={100}
+                          onChange={(e) =>
+                            patch({ requestCategoryName: e.target.value })
+                          }
+                        />
+                      </label>
+                      <label>
+                        リクエストの種類（カンマ区切り）
+                        <input
+                          value={labels}
+                          onChange={(e) => {
+                            setLabels(e.target.value);
+                            patch({
+                              requestLabels: e.target.value
+                                .split(",")
+                                .map((value) => value.trim())
+                                .filter(Boolean),
+                            });
+                          }}
+                        />
+                      </label>
+                      <RoleSelect
+                        label="対応スタッフのロール"
+                        value={draft.requestStaffRoleId || ""}
+                        roles={roles.data?.roles || []}
+                        onChange={(value) =>
+                          patch({ requestStaffRoleId: value || null })
+                        }
+                      />
+                      <ChannelSelect
+                        optional
+                        label="完了通知先"
+                        value={draft.requestDoneChannelId || ""}
+                        onChange={(value) =>
+                          patch({ requestDoneChannelId: value || null })
+                        }
+                        channels={channels.data?.channels || []}
+                      />
+                      <ChannelSelect
+                        optional
+                        label="進捗通知先"
+                        value={draft.requestTrackingChannelId || ""}
+                        onChange={(value) =>
+                          patch({ requestTrackingChannelId: value || null })
+                        }
+                        channels={channels.data?.channels || []}
+                      />
+                    </div>
+                  </details>
+                )}
               </div>
             </section>
-
-            <aside className={styles.card}>
-              <h2>現在の状態</h2>
-              <div className={styles.infoList}>
-                <div className={styles.infoItem}>
-                  <span>投稿先チャンネル</span>
-                  <strong>#{currentChannelName}</strong>
-                </div>
-                <div className={styles.infoItem}>
-                  <span>観戦ロール</span>
-                  <strong>{usesSpectatorRole ? currentRoleName : '未使用'}</strong>
-                </div>
-                <div className={styles.infoItem}>
-                  <span>Request カテゴリ</span>
-                  <strong>{usesRequestSettings ? currentRequestCategoryName : '未使用'}</strong>
-                </div>
-                <div className={styles.infoItem}>
-                  <span>Request ラベル</span>
-                  <strong>{usesRequestSettings ? currentRequestLabels : '未使用'}</strong>
-                </div>
-                <div className={styles.infoItem}>
-                  <span>対応スタッフロール</span>
-                  <strong>{usesRequestSettings ? currentRequestStaffRoleName : '未使用'}</strong>
-                </div>
-                <div className={styles.infoItem}>
-                  <span>完了通知チャンネル</span>
-                  <strong>{usesRequestSettings ? savedDoneChannelDisplay : '未使用'}</strong>
-                </div>
-                <div className={styles.infoItem}>
-                  <span>追跡一覧チャンネル</span>
-                  <strong>{usesRequestSettings ? savedTrackingChannelDisplay : '未使用'}</strong>
-                </div>
-                <div className={styles.infoItem}>
-                  <span>Discord 投稿</span>
-                  <strong>{config?.messageId ? '投稿済み' : '未投稿'}</strong>
-                </div>
+            <section className={ui.card}>
+              <h2>投稿内容の確認</h2>
+              <p>投稿・更新は保存とは別の操作です。</p>
+              <div className={ui.preview}>
+                <strong>
+                  {feature
+                    ? feature.emoji + " " + feature.label
+                    : "🧩 Core パネル"}
+                </strong>
+                <p>
+                  {feature?.description ||
+                    resource.data?.features
+                      .map((item) => item.label)
+                      .join(" / ")}
+                </p>
+                <small>
+                  投稿先：#
+                  {channels.data?.channels.find(
+                    (channel) => channel.id === draft.channelId,
+                  )?.name || "未選択"}
+                </small>
               </div>
-
-              {panelUrl ? (
-                <a className={styles.linkButton} href={panelUrl} rel="noreferrer" target="_blank">
-                  <i className="material-icons">open_in_new</i>
-                  Discord のパネルを開く
-                </a>
-              ) : (
-                <p className={styles.hint}>この種類のパネルはまだ投稿されていません。</p>
+              <hr className={ui.divider} />
+              <button
+                type="button"
+                className={ui.primary}
+                disabled={!draft.channelId}
+                onClick={() => {
+                  if (
+                    window.confirm(
+                      "表示中の設定でDiscordのパネルを投稿・更新しますか？",
+                    )
+                  )
+                    save(true);
+                }}
+              >
+                この設定で投稿・更新
+              </button>
+              {resource.data?.panelUrl && (
+                <p>
+                  <a
+                    href={resource.data.panelUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    投稿済みパネルをDiscordで開く ↗
+                  </a>
+                </p>
               )}
-            </aside>
-          </div>
-        </div>
+            </section>
+          </fieldset>
+          <SaveBar
+            busy={action.busy}
+            dirty={dirty}
+            form="core-panel-settings"
+            onDiscard={() => {
+              setDraft(JSON.parse(baseline));
+              setLabels(JSON.parse(baseline).requestLabels?.join(", ") || "");
+            }}
+          />
+        </form>
       )}
-    </div>
+    </>
   );
-};
-
-export default CorePanelPage;
+}
