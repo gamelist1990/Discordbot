@@ -25,7 +25,7 @@ test('天気と時刻は対応するツールのみを渡す', () => {
 test('Discord固有の操作に必要なツールを選択する', () => {
     assert.ok(selectStaffToolNames('Discordサーバーのオンライン人数を確認').has('get_server_status'));
     assert.ok(selectStaffToolNames('このユーザーのロールを教えて').has('get_user_details'));
-    assert.ok(selectStaffToolNames('チャンネルの発言履歴を調べて').has('collect_channel_history'));
+    assert.ok(selectStaffToolNames('チャンネルの発言履歴を調べて').has('search_channel_messages'));
     assert.ok(selectStaffToolNames('特定の言葉を何回言ったかカウント').has('count_phrase_in_channel'));
     assert.ok(selectStaffToolNames('AntiCheatの違反履歴を確認').has('get_anticheat_user_profile'));
 });

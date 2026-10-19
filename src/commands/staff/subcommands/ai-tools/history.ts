@@ -1,5 +1,6 @@
 import { OpenAITool, ToolHandler } from '../../../../types/openai';
 import { ChatInputCommandInteraction } from 'discord.js';
+import { staffReadableChannel } from './channelSearch.js';
 
 // チャンネル履歴収集ツール
 export const collectHistoryDefinition: OpenAITool = {
@@ -24,21 +25,12 @@ export const collectHistoryHandler: ToolHandler = async (args: { channel_id?: st
     try {
         if (!context || !context.guild) return { error: 'このツールはギルド内でのみ利用できます' };
         const interaction = context as ChatInputCommandInteraction;
-        const client = interaction.client;
         const channelId = args.channel_id || (interaction.channel?.id);
         if (!channelId) return { error: 'チャンネルIDが指定されておらず、現在のチャンネルも特定できませんでした' };
 
-        // チャンネルを取得
-        let channel: any;
-        try {
-            channel = await client.channels.fetch(channelId);
-        } catch (e) {
-            return { error: `チャンネル ${channelId} を取得できませんでした` };
-        }
-
-        if (!channel || !('messages' in channel)) {
-            return { error: '指定されたチャンネルはメッセージを保持できません' };
-        }
+        const access = await staffReadableChannel(interaction, channelId);
+        if ('error' in access) return { error: access.error };
+        const channel = access.channel;
 
         const limit = Math.max(1, Math.min(100, args.limit ?? 20));
         const sinceMinutes = Math.max(0, args.since_minutes ?? 60);
@@ -84,7 +76,6 @@ export const fetchMessageLinkHandler: ToolHandler = async (args: { url: string, 
     try {
         if (!context) return { error: 'このツールは対話コンテキストでのみ利用できます' };
         const interaction = context as ChatInputCommandInteraction;
-        const client = interaction.client;
 
         const url = (args.url || '').trim();
         if (!url) return { error: 'url を指定してください' };
@@ -98,17 +89,10 @@ export const fetchMessageLinkHandler: ToolHandler = async (args: { url: string, 
         const channelId = m[2];
         const messageId = m[3];
 
-        // チャンネルを取得
-        let channel: any;
-        try {
-            channel = await client.channels.fetch(channelId);
-        } catch (e) {
-            return { error: `チャンネル ${channelId} を取得できませんでした` };
-        }
-
-        if (!channel || !('messages' in channel)) {
-            return { error: '指定されたリンク先はメッセージを取得できないチャンネルです' };
-        }
+        if (guildId !== interaction.guildId) return { error: '別サーバーのメッセージは取得できません。' };
+        const access = await staffReadableChannel(interaction, channelId);
+        if ('error' in access) return { error: access.error };
+        const channel = access.channel;
 
         // メッセージと周辺文脈を取得
         const contextLimit = Math.max(1, Math.min(100, args.context_limit ?? 5));
