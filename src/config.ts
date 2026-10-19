@@ -7,7 +7,7 @@ import { fillMissingConfig } from './utils/configDefaults.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-export const GEMMA_MODEL = 'gemma-4-E4B-it';
+export const QWOPUS_MODEL = 'qwopus-coder';
 export const JEFF_MODEL = 'jeff-base';
 
 export interface AppConfig {
@@ -76,7 +76,7 @@ const isJeffDecisionModel = (model: string | undefined): boolean =>
     model?.trim().toLowerCase() === JEFF_MODEL || model?.trim().toLowerCase() === 'jev';
 const configuredPexModel = raw.pexAi?.model?.trim();
 const configuredChannelModel = raw.pexAi?.channelModel?.trim();
-const pexModel = isJeffDecisionModel(configuredPexModel) ? GEMMA_MODEL : configuredPexModel || GEMMA_MODEL;
+const pexModel = isJeffDecisionModel(configuredPexModel) ? QWOPUS_MODEL : configuredPexModel || QWOPUS_MODEL;
 const channelModel = isJeffDecisionModel(configuredChannelModel)
     ? defaultChannelModel
     : configuredChannelModel || defaultChannelModel;
@@ -94,7 +94,7 @@ export const config: Required<AppConfig> = {
     openai: {
         apiKey: raw.openai?.apiKey || '',
         apiEndpoint: raw.openai?.apiEndpoint || '',
-        defaultModel: raw.openai?.defaultModel || GEMMA_MODEL,
+        defaultModel: raw.openai?.defaultModel || QWOPUS_MODEL,
         proxyEndpoints: Array.isArray(raw.openai?.proxyEndpoints)
             ? raw.openai?.proxyEndpoints.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
             : [],

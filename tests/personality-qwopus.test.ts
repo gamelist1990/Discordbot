@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ChatGPTClient } from '../src/core/ai/ChatGPTClient.ts';
-import { GEMMA_MODEL } from '../src/config.ts';
+import { QWOPUS_MODEL } from '../src/config.ts';
 import { requestPersonalityModelText, requestCoreFeatureNaturalFollowUp, requestCoreFeatureConfidenceCalibration } from '../src/core/corepanel/model.ts';
 import { PersonalityService } from '../src/core/corepanel/personality/PersonalityService.ts';
 import { extractJsonObject, validatePersonalityEvaluation } from '../src/core/corepanel/helpers.ts';
@@ -20,7 +20,7 @@ const service = () => {
 };
 const response = (content: string) => ({ choices: [{ message: { content } }] }) as any;
 
-test('personality uses Gemma for evaluation, follow-up and confidence without silent model fallback', async (t) => {
+test('personality uses Qwopus for evaluation, follow-up and confidence without silent model fallback', async (t) => {
     const calls: any[] = [];
     t.mock.method(ChatGPTClient.prototype, 'sendMessage', async (_messages: unknown, options: any) => {
         calls.push(options);
@@ -30,15 +30,15 @@ test('personality uses Gemma for evaluation, follow-up and confidence without si
     await requestCoreFeatureNaturalFollowUp('回答', '履歴', '', []);
     assert.equal(await requestCoreFeatureConfidenceCalibration('支援者', '理由', [], 4, '履歴', 50), 64);
     assert.equal(calls.length, 3);
-    assert.ok(calls.every((options) => options.model === GEMMA_MODEL && options.strictModel === true));
+    assert.ok(calls.every((options) => options.model === QWOPUS_MODEL && options.strictModel === true));
 });
 
-test('empty Gemma responses are treated as errors', async (t) => {
+test('empty Qwopus responses are treated as errors', async (t) => {
     t.mock.method(ChatGPTClient.prototype, 'sendMessage', async () => response(''));
     await assert.rejects(() => requestPersonalityModelText([{ role: 'user', content: 'test' }], 200, 0.2), /有効な応答/);
 });
 
-test('Gemma JSON extraction tolerates reasoning and prose but retains quoted braces', () => {
+test('Qwopus JSON extraction tolerates reasoning and prose but retains quoted braces', () => {
     const expected = { ...evaluation, reason: '例として {a} を挙げた' };
     assert.deepEqual(extractJsonObject('<think>{"private":"reasoning"}</think>\n結果\n```json\n' + JSON.stringify(expected) + '\n```\n補足 {not json}'), expected);
     const bounded = validatePersonalityEvaluation({ ...evaluation, reply: 'x'.repeat(3000), reason: 'x'.repeat(3000), traits: ['x'.repeat(1000)], confidence: Infinity })!;
@@ -74,7 +74,7 @@ test('final evaluation preserves request hooks and never invents an analyst clas
     t.mock.method(ChatGPTClient.prototype, 'sendMessage', async (_messages: unknown, options: any) => { calls.push(options); return response('not JSON'); });
     await assert.rejects(() => service().evaluate(session(6), { requestLabel: 'interview:test' }), /判定結果を読み取れません/);
     assert.equal(calls.length, 2);
-    assert.ok(calls.every((options) => options.model === GEMMA_MODEL && options.requestLabel === 'interview:test'));
+    assert.ok(calls.every((options) => options.model === QWOPUS_MODEL && options.requestLabel === 'interview:test'));
 });
 
 test('a slow model does not cause the interview room to timeout while processing', async () => {
@@ -125,7 +125,7 @@ test('concurrent entry requests do not create duplicate personality rooms', asyn
     assert.equal(instance.sessionStarts.size, 0);
 });
 
-test('four user messages complete an interview and persist the actual Gemma classification', async (t) => {
+test('four user messages complete an interview and persist the actual Qwopus classification', async (t) => {
     const instance = service();
     let stored = [{ ...session(0), channelId: 'room', categoryId: 'category', interviewerName: 'ナギ', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), cooldownUntil: new Date(Date.now() + 604800000).toISOString(), traits: [] }];
     t.mock.method(database, 'get', async () => structuredClone(stored));

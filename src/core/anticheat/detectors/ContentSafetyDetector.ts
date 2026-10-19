@@ -16,7 +16,7 @@ import { normalizeContentExplanation } from "../ContentExplanation.js";
 import { contentFailureReason } from "../ContentScanFailure.js";
 import { Logger } from "../../../utils/Logger.js";
 import { classifyWithJev, buildJevDecisionRequest, JEV_CATEGORY_RULES } from "../JevContentClassifier.js";
-import { classifyWithGemma, buildGemmaModerationRequest, CONTENT_SAFETY_IMAGE_MODEL } from "../GemmaContentClassifier.js";
+import { classifyWithQwopus, buildQwopusModerationRequest, CONTENT_SAFETY_IMAGE_MODEL } from "../QwopusContentClassifier.js";
 
 export const CONTENT_CATEGORIES = [
   "suggestive",
@@ -175,7 +175,7 @@ export function normalizeModerationText(text: string): string {
   return text.normalize("NFKC").replace(/[\u200B-\u200D\u2060\uFEFF]/g, "");
 }
 
-export const CONTENT_SAFETY_PROMPT = 'jev-decide-v2 and gemma-media-v1: classify current post only; preserve negation and quoted context.';
+export const CONTENT_SAFETY_PROMPT = 'jev-decide-v2 and qwopus-media-v1: classify current post only; preserve negation and quoted context.';
 export const CONTENT_SAFETY_POLICY_REFERENCE = CONTENT_SAFETY_PROMPT;
 
 export interface AiRequestMetrics {
@@ -196,10 +196,10 @@ export async function classifyContent(
   requests: AiRequestMetrics[] = [], customRules = "",
 ): Promise<ContentVerdict> {
   const uniqueFrames = [...new Set(frames)];
-  // Jeff handles every text-only moderation request. Gemma is reserved for
+  // Jeff handles every text-only moderation request. Qwopus is reserved for
   // requests that actually include visual or other multimodal content; a
   // high Jeff score alone must not change the model for a text-only post.
-  if (uniqueFrames.length) return classifyWithGemma(text, uniqueFrames, timeoutMs, formatRetry, scoring, requests, customRules);
+  if (uniqueFrames.length) return classifyWithQwopus(text, uniqueFrames, timeoutMs, formatRetry, scoring, requests, customRules);
   return classifyWithJev(text, [], timeoutMs, formatRetry, scoring, model, requests, customRules);
 }
 
@@ -346,7 +346,7 @@ export class ContentSafetyDetector implements Detector {
       trace(`analysis-start source=${source} frames=${frames.length}`);
       const classifierModel = frames.length ? CONTENT_SAFETY_IMAGE_MODEL : CONTENT_SAFETY_MODEL;
       const policy = frames.length
-        ? buildGemmaModerationRequest('', [], customRules).messages[0].content
+        ? buildQwopusModerationRequest('', [], customRules).messages[0].content
         : Object.keys(JEV_CATEGORY_RULES).map(category => buildJevDecisionRequest('', category as ContentCategory, customRules).question);
       const policyScope = createHash("sha256").update(JSON.stringify([classifierModel, CONTENT_SAFETY_PROMPT, policy, scoring])).digest("hex");
       const key = createHash("sha256")

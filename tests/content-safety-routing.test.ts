@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import sharp from 'sharp';
 import { Collection } from 'discord.js';
 import { classifyContent, ContentSafetyDetector } from '../src/core/anticheat/detectors/ContentSafetyDetector.ts';
-import { buildGemmaModerationRequest, CONTENT_SAFETY_IMAGE_MODEL } from '../src/core/anticheat/GemmaContentClassifier.ts';
+import { buildQwopusModerationRequest, CONTENT_SAFETY_IMAGE_MODEL } from '../src/core/anticheat/QwopusContentClassifier.ts';
 import { JEV_CATEGORY_RULES, buildJevDecisionRequest, scoreJevDecision } from '../src/core/anticheat/JevContentClassifier.ts';
 import { AntiCheatManager } from '../src/core/anticheat/AntiCheatManager.ts';
 
@@ -24,11 +24,11 @@ const decisionResponse = (value = 0) => new Response(JSON.stringify({
   model: 'jeff-base', prompt_tokens: 60,
   choices: ['none','mild','clear','severe'].map((id, i) => ({id, probability: i === 0 ? 1 - value : i === 3 ? value : 0}))
 }));
-const gemmaResponse = (scores: Scores = zero) => new Response(JSON.stringify({
+const multimodalResponse = (scores: Scores = zero) => new Response(JSON.stringify({
   choices: [{ finish_reason: 'stop', message: { content: JSON.stringify({ ...scores, explanation: '分析しました。', customRuleViolations: [] }) } }],
   usage: { prompt_tokens: 30, completion_tokens: 70, total_tokens: 100 },
 }));
-function mockApi(jev: Partial<Scores> = {}, gemma: Scores = zero) {
+function mockApi(jev: Partial<Scores> = {}, multimodal: Scores = zero) {
   const requests: Array<{url:string; body:any}> = [];
   const api = (async (url: string, options: RequestInit) => {
     const body = JSON.parse(String(options.body));
@@ -37,7 +37,7 @@ function mockApi(jev: Partial<Scores> = {}, gemma: Scores = zero) {
       const key = keys.find(k => body.question.includes(evidence[k as keyof Scores]));
       return decisionResponse(jev[key as keyof Scores] || 0);
     }
-    if (String(url).endsWith('/chat/completions')) return gemmaResponse(gemma);
+    if (String(url).endsWith('/chat/completions')) return multimodalResponse(multimodal);
     throw new Error('Unexpected API route');
   }) as typeof fetch;
   return { api, requests };
@@ -62,19 +62,19 @@ test('text goes to jeff-base /decide once per category with typed options', asyn
   } finally { globalThis.fetch=original; }
 });
 
-test('decide probability values are validated and unrelated category is verified by Gemma', async () => {
+test('decision probabilities are validated and text-only results are not silently rerouted to a multimodal model', async () => {
   assert.equal(scoreJevDecision({choices:['none','mild','clear','severe'].map((id,i)=>({id,probability:i===3?1:0}))}),1);
   assert.throws(()=>scoreJevDecision({choices:[]}),/Invalid jev decision/);
   const original=globalThis.fetch; const mock=mockApi({suggestive:1},zero);
   globalThis.fetch=mock.api;
   try {
     const verdict=await classifyContent('今日は散歩に行った',[],8000);
-    assert.equal(verdict.suggestive,0);
-    assert.equal(mock.requests.filter(x=>x.url.endsWith('/chat/completions')).length,1);
+    assert.equal(verdict.suggestive,1);
+    assert.equal(mock.requests.filter(x=>x.url.endsWith('/chat/completions')).length,0);
   } finally {globalThis.fetch=original;}
 });
 
-test('text matches require confirmation, retain category and points and invalidate scoring cache', async () => {
+test('text matches retain categories and points and invalidate the scoring cache', async () => {
   const original=globalThis.fetch;
   const mock=mockApi({threat:1},{...zero,threat:1});
   globalThis.fetch=mock.api;
@@ -89,11 +89,11 @@ test('text matches require confirmation, retain category and points and invalida
     assert.equal((await detector.detect(message,ctx({awardScore:1,maxAiScore:10}))).scoreDelta,10);
     assert.equal(mock.requests.length,count);
     assert.equal((await detector.detect(message,ctx({awardScore:1,maxAiScore:5}))).scoreDelta,5);
-    assert.equal(mock.requests.length,count+7);
+    assert.equal(mock.requests.length,count+6);
   } finally { globalThis.fetch=original; }
 });
 
-test('images, GIF and MP4 are routed to Gemma, with native video_url parts', async () => {
+test('images, GIF and MP4 are routed to Qwopus, with native video_url parts', async () => {
   const original=globalThis.fetch; const mock=mockApi({}, {...zero,suggestive:1});
   globalThis.fetch=mock.api;
   try {
@@ -108,7 +108,7 @@ test('images, GIF and MP4 are routed to Gemma, with native video_url parts', asy
       assert.equal((part.image_url||part.video_url).url,url);
     }
     assert.equal(mock.requests.length,3);
-    assert.equal(buildGemmaModerationRequest('',[]).model,CONTENT_SAFETY_IMAGE_MODEL);
+    assert.equal(buildQwopusModerationRequest('',[]).model,CONTENT_SAFETY_IMAGE_MODEL);
   } finally {globalThis.fetch=original;}
 });
 
@@ -121,7 +121,7 @@ test('413 splits images without changing them, combines strongest evidence and p
     const images=parts.slice(1);
     if(images.length>1)return new Response('',{status:413});
     accepted.push(images[0].image_url.url);
-    return gemmaResponse({...zero, suggestive:images[0].image_url.url==='first'?.3:.9});
+    return multimodalResponse({...zero, suggestive:images[0].image_url.url==='first'?.3:.9});
   }) as typeof fetch;
   try{
     const verdict=await classifyContent('caption',['first','second'],8000);
@@ -146,7 +146,7 @@ test('all attached media are scanned even after positive text; original bytes ar
     assert.ok(r.spoilerRepost);
     assert.equal(r.spoilerRepost.files.length,2);
     assert.equal(r.metadata?.analyses.length,3);
-    assert.equal(mock.requests.filter(r=>r.url.endsWith('/chat/completions')).length,2); // second image is byte-identical and uses the exact cache
+    assert.equal(mock.requests.filter(r=>r.url.endsWith('/chat/completions')).length,1); // second image is byte-identical and uses the exact cache
   }finally{globalThis.fetch=original;}
 });
 
