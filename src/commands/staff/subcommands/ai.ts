@@ -351,8 +351,9 @@ ${reason}` });
             [fetchPublicUrlDefinition, fetchPublicUrlHandler],
             [staffOutputFileDefinition, staffOutputFileHandler],
         ] as const;
+        const exposeAllTools = selectedTools.has('__all__');
         for (const [definition, handler] of availableTools) {
-            if (selectedTools.has(definition.function.name)) {
+            if (exposeAllTools || selectedTools.has(definition.function.name)) {
                 chatManager.registerTool(definition, handler);
             }
         }
@@ -546,7 +547,10 @@ ${reason}` });
         let thinkingPreviewStarted = false;
 
         const streamOptions = {
-            model: QWOPUS_MODEL, strictModel: true, maxTokens: forceTextFileTools ? 4096 : 1536,
+            // Keep enough budget for a final answer after reasoning/tool calls.
+            // A smaller limit can end a Responses stream with thinking only.
+            model: QWOPUS_MODEL, strictModel: true, maxTokens: forceTextFileTools ? 4096 : 3072,
+            reasoningEffort: 'low' as const,
             ...(forceTextFileTools ? { forceToolSequence: ['output_file'] }
                 : forceChannelSearchTool ? { forceToolSequence: ['search_channel_messages'] } : {}),
             includeUsage: true,
@@ -592,7 +596,22 @@ ${reason}` });
             await staffMemoryToolScope.run({ guildId: interaction.guildId || 'global', userId }, () =>
                 chatManager.streamResponseText(messages, handleResponseDelta, streamOptions));
             // A response with reasoning only, no final text and no tool result is
-            // not successful. Never publish '(応答なし)' as a completed answer.
+            // not successful. Retry once without reasoning before failing visibly.
+            if (!responseContent.trim()) {
+                const recoveryMessages: OpenAIChatCompletionMessage[] = [
+                    ...messages,
+                    {
+                        role: 'system',
+                        content: '前の生成では内部思考だけで本文が返らなかった。内部思考は出さず、日本語の最終回答だけを短く返すこと。',
+                    },
+                ];
+                await staffMemoryToolScope.run({ guildId: interaction.guildId || 'global', userId }, () =>
+                    chatManager.streamResponseText(recoveryMessages, handleResponseDelta, {
+                        ...streamOptions,
+                        maxTokens: 1024,
+                        reasoningEffort: 'none',
+                    }));
+            }
             if (!responseContent.trim()) {
                 throw new Error('The model completed without final answer text');
             }

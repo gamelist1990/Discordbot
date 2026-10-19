@@ -42,3 +42,8 @@ test('短い続きの発言は直前の会話にあるツールを使える', ()
     assert.ok(selectStaffToolNames('それ詳しく', ['最新ニュースについて調べて']).has('web_search'));
     assert.ok(selectStaffToolNames('じゃあもう一回', ['明日の東京の天気']).has('get_weather'));
 });
+
+test('使える機能の質問では全ツールを公開する', () => {
+    assert.ok(selectStaffToolNames('Staff AIで使えるツールは何？').has('__all__'));
+    assert.ok(selectStaffToolNames('どんな機能が使える？').has('__all__'));
+});

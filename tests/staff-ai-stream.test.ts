@@ -102,3 +102,11 @@ test('Responses SSE のThinkingと本文は別に描画し、usage/timingsを合
     assert.match(final.content, /💭 Thinking · 完了/);
     assert.doesNotMatch(final.content, /abcdefgh/);
 });
+
+test('reasoningだけの途中表示を完了回答として扱わない', () => {
+    const stream = new StaffAIStreamState();
+    stream.consumeResponse({ type: 'thinking', text: '回答を考えています' });
+    assert.match(stream.render(), /Thinking/);
+    assert.doesNotMatch(stream.render(true), /回答を考えています/);
+    assert.match(stream.render(true), /（応答なし）/);
+});

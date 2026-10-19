@@ -13,6 +13,12 @@ export function selectStaffToolNames(prompt: string, recentMessages: string[] = 
         return chosen;
     }
 
+    // When Staff AI is asked about its capabilities, expose the complete tool
+    // catalog so the model can describe and use tools beyond web_search/memory.
+    if (/ツール|tool|機能|できること|使えるもの|何ができる/i.test(text)) {
+        chosen.add('__all__');
+    }
+
     if (/天気|気温|降水|雨|晴れ|雪|台風|気象|forecast|weather/i.test(text)) {
         chosen.add('get_weather');
     }
