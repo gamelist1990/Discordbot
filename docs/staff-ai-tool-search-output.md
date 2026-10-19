@@ -4,11 +4,14 @@
 
 ## Discord履歴検索
 
-`search_channel_messages(query, channel_id?, scan_limit?, limit?, before?)` はDiscord APIを使い、指定チャンネルの履歴を最大100件ずつ遡って、本文をキーワード部分一致で検索します。
+`search_channel_messages(query, channel_id?, scan_limit?, limit?, before?, context_before?, context_after?, include_context?)` はDiscord APIを使い、指定チャンネルの履歴を最大100件ずつ遡って、本文をキーワード部分一致で検索します。**ヒットした各メッセージの前後を自動取得し、会話の流れを含めて返します。**
 
 - 省略時は現在のチャンネルを検索
 - 1回のスキャンは初期500件、最大1,000件
 - 見つかったメッセージには発言者・日時・本文抜粋・元メッセージURLを付与
+- ヒットごとにDiscord APIの `around` を1回使用し、前後各10件まで取得（`context_before` / `context_after` で各0〜20件）。結果の `context.before` は古い順、`context.after` は新しい順
+- `include_context: false` で従来の検索ヒット一覧だけを取得可能。Discordから取得できなかった周辺情報は `context.status: unavailable` として明示
+- コンテキストを含むツールの総応答は40,000文字以下に制限。超過時は遠いメッセージから省略し `truncated_for_budget` を付ける
 - さらに古い範囲へは `next_before` を次の `before` に指定
 - 実際にDiscordから取得できない投稿は推測で補いません
 

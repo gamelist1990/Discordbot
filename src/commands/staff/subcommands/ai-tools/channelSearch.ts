@@ -3,6 +3,9 @@ import type { OpenAITool, ToolHandler } from '../../../../types/openai.js';
 
 const SNOWFLAKE = /^\d{17,20}$/;
 const MAX_SCANNED = 1000;
+const MAX_CONTEXT_PER_SIDE = 20;
+const DEFAULT_CONTEXT_PER_SIDE = 10;
+const MAX_SEARCH_RESPONSE_CHARS = 40_000;
 
 function id(value: unknown): string | null {
     const text = String(value ?? '').trim();
@@ -12,6 +15,16 @@ function id(value: unknown): string | null {
 function positive(value: unknown, fallback: number, max: number): number {
     const n = Number(value);
     return Number.isInteger(n) && n >= 1 ? Math.min(n, max) : fallback;
+}
+
+function contextSize(value: unknown): number {
+    if (value === undefined || value === null) return DEFAULT_CONTEXT_PER_SIDE;
+    const n = Number(value);
+    return Number.isInteger(n) && n >= 0 ? Math.min(n, MAX_CONTEXT_PER_SIDE) : DEFAULT_CONTEXT_PER_SIDE;
+}
+
+function compareSnowflakes(a: string, b: string): number {
+    return BigInt(a) < BigInt(b) ? -1 : BigInt(a) > BigInt(b) ? 1 : 0;
 }
 
 export async function staffReadableChannel(context: unknown, requestedChannel: unknown) {
@@ -41,15 +54,18 @@ export const searchChannelMessagesDefinition: OpenAITool = {
     type: 'function',
     function: {
         name: 'search_channel_messages',
-        description: 'Discord内で古い発言を探す。実際のチャンネル履歴をキーワードで最大1000件まで100件ずつ遡って検索。特定メッセージはfetch_discord_messageで取得。過去の会話、以前に誰かが言った話題、検索の依頼で使う。',
+        description: 'Discordの古い会話をキーワードで検索。ヒットした投稿だけでなく前後各10件（調整可、各最大20件）をDiscord APIで自動fetchし、時系列の会話文脈とともに返す。最大1000件まで遡れる。文脈のない断片から話題・発言者を推測しない。',
         parameters: {
             type: 'object',
             properties: {
-                query: { type: 'string', description: '検索語句（部分一致、大文字小文字を区別しない）。' },
-                channel_id: { type: 'string', description: '省略時は現在のチャンネル。指定時は同じサーバー内の権限があるチャンネルID。' },
-                limit: { type: 'integer', minimum: 1, maximum: 15, description: '返す最大件数（初期値8）。' },
-                scan_limit: { type: 'integer', minimum: 1, maximum: 1000, description: '確認する過去の発言数。初期500、最大1000。' },
-                before: { type: 'string', description: 'さらに古く遡る場合、前回のnext_beforeで返されたメッセージID。' },
+                query: { type: 'string', description: '検索語句（本文の部分一致、大文字小文字を区別しない）。' },
+                channel_id: { type: 'string', description: '省略時は現在のチャンネル。別チャンネルは同一サーバーで閲覧権限必須。' },
+                limit: { type: 'integer', minimum: 1, maximum: 15, description: '返すヒット数（初期値8）。' },
+                scan_limit: { type: 'integer', minimum: 1, maximum: 1000, description: '過去に調べるメッセージ数（初期値500、最大1000）。' },
+                before: { type: 'string', description: 'さらに古く検索するときのnext_before。' },
+                context_before: { type: 'integer', minimum: 0, maximum: 20, description: '各ヒットより前（古い）のメッセージ取得数。初期値10。' },
+                context_after: { type: 'integer', minimum: 0, maximum: 20, description: '各ヒットより後（新しい）のメッセージ取得数。初期値10。' },
+                include_context: { type: 'boolean', description: '前後文脈を取得するか。初期値true。falseでヒット一覧のみ。' },
             },
             required: ['query'],
         },
@@ -86,6 +102,49 @@ function data(message: Message, guild: string, channel: string, maxChars: number
     };
 }
 
+/** Compact context keeps long conversations within Qwopus' context budget. */
+function contextMessage(message: Message) {
+    return {
+        message_id: message.id,
+        author: message.member?.displayName || message.author?.username || 'unknown',
+        created_at: message.createdAt?.toISOString?.() ?? null,
+        content: (message.content || '').slice(0, 180),
+        truncated: (message.content?.length || 0) > 180,
+        attachments: [...(message.attachments?.values?.() || [])].slice(0, 2)
+            .map(file => file.name),
+    };
+}
+
+type ContextMessage = ReturnType<typeof contextMessage>;
+interface NearbyContext {
+    before: ContextMessage[];
+    after: ContextMessage[];
+    requested_before: number;
+    requested_after: number;
+    status: 'ok' | 'unavailable' | 'partial';
+    error?: string;
+    truncated_for_budget?: boolean;
+}
+
+function trimSearchResponse(payload: { results: Array<{ context?: NearbyContext }> }): void {
+    // The model needs actual chronological conversation, not a 100KB tool response.
+    // Prefer keeping nearest messages and at least the hit itself.
+    let size = JSON.stringify(payload).length;
+    while (size > MAX_SEARCH_RESPONSE_CHARS) {
+        const candidate = payload.results
+            .map(hit => hit.context)
+            .filter((context): context is NearbyContext => !!context && (context.before.length > 0 || context.after.length > 0))
+            .sort((a, b) => (b.before.length + b.after.length) - (a.before.length + a.after.length))[0];
+        if (!candidate) break;
+        if (candidate.before.length > candidate.after.length) candidate.before.shift();
+        else if (candidate.after.length) candidate.after.pop();
+        else candidate.before.shift();
+        candidate.truncated_for_budget = true;
+        candidate.status = 'partial';
+        size = JSON.stringify(payload).length;
+    }
+}
+
 export const searchChannelMessagesHandler: ToolHandler = async (args, context) => {
     const query = String(args?.query ?? '').trim();
     if (!query || query.length > 180) return 'SEARCH_ERROR: queryは1〜180文字で指定してください。';
@@ -96,35 +155,88 @@ export const searchChannelMessagesHandler: ToolHandler = async (args, context) =
     const channel = access.channel;
     const scanLimit = positive(args?.scan_limit, 500, MAX_SCANNED);
     const resultLimit = positive(args?.limit, 8, 15);
-    const results: ReturnType<typeof data>[] = [];
+    const includeContext = args?.include_context !== false;
+    const beforeCount = includeContext ? contextSize(args?.context_before) : 0;
+    const afterCount = includeContext ? contextSize(args?.context_after) : 0;
+    const matches: Message[] = [];
     let scanned = 0;
     let before = startBefore ?? undefined;
     let exhausted = false;
-    while (scanned < scanLimit && results.length < resultLimit) {
+
+    while (scanned < scanLimit && matches.length < resultLimit) {
         const size = Math.min(100, scanLimit - scanned);
         let page: Awaited<ReturnType<typeof channel.messages.fetch>>;
         try { page = await channel.messages.fetch({ limit: size, ...(before ? { before } : {}) }); }
         catch { return 'SEARCH_ERROR: Discord APIの履歴取得に失敗しました。'; }
-        const messages = Array.from(page.values()).sort((a, b) =>
-            BigInt(a.id) > BigInt(b.id) ? -1 : BigInt(a.id) < BigInt(b.id) ? 1 : 0);
+        const messages = Array.from(page.values()).sort((a, b) => compareSnowflakes(b.id, a.id));
         if (!messages.length) { exhausted = true; break; }
-        scanned += messages.length;
+
+        let processed = 0;
         for (const message of messages) {
+            processed += 1;
             if ((message.content ?? '').toLocaleLowerCase().includes(query.toLocaleLowerCase())) {
-                results.push(data(message, access.guildId!, channel.id, 850));
-                if (results.length >= resultLimit) break;
+                matches.push(message);
+                if (matches.length >= resultLimit) break;
             }
         }
-        const next = messages.at(-1)!.id;
+        scanned += processed;
+        // When limit hits mid-page, start the next search after the last inspected
+        // message rather than skipping uninspected matches on the same Discord page.
+        const next = messages[processed - 1].id;
         if (before === next) break;
         before = next;
-        if (messages.length < size) { exhausted = true; break; }
+        if (processed === messages.length && messages.length < size) { exhausted = true; break; }
     }
-    return JSON.stringify({
+
+    const results: Array<ReturnType<typeof data> & { context?: NearbyContext }> = [];
+    for (const hit of matches) {
+        const result: ReturnType<typeof data> & { context?: NearbyContext } =
+            data(hit, access.guildId!, channel.id, 850);
+        if (includeContext) {
+            const nearby: NearbyContext = {
+                before: [], after: [],
+                requested_before: beforeCount, requested_after: afterCount, status: 'ok',
+            };
+            if (beforeCount || afterCount) {
+                // One bounded Discord request per match. Unlike search-page snippets,
+                // around also fetches messages just outside the scanned window.
+                try {
+                    const collection = await channel.messages.fetch({
+                        around: hit.id,
+                        limit: Math.min(100, beforeCount + afterCount + 1),
+                    });
+                    const timeline = Array.from(collection.values());
+                    const older = timeline
+                        .filter(item => compareSnowflakes(item.id, hit.id) < 0)
+                        .sort((a, b) => compareSnowflakes(b.id, a.id))
+                        .slice(0, beforeCount)
+                        .reverse();
+                    const newer = timeline
+                        .filter(item => compareSnowflakes(item.id, hit.id) > 0)
+                        .sort((a, b) => compareSnowflakes(a.id, b.id))
+                        .slice(0, afterCount);
+                    nearby.before = older.map(contextMessage);
+                    nearby.after = newer.map(contextMessage);
+                    // Nearby may be shorter near the start/end of a channel.
+                    // Do not claim those messages exist if Discord did not return them.
+                    nearby.status = 'ok';
+                } catch {
+                    nearby.status = 'unavailable';
+                    nearby.error = 'Discordの周辺メッセージ取得に失敗。検索ヒット自体は取得済み。';
+                }
+            }
+            result.context = nearby;
+        }
+        results.push(result);
+    }
+
+    const payload = {
         query, channel_id: channel.id, scanned, results,
         next_before: exhausted ? null : before ?? null,
-        note: '検索できた範囲のみを返しています。古い会話が存在しないと断言するものではありません。',
-    });
+        note: 'ヒットと周辺発言はいずれもDiscordから取得した実データ。各結果のcontext.beforeは古い順、context.afterは新しい順。contextがunavailableの場合は会話の流れを推測しない。返信関係は自動確定しない。',
+    };
+    trimSearchResponse(payload);
+    return JSON.stringify(payload);
 };
 
 export const fetchDiscordMessageHandler: ToolHandler = async (args, context) => {
