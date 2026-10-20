@@ -29,6 +29,15 @@ type ToolPreview = {
 const DISCORD_LIMIT = 2000;
 const THINKING_PREVIEW_LIMIT = 200;
 
+type ThinkingPreview = {
+    number: number;
+    characters: number;
+    text: string;
+    finished: boolean;
+    protocol: ToolProtocolTextFilter;
+};
+type Activity = {kind: 'thinking'; thinking: ThinkingPreview} | {kind: 'tool'; tool: ToolPreview};
+
 function escapeMarkdownTail(value: string, maxLength: number): { text: string; trimmed: boolean } {
     const characters = Array.from(value);
     let start = 0;
@@ -47,7 +56,9 @@ export class StaffAIStreamState {
     private hasReasoning = false;
     private reasoningCharacters = 0;
     private thinkingPreview = '';
-    private readonly thinkingProtocol = new ToolProtocolTextFilter();
+    private currentThinking?: ThinkingPreview;
+    private thinkingPhases = 0;
+    private activities: Activity[] = [];
     private tools: ToolPreview[] = [];
     private promptTokens = 0;
     private cacheTokens = 0;
@@ -59,14 +70,30 @@ export class StaffAIStreamState {
     private timedOutputSeconds = 0;
     private callIndex = 0;
 
+    get thinkingPhaseCount(): number { return this.thinkingPhases; }
+
+    private addTool(tool: ToolPreview): void {
+        if (this.currentThinking) this.currentThinking.finished = true;
+        this.currentThinking = undefined;
+        this.tools.push(tool);
+        this.activities.push({kind: 'tool', tool});
+    }
+
     private appendThinking(text: string): void {
         if (!text) return;
         this.hasReasoning = true;
         this.reasoningCharacters += text.length;
-        // Keep a rolling window so new thoughts replace the oldest text.
-        this.thinkingPreview = Array.from(this.thinkingPreview + this.thinkingProtocol.push(text))
+        const thinking = this.currentThinking ??= {
+            number: ++this.thinkingPhases, characters: 0, text: '', finished: false,
+            protocol: new ToolProtocolTextFilter(),
+        };
+        if (thinking.characters === 0) this.activities.push({kind: 'thinking', thinking});
+        thinking.characters += text.length;
+        // Each model turn has its own rolling preview, after the preceding tools.
+        thinking.text = Array.from(thinking.text + thinking.protocol.push(text))
             .slice(-THINKING_PREVIEW_LIMIT)
             .join('');
+        this.thinkingPreview = thinking.text;
     }
 
     consume(chunk: OpenAIChatCompletionChunk): void {
@@ -99,7 +126,7 @@ export class StaffAIStreamState {
             }
             if (!tool) {
                 tool = { id: id || `pending-${++this.callIndex}`, index: entry.index, name: '', arguments: '', phase: '準備中' };
-                this.tools.push(tool);
+                this.addTool(tool);
             }
             if (id) tool.id = id;
             if (entry.function?.name) tool.name = entry.function.name;
@@ -156,7 +183,7 @@ export class StaffAIStreamState {
         if (!tool) {
             tool = {id: call.callId ?? `stream:${call.round}:${call.itemId ?? call.index ?? ++this.callIndex}`,
                 index: call.index ?? -1, name: call.name, arguments: '', phase: '準備中', round: call.round};
-            this.tools.push(tool);
+            this.addTool(tool);
         }
         if (call.callId) tool.id = call.callId;
         if (call.itemId) tool.itemId = call.itemId;
@@ -175,7 +202,7 @@ export class StaffAIStreamState {
             id, index: -1, name: step.name,
             arguments: '', phase: '準備中' as const,
         };
-        if (!active) this.tools.push(tool);
+        if (!active) this.addTool(tool);
         tool.round = step.round;
         if (step.arguments) tool.arguments = step.arguments;
         if (step.phase === 'started') tool.startedAt ??= Date.now();
@@ -289,17 +316,31 @@ export class StaffAIStreamState {
         const completed = this.tools.filter(tool => tool.phase === '完了').length;
         const failed = this.tools.filter(tool => tool.phase === '失敗').length;
         // Keep active work visible even if newer calls have already finished.
-        const visible = [...this.tools.filter(tool => !active.includes(tool)).slice(-Math.max(0, 8 - active.length)),
-            ...active].slice(-8);
+        const history = this.activities.filter(item => !isComplete || item.kind === 'tool');
+        const activeItems = history.filter(item => item.kind === 'tool' && active.includes(item.tool));
+        const selected = new Set([...history.filter(item => !activeItems.includes(item))
+            .slice(-Math.max(0, 8 - activeItems.length)), ...activeItems].slice(-8));
+        const visible = history.filter(item => selected.has(item));
+        const visibleTools = visible.filter(item => item.kind === 'tool').length;
         const description = [
             !isComplete ? active.length ? 'ツールを使用しています。'
                 : this.content ? '回答を生成しています。' : '💭 応答を準備しています。' : '',
             isComplete && this.hasReasoning ? `💭 Thinking · 完了（${this.reasoningCharacters}文字）` : '',
             this.tools.length ? `ツール ${this.tools.length}件 · 完了 ${completed}件 · 失敗 ${failed}件` : '',
             isComplete && active.length ? `未完了 ${active.length}件` : '',
-            this.tools.length > visible.length ? `直近と実行中の${visible.length}件を表示` : '',
+            history.length > visible.length ? `直近と実行中の進捗${visible.length}件（ツール${visibleTools}件）を表示` : '',
         ].filter(Boolean).join('\n');
-        const fields = visible.map(tool => {
+        const fields = visible.map(item => {
+            if (item.kind === 'thinking') {
+                const thinking = item.thinking;
+                const preview = escapeMarkdownTail(thinking.text
+                    .replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ')
+                    .replace(/@/g, '@\u200b').replace(/</g, '‹').replace(/\s+/g, ' ').trim(), 500);
+                const trimmed = thinking.characters > thinking.text.length || preview.trimmed;
+                return {name: `💭 Thinking ${thinking.number} · ${thinking.finished ? '完了' : 'ストリーミング中'}（${thinking.characters}文字）`,
+                    value: preview.text ? `${trimmed ? '…' : ''}${preview.text}` : 'Thinkingを受信中…', inline: false};
+            }
+            const tool = item.tool;
             const info = describeStaffTool(tool);
             const detail = tool.phase === '準備中'
                 ? isComplete ? '呼び出し未実行' : tool.argumentsComplete ? '引数の生成完了・実行待ち'
@@ -307,14 +348,6 @@ export class StaffAIStreamState {
                 : tool.startedAt !== undefined ? `${Math.max(0, Math.floor(((tool.endedAt ?? now) - tool.startedAt) / 1000))}秒` : '';
             return {name: info.name, value: [info.value, detail].filter(Boolean).join('\n'), inline: false};
         });
-        if (!isComplete && this.hasReasoning) {
-            const preview = escapeMarkdownTail(this.thinkingPreview
-                .replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ')
-                .replace(/@/g, '@\u200b').replace(/</g, '‹').replace(/\s+/g, ' ').trim(), 800);
-            const trimmed = this.reasoningCharacters > this.thinkingPreview.length || preview.trimmed;
-            fields.unshift({name: `💭 Thinking · ストリーミング中（${this.reasoningCharacters}文字）`,
-                value: preview.text ? `${trimmed ? '…' : ''}${preview.text}` : 'Thinkingを受信中…', inline: false});
-        }
         const speed = this.timedOutputSeconds > 0 ? (this.timedOutputTokens / this.timedOutputSeconds).toFixed(1) : '—';
         const tokens = this.usageReceived ? `合計 ${this.promptTokens + this.completionTokens} toks (in ${this.promptTokens} / out ${this.completionTokens})`
             : '合計 未取得 (API未提供)';

@@ -488,20 +488,19 @@ ${reason}` });
         }
 
         function handleChunk(chunk: OpenAIChatCompletionChunk): void {
+            const previousPhase = streamState.thinkingPhaseCount;
             streamState.consume(chunk);
             responseContent = streamState.content;
-            queuePreview();
+            queuePreview(streamState.thinkingPhaseCount > previousPhase);
         }
 
         function handleResponseDelta(delta: ResponseApiStreamDelta): void {
-            const firstReasoning = delta.type === 'thinking' && !thinkingPreviewStarted;
+            const previousPhase = streamState.thinkingPhaseCount;
             streamState.consumeResponse(delta);
             responseContent = streamState.content;
-            // Make the first Thinking event visible immediately; later chunks use a trailing update.
-            queuePreview(firstReasoning && delta.text.length > 0);
-            if (firstReasoning && delta.text.length > 0) thinkingPreviewStarted = true;
+            // Preserve the start of every post-tool Thinking phase as a visible milestone.
+            queuePreview(streamState.thinkingPhaseCount > previousPhase);
         }
-        let thinkingPreviewStarted = false;
 
         const streamOptions = {
             // Keep enough budget for a final answer after reasoning/tool calls.
@@ -660,7 +659,6 @@ ${reason}` });
                             streamState.addUsageMetrics(firstAttemptUsage);
                             responseContent = '';
                             liveUpdates = createLiveUpdates();
-                            thinkingPreviewStarted = false;
                             previewClosed = false;
                             queuePreview(true);
                             await chatManager.streamMessage(retryMessages, handleChunk, streamOptions);

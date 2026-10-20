@@ -31,6 +31,77 @@ test('Native tool cards stream Thinking alongside tools and hide its text when c
     assert.match(card.embeds[0].footer!.text, /toks\/s/);
 });
 
+test('Thinking after tools starts a separate chronological phase without mixing earlier text', () => {
+    const state = new StaffAIStreamState(false, true);
+    state.consumeResponse({type: 'thinking', text: '検索する情報を確認。'});
+    state.recordToolCall({name: 'web_search', round: 1, callId: 'search', index: 0,
+        argumentCharacters: 0, argumentsComplete: false});
+    assert.match(state.renderDiscord().embeds[0].fields![0].name, /Thinking 1 · 完了/);
+    state.recordToolStep({name: 'web_search', round: 1, callId: 'search', phase: 'completed',
+        resultSummary: '検索結果 3件'});
+    state.consumeResponse({type: 'thinking', text: '検索結果からページを確認。'});
+    state.consumeResponse({type: 'thinking', text: 'リンクを選択。'});
+    let fields = state.renderDiscord().embeds[0].fields!;
+    assert.equal(state.thinkingPhaseCount, 2);
+    assert.equal(fields.length, 3);
+    assert.match(fields[0].name, /Thinking 1 · 完了/);
+    assert.match(fields[1].name, /Web検索/);
+    assert.match(fields[1].value, /検索結果 3件/);
+    assert.match(fields[2].name, /Thinking 2 · ストリーミング中/);
+    assert.match(fields[2].value, /検索結果からページを確認。リンクを選択。/);
+    assert.doesNotMatch(fields[2].value, /検索する情報/);
+    // Parallel calls and their aliases must not insert empty Thinking sections.
+    for (let index = 0; index < 2; index++) {
+        state.recordToolCall({name: 'fetch_url', round: 2, itemId: `item${index}`, index,
+            argumentCharacters: 1, argumentsComplete: false});
+        state.recordToolCall({name: 'fetch_url', round: 2, itemId: `item${index}`, callId: `page${index}`, index,
+            argumentCharacters: 5, argumentsComplete: true});
+        state.recordToolStep({name: 'fetch_url', round: 2, callId: `page${index}`, phase: 'completed'});
+    }
+    state.consumeResponse({type: 'thinking', text: 'ページから回答を作成。'});
+    fields = state.renderDiscord().embeds[0].fields!;
+    assert.equal(state.thinkingPhaseCount, 3);
+    assert.deepEqual(fields.map(field => field.name.replace(/（.*$/, '')), [
+        '💭 Thinking 1 · 完了', '✅ Web検索', '💭 Thinking 2 · 完了',
+        '✅ ページ取得', '✅ ページ取得', '💭 Thinking 3 · ストリーミング中',
+    ]);
+    assert.doesNotMatch(JSON.stringify(state.renderDiscord(true)), /検索する情報|リンクを選択|ページから回答/);
+});
+
+test('Thinking phases also split on raw Chat Completions and execution-only tool events', () => {
+    const state = new StaffAIStreamState(false, true);
+    state.consume({choices: [{index: 0, delta: {reasoning_content: '呼び出し前。'}}]} as any);
+    state.consume({choices: [{index: 0, delta: {tool_calls: [{index: 0, id: 'time',
+        function: {name: 'get_time', arguments: '{}'}}]}}]} as any);
+    state.recordToolStep({name: 'get_time', round: 1, callId: 'time', phase: 'completed'});
+    state.consume({choices: [{index: 0, delta: {reasoning_content: '時刻の取得後。'}}]} as any);
+    state.recordToolStep({name: 'get_weather', round: 2, callId: 'weather', phase: 'started'});
+    state.recordToolStep({name: 'get_weather', round: 2, callId: 'weather', phase: 'completed'});
+    state.consumeResponse({type: 'thinking', text: '天気の取得後。'});
+    const fields = state.renderDiscord().embeds[0].fields!;
+    assert.equal(fields.length, 5);
+    assert.match(fields[0].value, /呼び出し前/);
+    assert.match(fields[1].name, /時刻/);
+    assert.match(fields[2].value, /時刻の取得後/);
+    assert.match(fields[3].name, /天気/);
+    assert.match(fields[4].value, /天気の取得後/);
+});
+
+test('Long chronological histories remain within Discord limits and retain the latest Thinking', () => {
+    const state = new StaffAIStreamState(false, true);
+    for (let round = 1; round <= 20; round++) {
+        state.consumeResponse({type: 'thinking', text: '*'.repeat(400)});
+        state.recordToolStep({name: 'web_search', round, phase: 'started'});
+        state.recordToolStep({name: 'web_search', round, phase: 'completed', resultSummary: '検索結果 10件'});
+    }
+    state.consumeResponse({type: 'thinking', text: '最終確認。'});
+    const card = state.renderDiscord();
+    assert.equal(card.embeds[0].fields!.length, 8);
+    assert.match(card.embeds[0].fields!.at(-1)!.name, /Thinking 21 · ストリーミング中/);
+    assert.match(card.embeds[0].fields!.at(-1)!.value, /最終確認/);
+    assert.ok(JSON.stringify(card.embeds).length < 6000);
+});
+
 test('Native Thinking updates while the answer streams, uses a rolling preview, and escapes tool protocol', () => {
     const state = new StaffAIStreamState(false, true);
     state.consumeResponse({type: 'thinking', text: '最初の確認。'});
