@@ -2,14 +2,15 @@
 export function selectStaffToolNames(prompt: string, recentMessages: string[] = []): Set<string> {
     const current = prompt.trim().slice(0, 3000);
     // Short follow-ups often refer to the last question: preserve relevant tool access.
-    const followUp = /^(それ|じゃあ|なら|続け|さっき|その|あと|もう一度|お願い|やって)/.test(current);
+    const followUp = /^(それ|じゃあ|なら|続け|さっき|その|あと|もう一度|お願い|やって|キャンセル|取り消|取消)/.test(current)
+        || /^(?:午前|午後|朝|昼|夕方|夜)?\s*[0-9０-９一二三四五六七八九十]{1,3}時/.test(current);
     const preceding = followUp ? recentMessages.slice(-2).join(' ').slice(-800) : '';
     const text = (current + ' ' + preceding).toLowerCase();
     const chosen = new Set<string>();
     // A question mark in casual chat (e.g. '元気？') should not load Web tools.
     if (current.length <= 32
         && /^(やほ|やっほ|こんにちは|おはよ|おやすみ|暇|ひま|元気|ありがとう|ありがと|どうも|ww|草)/i.test(current)
-        && !/(検索|調べ|教え|おすすめ|ニュース|天気|何時|歌詞|曲|いつ|いくら)/.test(current)) {
+        && !/(検索|調べ|教え|おすすめ|ニュース|天気|何時|歌詞|曲|いつ|いくら|起こ|通知|リマイン|アラーム|予約|スケジュール)/.test(current)) {
         return chosen;
     }
 
@@ -23,6 +24,10 @@ export function selectStaffToolNames(prompt: string, recentMessages: string[] = 
         chosen.add('get_weather');
     }
     if (/今何時|現在時刻|時刻|日付|何曜日|今日何日|time zone|timezone/i.test(text)) {
+        chosen.add('get_time');
+    }
+    if (/起こし|起こして|起こせ|起こす|通知|リマイン|アラーム|予約|スケジュール|remind|alarm|schedule|\d+\s*(?:分|時間|秒)後|時.*(?:知らせ|教えて|調べ|検索|確認|実行|作って|作成|要約|まとめ)/i.test(text)) {
+        chosen.add('manage_schedule');
         chosen.add('get_time');
     }
     if (/サーバー.*(人数|状況|状態|オンライン|人いる)|オンライン.*(人数|何人)|メンバー数|server status/i.test(text)) {

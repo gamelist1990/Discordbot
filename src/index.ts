@@ -21,6 +21,7 @@ interface Config {
 
 let botClient: BotClient | null = null;
 let settingsServer: SettingsServer | null = null;
+let stopStaffAIScheduler: (() => Promise<void>) | null = null;
 let guild890315487962095637Integration: {
     initialize(client: Client): Promise<void>;
     destroy(): Promise<void>;
@@ -93,6 +94,8 @@ async function main() {
 
         // データベースを初期化
         await botClient.initializeDatabase();
+        const { startStaffAIScheduler } = await import('./core/ai/StaffAIScheduler.js');
+        stopStaffAIScheduler = startStaffAIScheduler(botClient.client);
 
         Logger.info(`📊 現在のサーバー数: ${botClient.getGuildCount()}/${botClient.getMaxGuilds()}`);
         // Daily memory runs on a low-frequency timer without blocking commands.
@@ -198,6 +201,8 @@ main();
 
 async function shutdown(): Promise<void> {
     Logger.info('\n🛑 終了処理を開始します...');
+
+    if (stopStaffAIScheduler) await stopStaffAIScheduler();
 
     if (guild890315487962095637Integration) {
         await guild890315487962095637Integration.destroy();

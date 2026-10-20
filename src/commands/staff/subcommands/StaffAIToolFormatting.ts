@@ -17,6 +17,7 @@ const LABELS: Record<string, string> = {
     collect_channel_history: '会話履歴',
     fetch_message_link_context: 'メッセージ取得',
     manage_memory: 'メモリー',
+    manage_schedule: 'スケジュール',
     output_file: 'ファイル出力',
 };
 
@@ -44,6 +45,9 @@ export function describeStaffTool(tool: StaffToolView): { name: string; value: s
             case 'get_weather': return safePreview(args.prefecture) ? `${safePreview(args.prefecture)}の天気` : '地域の天気を確認';
             case 'count_phrase_in_channel': return safePreview(args.phrase) ? `「${safePreview(args.phrase)}」を確認` : 'チャンネルの発言を調査';
             case 'get_time': return '現在時刻を確認';
+            case 'manage_schedule': return args.action === 'list' ? '本人の予約一覧を確認'
+                : args.action === 'cancel' ? '予約を取り消し'
+                : args.mode === 'task' || args.task ? '指定時刻のAI処理を予約' : 'メンション通知を予約';
             case 'get_server_status': return 'サーバーの情報を取得';
             case 'collect_channel_history': return '最近の投稿を確認';
             case 'fetch_message_link_context': return '指定メッセージを確認';
