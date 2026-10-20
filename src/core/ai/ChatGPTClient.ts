@@ -1,5 +1,6 @@
 // src/core/ai/ChatGPTClient.ts
 import OpenAI from 'openai';
+import { toolResultError } from './ToolResultStatus.js';
 import { ToolProtocolTextFilter, stripToolProtocolText } from './ToolProtocolTextFilter.js';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { AIProgressGuard, AIProgressStalledError, AI_LOOP_STOP_MESSAGE, AI_LOOP_FINALIZE_INSTRUCTION } from './AIProgressGuard.js';
@@ -37,6 +38,8 @@ export interface ChatOptions {
     onToolStep?: (step: ToolExecutionStep) => void | Promise<void>;
     /** Force a short ordered tool sequence once per tool round, then return to automatic selection. */
     forceToolSequence?: string[];
+    /** Return a verified final answer when the caller knows this tool batch completed its task. */
+    completeAfterTools?: (results: Array<{ name: string; output: string }>) => string | undefined;
     signal?: AbortSignal;
     priority?: AIRequestPriority;
 }
@@ -343,6 +346,10 @@ export class ChatGPTClient {
                     if (toolCalls.length > 0) {
                         this.progress.getStore()?.assertToolsAllowed();
                         const nextMessages = await this.executeToolCalls(toolCalls, messages, options, toolRound + 1);
+                        const completed = this.completedToolAnswer(options, toolCalls, nextMessages);
+                        if (completed !== undefined) return {
+                            ...typedResponse, choices: [{ index: 0, message: { role: 'assistant', content: completed }, finish_reason: 'stop' }],
+                        };
                         return this.sendMessageInternal(nextMessages, options, toolRound + 1, 0);
                     }
 
@@ -456,6 +463,14 @@ export class ChatGPTClient {
                     if (toolCallsBuffer.size > 0) {
                         this.progress.getStore()?.assertToolsAllowed();
                         const nextMessages = await this.executeToolCallsFromBuffer(toolCallsBuffer, messages, options, toolRound + 1);
+                        const completed = this.completedToolAnswer(options, Array.from(toolCallsBuffer.values()).map(call => ({
+                            id: call.id || '', type: 'function' as const, function: { name: call.name || '', arguments: call.arguments },
+                        })), nextMessages);
+                        if (completed !== undefined) {
+                            onChunkReceive({ id: lastChunk?.id || 'tool-completed', object: 'chat.completion.chunk', created: lastChunk?.created || 0, model,
+                                choices: [{ index: 0, delta: { content: completed }, finish_reason: 'stop' }] });
+                            return;
+                        }
                         await this.streamMessageInternal(nextMessages, onChunkReceive, options, toolRound + 1, 0);
                     } else if (this.progress.getStore()?.stalled && !emittedText) {
                         throw new AIProgressStalledError();
@@ -571,6 +586,13 @@ export class ChatGPTClient {
                         });
                         const toolOutputs = await this.executeResponseFunctionCalls(result.functionCalls, options, toolRound + 1);
                         if (toolOutputs.length > 0) {
+                            const completed = options?.completeAfterTools?.(result.functionCalls.map((call, index) => ({
+                                name: call.name, output: String(toolOutputs[index]?.output ?? ''),
+                            })));
+                            if (completed !== undefined) {
+                                onDeltaReceive({ type: 'text', text: completed });
+                                return;
+                            }
                             // 一部のOpenAI互換APIは previous_response_id だけでは元の
                             // function_call名を復元できない。SDKが返した出力項目を含む
                             // 完全な会話入力を再送し、call_id/nameの対応を確実に保つ。
@@ -1085,7 +1107,8 @@ export class ChatGPTClient {
                     round,
                     result: this.debugPreview(result),
                 });
-                await this.notifyToolStep(options, { phase: 'completed', name: functionCall.name, round, callId: functionCall.callId, arguments: functionCall.name === 'output_file' ? JSON.stringify({ filename: JSON.parse(functionCall.arguments || '{}').filename }) : undefined });
+                const reportedError = toolResultError(result);
+                await this.notifyToolStep(options, { phase: reportedError ? 'failed' : 'completed', error: reportedError, name: functionCall.name, round, callId: functionCall.callId, arguments: functionCall.name === 'output_file' ? JSON.stringify({ filename: JSON.parse(functionCall.arguments || '{}').filename }) : undefined });
                 outputs.push({
                     type: 'function_call_output',
                     call_id: functionCall.callId,
@@ -1327,6 +1350,13 @@ export class ChatGPTClient {
         };
     }
 
+    private completedToolAnswer(options: ChatOptions | undefined, calls: OpenAIToolCall[], messages: OpenAIChatCompletionMessage[]): string | undefined {
+        return options?.completeAfterTools?.(calls.map(call => ({
+            name: call.function.name,
+            output: String(messages.findLast(message => message.role === 'tool' && message.tool_call_id === call.id)?.content ?? ''),
+        })));
+    }
+
     private async executeToolCalls(
         toolCalls: OpenAIToolCall[],
         originalMessages: OpenAIChatCompletionMessage[],
@@ -1460,7 +1490,8 @@ export class ChatGPTClient {
                     round,
                     result: this.debugPreview(resultStr),
                 });
-                await this.notifyToolStep(options, { phase: 'completed', name: toolCall.function.name, round, callId: toolCall.id, arguments: toolCall.function.name === 'output_file' ? JSON.stringify({ filename: JSON.parse(toolCall.function.arguments || '{}').filename }) : undefined });
+                const reportedError = toolResultError(result);
+                await this.notifyToolStep(options, { phase: reportedError ? 'failed' : 'completed', error: reportedError, name: toolCall.function.name, round, callId: toolCall.id, arguments: toolCall.function.name === 'output_file' ? JSON.stringify({ filename: JSON.parse(toolCall.function.arguments || '{}').filename }) : undefined });
 
                 return {
                     role: 'tool',

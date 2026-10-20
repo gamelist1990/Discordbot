@@ -1,3 +1,4 @@
+import { toolResultError } from './ToolResultStatus.js';
 import { createHash } from 'node:crypto';
 
 export class AIProgressStalledError extends Error {
@@ -26,7 +27,7 @@ export class AIProgressGuard {
 
     public record(name: string, args: unknown, result: unknown): void {
         const value = typeof result === 'string' ? result : stable(result);
-        const failed = /^(?:SEARCH_(?:ERROR|EMPTY|UNAVAILABLE)|FETCH_ERROR|Error:|エラー[:：]|検索語句が空)/i.test(value.trim())
+        const failed = !!toolResultError(result) || /^(?:SEARCH_(?:ERROR|EMPTY|UNAVAILABLE)|FETCH_ERROR|Error:|エラー[:：]|検索語句が空)/i.test(value.trim())
             || /^(?:Web検索結果がありませんでした|検索結果が(?:空|ありません)|No (?:search )?results)/i.test(value.trim());
         const research = /search|fetch|lookup/i.test(name);
         // Query/engine/timestamp annotations must not make unchanged evidence look new.
@@ -57,8 +58,8 @@ export class AIProgressGuard {
             const sentence = piece.toLowerCase().replace(/[\s、,「」"'’]/g, '').trim();
             // Only repeated retry narration is suppressed, not deliberate repetition
             // in poems, quoted source text, code, or normal short acknowledgements.
-            if (sentence.length < 15 || !/検索|調べ|search|look.?up|retry|tryagain/.test(sentence)
-                || !/空|見つから|もう一度|再度|再試行|違う言葉|again|noresults|empty|repeat|retry/.test(sentence)) continue;
+            if (sentence.length < 8 || !/検索|調べ|ファイル|出力|アップロード|search|look.?up|retry|tryagain|file|upload/.test(sentence)
+                || !/空|見つから|もう一度|再度|再試行|違う言葉|失敗|again|noresults|empty|repeat|retry|failed/.test(sentence)) continue;
             const count = (state.sentences.get(sentence) ?? 0) + 1;
             if (state.sentences.size >= 128 && !state.sentences.has(sentence)) state.sentences.delete(state.sentences.keys().next().value!);
             state.sentences.set(sentence, count);

@@ -36,7 +36,7 @@ export function staffFileOutputResponse(context: object, response = ''): string 
 
 export const staffOutputFileHandler: ToolHandler = async (args, context) => {
     const filename = normalizeChatAITextFilename(args?.filename);
-    if (!filename || filename !== args?.filename || /[/\\:]/.test(filename)) {
+    if (!filename || filename !== args?.filename?.trim() || /[/\\:]/.test(filename)) {
         return 'FILE_ERROR: ファイル名が安全でないか、対応していない拡張子です。';
     }
     if (typeof args?.content !== 'string') return 'FILE_ERROR: contentにはテキストを指定してください。';
@@ -71,7 +71,9 @@ export const staffOutputFileHandler: ToolHandler = async (args, context) => {
                 ? await previous.edit({ ...payload, attachments: [] })
                 : await interaction.followUp(payload);
             state.messages.set(filename, reply);
-            const attachment = reply.attachments?.find(entry => entry.name === filename);
+            // Discord can normalize an attachment's name. This dedicated message contains exactly one file.
+            const attachment = reply.attachments?.find(entry => entry.name === filename)
+                ?? (reply.attachments?.size === 1 ? reply.attachments.first() : undefined);
             if (!attachment?.url) return 'FILE_ERROR: Discord送信後の添付URLを取得できません。送信状態を確認してください。';
             const file = { filename, bytes: bytes.length, url: attachment.url };
             state.uploaded.set(filename, file);
@@ -87,4 +89,22 @@ export const staffOutputFileHandler: ToolHandler = async (args, context) => {
 
 export function isStaffFileOutputRequest(text: string): boolean {
     return /(?:ファイル|添付|ダウンロード|HTML|JSON|CSV|Markdown|マークダウン|\.md\b|\.txt\b|\.html?\b|\.json\b|\.csv\b|\.py\b|\.js\b|README|ソースコード|コード).{0,25}(?:作|生成|出力|保存|送|添付|書いて|ください|ほしい)|(?:作|生成|出力|保存|送|添付|書いて).{0,25}(?:ファイル|HTML|JSON|CSV|Markdown|マークダウン|コード|README|\.md\b|\.txt\b|\.html?\b|\.py\b)/i.test(text);
+}
+
+/** Avoid ending plural/multi-stage requests after only their first file. */
+export function isSingleStaffFileRequest(text: string): boolean {
+    text = text.normalize('NFKC');
+    if (!isStaffFileOutputRequest(text)) return false;
+    if (/複数|それぞれ|別々|両方|一式|セット|分割|数個|files\b|[2-9２-９二三四五六七八九].{0,3}(?:ファイル|個|つ|枚)|ファイル.{0,3}[2-9２-９二三四五六七八九]|修正|編集|更新|改良|追記/i.test(text)) return false;
+    if (/1\d+.{0,3}(?:ファイル|個|つ|枚)|ファイル.{0,3}1\d+|その後|次に|続けて|さらに|加えて|ついでに/.test(text)) return false;
+    if (/(?:1|１|一)(?:つ|個|ファイル)|単一/.test(text)) return true;
+    const types = new Set(text.toLowerCase().match(/\b(?:html|css|javascript|typescript|json|csv|markdown|python|txt)\b/g) ?? []);
+    const names = text.match(/[\w.-]+\.(?:html?|css|js|ts|json|csv|md|py|txt)\b/gi) ?? [];
+    return types.size <= 1 && names.length <= 1;
+}
+
+/** Only a real upload receipt and retained Discord URL can complete an artifact request. */
+export function completeStaffFileTools(context: object, results: Array<{name: string; output: string}>): string | undefined {
+    if (!results.length || !results.every(result => result.name === 'output_file' && result.output.startsWith('FILE_UPLOADED:'))) return undefined;
+    return staffFileOutputResponse(context) ?? undefined;
 }

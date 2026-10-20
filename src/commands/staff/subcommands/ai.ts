@@ -22,7 +22,7 @@ import { PdfRAGManager } from '../../../core/ai/PdfRAGManager.js';
 import { recordStaffUsage, queueCurrentStaffDailyMemory, queueStaffDailyMemory, staffMemoryContext } from '../../../core/ai/StaffAIMemory.js';
 import { staffMemoryDefinition, staffMemoryHandler, staffMemoryToolScope } from './ai-tools/staff_memory.js';
 import { database } from '../../../core/persistence/Database.js';
-import { staffOutputFileDefinition, staffOutputFileHandler, staffFileOutputResponse, isStaffFileOutputRequest } from './ai-tools/fileOutput.js';
+import { staffOutputFileDefinition, staffOutputFileHandler, staffFileOutputResponse, isStaffFileOutputRequest, isSingleStaffFileRequest, completeStaffFileTools } from './ai-tools/fileOutput.js';
 import { searchChannelMessagesDefinition, searchChannelMessagesHandler, fetchDiscordMessageDefinition, fetchDiscordMessageHandler } from './ai-tools/channelSearch.js';
 import { fetchPublicUrlDefinition, fetchPublicUrlHandler } from './ai-tools/fetchPublicUrl.js';
 import {
@@ -555,6 +555,7 @@ ${reason}` });
             ...(forceTextFileTools ? { forceToolSequence: ['output_file'] }
                 : forceChannelSearchTool ? { forceToolSequence: ['search_channel_messages'] } : {}),
             includeUsage: true,
+            ...(isSingleStaffFileRequest(prompt ?? '') ? { completeAfterTools: (results: Array<{name: string; output: string}>) => completeStaffFileTools(interaction, results) } : {}),
             onToolStep: (step: Parameters<StaffAIStreamState['recordToolStep']>[0]) => {
                 streamState.recordToolStep(step);
                 queuePreview(true);
