@@ -8,6 +8,7 @@ import { OpenAIChatCompletionMessage, OpenAIChatCompletionChunk } from '../../..
 import type { ResponseApiStreamDelta } from '../../../core/ai/ChatGPTClient.js';
 import { StaffAIStreamState } from './StaffAIStreamState.js';
 import { StaffAILiveUpdates } from './StaffAILiveUpdates.js';
+import { completedStaffAIReply } from './StaffAIProgressPanel.js';
 import { toolResultSummary } from '../../../core/ai/ToolResultSummary.js';
 import { parseStaffReplyTarget, buildStaffVisualReplyContext, discordMessageAuthor, describeDiscordAttachments } from './StaffAIReplyContext.js';
 import { webSearchHandler } from '../../../core/ChatAIChannel/tools/webSearchBing.js';
@@ -131,7 +132,7 @@ export const subcommandHandler = {
         try {
 
         // 安全なレスポンス関数: interaction が期限切れの場合は followUp、さらに失敗したらチャンネルに直接送信してフォールバックする
-        async function safeRespond(payload: { content?: string; embeds?: any[]; files?: any[]; ephemeral?: boolean }): Promise<Message | null> {
+        async function safeRespond(payload: { content?: string; embeds?: any[]; components?: any[]; files?: any[]; ephemeral?: boolean }): Promise<Message | null> {
             // contentが空の場合はデフォルトメッセージを設定
             if (!payload.content || payload.content.trim() === '') {
                 payload.content = '（応答が空でした）';
@@ -139,26 +140,26 @@ export const subcommandHandler = {
 
             try {
                 // まず編集を試みる（既に返信がある想定）
-                return await interaction.editReply({ content: payload.content, embeds: payload.embeds ?? [], files: payload.files, allowedMentions: { parse: [] } });
+                return await interaction.editReply({ content: payload.content, embeds: payload.embeds ?? [], components: payload.components ?? [], files: payload.files, allowedMentions: { parse: [] } });
             } catch (err: any) {
                 // editReply がタイムアウト後に失敗しても、Discord側では更新済みの場合がある。
                 // 先に元の返信を取得して更新し、不要な followUp の二重投稿を避ける。
                 try {
                     const original = await interaction.fetchReply();
-                    return await original.edit({ content: payload.content, embeds: payload.embeds ?? [], files: payload.files, allowedMentions: { parse: [] } });
+                    return await original.edit({ content: payload.content, embeds: payload.embeds ?? [], components: payload.components ?? [], files: payload.files, allowedMentions: { parse: [] } });
                 } catch {
                     // 元の返信が利用できないときだけ followUp へ進む。
                 }
                 // Unknown interaction や期限切れの場合、followUp かチャンネル送信でフォールバック
                 try {
-                    return await interaction.followUp({ content: payload.content || '', embeds: payload.embeds ?? [], files: payload.files, ephemeral: payload.ephemeral, allowedMentions: { parse: [] } });
+                    return await interaction.followUp({ content: payload.content || '', embeds: payload.embeds ?? [], components: payload.components ?? [], files: payload.files, ephemeral: payload.ephemeral, allowedMentions: { parse: [] } });
                 } catch (followErr: any) {
                     // 最終フォールバック: チャンネルに直接送信（パブリック）
                     try {
                         const channel = interaction.channel;
                         if (channel && 'send' in channel) {
                             // @ts-ignore send exists
-                            return await (channel as any).send({ content: payload.content || '', embeds: payload.embeds ?? [], files: payload.files, allowedMentions: { parse: [] } }) as Message;
+                            return await (channel as any).send({ content: payload.content || '', embeds: payload.embeds ?? [], components: payload.components ?? [], files: payload.files, allowedMentions: { parse: [] } }) as Message;
                         }
                     } catch (chErr: any) {
                         console.error('safeRespond: final channel send failed', chErr);
@@ -584,7 +585,7 @@ ${reason}` });
                 ? { cleanedResponse: fileResponse, codeFiles: [] as any[] }
                 : processCodeBlocks(stripDiscordStreamMetadata(responseContent));
             await drainPreview();
-            const finalPayload = streamState.renderDiscord(true, cleanedResponse);
+            const finalPayload = await completedStaffAIReply(streamState, interaction, cleanedResponse);
             const finalFiles = [...(finalPayload.files ?? []), ...codeFiles];
             const sentMessage = await safeRespond({
                 ...finalPayload,
@@ -595,7 +596,7 @@ ${reason}` });
                 const linkedResponse = linkCodeFileMarkers(cleanedResponse, sentMessage);
                 if (linkedResponse !== cleanedResponse) {
                     await sentMessage.edit({
-                        ...streamState.renderDiscord(true, linkedResponse),
+                        ...await completedStaffAIReply(streamState, interaction, linkedResponse),
                         files: [],
                         attachments: [...sentMessage.attachments.values()],
                     }).catch(error => console.warn('[StaffAI] Could not add links to code attachments:', error));
@@ -664,7 +665,7 @@ ${reason}` });
                             await chatManager.streamMessage(retryMessages, handleChunk, streamOptions);
                             finishPreview();
                             await drainPreview();
-                            await safeRespond(streamState.renderDiscord(true));
+                            await safeRespond(await completedStaffAIReply(streamState, interaction));
                             isCompleted = true;
                             const retryResponse = stripDiscordStreamMetadata(responseContent);
                             const retryUsage = streamState.usageMetrics();
@@ -735,7 +736,7 @@ ${reason}` });
             finishPreview();
             await drainPreview();
             try {
-                await safeRespond(streamState.renderDiscord(true));
+                await safeRespond(await completedStaffAIReply(streamState, interaction));
             } catch (e) {
                 console.error('safeRespond エラー:', e);
             }

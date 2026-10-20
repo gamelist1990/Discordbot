@@ -7,6 +7,7 @@ import type { APIEmbed } from 'discord.js';
 import { stripDiscordStreamMetadata } from '../../../core/ai/AIConversationHistory.js';
 import { ToolProtocolTextFilter, stripToolProtocolText } from '../../../core/ai/ToolProtocolTextFilter.js';
 import { formatDiscordResponse, clipDiscordResponse } from '../../../core/ai/DiscordResponseFormatting.js';
+import type { StaffAIProgressDetails } from './StaffAIProgressPanel.js';
 
 type StaffAIReply = { content: string; embeds: APIEmbed[]; allowedMentions: {parse: []};
     files?: Array<{attachment: Buffer; name: string}> };
@@ -310,6 +311,27 @@ export class StaffAIStreamState {
         };
     }
 
+    completedProgressDetails(): StaffAIProgressDetails | undefined {
+        if (!this.nativeCards || this.tools.length < 3) return undefined;
+        const {fields: _fields, ...summary} = this.renderNativeDiscord(true, '').embeds[0];
+        // The live card's recent-history limit is unnecessary in a paginated viewer.
+        summary.description = summary.description?.split('\n').filter(line => !line.startsWith('直近と実行中の')).join('\n');
+        return {summary, entries: this.activities.map(item => item.kind === 'thinking'
+            ? {kind: 'thinking', name: `💭 Thinking ${item.thinking.number} · 完了`,
+                value: `${item.thinking.characters}文字を受信`, needsAttention: false}
+            : {kind: 'tool', ...this.toolField(item.tool, Date.now(), true),
+                needsAttention: item.tool.phase !== '完了'})};
+    }
+
+    private toolField(tool: ToolPreview, now: number, isComplete: boolean) {
+        const info = describeStaffTool(tool);
+        const detail = tool.phase === '準備中'
+            ? isComplete ? '呼び出し未実行' : tool.argumentsComplete ? '引数の生成完了・実行待ち'
+                : `引数を生成中（${tool.argumentCharacters ?? tool.arguments.length}文字）`
+            : tool.startedAt !== undefined ? `${Math.max(0, Math.floor(((tool.endedAt ?? now) - tool.startedAt) / 1000))}秒` : '';
+        return {name: info.name, value: [info.value, detail].filter(Boolean).join('\n'), inline: false};
+    }
+
     private renderNativeDiscord(isComplete: boolean, answer: string) {
         const now = Date.now();
         const active = this.tools.filter(tool => tool.phase === '準備中' || tool.phase === '実行中');
@@ -340,13 +362,7 @@ export class StaffAIStreamState {
                 return {name: `💭 Thinking ${thinking.number} · ${thinking.finished ? '完了' : 'ストリーミング中'}（${thinking.characters}文字）`,
                     value: preview.text ? `${trimmed ? '…' : ''}${preview.text}` : 'Thinkingを受信中…', inline: false};
             }
-            const tool = item.tool;
-            const info = describeStaffTool(tool);
-            const detail = tool.phase === '準備中'
-                ? isComplete ? '呼び出し未実行' : tool.argumentsComplete ? '引数の生成完了・実行待ち'
-                    : `引数を生成中（${tool.argumentCharacters ?? tool.arguments.length}文字）`
-                : tool.startedAt !== undefined ? `${Math.max(0, Math.floor(((tool.endedAt ?? now) - tool.startedAt) / 1000))}秒` : '';
-            return {name: info.name, value: [info.value, detail].filter(Boolean).join('\n'), inline: false};
+            return this.toolField(item.tool, now, isComplete);
         });
         const speed = this.timedOutputSeconds > 0 ? (this.timedOutputTokens / this.timedOutputSeconds).toFixed(1) : '—';
         const tokens = this.usageReceived ? `合計 ${this.promptTokens + this.completionTokens} toks (in ${this.promptTokens} / out ${this.completionTokens})`

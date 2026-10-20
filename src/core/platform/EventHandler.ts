@@ -288,6 +288,11 @@ export class EventHandler {
      */
     private async handleInteraction(interaction: Interaction): Promise<void> {
         if (!interaction.isStringSelectMenu() && !interaction.isButton()) return;
+        if (interaction.customId.startsWith('staff-ai-progress:')) {
+            const { handleStaffAIProgressInteraction } = await import('../../commands/staff/subcommands/StaffAIProgressPanel.js');
+            await handleStaffAIProgressInteraction(interaction);
+            return;
+        }
         if (interaction.customId.startsWith('rolepanel:')) {
             const { default: rolePanelCommand } = await import('../../commands/staff/subcommands/rolepanel.js');
             await rolePanelCommand.handleInteraction(interaction as StringSelectMenuInteraction | ButtonInteraction);
