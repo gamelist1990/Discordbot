@@ -44,7 +44,7 @@ export async function executeStaffScheduledTask(schedule: StaffAISchedule, now =
             '予約の時間になったので、今ここで依頼を実行する。「後で実行する」「予約しました」と返さない。',
             'Web検索・公開URLの本文取得・天気・現在時刻のツールと文章作成・要約を利用できる。',
             'サーバー管理・メモ更新・別の予約作成・非公開Discord履歴の取得は利用できない。できない動作は成功したと偽らず説明する。',
-            '実行結果は元のチャンネルに投稿される。不要な個人情報や追加メンションを含めない。',
+            '実行結果は予約に保存された通知先チャンネルに投稿される。不要な個人情報や追加メンションを含めない。',
             AI_RESEARCH_POLICY,
         ].join('') },
         { role: 'system', content: `${buildStaffAITimeContext(now)}\n予約時刻: ${schedule.runAt}。今日・最新などは実行日時を基準にする。` },

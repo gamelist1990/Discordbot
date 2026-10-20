@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { Client } from 'discord.js';
 import { database } from '../persistence/Database.js';
+import { staffScheduleChannelError } from './StaffAIScheduleChannel.js';
 
 export type StaffAISchedule = {
     id: string; guildId: string; channelId: string; userId: string;
@@ -68,6 +69,8 @@ export async function deliverDueStaffSchedules(client: Client, now = Date.now(),
                     if (!latest || Date.parse(latest.nextAttemptAt ?? latest.runAt) > now) continue;
                     Object.assign(schedule, latest);
                     const channel = await client.channels.fetch(schedule.channelId);
+                    const channelError = await staffScheduleChannelError(channel, guildId, schedule.userId);
+                    if (channelError) throw new Error(channelError);
                     if (!channel || !('guildId' in channel) || channel.guildId !== guildId || !channel.isSendable()) {
                         throw new Error('通知先のチャンネルに送信できません');
                     }
@@ -87,6 +90,8 @@ export async function deliverDueStaffSchedules(client: Client, now = Date.now(),
                         const schedules = await loadStaffSchedules(guildId);
                         const target = schedules.find(item => item.id === schedule.id && item.status === 'pending');
                         if (!target) return; // Cancelled while AI was working.
+                        const permissionError = await staffScheduleChannelError(channel, guildId, target.userId);
+                        if (permissionError) throw new Error(permissionError);
                         const text = `<@${target.userId}> ⏰ ${target.result ?? target.message}`;
                         await channel.send({
                             content: text.length <= 2000 ? text : `<@${target.userId}> ⏰ 予約した処理が完了しました。結果を添付します。`,

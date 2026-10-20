@@ -1,16 +1,18 @@
 import type { ChatInputCommandInteraction } from 'discord.js';
 import type { OpenAITool, ToolHandler } from '../../../../types/openai.js';
 import { loadStaffSchedules, saveStaffSchedules, newStaffSchedule, withStaffScheduleLock } from '../../../../core/ai/StaffAIScheduler.js';
+import { staffScheduleChannelError } from '../../../../core/ai/StaffAIScheduleChannel.js';
 
 export const staffScheduleDefinition: OpenAITool = {
     type: 'function',
     function: {
         name: 'manage_schedule',
-        description: '一回限りの通知またはAIの動作を予約(create)、一覧確認(list)、取消(cancel)する。mode=reminderは指定本文の通知、mode=taskは指定時刻にAIがtaskを実行し結果を元のチャンネルで本人にメンション通知する。taskで使える動作はWeb検索・公開ページ取得・天気確認・文章作成や要約。予約時には調査を先に実行せず、対象や条件を自己完結したtaskに保存する。予約・取消は本人の依頼時だけ。日時はシステムメッセージの現在日時を基準に解釈し、再確認時はget_timeを使う。標準は日本時間。曖昧な時刻は確認、過去時刻を翌日に変更しない。保存成功後だけ予約済みと伝える。',
+        description: '一回限りの通知またはAIの動作を予約(create)、一覧確認(list)、取消(cancel)する。mode=reminderは指定本文の通知、mode=taskは指定時刻にAIがtaskを実行し結果を本人にメンション通知する。通知先はchannel_idで同じサーバーの別チャンネルを指定でき、省略時は依頼元。taskで使える動作はWeb検索・公開ページ取得・天気確認・文章作成や要約。予約時には調査を先に実行せず、対象や条件を自己完結したtaskに保存する。予約・取消は本人の依頼時だけ。日時はシステムメッセージの現在日時を基準に解釈し、再確認時はget_timeを使う。標準は日本時間。曖昧な時刻は確認、過去時刻を翌日に変更しない。保存成功後だけ予約済みと伝える。',
         parameters: {
             type: 'object',
             properties: {
                 action: { type: 'string', enum: ['create', 'list', 'cancel'] },
+                channel_id: { type: 'string', description: 'create時の通知先。同じサーバーのチャンネルID、<#ID>メンション、または正確なチャンネル名（#一般など）。省略時は依頼元。名前が重複した場合はメンションかIDを本人に確認する。' },
                 mode: { type: 'string', enum: ['reminder', 'task'], description: 'create時の動作。通知だけならreminder（既定）、指定時刻に調査・作成するならtask。' },
                 task: { type: 'string', description: 'mode=task時に必須。実行する依頼文（1〜4000文字）。対象、地域、URL、条件などを含める。例: 東京の実行時点の天気予報を調べ、出典付きで教えて。' },
                 run_at: { type: 'string', description: 'create時の未来の日時。タイムゾーン必須のISO 8601。例: 2026-10-20T15:00:00+09:00' },
@@ -65,24 +67,36 @@ export const staffScheduleHandler: ToolHandler = async (args: Record<string, unk
             const task = typeof args.task === 'string' ? args.task.trim() : '';
             if (mode === 'task' && (!task || task.length > 4000)) return { error: '実行する依頼文taskは1〜4000文字で指定してください' };
             if (mode === 'reminder' && task) return { error: '動作を実行する場合はmode=taskを指定してください' };
+            let channelId = interaction.channelId;
+            if (args.channel_id !== undefined) {
+                if (typeof args.channel_id !== 'string' || !args.channel_id.trim()) {
+                    return { error: '通知先のチャンネルID・メンション・名前を指定してください' };
+                }
+                const requested = args.channel_id.trim();
+                const id = /^(?:<#(\d{17,20})>|(\d{17,20}))$/.exec(requested);
+                if (id) channelId = id[1] ?? id[2];
+                else {
+                    const channels = await interaction.guild!.channels.fetch();
+                    const matches = channels.filter(channel => channel?.isSendable()
+                        && channel.name === requested.replace(/^#/, ''));
+                    if (matches.size !== 1) return { error: matches.size > 1
+                        ? '同名のチャンネルが複数あります。通知先をメンションかIDで指定してください'
+                        : '通知先チャンネルが見つかりません。メンションかIDで指定してください' };
+                    channelId = matches.first()!.id;
+                }
+            }
             const message = typeof args.message === 'string' ? args.message.trim() : mode === 'task' ? task.slice(0, 1500) : '';
             if (!message || message.length > 1500) return { error: '通知本文は1〜1500文字で指定してください' };
             const runAt = new Date(time).toISOString();
             const duplicate = own.find(item => item.status === 'pending' && item.runAt === runAt
-                && item.message === message && item.channelId === scope.channelId
+                && item.message === message && item.channelId === channelId
                 && (item.mode ?? 'reminder') === mode && (item.task ?? '') === task);
             if (duplicate) return { success: true, schedule: duplicate, alreadyExists: true };
             if (own.filter(item => item.status === 'pending').length >= 50) return { error: '予約は一人50件までです' };
-            const channel = await interaction.client.channels.fetch(scope.channelId);
-            const bot = interaction.guild?.members.me;
-            if (!channel || !channel.isSendable() || !bot || !('permissionsFor' in channel)) {
-                return { error: 'このチャンネルには通知を送信できません' };
-            }
-            const permissions = channel.permissionsFor(bot);
-            if (!permissions?.has('ViewChannel') || !permissions.has(channel.isThread() ? 'SendMessagesInThreads' : 'SendMessages')) {
-                return { error: 'Botにこのチャンネルの閲覧・送信権限がありません' };
-            }
-            const schedule = newStaffSchedule(scope, message, runAt);
+            const channel = await interaction.client.channels.fetch(channelId);
+            const channelError = await staffScheduleChannelError(channel, scope.guildId, scope.userId);
+            if (channelError) return { error: channelError };
+            const schedule = newStaffSchedule({ ...scope, channelId }, message, runAt);
             schedule.mode = mode;
             if (mode === 'task') schedule.task = task;
             await saveStaffSchedules(scope.guildId, [...schedules, schedule]);

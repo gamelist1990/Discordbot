@@ -8,6 +8,7 @@ import { deliverDueStaffSchedules, loadStaffSchedules } from '../src/core/ai/Sta
 import { parseScheduleTime, staffScheduleHandler } from '../src/commands/staff/subcommands/ai-tools/schedule.ts';
 import { selectStaffToolNames } from '../src/commands/staff/subcommands/StaffAIToolRouting.ts';
 import { executeStaffScheduledTask } from '../src/core/ai/StaffAIScheduledTask.ts';
+import { Collection, ChannelType } from 'discord.js';
 
 async function fixture(run: (f: ReturnType<typeof mocks> & { restart: () => void }) => Promise<void>) {
     const directory = await mkdtemp(join(tmpdir(), 'staff-ai-schedule-'));
@@ -28,23 +29,122 @@ async function fixture(run: (f: ReturnType<typeof mocks> & { restart: () => void
 function mocks() {
     const sent: any[] = [];
     let failure = false;
+    const channels = new Collection<string, any>();
+    const guild = { id: 'guild', members: { me: { id: 'bot' }, fetch: async (id: string) => ({ id }) },
+        channels: { fetch: async () => channels } };
     const channel = {
-        guildId: 'guild', isSendable: () => true, isThread: () => false,
-        permissionsFor: () => ({ has: () => true }),
+        id: 'channel', name: '依頼元', type: ChannelType.GuildText, guild, guildId: 'guild', isSendable: () => true, isThread: () => false,
+        permissionsFor: (_actor?: any) => ({ has: (_permission?: any) => true }),
         send: async (payload: any) => {
             if (failure) throw new Error('一時的な送信失敗');
             sent.push(payload);
         },
     };
-    const client = { guilds: { cache: new Map([['guild', {}]]) }, channels: { fetch: async () => channel } } as any;
+    channels.set(channel.id, channel);
+    const client = { guilds: { cache: new Map([['guild', guild]]) }, channels: { fetch: async (id: string) => channels.get(id) ?? null } } as any;
     const context = { guildId: 'guild', channelId: 'channel', user: { id: '123456789012345678' },
-        guild: { members: { me: {} } }, client };
-    return { sent, client, context, channel, fail: (value: boolean) => { failure = value; } };
+        guild, client };
+    return { sent, client, context, channel, channels, fail: (value: boolean) => { failure = value; } };
 }
 
 const future = () => new Date(Date.now() + 3_600_000).toISOString();
 const create = (context: any, runAt = future(), message = '起きる時間です！') =>
     staffScheduleHandler({ action: 'create', run_at: runAt, message }, context) as Promise<any>;
+
+test('通知先をID・メンション・名前で指定し、復元後も指定先だけに通知する', async () => {
+    await fixture(async ({ context, client, sent, channel, channels, restart }) => {
+        const targetId = '234567890123456789';
+        const received: any[] = [];
+        const target = { ...channel, id: targetId, name: '通知', send: async (payload: any) => { received.push(payload); } };
+        channels.set(targetId, target);
+        const runAt = future();
+        for (const destination of [targetId, `<#${targetId}>`, '#通知']) {
+            const result: any = await staffScheduleHandler({ action: 'create', channel_id: destination,
+                run_at: runAt, message: '指定先で通知' }, context);
+            assert.equal(result.success, true);
+            assert.equal(result.schedule.channelId, targetId);
+        }
+        assert.equal((await loadStaffSchedules('guild')).length, 1);
+        restart();
+        await deliverDueStaffSchedules(client, Date.parse(runAt));
+        assert.equal(sent.length, 0);
+        assert.equal(received.length, 1);
+        assert.match(received[0].content, /^<@123456789012345678> ⏰ 指定先で通知/);
+    });
+});
+
+test('AI処理の結果も指定先へ通知し、同内容でも通知先が違えば別予約になる', async () => {
+    await fixture(async ({ context, client, sent, channel, channels }) => {
+        const targetId = '234567890123456789';
+        const received: any[] = [];
+        channels.set(targetId, { ...channel, id: targetId, name: '調査結果', send: async (payload: any) => { received.push(payload); } });
+        const runAt = future();
+        const args = { action: 'create', mode: 'task', task: '最新ニュースを調べて', run_at: runAt };
+        assert.equal((await staffScheduleHandler(args, context) as any).success, true);
+        assert.equal((await staffScheduleHandler({ ...args, channel_id: targetId }, context) as any).success, true);
+        assert.equal((await loadStaffSchedules('guild')).length, 2);
+        await deliverDueStaffSchedules(client, Date.parse(runAt), async () => '調査結果です');
+        assert.equal(sent.length, 1);
+        assert.equal(received.length, 1);
+        assert.match(received[0].content, /調査結果です/);
+    });
+});
+
+test('他サーバー・DM・不明・同名チャンネルと本人やBotの権限不足を拒否する', async () => {
+    await fixture(async ({ context, channel, channels }) => {
+        const targetId = '234567890123456789';
+        const args = { action: 'create', channel_id: targetId, run_at: future(), message: '通知' };
+        const rejected = async () => assert.ok((await staffScheduleHandler(args, context) as any).error);
+        await rejected();
+        channels.set(targetId, { ...channel, id: targetId, guildId: 'other-guild' });
+        await rejected();
+        channels.set(targetId, { id: targetId, isSendable: () => true });
+        await rejected();
+        for (const deniedActor of [context.user.id, 'bot']) {
+            channels.set(targetId, { ...channel, id: targetId,
+                permissionsFor: (actor: any) => ({ has: () => actor.id !== deniedActor }) });
+            await rejected();
+        }
+        channels.set(targetId, { ...channel, id: targetId, name: '通知' });
+        channels.set('345678901234567890', { ...channel, id: '345678901234567890', name: '通知' });
+        assert.match((await staffScheduleHandler({ ...args, channel_id: '#通知' }, context) as any).error, /複数/);
+        assert.ok((await staffScheduleHandler({ ...args, channel_id: '#存在しない' }, context) as any).error);
+        assert.equal((await loadStaffSchedules('guild')).length, 0);
+    });
+});
+
+test('予約後に通知先の権限がなくなった場合は処理や投稿を実行しない', async () => {
+    await fixture(async ({ context, client, sent, channel }) => {
+        const runAt = future();
+        const result: any = await staffScheduleHandler({ action: 'create', mode: 'task', task: '天気を調べて', run_at: runAt }, context);
+        assert.equal(result.success, true);
+        channel.permissionsFor = actor => ({ has: () => actor.id !== context.user.id });
+        let executed = false;
+        await deliverDueStaffSchedules(client, Date.parse(runAt), async () => { executed = true; return '結果'; });
+        assert.equal(executed, false);
+        assert.equal(sent.length, 0);
+        assert.equal((await loadStaffSchedules('guild'))[0].attempts, 1);
+    });
+});
+
+test('プライベートスレッドは管理権限がない場合に本人とBotの参加を確認する', async () => {
+    await fixture(async ({ context, channel, channels }) => {
+        const targetId = '234567890123456789';
+        const participants = new Set<string>(['bot']);
+        channels.set(targetId, { ...channel, id: targetId, type: ChannelType.PrivateThread,
+            isThread: () => true,
+            permissionsFor: () => ({ has: (permission: string) => permission !== 'ManageThreads' }),
+            members: { fetch: async (id: string) => participants.has(id) ? { id } : null },
+        });
+        const args = { action: 'create', channel_id: targetId, run_at: future(), message: '通知' };
+        assert.match((await staffScheduleHandler(args, context) as any).error, /本人.*参加/);
+        participants.add(context.user.id);
+        participants.delete('bot');
+        assert.match((await staffScheduleHandler(args, context) as any).error, /Bot.*参加/);
+        participants.add('bot');
+        assert.equal((await staffScheduleHandler(args, context) as any).success, true);
+    });
+});
 
 test('通知依頼、相対時刻、取消、挨拶付きでもスケジュールと時計を公開する', () => {
     for (const prompt of ['今日の3時に起こして', '10分後に休憩を教えて', 'おやすみ、明日7時に起こして',
