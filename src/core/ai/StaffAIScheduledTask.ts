@@ -1,6 +1,7 @@
 import { QWOPUS_MODEL } from '../../config.js';
 import { OpenAIChatManager } from './OpenAIChatManager.js';
 import { AI_RESEARCH_POLICY } from './AIResearchPolicy.js';
+import { buildStaffAITimeContext } from './StaffAITimeContext.js';
 import type { StaffAISchedule } from './StaffAIScheduler.js';
 import { selectStaffToolNames } from '../../commands/staff/subcommands/StaffAIToolRouting.js';
 import { webSearchDefinition, webSearchHandler } from '../ChatAIChannel/tools/webSearchBing.js';
@@ -46,9 +47,7 @@ export async function executeStaffScheduledTask(schedule: StaffAISchedule, now =
             '実行結果は元のチャンネルに投稿される。不要な個人情報や追加メンションを含めない。',
             AI_RESEARCH_POLICY,
         ].join('') },
-        { role: 'system', content: `現在の実行日時: ${new Date(now).toISOString()} / ${new Intl.DateTimeFormat('ja-JP', {
-            timeZone: 'Asia/Tokyo', dateStyle: 'full', timeStyle: 'long',
-        }).format(new Date(now))}。予約時刻: ${schedule.runAt}。今日・最新などは実行日時を基準にする。` },
+        { role: 'system', content: `${buildStaffAITimeContext(now)}\n予約時刻: ${schedule.runAt}。今日・最新などは実行日時を基準にする。` },
         { role: 'user', content: schedule.task },
     ], { model: QWOPUS_MODEL, strictModel: true, maxTokens: 3072, signal,
         requestLabel: `staff-ai-schedule:${schedule.id}`,
