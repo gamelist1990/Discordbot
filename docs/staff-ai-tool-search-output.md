@@ -21,7 +21,11 @@
 
 ## URLの直接取得
 
-`fetch_url(url, mode?)` は公開HTTP/HTTPS URLへ直接アクセスします。`mode: readable`（既定）はHTMLの本文・見出しを抽出、`mode: raw` はソースを取得します。本文最大16,000文字、ダウンロード最大512KiB、タイムアウト12秒。ローカルIP等は拒否し、リダイレクト先も再検証します。
+`fetch_url(url, mode?)` は公開HTTP/HTTPS URLを取得します。`mode: readable`（既定）はNodeの `fetch` でHTMLを取得し、本文・見出し・リンク・表をMarkdownへ変換します。ChromeやEndPointの本文取得APIは必須ではありません。最大16,000文字・512KiB・12秒です。`mode: raw` はHTML/JSON/テキストのソースを返します。
+
+Node fetchはサイトのJavaScriptを実行しません。本文なし・短すぎる本文・HTTPエラー・Google News集約ページは記事本文の取得成功と扱わず、DNS解決失敗、HTTP状態、本文なし、JS描画が必要な可能性を進捗にも表示します。タイトルやメタデータは本文として数えません。
+
+`mode: browser` はJavaScript描画が必要な場合だけ使う任意機能です。EndPointの `/v1/web/read` でHeadless Chromeを使います。Chrome未導入やAPI未対応の場合は取得不可を明示します。通常のreadableモードには影響しません。ブラウザーモードの待ち時間は25秒です。全モードでローカルIP等を拒否し、リダイレクト先も再検証します。
 
 ## ファイル出力
 

@@ -2,6 +2,18 @@ import { toolResultError } from './ToolResultStatus.js';
 
 /** Result metadata for Discord progress; never copy arbitrary returned text or private records. */
 export function toolResultSummary(name: string, args: unknown, result: unknown): string {
+    if (name === 'fetch_url' && typeof result === 'string' && toolResultError(result)) {
+        if (/FETCH_ERROR: DNS_NOT_FOUND:/.test(result)) return 'DNS解決失敗：ホスト名を確認してください';
+        if (/FETCH_ERROR: JS_REQUIRED:/.test(result)) return 'HTMLに本文がありません：JavaScript描画が必要な可能性';
+        if (/FETCH_ERROR: BODY_EMPTY:/.test(result)) return '本文なし：記事本文を取得できませんでした';
+        if (/FETCH_ERROR: NEWS_AGGREGATOR:/.test(result)) return 'Google Newsから元記事を解決できませんでした';
+        if (/FETCH_ERROR: NETWORK_ERROR:/.test(result)) return 'HTTP通信に失敗しました';
+        if (/FETCH_ERROR: TIMEOUT:/.test(result)) return 'ページ取得がタイムアウトしました';
+        if (/FETCH_ERROR: BROWSER_UNAVAILABLE:/.test(result)) return 'Chrome取得サービスを利用できません';
+        if (/FETCH_ERROR: ACCESS_CHALLENGE:/.test(result)) return 'サイトの認証・CAPTCHAで取得できません';
+        const status = result.match(/FETCH_ERROR: HTTP_(\d{3}):/)?.[1];
+        if (status) return `HTTP ${status}：ページ本文を取得できませんでした`;
+    }
     if (toolResultError(result)) return '取得・実行に失敗しました';
     let data: any = result;
     if (typeof result === 'string' && /^[\[{]/.test(result.trim())) {
@@ -21,7 +33,7 @@ export function toolResultSummary(name: string, args: unknown, result: unknown):
     }
     if (name === 'fetch_url') {
         const body = text.includes('\n\n') ? text.slice(text.indexOf('\n\n') + 2) : text;
-        return `ページ本文 ${body.length}文字を取得`;
+        return `ページ本文 ${body.trim().length}文字を取得`;
     }
     if (name === 'search_channel_messages') return `一致する発言 ${count(data?.results) ?? 0}件を取得`;
     if (name === 'collect_channel_history') return `メッセージ ${count(data?.messages) ?? 0}件を取得`;

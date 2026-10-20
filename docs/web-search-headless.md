@@ -14,4 +14,6 @@ cargo build -p endpoint-api
 
 Node.js 20以降とGoogle Chromeが必要です。Chrome標準パスは自動検出します。必要なら `WEB_SEARCH_CHROME_PATH`、`WEB_SEARCH_NODE`、`WEB_SEARCH_BROWSER_SCRIPT` を指定します。Chromeは再利用し、ページ単位で一時コンテキストを分けます。本文は1サイト6,000文字、同時3ページ、60秒キャッシュです。ブラウザー使用中や取得失敗時も検索一覧と注意事項を返します。
 
+`fetch_url` の既定動作はNode fetchでのHTML取得・Markdown変換です。Chromeと `/v1/web/read` は必須ではありません。`mode: raw` はソース、任意の `mode: browser` は同じChromeワーカーで描画後の本文を取得します。Chrome未導入やAPI未対応はbrowserモードの失敗として明示し、通常取得には影響しません。Google News集約ページを元記事本文と混同せず、本文がない場合は成功にしません。
+
 更新後はEndPointとDiscordBotのプロセスを再起動してください。
