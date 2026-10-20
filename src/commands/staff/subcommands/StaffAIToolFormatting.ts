@@ -19,6 +19,7 @@ const LABELS: Record<string, string> = {
     manage_memory: 'メモリー',
     manage_schedule: 'スケジュール',
     output_file: 'ファイル出力',
+    calculate_bash: '計算',
 };
 
 function safePreview(value: unknown): string {
@@ -45,6 +46,7 @@ export function describeStaffTool(tool: StaffToolView): { name: string; value: s
             case 'get_weather': return safePreview(args.prefecture) ? `${safePreview(args.prefecture)}の天気` : '地域の天気を確認';
             case 'count_phrase_in_channel': return safePreview(args.phrase) ? `「${safePreview(args.phrase)}」を確認` : 'チャンネルの発言を調査';
             case 'get_time': return '現在時刻を確認';
+            case 'calculate_bash': return 'Bashで数値計算';
             case 'manage_schedule': return args.action === 'list' ? '本人の予約一覧を確認'
                 : args.action === 'cancel' ? '予約を取り消し'
                 : args.mode === 'task' || args.task ? '指定時刻のAI処理を予約' : 'メンション通知を予約';

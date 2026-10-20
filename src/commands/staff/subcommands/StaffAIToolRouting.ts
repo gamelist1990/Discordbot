@@ -7,6 +7,9 @@ export function selectStaffToolNames(prompt: string, recentMessages: string[] = 
     const preceding = followUp ? recentMessages.slice(-2).join(' ').slice(-800) : '';
     const text = (current + ' ' + preceding).toLowerCase();
     const chosen = new Set<string>();
+    if (/計算|数式|平方根|階乗|積分|微分|確率|統計|平均|中央値|標準偏差|分散|対数|三角関数|calculator|calculate|factorial/i.test(text)) {
+        chosen.add('calculate_bash');
+    }
     // A question mark in casual chat (e.g. '元気？') should not load Web tools.
     if (current.length <= 32
         && /^(やほ|やっほ|こんにちは|おはよ|おやすみ|暇|ひま|元気|ありがとう|ありがと|どうも|ww|草)/i.test(current)

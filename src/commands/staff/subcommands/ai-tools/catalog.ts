@@ -9,6 +9,7 @@ import { staffScheduleDefinition, staffScheduleHandler } from './schedule.js';
 import { staffOutputFileDefinition, staffOutputFileHandler } from './fileOutput.js';
 import { searchChannelMessagesDefinition, searchChannelMessagesHandler, fetchDiscordMessageDefinition, fetchDiscordMessageHandler } from './channelSearch.js';
 import { fetchPublicUrlDefinition, fetchPublicUrlHandler } from './fetchPublicUrl.js';
+import { bashCalculationDefinition, bashCalculationHandler } from './calculate.js';
 
 /** Staff AI always receives the complete catalog, including on short follow-up requests. */
 export function registerStaffAITools(manager: Pick<OpenAIChatManager, 'registerTool'>): Set<string> {
@@ -28,6 +29,7 @@ export function registerStaffAITools(manager: Pick<OpenAIChatManager, 'registerT
         [fetchDiscordMessageDefinition, fetchDiscordMessageHandler],
         [fetchPublicUrlDefinition, fetchPublicUrlHandler],
         [staffOutputFileDefinition, staffOutputFileHandler],
+        [bashCalculationDefinition, bashCalculationHandler],
     ] as const;
     for (const [definition, handler] of tools) manager.registerTool(definition, handler);
     return new Set(tools.map(([definition]) => definition.function.name));

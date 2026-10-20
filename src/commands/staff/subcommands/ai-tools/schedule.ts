@@ -7,7 +7,7 @@ export const staffScheduleDefinition: OpenAITool = {
     type: 'function',
     function: {
         name: 'manage_schedule',
-        description: '一回限りの通知またはAIの動作を予約(create)、一覧確認(list)、取消(cancel)する。mode=reminderは指定本文の通知、mode=taskは指定時刻にAIがtaskを実行し結果を本人にメンション通知する。通知先はchannel_idで同じサーバーの別チャンネルを指定でき、省略時は依頼元。taskで使える動作はWeb検索・公開ページ取得・天気確認・文章作成や要約。予約時には調査を先に実行せず、対象や条件を自己完結したtaskに保存する。予約・取消は本人の依頼時だけ。日時はシステムメッセージの現在日時を基準に解釈し、再確認時はget_timeを使う。標準は日本時間。曖昧な時刻は確認、過去時刻を翌日に変更しない。保存成功後だけ予約済みと伝える。',
+        description: '一回限りの通知またはAIの動作を予約(create)、一覧確認(list)、取消(cancel)する。mode=reminderは指定本文の通知、mode=taskは指定時刻にAIがtaskを実行し結果を本人にメンション通知する。通知先はchannel_idで同じサーバーの別チャンネルを指定でき、省略時は依頼元。taskで使える動作はWeb検索・公開ページ取得・天気確認・数値計算・文章作成や要約。予約時には調査を先に実行せず、対象や条件を自己完結したtaskに保存する。予約・取消は本人の依頼時だけ。日時はシステムメッセージの現在日時を基準に解釈し、再確認時はget_timeを使う。標準は日本時間。曖昧な時刻は確認、過去時刻を翌日に変更しない。保存成功後だけ予約済みと伝える。',
         parameters: {
             type: 'object',
             properties: {

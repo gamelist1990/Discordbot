@@ -233,7 +233,7 @@ test('予約処理には読み取りツールだけを渡し、実行日時と�
             assert.match(messages[1].content, /2026-10-21T06:00:00.000Z/);
             assert.deepEqual(options.forceToolSequence, ['web_search']);
             assert.ok(options.signal instanceof AbortSignal);
-            assert.deepEqual([...tools.keys()], ['web_search', 'fetch_url', 'get_weather', 'get_time']);
+            assert.deepEqual([...tools.keys()], ['web_search', 'fetch_url', 'get_weather', 'get_time', 'calculate_bash']);
             assert.ok((await tools.get('get_time')({ timezone: 'Asia/Tokyo' })).now);
             return '出典付きのニュース要約';
         },

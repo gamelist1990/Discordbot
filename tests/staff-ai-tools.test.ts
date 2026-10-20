@@ -23,9 +23,9 @@ test('Short follow-ups receive every tool and two memory calls still reach the n
         internal.streamResponseApiPayload = async (_auth: unknown, payload: any, emit: any) => {
             assert.ok(++requests <= 3);
             const names = new Set(payload.tools.map((tool: any) => tool.name));
-            assert.equal(names.size, 15);
+            assert.equal(names.size, 16);
             for (const name of ['manage_memory', 'manage_schedule', 'web_search', 'fetch_url',
-                'get_weather', 'get_time', 'search_channel_messages', 'output_file', 'get_server_status']) assert.ok(names.has(name), name);
+                'get_weather', 'get_time', 'search_channel_messages', 'output_file', 'get_server_status', 'calculate_bash']) assert.ok(names.has(name), name);
             assert.notEqual(payload.tool_choice, 'none');
             emit({type: 'thinking', text: sentence.repeat(3)});
             if (requests === 3) {
