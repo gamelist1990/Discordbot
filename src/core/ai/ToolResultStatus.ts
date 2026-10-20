@@ -6,7 +6,7 @@ export function toolResultError(result: unknown): string | undefined {
     }
     if (typeof result !== 'string') return undefined;
     const text = result.trim();
-    return /^(?:[A-Z][A-Z_]*_ERROR\b|SEARCH_UNAVAILABLE\b|Error:)/.test(text) ? text.slice(0, 500) : undefined;
+    return /^(?:[A-Z][A-Z_]*_(?:ERROR|BLOCKED|DENIED|UNSUPPORTED)\b|SEARCH_UNAVAILABLE\b|Error:)/.test(text) ? text.slice(0, 500) : undefined;
 }
 
 /** Only metadata needed by the progress UI; never forward memory/file contents. */

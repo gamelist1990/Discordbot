@@ -4,6 +4,7 @@ export type StaffToolView = {
     name: string;
     arguments: string;
     phase: '準備中' | '実行中' | '完了' | '失敗';
+    resultSummary?: string;
 };
 
 const LABELS: Record<string, string> = {
@@ -27,7 +28,7 @@ const LABELS: Record<string, string> = {
 
 function safePreview(value: unknown): string {
     if (typeof value !== 'string') return '';
-    const trimmed = value.trim().replace(/[\r\n\t]/g, ' ');
+    const trimmed = value.trim().replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ');
     return escapeMarkdown(trimmed.slice(0, 120))
         .replace(/@/g, '@\u200b')
         .replace(/</g, '‹');
@@ -41,7 +42,7 @@ export function describeStaffTool(tool: StaffToolView): { name: string; value: s
             args = parsed as Record<string, unknown>;
         }
     } catch { /* incomplete SSE arguments; never dump raw JSON or secrets */ }
-    const label = LABELS[tool.name] ?? 'ツール処理';
+    const label = LABELS[tool.name] ?? (safePreview(tool.name).slice(0, 60) || '名前未取得のツール');
     const subject = (() => {
         switch (tool.name) {
             case 'output_file': return safePreview(args.filename) ? `「${safePreview(args.filename)}」を添付` : 'ファイルを添付';
@@ -72,7 +73,7 @@ export function describeStaffTool(tool: StaffToolView): { name: string; value: s
                     : args.action === 'get' || args.action === 'recall' ? 'を取得' : 'を処理';
                 return `${store}${action}`;
             }
-            default: return label + 'を処理';
+            default: return 'ツールを呼び出し';
         }
     })();
     const symbol = tool.phase === '完了' ? '✅'
@@ -80,6 +81,6 @@ export function describeStaffTool(tool: StaffToolView): { name: string; value: s
         : tool.phase === '実行中' ? '⏳' : '🔄';
     return {
         name: `${symbol} ${label}`,
-        value: `${subject} · ${tool.phase}`,
+        value: `${subject} · ${tool.phase}${tool.resultSummary ? '\n↳ ' + safePreview(tool.resultSummary) : ''}`,
     };
 }

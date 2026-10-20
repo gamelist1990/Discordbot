@@ -1,6 +1,7 @@
 // src/core/ai/ChatGPTClient.ts
 import OpenAI from 'openai';
 import { toolResultError, toolStepArguments } from './ToolResultStatus.js';
+import { toolResultSummary } from './ToolResultSummary.js';
 import { ToolProtocolTextFilter, stripToolProtocolText } from './ToolProtocolTextFilter.js';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { AIProgressGuard, AIProgressStalledError, AI_LOOP_STOP_MESSAGE, AI_LOOP_FINALIZE_INSTRUCTION } from './AIProgressGuard.js';
@@ -52,6 +53,7 @@ export interface ToolExecutionStep {
     callId?: string;
     arguments?: string;
     error?: string;
+    resultSummary?: string;
 }
 
 export interface ToolCallStreamDelta {
@@ -1137,7 +1139,7 @@ export class ChatGPTClient {
                     result: this.debugPreview(result),
                 });
                 const reportedError = toolResultError(result);
-                await this.notifyToolStep(options, { phase: reportedError ? 'failed' : 'completed', error: reportedError, name: functionCall.name, round, callId: functionCall.callId, arguments: toolStepArguments(functionCall.name, functionCall.arguments) });
+                await this.notifyToolStep(options, { phase: reportedError ? 'failed' : 'completed', error: reportedError, resultSummary: toolResultSummary(functionCall.name, args, result), name: functionCall.name, round, callId: functionCall.callId, arguments: toolStepArguments(functionCall.name, functionCall.arguments) });
                 outputs.push({
                     type: 'function_call_output',
                     call_id: functionCall.callId,
@@ -1520,7 +1522,7 @@ export class ChatGPTClient {
                     result: this.debugPreview(resultStr),
                 });
                 const reportedError = toolResultError(result);
-                await this.notifyToolStep(options, { phase: reportedError ? 'failed' : 'completed', error: reportedError, name: toolCall.function.name, round, callId: toolCall.id, arguments: toolStepArguments(toolCall.function.name, toolCall.function.arguments) });
+                await this.notifyToolStep(options, { phase: reportedError ? 'failed' : 'completed', error: reportedError, resultSummary: toolResultSummary(toolCall.function.name, args, result), name: toolCall.function.name, round, callId: toolCall.id, arguments: toolStepArguments(toolCall.function.name, toolCall.function.arguments) });
 
                 return {
                     role: 'tool',

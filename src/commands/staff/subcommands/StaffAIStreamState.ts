@@ -6,6 +6,10 @@ import type { ToolExecutionStep, ToolCallStreamDelta, ResponseApiStreamDelta } f
 import type { APIEmbed } from 'discord.js';
 import { stripDiscordStreamMetadata } from '../../../core/ai/AIConversationHistory.js';
 import { ToolProtocolTextFilter, stripToolProtocolText } from '../../../core/ai/ToolProtocolTextFilter.js';
+import { formatDiscordResponse, clipDiscordResponse } from '../../../core/ai/DiscordResponseFormatting.js';
+
+type StaffAIReply = { content: string; embeds: APIEmbed[]; allowedMentions: {parse: []};
+    files?: Array<{attachment: Buffer; name: string}> };
 
 type ToolPreview = {
     id: string;
@@ -19,6 +23,7 @@ type ToolPreview = {
     argumentsComplete?: boolean;
     startedAt?: number;
     endedAt?: number;
+    resultSummary?: string;
 };
 
 const DISCORD_LIMIT = 2000;
@@ -175,6 +180,8 @@ export class StaffAIStreamState {
         if (step.arguments) tool.arguments = step.arguments;
         if (step.phase === 'started') tool.startedAt ??= Date.now();
         else tool.endedAt = Date.now();
+        tool.resultSummary = step.phase === 'started' ? undefined : step.resultSummary
+            ?? (step.phase === 'failed' ? step.error?.startsWith('Tool not found:') ? '指定されたツールは登録されていません' : '入力・取得・実行に失敗しました' : undefined);
         tool.phase = step.phase === 'started' ? '実行中'
             : step.phase === 'completed' ? '完了' : '失敗';
     }
@@ -228,13 +235,13 @@ export class StaffAIStreamState {
             : '';
         // Keep token usage at the very bottom, after optional tool progress.
         const suffix = (showThinking ? '' : status) + '\n' + footer;
-        const response = stripDiscordStreamMetadata(stripToolProtocolText(answer)) || (
+        const response = formatDiscordResponse(stripDiscordStreamMetadata(stripToolProtocolText(answer))) || (
             showThinking ? '' : isComplete ? '（応答なし）' : this.tools.length ? '処理中…' : '考え中…'
         );
         const separatorLength = showThinking && prefix && response ? 1 : 0;
         const available = Math.max(0, DISCORD_LIMIT - prefix.length - suffix.length - separatorLength);
         const visible = response.length > available
-            ? response.slice(0, Math.max(0, available - 1)) + '…'
+            ? clipDiscordResponse(response, available)
             : response;
         const body = showThinking
             ? [prefix, visible].filter(Boolean).join('\n')
@@ -263,12 +270,16 @@ export class StaffAIStreamState {
         }
     }
 
-    renderDiscord(isComplete = false, answer = this.content) {
+    renderDiscord(isComplete = false, answer = this.content): StaffAIReply {
         if (this.nativeCards) return this.renderNativeDiscord(isComplete, answer);
+        const content = this.render(isComplete, answer);
+        const full = formatDiscordResponse(stripDiscordStreamMetadata(stripToolProtocolText(answer)));
         return {
-            content: this.render(isComplete, answer),
+            content,
             embeds: [] as [],
             allowedMentions: { parse: [] as [] },
+            ...(isComplete && full && !content.includes(full)
+                ? {files: [{attachment: Buffer.from(full, 'utf8'), name: 'ai-response.txt'}]} : {}),
         };
     }
 
@@ -307,8 +318,11 @@ export class StaffAIStreamState {
             ...(fields.length ? {fields} : {}),
             footer: {text: `${speed} toks/s · ${tokens}`},
         };
-        const content = stripDiscordStreamMetadata(stripToolProtocolText(answer));
-        return {content: content ? content.length > DISCORD_LIMIT ? content.slice(0, DISCORD_LIMIT - 1) + '…' : content
-            : isComplete ? '（応答なし）' : '', embeds: [embed], allowedMentions: {parse: [] as []}};
+        const full = formatDiscordResponse(stripDiscordStreamMetadata(stripToolProtocolText(answer)));
+        const overflow = full.length > DISCORD_LIMIT;
+        return {content: full ? overflow ? clipDiscordResponse(full, isComplete ? 1900 : DISCORD_LIMIT)
+            + (isComplete ? '\n\n全文は添付の回答ファイルをご覧ください。' : '') : full
+            : isComplete ? '（応答なし）' : '', embeds: [embed], allowedMentions: {parse: [] as []},
+            ...(isComplete && overflow ? {files: [{attachment: Buffer.from(full, 'utf8'), name: 'ai-response.txt'}]} : {})};
     }
 }

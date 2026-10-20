@@ -177,6 +177,7 @@ test('Real Responses SSE exposes generating arguments before execution and resol
         assert.equal(requests, 2);
         assert.equal(final.embeds[0].fields!.length, 1);
         assert.match(JSON.stringify(final), /完了 1件/);
+        assert.match(JSON.stringify(final), /Discordへのファイル添付完了/);
         assert.doesNotMatch(JSON.stringify(final), /SECRET_FILE_CONTENT|SECRET_TOKEN/);
     } finally {
         server.closeAllConnections();
