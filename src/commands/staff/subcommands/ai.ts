@@ -7,6 +7,7 @@ import { QWOPUS_MODEL } from '../../../config.js';
 import { OpenAIChatCompletionMessage, OpenAIChatCompletionChunk } from '../../../types/openai.js';
 import type { ResponseApiStreamDelta } from '../../../core/ai/ChatGPTClient.js';
 import { StaffAIStreamState } from './StaffAIStreamState.js';
+import { StaffAILiveUpdates } from './StaffAILiveUpdates.js';
 import { parseStaffReplyTarget, buildStaffVisualReplyContext, discordMessageAuthor, describeDiscordAttachments } from './StaffAIReplyContext.js';
 import { webSearchHandler } from '../../../core/ChatAIChannel/tools/webSearchBing.js';
 import { musicResearchQuery } from './StaffAIResearch.js';
@@ -35,7 +36,7 @@ import { acquireStaffAIRequest } from './StaffAIRequestQueue.js';
 const userRateLimits = new Map<string, { lastUsed: number, count: number }>();
 const RATE_LIMIT_WINDOW = 60 * 1000; // 1分間のウィンドウ
 const MAX_REQUESTS_PER_WINDOW = 3; // 1分間に最大3リクエスト
-const UPDATE_INTERVAL = 600; // Discord APIレート制限を避けるため500ミリ秒ごとに更新
+const UPDATE_INTERVAL = 600; // Serialize/coalesce edits at a bounded cadence.
 
 // このコマンドはオプションでカスタムの system prompt を受け取れます。
 // - `system_prompt` を与えると、デフォルトの安全プロンプトとマージされます。
@@ -447,60 +448,42 @@ ${reason}` });
         }
 
         // SSEは受信したまま描画。Discord edit は単一キューで順序を保証する。
-        let streamState = new StaffAIStreamState();
+        const botMember = interaction.guild?.members.me;
+        const nativeCards = Boolean(botMember && interaction.channel && 'permissionsFor' in interaction.channel
+            && interaction.channel.permissionsFor(botMember)?.has('EmbedLinks'));
+        let streamState = new StaffAIStreamState(false, nativeCards);
         let responseContent = '';
-        let lastUpdateTime = 0;
         let isCompleted = false;
         let interactionExpired = false;
         let previewClosed = false;
-        let previewTimer: ReturnType<typeof setTimeout> | null = null;
-        let pendingPreview: ReturnType<StaffAIStreamState['renderDiscord']> | null = null;
-        let editPump: Promise<void> | null = null;
+        let heartbeat: ReturnType<typeof setInterval> | null = null;
+        let finishingPreview: Promise<void> = Promise.resolve();
+        const createLiveUpdates = () => new StaffAILiveUpdates<ReturnType<StaffAIStreamState['renderDiscord']>>(
+            payload => interaction.editReply(payload), UPDATE_INTERVAL, error => {
+                console.error('AI preview edit failed:', error);
+                interactionExpired = true;
+            },
+        );
+        let liveUpdates = createLiveUpdates();
 
-        function queuePreview(force = false): void {
+        function queuePreview(milestone = false): void {
             if (interactionExpired || previewClosed) return;
-            const now = Date.now();
-            pendingPreview = streamState.renderDiscord(false);
-            if (editPump) return;
-            const waitMs = UPDATE_INTERVAL - (now - lastUpdateTime);
-            if (!force && lastUpdateTime > 0 && waitMs > 0) {
-                if (!previewTimer) {
-                    previewTimer = setTimeout(() => {
-                        previewTimer = null;
-                        queuePreview(true);
-                    }, waitMs);
-                }
-                return;
+            if (!heartbeat) {
+                heartbeat = setInterval(() => queuePreview(), 1000);
+                heartbeat.unref();
             }
-            if (previewTimer) {
-                clearTimeout(previewTimer);
-                previewTimer = null;
-            }
-            lastUpdateTime = now;
-            editPump = (async () => {
-                while (pendingPreview !== null) {
-                    const content = pendingPreview;
-                    pendingPreview = null;
-                    try {
-                        await interaction.editReply(content);
-                    } catch (error) {
-                        console.error('AI preview edit failed:', error);
-                        interactionExpired = true;
-                        pendingPreview = null;
-                    }
-                }
-            })().finally(() => { editPump = null; });
+            liveUpdates.queue(streamState.renderDiscord(false), milestone);
         }
 
         function finishPreview(): void {
             previewClosed = true;
-            if (previewTimer) clearTimeout(previewTimer);
-            previewTimer = null;
-            pendingPreview = null;
+            if (heartbeat) clearInterval(heartbeat);
+            heartbeat = null;
+            finishingPreview = liveUpdates.finish();
         }
 
         async function drainPreview(): Promise<void> {
-            while (editPump) await editPump;
+            await finishingPreview;
         }
 
         function handleChunk(chunk: OpenAIChatCompletionChunk): void {
@@ -528,6 +511,10 @@ ${reason}` });
                 : forceChannelSearchTool ? { forceToolSequence: ['search_channel_messages'] } : {}),
             includeUsage: true,
             ...(isSingleStaffFileRequest(prompt ?? '') ? { completeAfterTools: (results: Array<{name: string; output: string}>) => completeStaffFileTools(interaction, results) } : {}),
+            onToolCallDelta: (call: Parameters<StaffAIStreamState['recordToolCall']>[0]) => {
+                const first = streamState.recordToolCall(call);
+                queuePreview(first);
+            },
             onToolStep: (step: Parameters<StaffAIStreamState['recordToolStep']>[0]) => {
                 streamState.recordToolStep(step);
                 queuePreview(true);
@@ -665,11 +652,10 @@ ${reason}` });
                         // 再試行時も同じ Qwopus Coder を使う。
                         try {
                             const firstAttemptUsage = streamState.usageMetrics();
-                            streamState = new StaffAIStreamState();
+                            streamState = new StaffAIStreamState(false, nativeCards);
                             streamState.addUsageMetrics(firstAttemptUsage);
                             responseContent = '';
-                            pendingPreview = null;
-                            lastUpdateTime = 0;
+                            liveUpdates = createLiveUpdates();
                             thinkingPreviewStarted = false;
                             previewClosed = false;
                             queuePreview(true);
@@ -745,6 +731,7 @@ ${reason}` });
         // 何らかの理由で完了せずに終了した場合、現在の内容で更新
         if (!isCompleted && !interactionExpired && responseContent.trim()) {
             finishPreview();
+            await drainPreview();
             try {
                 await safeRespond(streamState.renderDiscord(true));
             } catch (e) {

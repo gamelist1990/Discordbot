@@ -36,6 +36,7 @@ export interface ChatOptions {
     requestLabel?: string;
     onRateLimitWait?: (info: RateLimitWaitInfo) => void | Promise<void>;
     onToolStep?: (step: ToolExecutionStep) => void | Promise<void>;
+    onToolCallDelta?: (call: ToolCallStreamDelta) => void;
     /** Force a short ordered tool sequence once per tool round, then return to automatic selection. */
     forceToolSequence?: string[];
     /** Return a verified final answer when the caller knows this tool batch completed its task. */
@@ -51,6 +52,17 @@ export interface ToolExecutionStep {
     callId?: string;
     arguments?: string;
     error?: string;
+}
+
+export interface ToolCallStreamDelta {
+    name: string;
+    round: number;
+    callId?: string;
+    itemId?: string;
+    index?: number;
+    arguments?: string;
+    argumentCharacters: number;
+    argumentsComplete: boolean;
 }
 
 export interface ChatGPTClientOptions {
@@ -441,6 +453,8 @@ export class ChatGPTClient {
                                 if (toolCall.function?.name) existing.name = toolCall.function.name;
                                 if (toolCall.function?.arguments) existing.arguments += toolCall.function.arguments;
                                 toolCallsBuffer.set(toolCall.index, existing);
+                                this.notifyToolCallDelta(options, { ...existing, outputIndex: toolCall.index,
+                                    callId: existing.id ?? '', name: existing.name ?? '' }, toolRound + 1, false);
                             }
                         }
 
@@ -565,7 +579,7 @@ export class ChatGPTClient {
                         if (delta.type !== 'usage') this.progress.getStore()?.observe(delta.text, delta.type);
                         emittedDelta = true;
                         onDeltaReceive(delta);
-                    }, options?.signal);
+                    }, options?.signal, (call, complete) => this.notifyToolCallDelta(options, call, toolRound + 1, complete));
                     this.throwIfAborted(options?.signal);
 
                     const requiredTool = this.forcedToolForRound(options, toolDefinitions, toolRound);
@@ -831,6 +845,7 @@ export class ChatGPTClient {
         payload: Record<string, unknown>,
         onDeltaReceive: (delta: ResponseApiStreamDelta) => void,
         signal?: AbortSignal,
+        onToolCallDelta?: (call: ResponseFunctionCallItem, complete: boolean) => void,
     ): Promise<{ responseId: string | null; functionCalls: ResponseFunctionCallItem[]; outputItems: any[] }> {
         this.throwIfAborted(signal);
         const client = this.createClient(auth);
@@ -876,7 +891,8 @@ export class ChatGPTClient {
                 if (Array.isArray(data?.response?.output)) {
                     data.response.output.forEach((item: any, index: number) => {
                         outputItemsByIndex.set(index, item);
-                        this.collectResponseFunctionCall({ item, output_index: index }, 'response.output_item.done', functionCallsByKey);
+                        const call = this.collectResponseFunctionCall({ item, output_index: index }, 'response.output_item.done', functionCallsByKey);
+                        if (call) onToolCallDelta?.(call, true);
                     });
                 }
             }
@@ -931,7 +947,8 @@ export class ChatGPTClient {
                 outputItemsByIndex.set(outputIndex, data.item);
             }
 
-            this.collectResponseFunctionCall(data, eventType, functionCallsByKey);
+            const call = this.collectResponseFunctionCall(data, eventType, functionCallsByKey);
+            if (call) onToolCallDelta?.(call, eventType.endsWith('.done'));
         };
 
         for await (const event of stream as AsyncIterable<OpenAI.Responses.ResponseStreamEvent>) {
@@ -1008,7 +1025,7 @@ export class ChatGPTClient {
         data: any,
         eventType: string,
         functionCallsByKey: Map<string, ResponseFunctionCallItem>
-    ): void {
+    ): ResponseFunctionCallItem | undefined {
         const item = data?.item;
         if ((eventType === 'response.output_item.added' || eventType === 'response.output_item.done') && item?.type === 'function_call') {
             const match = [...functionCallsByKey.entries()].find(([, call]) => {
@@ -1029,7 +1046,7 @@ export class ChatGPTClient {
             existing.name = typeof item.name === 'string' ? item.name : existing.name;
             existing.arguments = typeof item.arguments === 'string' ? item.arguments : existing.arguments;
             functionCallsByKey.set(key, existing);
-            return;
+            return existing;
         }
 
         if (eventType === 'response.function_call_arguments.delta' || eventType === 'response.function_call_arguments.done') {
@@ -1052,7 +1069,19 @@ export class ChatGPTClient {
                 existing.arguments += data.delta;
             }
             functionCallsByKey.set(key, existing);
+            return existing;
         }
+    }
+
+    private notifyToolCallDelta(options: ChatOptions | undefined, call: ResponseFunctionCallItem,
+        round: number, complete: boolean): void {
+        if (!call.name || !options?.onToolCallDelta) return;
+        try {
+            options.onToolCallDelta({ name: call.name, round, callId: call.callId || undefined,
+                itemId: call.id, index: call.outputIndex,
+                arguments: toolStepArguments(call.name, call.arguments),
+                argumentCharacters: call.arguments.length, argumentsComplete: complete });
+        } catch (error) { Logger.debug('[ChatGPTClient] onToolCallDelta callback failed:', error); }
     }
 
     private async executeResponseFunctionCalls(

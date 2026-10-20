@@ -2,7 +2,8 @@ import { describeStaffTool } from './StaffAIToolFormatting.js';
 import { escapeMarkdown } from 'discord.js';
 import { renderStaffAnsiStatus } from './StaffAIAnsiStatus.js';
 import type { OpenAIChatCompletionChunk } from '../../../types/openai.js';
-import type { ToolExecutionStep, ResponseApiStreamDelta } from '../../../core/ai/ChatGPTClient.js';
+import type { ToolExecutionStep, ToolCallStreamDelta, ResponseApiStreamDelta } from '../../../core/ai/ChatGPTClient.js';
+import type { APIEmbed } from 'discord.js';
 import { stripDiscordStreamMetadata } from '../../../core/ai/AIConversationHistory.js';
 import { ToolProtocolTextFilter, stripToolProtocolText } from '../../../core/ai/ToolProtocolTextFilter.js';
 
@@ -12,6 +13,12 @@ type ToolPreview = {
     name: string;
     arguments: string;
     phase: '準備中' | '実行中' | '完了' | '失敗';
+    round?: number;
+    itemId?: string;
+    argumentCharacters?: number;
+    argumentsComplete?: boolean;
+    startedAt?: number;
+    endedAt?: number;
 };
 
 const DISCORD_LIMIT = 2000;
@@ -29,7 +36,7 @@ function escapeMarkdownTail(value: string, maxLength: number): { text: string; t
 }
 
 export class StaffAIStreamState {
-    constructor(private readonly ansiColors = true) {}
+    constructor(private readonly ansiColors = true, private readonly nativeCards = false) {}
 
     public content = '';
     private hasReasoning = false;
@@ -91,7 +98,9 @@ export class StaffAIStreamState {
             }
             if (id) tool.id = id;
             if (entry.function?.name) tool.name = entry.function.name;
-            if (entry.function?.arguments) tool.arguments += entry.function.arguments;
+            if (entry.function?.arguments && (!this.nativeCards || tool.round === undefined)) {
+                tool.arguments += entry.function.arguments;
+            }
         }
     }
 
@@ -133,16 +142,39 @@ export class StaffAIStreamState {
         this.streamingFrom = 0;
     }
 
+    recordToolCall(call: ToolCallStreamDelta): boolean {
+        let tool = this.tools.find(item => (call.callId && item.id === call.callId && (item.round === undefined || item.round === call.round))
+            || (call.itemId && item.itemId === call.itemId && item.round === call.round));
+        tool ??= this.tools.find(item => item.round === call.round && item.index === call.index
+            && item.phase === '準備中' && item.id.startsWith('stream:'));
+        const created = !tool;
+        if (!tool) {
+            tool = {id: call.callId ?? `stream:${call.round}:${call.itemId ?? call.index ?? ++this.callIndex}`,
+                index: call.index ?? -1, name: call.name, arguments: '', phase: '準備中', round: call.round};
+            this.tools.push(tool);
+        }
+        if (call.callId) tool.id = call.callId;
+        if (call.itemId) tool.itemId = call.itemId;
+        tool.name = call.name;
+        tool.argumentCharacters = Math.max(tool.argumentCharacters ?? 0, call.argumentCharacters);
+        tool.argumentsComplete ||= call.argumentsComplete;
+        if (call.arguments) tool.arguments = call.arguments;
+        return created;
+    }
+
     recordToolStep(step: ToolExecutionStep): void {
         const id = step.callId || `step-${step.round}-${step.name}`;
-        const active = this.tools.find(item => item.id === id) ?? (!step.callId ? [...this.tools].reverse().find(item =>
+        const active = this.tools.find(item => item.id === id && (item.round === undefined || item.round === step.round)) ?? (!step.callId ? [...this.tools].reverse().find(item =>
             item.name === step.name && (item.phase === '準備中' || item.phase === '実行中')) : undefined);
         const tool = active ?? {
             id, index: -1, name: step.name,
             arguments: '', phase: '準備中' as const,
         };
         if (!active) this.tools.push(tool);
+        tool.round = step.round;
         if (step.arguments) tool.arguments = step.arguments;
+        if (step.phase === 'started') tool.startedAt ??= Date.now();
+        else tool.endedAt = Date.now();
         tool.phase = step.phase === 'started' ? '実行中'
             : step.phase === 'completed' ? '完了' : '失敗';
     }
@@ -232,10 +264,51 @@ export class StaffAIStreamState {
     }
 
     renderDiscord(isComplete = false, answer = this.content) {
+        if (this.nativeCards) return this.renderNativeDiscord(isComplete, answer);
         return {
             content: this.render(isComplete, answer),
             embeds: [] as [],
             allowedMentions: { parse: [] as [] },
         };
+    }
+
+    private renderNativeDiscord(isComplete: boolean, answer: string) {
+        const now = Date.now();
+        const active = this.tools.filter(tool => tool.phase === '準備中' || tool.phase === '実行中');
+        const completed = this.tools.filter(tool => tool.phase === '完了').length;
+        const failed = this.tools.filter(tool => tool.phase === '失敗').length;
+        // Keep active work visible even if newer calls have already finished.
+        const visible = [...this.tools.filter(tool => !active.includes(tool)).slice(-Math.max(0, 8 - active.length)),
+            ...active].slice(-8);
+        const description = [
+            !isComplete ? active.length ? 'ツールを使用しています。'
+                : this.content ? '回答を生成しています。' : '💭 応答を準備しています。' : '',
+            this.tools.length ? `ツール ${this.tools.length}件 · 完了 ${completed}件 · 失敗 ${failed}件` : '',
+            isComplete && active.length ? `未完了 ${active.length}件` : '',
+            this.tools.length > visible.length ? `直近と実行中の${visible.length}件を表示` : '',
+        ].filter(Boolean).join('\n');
+        const fields = visible.map(tool => {
+            const info = describeStaffTool(tool);
+            const detail = tool.phase === '準備中'
+                ? isComplete ? '呼び出し未実行' : tool.argumentsComplete ? '引数の生成完了・実行待ち'
+                    : `引数を生成中（${tool.argumentCharacters ?? tool.arguments.length}文字）`
+                : tool.startedAt !== undefined ? `${Math.max(0, Math.floor(((tool.endedAt ?? now) - tool.startedAt) / 1000))}秒` : '';
+            return {name: info.name, value: [info.value, detail].filter(Boolean).join('\n'), inline: false};
+        });
+        const speed = this.timedOutputSeconds > 0 ? (this.timedOutputTokens / this.timedOutputSeconds).toFixed(1) : '—';
+        const tokens = this.usageReceived ? `合計 ${this.promptTokens + this.completionTokens} toks (in ${this.promptTokens} / out ${this.completionTokens})`
+            : '合計 未取得 (API未提供)';
+        const embed: APIEmbed = {
+            title: isComplete ? failed || active.length ? '回答完了（一部ツールが失敗・未完了）' : '回答完了'
+                : active.some(tool => tool.phase === '実行中') ? '🛠️ ツール実行中'
+                : active.length ? '🧩 ツール呼び出しを生成中' : this.content ? '✍️ 回答を生成中' : '💭 応答を準備中',
+            color: isComplete ? failed || active.length ? 0xF4A261 : 0x47C989 : 0x53C4E6,
+            ...(description ? {description} : {}),
+            ...(fields.length ? {fields} : {}),
+            footer: {text: `${speed} toks/s · ${tokens}`},
+        };
+        const content = stripDiscordStreamMetadata(stripToolProtocolText(answer));
+        return {content: content ? content.length > DISCORD_LIMIT ? content.slice(0, DISCORD_LIMIT - 1) + '…' : content
+            : isComplete ? '（応答なし）' : '', embeds: [embed], allowedMentions: {parse: [] as []}};
     }
 }

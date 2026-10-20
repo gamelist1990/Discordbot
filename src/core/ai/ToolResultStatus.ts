@@ -13,7 +13,11 @@ export function toolResultError(result: unknown): string | undefined {
 export function toolStepArguments(name: string, raw: string): string | undefined {
     const keys = name === 'output_file' ? ['filename']
         : name === 'manage_memory' ? ['action', 'store', 'type']
-        : name === 'manage_schedule' ? ['action', 'mode'] : [];
+        : name === 'manage_schedule' ? ['action', 'mode', 'channel_id']
+        : name === 'web_search' || name === 'search_channel_messages' ? ['query']
+        : name === 'fetch_url' ? ['url']
+        : name === 'get_weather' ? ['prefecture']
+        : name === 'count_phrase_in_channel' ? ['phrase'] : [];
     if (!keys.length) return undefined;
     try {
         const args = JSON.parse(raw || '{}');

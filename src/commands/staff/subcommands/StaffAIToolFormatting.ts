@@ -20,6 +20,9 @@ const LABELS: Record<string, string> = {
     manage_schedule: 'スケジュール',
     output_file: 'ファイル出力',
     calculate_bash: '計算',
+    fetch_url: 'ページ取得',
+    search_channel_messages: '発言検索',
+    fetch_discord_message: 'メッセージ取得',
 };
 
 function safePreview(value: unknown): string {
@@ -43,6 +46,8 @@ export function describeStaffTool(tool: StaffToolView): { name: string; value: s
         switch (tool.name) {
             case 'output_file': return safePreview(args.filename) ? `「${safePreview(args.filename)}」を添付` : 'ファイルを添付';
             case 'web_search': return safePreview(args.query) ? `「${safePreview(args.query)}」を検索` : '検索語句を準備中';
+            case 'search_channel_messages': return safePreview(args.query) ? `「${safePreview(args.query)}」を検索` : '発言を検索';
+            case 'fetch_url': return safePreview(args.url) ? `${safePreview(args.url)}を取得` : 'ページ本文を取得';
             case 'get_weather': return safePreview(args.prefecture) ? `${safePreview(args.prefecture)}の天気` : '地域の天気を確認';
             case 'count_phrase_in_channel': return safePreview(args.phrase) ? `「${safePreview(args.phrase)}」を確認` : 'チャンネルの発言を調査';
             case 'get_time': return '現在時刻を確認';
