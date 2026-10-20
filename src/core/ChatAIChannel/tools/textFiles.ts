@@ -24,7 +24,7 @@ export const createTextFileDefinition: OpenAITool = {
             type: 'object',
             properties: {
                 filename: { type: 'string', description: '添付名。フォルダ名を含めず、対応するテキスト拡張子を付ける。例: code_1.txt' },
-                content: { type: 'string', description: 'ファイルに書き込むUTF-8テキスト。' },
+                content: { type: 'string', description: 'Markdownのコードフェンスや前置きを含めず、省略せずに記述した完成ファイル全体のUTF-8テキスト。' },
             },
             required: ['filename', 'content'],
         },

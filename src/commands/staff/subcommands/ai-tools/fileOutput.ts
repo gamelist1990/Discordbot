@@ -13,7 +13,7 @@ export const staffOutputFileDefinition: OpenAITool = {
             type: 'object',
             properties: {
                 filename: { type: 'string', description: '例: index.html, report.md, example.py, data.json。拡張子必須。' },
-                content: { type: 'string', description: 'ファイル全体のUTF-8テキスト。実際にファイルとして出力する内容。' },
+                content: { type: 'string', description: 'Markdownのコードフェンスや説明を含めない、完成したファイル全体のUTF-8テキスト。HTMLの末尾や必要な機能まで省略せず入れる。' },
             },
             required: ['filename', 'content'],
         },
