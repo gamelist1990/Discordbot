@@ -14,6 +14,15 @@ test('知らない楽曲や新しい情報はWeb検索を使える', () => {
     }
 });
 
+test('疑問符のない説明や質問でも検索と出典本文の取得を使える', () => {
+    for (const prompt of ['Qwenの使い方を教えて', '光合成の仕組みを説明して', '量子コンピュータとは', '富士山はどこにある', 'Explain photosynthesis']) {
+        const tools = selectStaffToolNames(prompt);
+        assert.ok(tools.has('web_search'), prompt);
+        assert.ok(tools.has('fetch_url'), prompt);
+    }
+    assert.equal(selectStaffToolNames('過去の会話を調べて').has('web_search'), false);
+});
+
 test('天気と時刻は対応するツールのみを渡す', () => {
     const weather = selectStaffToolNames('今日の天気は');
     assert.ok(weather.has('get_weather'));

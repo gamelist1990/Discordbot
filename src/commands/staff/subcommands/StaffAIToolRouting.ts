@@ -61,12 +61,14 @@ export function selectStaffToolNames(prompt: string, recentMessages: string[] = 
     }
     // For research questions keep the actual Endpoint-backed web search available.
     // Casual greetings and chat have no tool schema overhead.
-    if (/検索|調べ|探し|最新|ニュース|誰が|何者|由来|意味|特徴|評判|おすすめ|比較|価格|発売|現在の|歌詞|楽曲|曲|アーティスト|ジャンル|music|lyrics|^https?:\/\/|[?？]/i.test(text)) {
+    if (/検索|調べ|探し|教え|説明|について|とは|仕組み|使い方|方法|なぜ|どうして|どこ|いつ|何|なに|誰|だれ|最新|ニュース|由来|意味|特徴|評判|おすすめ|比較|価格|発売|現在の|歌詞|楽曲|曲|アーティスト|ジャンル|music|lyrics|\b(?:what|who|when|where|why|how|explain)\b|^https?:\/\/|[?？]/i.test(text)) {
         chosen.add('web_search');
     }
     // Discord history requests must query Discord, not the public Web by default.
     if (chosen.has('search_channel_messages') && !/ニュース|最新|ウェブ|web|インターネット|https?:\/\/|URL|サイト/i.test(text)) {
         chosen.delete('web_search');
     }
+    // Let the model open search results to check the source before answering.
+    if (chosen.has('web_search')) chosen.add('fetch_url');
     return chosen;
 }

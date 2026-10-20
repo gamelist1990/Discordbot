@@ -122,7 +122,6 @@ export class ChatGPTClient {
     private toolContext: any = null;
     private readonly modelCache: Map<string, ModelCacheEntry> = new Map();
     private readonly modelCacheTtlMs = 5 * 60 * 1000;
-    private readonly maxToolRounds = 8;
     private readonly maxRateLimitWaitRounds = 2;
 
     constructor(options: ChatGPTClientOptions = {}) {
@@ -282,9 +281,6 @@ export class ChatGPTClient {
         rateLimitRound: number
     ): Promise<OpenAIChatCompletionResponse> {
         this.throwIfAborted(options?.signal);
-        if (toolRound > this.maxToolRounds) {
-            throw new Error('Tool call recursion limit reached.');
-        }
 
         const authCandidates = this.resolveAuthCandidates(options);
         if (authCandidates.length === 0) {
@@ -351,9 +347,6 @@ export class ChatGPTClient {
         rateLimitRound: number
     ): Promise<void> {
         this.throwIfAborted(options?.signal);
-        if (toolRound > this.maxToolRounds) {
-            throw new Error('Tool call recursion limit reached.');
-        }
 
         const authCandidates = this.resolveAuthCandidates(options);
         if (authCandidates.length === 0) {
@@ -449,9 +442,6 @@ export class ChatGPTClient {
         responseInput?: any[]
     ): Promise<void> {
         this.throwIfAborted(options?.signal);
-        if (toolRound > this.maxToolRounds) {
-            throw new Error('Response API tool call recursion limit reached.');
-        }
 
         const authCandidates = this.resolveAuthCandidates(options);
         if (authCandidates.length === 0) {
