@@ -6,7 +6,8 @@ export class AIProgressStalledError extends Error {
 }
 
 export const AI_LOOP_STOP_MESSAGE = '同じ検索や再試行の繰り返しを検出したため、調査を停止しました。必要な事実を確認できていないため、現時点では断定できません。';
-export const AI_LOOP_FINALIZE_INSTRUCTION = '調査の進展が止まったため、この応答ではツールの使用と再試行を停止してください。これまでに取得できた結果だけで回答をまとめ、確認できなかった点を明示してください。空の検索結果を「情報が存在しない」と言い換えたり、自身の知識で未確認部分を埋めたりしないでください。「もう一度検索する」などの予定を繰り返さず、回答を完了してください。';
+export const AI_TOOL_LOOP_STOP_MESSAGE = '同じツール操作が繰り返されたため、追加の呼び出しを停止しました。処理を完了できませんでした。';
+export const AI_LOOP_FINALIZE_INSTRUCTION = 'ツールの呼び出しに進展がなくなったため、この応答では追加のツールの使用と再試行を停止してください。元の依頼と取得済みのツール結果を確認し、正常に取得できた情報や完了した操作があれば、それを使って回答を完成させてください。メモリーが空なのは正常な結果です。入力エラーは必要な修正を説明し、実行済みの操作を失敗したと決めつけないでください。空の検索結果を「情報が存在しない」と言い換えたり、自身の知識で未確認部分を埋めたりしないでください。再試行の予定を繰り返さず、回答を完了してください。';
 
 function stable(value: unknown): string {
     if (Array.isArray(value)) return JSON.stringify(value.map(entry => stable(entry)));
@@ -19,17 +20,28 @@ export class AIProgressGuard {
     private noProgress = 0;
     private readonly seen = new Map<string, number>();
     private readonly text = new Map<string, { pending: string; sentences: Map<string, number>; inCode: boolean }>();
+    private usedTool = false;
+    private researched = false;
     public stalled = false;
+
+    public get stopMessage(): string {
+        return this.usedTool && !this.researched ? AI_TOOL_LOOP_STOP_MESSAGE : AI_LOOP_STOP_MESSAGE;
+    }
 
     public assertToolsAllowed(): void {
         if (this.stalled) throw new AIProgressStalledError();
     }
 
     public record(name: string, args: unknown, result: unknown): void {
+        // Narration belongs to one model turn. Actual tool activity is tracked below;
+        // repeated phrases across separate turns must not stop otherwise useful work.
+        this.text.clear();
         const value = typeof result === 'string' ? result : stable(result);
         const failed = !!toolResultError(result) || /^(?:SEARCH_(?:ERROR|EMPTY|UNAVAILABLE)|FETCH_ERROR|Error:|エラー[:：]|検索語句が空)/i.test(value.trim())
             || /^(?:Web検索結果がありませんでした|検索結果が(?:空|ありません)|No (?:search )?results)/i.test(value.trim());
         const research = /search|fetch|lookup/i.test(name);
+        this.usedTool = true;
+        this.researched ||= research;
         // Query/engine/timestamp annotations must not make unchanged evidence look new.
         const lines = value.split('\n').filter(line => !/^\s*(?:検索元|検索日時|キャッシュ|一部検索元のエラー|検索時の注意)[:：]/.test(line))
             .map(line => line.replace(/^\d+\.\s*/, '').replace(/\s+/g, ' ').trim()).filter(Boolean);

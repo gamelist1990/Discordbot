@@ -1,6 +1,5 @@
 import { ChatInputCommandInteraction, GuildMember } from 'discord.js';
 import { OpenAITool, ToolHandler } from '../../../../types/openai';
-import { antiCheatManager } from '../../../../core/anticheat/AntiCheatManager.js';
 
 function normalizeUserId(input: string): string {
     const normalized = (input || '').trim();
@@ -130,6 +129,7 @@ export const antiCheatUserProfileHandler: ToolHandler = async (
             return { error: 'user_id が不正です' };
         }
 
+        const { antiCheatManager } = await import('../../../../core/anticheat/AntiCheatManager.js');
         const trust = await antiCheatManager.getUserTrust(guild.id, userId);
         const logs = await antiCheatManager.getUserLogs(guild.id, userId, Math.max(1, Math.min(30, args.log_limit ?? 10)));
         const settings = await antiCheatManager.getSettings(guild.id);

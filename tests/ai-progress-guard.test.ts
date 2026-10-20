@@ -56,6 +56,22 @@ test('Retry narration is detected across chunk boundaries, while quoted examples
     assert.equal(ordinary.stalled, false);
 });
 
+test('Repeated thinking across actual tool turns does not accumulate into a false loop', () => {
+    const guard = new AIProgressGuard();
+    guard.observe(sentence.repeat(3), 'thinking');
+    guard.record('manage_memory', {action: 'list', store: 'server_memos'}, {memos: []});
+    guard.observe(sentence.repeat(3), 'thinking');
+    guard.record('manage_memory', {action: 'recall', store: 'my_profile'}, '記録されたメモリーはありません');
+    guard.observe(sentence.repeat(3), 'thinking');
+    assert.equal(guard.stalled, false);
+});
+
+test('Structured tool failures count as failures even when the model changes arguments', () => {
+    const guard = new AIProgressGuard();
+    for (let n = 0; n < 3; n++) guard.record('manage_memory', {store: `invalid-${n}`}, {error: '有効なstoreを指定してください'});
+    assert.equal(guard.stalled, true);
+});
+
 test('Responses ends three unsuccessful search rounds with a tool-free summary, overriding forced tools', async () => {
     let executions=0, requests=0;
     const {client,internal} = clientFor(() => { executions++; return 'SEARCH_EMPTY: no matching results'; });
@@ -63,7 +79,7 @@ test('Responses ends three unsuccessful search rounds with a tool-free summary, 
         requests++;
         if (payload.tool_choice==='none') {
             assert.equal(payload.input.filter((item: any) => item.type==='function_call_output').length,3);
-            assert.match(payload.input.at(-1).content,/調査の進展/);
+            assert.match(payload.input.at(-1).content,/ツールの呼び出し/);
             emit({type:'text',text:'確認できる情報を取得できませんでした。'});
             return {responseId:'resp_final',functionCalls:[],outputItems:[]};
         }
@@ -88,6 +104,24 @@ test('A provider ignoring tool_choice none cannot execute further tools or trigg
     let text='';
     await client.streamResponse(messages,delta=>{if(delta.type==='text')text+=delta.text;},options);
     assert.equal(executions,3);assert.equal(requests,4);assert.match(text,/調査を停止/);
+});
+
+test('A real repeated memory loop stops without claiming a Web investigation failed', async () => {
+    let executions = 0, requests = 0;
+    const {client, internal} = clientFor(() => 'unused');
+    client.registerTool({type: 'function', function: {name: 'manage_memory', parameters: {type: 'object'}}},
+        () => { executions++; return {memos: []}; });
+    internal.streamResponseApiPayload = async () => {
+        assert.ok(++requests <= 4);
+        const item = {...call(requests), name: 'manage_memory', arguments: '{"action":"list","store":"server_memos"}'};
+        return {responseId: 'memory', functionCalls: [{callId: item.call_id, name: item.name, arguments: item.arguments}], outputItems: [item]};
+    };
+    let text = '';
+    await client.streamResponse(messages, delta => {if (delta.type === 'text') text += delta.text;}, options);
+    assert.equal(executions, 3);
+    assert.equal(requests, 4);
+    assert.match(text, /同じツール操作/);
+    assert.doesNotMatch(text, /検索|事実を確認/);
 });
 
 test('Repeating Thinking is interrupted and produces one truthful final message', async () => {

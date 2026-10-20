@@ -52,10 +52,11 @@ export function describeStaffTool(tool: StaffToolView): { name: string; value: s
             case 'collect_channel_history': return '最近の投稿を確認';
             case 'fetch_message_link_context': return '指定メッセージを確認';
             case 'manage_memory': {
-                const store = args.store === 'server_memos' ? '共有メモ'
-                    : args.store === 'daily' ? '日次要約'
-                    : args.store === 'my_profile' ? '本人プロフィール'
-                    : args.store === 'public_interests' ? '公開プロフィール' : 'メモリー';
+                const memoryStore = args.store ?? args.type;
+                const store = memoryStore === 'server_memos' ? '共有メモ'
+                    : memoryStore === 'daily' ? '日次要約'
+                    : memoryStore === 'my_profile' ? '本人プロフィール'
+                    : memoryStore === 'public_interests' ? '公開プロフィール' : 'メモリー';
                 const action = args.action === 'search' ? 'を検索'
                     : args.action === 'list' ? '一覧を取得'
                     : args.action === 'create' ? 'を作成'

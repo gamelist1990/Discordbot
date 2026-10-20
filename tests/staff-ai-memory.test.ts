@@ -34,7 +34,7 @@ test('ギルドごとに統計を分離し不明なKV hit率は取得済み扱�
         assert.match(own, /建築が好き/);
         assert.doesNotMatch(own, /楽曲が好き/);
         const without = await staffMemoryHandler({type:'my_profile'});
-        assert.match(without,/権限がありません/);
+        assert.match((without as {error: string}).error,/権限がありません/);
         const context = await staffMemoryContext('g1','u1','昨日何があった？');
         assert.match(context,/マイクラ制作/);
         assert.doesNotMatch(context,/楽曲が好き/);

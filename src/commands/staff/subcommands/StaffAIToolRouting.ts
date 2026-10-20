@@ -1,4 +1,4 @@
-/** Avoid sending every Discord utility JSON schema on every conversational turn. */
+/** Intent hints for scheduled research. Foreground Staff AI always exposes the full catalog. */
 export function selectStaffToolNames(prompt: string, recentMessages: string[] = []): Set<string> {
     const current = prompt.trim().slice(0, 3000);
     // Short follow-ups often refer to the last question: preserve relevant tool access.

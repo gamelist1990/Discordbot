@@ -1,6 +1,6 @@
 // src/core/ai/ChatGPTClient.ts
 import OpenAI from 'openai';
-import { toolResultError } from './ToolResultStatus.js';
+import { toolResultError, toolStepArguments } from './ToolResultStatus.js';
 import { ToolProtocolTextFilter, stripToolProtocolText } from './ToolProtocolTextFilter.js';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { AIProgressGuard, AIProgressStalledError, AI_LOOP_STOP_MESSAGE, AI_LOOP_FINALIZE_INSTRUCTION } from './AIProgressGuard.js';
@@ -263,7 +263,7 @@ export class ChatGPTClient {
         return runAIRequestWithPriority(options?.priority, () =>
             this.withProgress(() => this.sendMessageInternal(messages, options, toolRound, 0), () => ({
                 id: 'local-loop-stop', object: 'chat.completion', created: Math.floor(Date.now() / 1000), model: this.defaultModel,
-                choices: [{ index: 0, message: { role: 'assistant', content: AI_LOOP_STOP_MESSAGE }, finish_reason: 'stop' }],
+                choices: [{ index: 0, message: { role: 'assistant', content: this.progress.getStore()?.stopMessage ?? AI_LOOP_STOP_MESSAGE }, finish_reason: 'stop' }],
             })));
     }
 
@@ -276,7 +276,7 @@ export class ChatGPTClient {
         return runAIRequestWithPriority(options?.priority, () =>
             this.withProgress(() => this.streamMessageInternal(messages, onChunkReceive, options, toolRound, 0), () => {
                 onChunkReceive({ id: 'local-loop-stop', object: 'chat.completion.chunk', created: Math.floor(Date.now() / 1000), model: this.defaultModel,
-                    choices: [{ index: 0, delta: { content: '\n\n' + AI_LOOP_STOP_MESSAGE }, finish_reason: 'stop' }] });
+                    choices: [{ index: 0, delta: { content: '\n\n' + (this.progress.getStore()?.stopMessage ?? AI_LOOP_STOP_MESSAGE) }, finish_reason: 'stop' }] });
             }));
     }
 
@@ -288,7 +288,7 @@ export class ChatGPTClient {
     ): Promise<void> {
         return runAIRequestWithPriority(options?.priority, () =>
             this.withProgress(() => this.streamResponseInternal(messages, onDeltaReceive, options, toolRound, 0), () => {
-                onDeltaReceive({ type: 'text', text: '\n\n' + AI_LOOP_STOP_MESSAGE });
+                onDeltaReceive({ type: 'text', text: '\n\n' + (this.progress.getStore()?.stopMessage ?? AI_LOOP_STOP_MESSAGE) });
             }));
     }
 
@@ -1096,7 +1096,7 @@ export class ChatGPTClient {
                     round,
                     arguments: this.debugPreview(functionCall.arguments),
                 });
-                await this.notifyToolStep(options, { phase: 'started', name: functionCall.name, round, callId: functionCall.callId, arguments: functionCall.name === 'output_file' ? JSON.stringify({ filename: JSON.parse(functionCall.arguments || '{}').filename }) : undefined });
+                await this.notifyToolStep(options, { phase: 'started', name: functionCall.name, round, callId: functionCall.callId, arguments: toolStepArguments(functionCall.name, functionCall.arguments) });
                 const args = functionCall.arguments ? JSON.parse(functionCall.arguments) : {};
                 const result = await this.invokeTool(functionCall.name, args, toolEntry.handler);
                 this.throwIfAborted(options?.signal);
@@ -1108,7 +1108,7 @@ export class ChatGPTClient {
                     result: this.debugPreview(result),
                 });
                 const reportedError = toolResultError(result);
-                await this.notifyToolStep(options, { phase: reportedError ? 'failed' : 'completed', error: reportedError, name: functionCall.name, round, callId: functionCall.callId, arguments: functionCall.name === 'output_file' ? JSON.stringify({ filename: JSON.parse(functionCall.arguments || '{}').filename }) : undefined });
+                await this.notifyToolStep(options, { phase: reportedError ? 'failed' : 'completed', error: reportedError, name: functionCall.name, round, callId: functionCall.callId, arguments: toolStepArguments(functionCall.name, functionCall.arguments) });
                 outputs.push({
                     type: 'function_call_output',
                     call_id: functionCall.callId,
@@ -1450,7 +1450,7 @@ export class ChatGPTClient {
                     round,
                     arguments: this.debugPreview(toolCall.function.arguments),
                 });
-                await this.notifyToolStep(options, { phase: 'started', name: toolCall.function.name, round, callId: toolCall.id, arguments: toolCall.function.name === 'output_file' ? JSON.stringify({ filename: JSON.parse(toolCall.function.arguments || '{}').filename }) : undefined });
+                await this.notifyToolStep(options, { phase: 'started', name: toolCall.function.name, round, callId: toolCall.id, arguments: toolStepArguments(toolCall.function.name, toolCall.function.arguments) });
                 const args = JSON.parse(toolCall.function.arguments);
 
                 if (discordClient?.user && typeof discordClient.user.setPresence === 'function') {
@@ -1491,7 +1491,7 @@ export class ChatGPTClient {
                     result: this.debugPreview(resultStr),
                 });
                 const reportedError = toolResultError(result);
-                await this.notifyToolStep(options, { phase: reportedError ? 'failed' : 'completed', error: reportedError, name: toolCall.function.name, round, callId: toolCall.id, arguments: toolCall.function.name === 'output_file' ? JSON.stringify({ filename: JSON.parse(toolCall.function.arguments || '{}').filename }) : undefined });
+                await this.notifyToolStep(options, { phase: reportedError ? 'failed' : 'completed', error: reportedError, name: toolCall.function.name, round, callId: toolCall.id, arguments: toolStepArguments(toolCall.function.name, toolCall.function.arguments) });
 
                 return {
                     role: 'tool',

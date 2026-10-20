@@ -13,6 +13,8 @@ export const staffMemoryDefinition = {
             'Staff AIの唯一のメモリーツール。用途に応じてstoreを選ぶ。',
             'dailyはサーバーの日次要約、my_profileは発言者本人の非公開プロフィール、public_interestsは公開可能な趣味だけを読む。これらはaction=recall。',
             'server_memosはサーバー共有メモのlist/search/get/create/update/deleteに使う。',
+            '例: 本人プロフィールは{"action":"recall","store":"my_profile"}、共有メモ一覧は{"action":"list","store":"server_memos"}。',
+            '同じ条件の読み取りは一度で十分。記録なしも正常な結果なので同じ引数で再試行しない。WebやDiscord履歴の調査にはそれぞれの検索ツールを使う。',
             '更新・作成・削除はユーザーが明確に依頼した場合だけ行う。日常会話の好みやプロフィールは自動要約されるため、共有メモへ重複保存しない。',
         ].join(' '),
         parameters: {
@@ -34,9 +36,9 @@ export const staffMemoryDefinition = {
     },
 };
 
-async function recallStaffMemory(type: 'daily' | 'my_profile' | 'public_interests', args: Record<string, unknown>): Promise<string> {
+async function recallStaffMemory(type: 'daily' | 'my_profile' | 'public_interests', args: Record<string, unknown>): Promise<string | object> {
     const scope = staffMemoryToolScope.getStore();
-    if (!scope) return 'このリクエストではメモリーの読み取り権限がありません';
+    if (!scope) return { error: 'このリクエストではメモリーの読み取り権限がありません' };
 
     const entries = await staffMemoryList(scope.guildId);
     if (type === 'public_interests') {
@@ -55,12 +57,15 @@ async function recallStaffMemory(type: 'daily' | 'my_profile' | 'public_interest
 }
 
 export async function staffMemoryHandler(args: Record<string, unknown>, context?: unknown): Promise<string | object> {
+    if (!args || typeof args !== 'object' || Array.isArray(args)) {
+        return { error: '引数はactionとstoreを含むJSONオブジェクトで指定してください' };
+    }
     const action = typeof args.action === 'string' ? args.action : '';
     const store = typeof args.store === 'string' ? args.store : '';
 
     if (store === 'server_memos') return serverMemoAction(action, args, context);
     if (store === 'daily' || store === 'my_profile' || store === 'public_interests') {
-        if (action !== 'recall') return '日次要約とプロフィールは参照専用です。action=recallを指定してください';
+        if (action !== 'recall') return { error: '日次要約とプロフィールは参照専用です。action=recallを指定してください' };
         return recallStaffMemory(store, args);
     }
 
@@ -68,5 +73,5 @@ export async function staffMemoryHandler(args: Record<string, unknown>, context?
     if (!store && (args.type === 'daily' || args.type === 'my_profile' || args.type === 'public_interests')) {
         return recallStaffMemory(args.type, args);
     }
-    return 'メモリーのstoreを指定してください';
+    return { error: 'メモリーのstoreとactionを指定してください。プロフィールはstore=my_profile, action=recall。共有メモ一覧はstore=server_memos, action=list。' };
 }
