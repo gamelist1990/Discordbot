@@ -17,6 +17,7 @@ const LABELS: Record<string, string> = {
     collect_channel_history: '会話履歴',
     fetch_message_link_context: 'メッセージ取得',
     manage_memory: 'メモリー',
+    output_file: 'ファイル出力',
 };
 
 function safePreview(value: unknown): string {
@@ -38,6 +39,7 @@ export function describeStaffTool(tool: StaffToolView): { name: string; value: s
     const label = LABELS[tool.name] ?? 'ツール処理';
     const subject = (() => {
         switch (tool.name) {
+            case 'output_file': return safePreview(args.filename) ? `「${safePreview(args.filename)}」を添付` : 'ファイルを添付';
             case 'web_search': return safePreview(args.query) ? `「${safePreview(args.query)}」を検索` : '検索語句を準備中';
             case 'get_weather': return safePreview(args.prefecture) ? `${safePreview(args.prefecture)}の天気` : '地域の天気を確認';
             case 'count_phrase_in_channel': return safePreview(args.phrase) ? `「${safePreview(args.phrase)}」を確認` : 'チャンネルの発言を調査';

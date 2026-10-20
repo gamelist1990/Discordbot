@@ -1,5 +1,6 @@
 // src/core/ai/ChatGPTClient.ts
 import OpenAI from 'openai';
+import { ToolProtocolTextFilter, stripToolProtocolText } from './ToolProtocolTextFilter.js';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { AIProgressGuard, AIProgressStalledError, AI_LOOP_STOP_MESSAGE, AI_LOOP_FINALIZE_INSTRUCTION } from './AIProgressGuard.js';
 import { config } from '../../config.js';
@@ -44,6 +45,8 @@ export interface ToolExecutionStep {
     phase: 'started' | 'completed' | 'failed';
     name: string;
     round: number;
+    callId?: string;
+    arguments?: string;
     error?: string;
 }
 
@@ -106,6 +109,7 @@ export type ResponseApiStreamDelta = {
 
 interface ResponseFunctionCallItem {
     id?: string;
+    outputIndex?: number;
     callId: string;
     name: string;
     arguments: string;
@@ -342,6 +346,9 @@ export class ChatGPTClient {
                         return this.sendMessageInternal(nextMessages, options, toolRound + 1, 0);
                     }
 
+                    for (const choice of typedResponse.choices) {
+                        if (typeof choice.message.content === 'string') choice.message.content = stripToolProtocolText(choice.message.content);
+                    }
                     const text = typedResponse.choices[0]?.message?.content;
                     if (this.progress.getStore()?.stalled && (typeof text !== 'string' || !text.trim())) throw new AIProgressStalledError();
                     if (typeof text === 'string') this.progress.getStore()?.observe(text + '\n', 'text');
@@ -400,6 +407,8 @@ export class ChatGPTClient {
             const client = this.createClient(auth);
             for (const model of modelCandidates) {
                 const toolCallsBuffer: Map<number, ToolCallBufferItem> = new Map();
+                const protocol = new ToolProtocolTextFilter();
+                let lastChunk: OpenAIChatCompletionChunk | undefined;
                 let emittedChunk = false;
                 let emittedText = false;
 
@@ -415,6 +424,7 @@ export class ChatGPTClient {
                         emittedChunk = true;
 
                         const typedChunk = chunk as OpenAIChatCompletionChunk;
+                        lastChunk = typedChunk;
                         const deltaToolCalls = typedChunk.choices[0]?.delta?.tool_calls;
 
                         if (deltaToolCalls) {
@@ -429,12 +439,20 @@ export class ChatGPTClient {
 
                         for (const choice of typedChunk.choices) {
                             const delta = choice.delta;
+                            if (delta.content) delta.content = protocol.push(delta.content);
                             if (delta.content) { emittedText = true; this.progress.getStore()?.observe(delta.content, 'text'); }
                             if (delta.reasoning_content || delta.reasoning) this.progress.getStore()?.observe(delta.reasoning_content || delta.reasoning || '', 'thinking');
                         }
                         onChunkReceive(typedChunk);
                     }
 
+                    const tail = protocol.finish();
+                    if (tail) {
+                        emittedText = true;
+                        this.progress.getStore()?.observe(tail, 'text');
+                        onChunkReceive({ id: lastChunk?.id || 'text-tail', object: 'chat.completion.chunk', created: lastChunk?.created || 0, model,
+                            choices: [{ index: 0, delta: { content: tail }, finish_reason: null }] });
+                    }
                     if (toolCallsBuffer.size > 0) {
                         this.progress.getStore()?.assertToolsAllowed();
                         const nextMessages = await this.executeToolCallsFromBuffer(toolCallsBuffer, messages, options, toolRound + 1);
@@ -801,8 +819,17 @@ export class ChatGPTClient {
         let responseId: string | null = null;
         const functionCallsByKey = new Map<string, ResponseFunctionCallItem>();
         const outputItemsByIndex = new Map<number, any>();
+        const protocol = new ToolProtocolTextFilter();
+        const emitText = (text: string): void => {
+            const visible = protocol.push(text);
+            if (visible) onDeltaReceive({ type: 'text', text: visible });
+        };
         const textDeltaItems = new Set<string>();
         const thinkingDeltaItems = new Set<string>();
+        const textKeys = (data: any): string[] => [data?.item_id, data?.item?.id, data?.output_index]
+            .filter(key => key !== undefined && key !== null).map(String);
+        const rememberText = (data: any): void => { for (const key of textKeys(data)) textDeltaItems.add(key); };
+        const sawText = (data: any): boolean => textKeys(data).some(key => textDeltaItems.has(key));
 
         const handleEvent = (data: any): void => {
             responseId = this.extractResponseId(data) ?? responseId;
@@ -827,13 +854,14 @@ export class ChatGPTClient {
                 if (Array.isArray(data?.response?.output)) {
                     data.response.output.forEach((item: any, index: number) => {
                         outputItemsByIndex.set(index, item);
+                        this.collectResponseFunctionCall({ item, output_index: index }, 'response.output_item.done', functionCallsByKey);
                     });
                 }
             }
             const textDelta = this.extractResponseTextDelta(data, eventType);
             if (textDelta) {
-                textDeltaItems.add(String(data?.item_id ?? data?.output_index ?? 'default'));
-                onDeltaReceive({ type: 'text', text: textDelta });
+                rememberText(data);
+                emitText(textDelta);
             }
 
             const thinkingDelta = this.extractResponseThinkingDelta(data, eventType);
@@ -846,10 +874,9 @@ export class ChatGPTClient {
             // 入れる場合がある。deltaを既に受信したitemでは全文を再送せず、
             // deltaが無かったitemだけdoneをフォールバックとして通知する。
             if (eventType === 'response.output_text.done' && typeof data?.text === 'string') {
-                const itemKey = String(data?.item_id ?? data?.output_index ?? 'default');
-                if (!textDeltaItems.has(itemKey)) {
-                    textDeltaItems.add(itemKey);
-                    onDeltaReceive({ type: 'text', text: data.text });
+                if (!sawText(data)) {
+                    rememberText(data);
+                    emitText(data.text);
                 }
             }
 
@@ -904,16 +931,27 @@ export class ChatGPTClient {
             if (!text) continue;
             textDeltaItems.add(itemKey);
             textDeltaItems.add(String(index));
-            onDeltaReceive({ type: 'text', text });
+            emitText(text);
         }
+        const tail = protocol.finish();
+        if (tail) onDeltaReceive({ type: 'text', text: tail });
 
+        const seenCalls = new Set<string>();
+        const outputItems = Array.from(outputItemsByIndex.entries()).sort(([a], [b]) => a - b)
+            .map(([, item]) => {
+                if (item?.type !== 'message' || !Array.isArray(item.content)) return item;
+                return { ...item, content: item.content.map((part: any) =>
+                    typeof part.text === 'string' ? { ...part, text: stripToolProtocolText(part.text) } : part) };
+            }).filter(item => {
+                if (item?.type !== 'function_call' || typeof item.call_id !== 'string') return true;
+                if (seenCalls.has(item.call_id)) return false;
+                seenCalls.add(item.call_id); return true;
+            });
         return {
             responseId,
             functionCalls: Array.from(functionCallsByKey.values())
                 .filter(call => call.callId && call.name),
-            outputItems: Array.from(outputItemsByIndex.entries())
-                .sort(([left], [right]) => left - right)
-                .map(([, item]) => item),
+            outputItems,
         };
     }
 
@@ -951,13 +989,19 @@ export class ChatGPTClient {
     ): void {
         const item = data?.item;
         if ((eventType === 'response.output_item.added' || eventType === 'response.output_item.done') && item?.type === 'function_call') {
-            const key = String(item.id ?? item.call_id ?? data.output_index ?? functionCallsByKey.size);
-            const existing = functionCallsByKey.get(key) || {
+            const match = [...functionCallsByKey.entries()].find(([, call]) => {
+                if (typeof item.call_id === 'string' && call.callId) return item.call_id === call.callId;
+                if (typeof item.id === 'string' && call.id) return item.id === call.id;
+                return typeof data.output_index === 'number' && call.outputIndex === data.output_index;
+            });
+            const key = match?.[0] ?? (item.call_id ? `call:${item.call_id}` : item.id ? `item:${item.id}` : `index:${data.output_index ?? functionCallsByKey.size}`);
+            const existing: ResponseFunctionCallItem = functionCallsByKey.get(key) || {
                 id: typeof item.id === 'string' ? item.id : undefined,
                 callId: typeof item.call_id === 'string' ? item.call_id : '',
                 name: typeof item.name === 'string' ? item.name : '',
                 arguments: '',
             };
+            existing.outputIndex = typeof data.output_index === 'number' ? data.output_index : existing.outputIndex;
             existing.id = typeof item.id === 'string' ? item.id : existing.id;
             existing.callId = typeof item.call_id === 'string' ? item.call_id : existing.callId;
             existing.name = typeof item.name === 'string' ? item.name : existing.name;
@@ -966,15 +1010,23 @@ export class ChatGPTClient {
             return;
         }
 
-        if (eventType === 'response.function_call_arguments.delta') {
-            const key = String(data.item_id ?? data.output_index ?? '0');
-            const existing = functionCallsByKey.get(key) || {
+        if (eventType === 'response.function_call_arguments.delta' || eventType === 'response.function_call_arguments.done') {
+            const match = [...functionCallsByKey.entries()].find(([, call]) => {
+                if (typeof data.item_id === 'string' && call.id) return call.id === data.item_id;
+                return typeof data.output_index === 'number' && call.outputIndex === data.output_index;
+            });
+            const key = match?.[0] ?? String(data.item_id ?? data.output_index ?? '0');
+            const existing: ResponseFunctionCallItem = functionCallsByKey.get(key) || {
                 id: typeof data.item_id === 'string' ? data.item_id : undefined,
                 callId: '',
                 name: '',
                 arguments: '',
             };
-            if (typeof data.delta === 'string') {
+            existing.outputIndex = typeof data.output_index === 'number' ? data.output_index : existing.outputIndex;
+            if (typeof data.item_id === 'string') existing.id = data.item_id;
+            if (eventType.endsWith('.done') && typeof data.arguments === 'string') {
+                existing.arguments = data.arguments;
+            } else if (typeof data.delta === 'string') {
                 existing.arguments += data.delta;
             }
             functionCallsByKey.set(key, existing);
@@ -1001,6 +1053,7 @@ export class ChatGPTClient {
                 await this.notifyToolStep(options, {
                     phase: 'failed',
                     name: functionCall.name,
+                    callId: functionCall.callId,
                     round,
                     error: `Tool not found: ${functionCall.name}`,
                 });
@@ -1021,7 +1074,7 @@ export class ChatGPTClient {
                     round,
                     arguments: this.debugPreview(functionCall.arguments),
                 });
-                await this.notifyToolStep(options, { phase: 'started', name: functionCall.name, round });
+                await this.notifyToolStep(options, { phase: 'started', name: functionCall.name, round, callId: functionCall.callId, arguments: functionCall.name === 'output_file' ? JSON.stringify({ filename: JSON.parse(functionCall.arguments || '{}').filename }) : undefined });
                 const args = functionCall.arguments ? JSON.parse(functionCall.arguments) : {};
                 const result = await this.invokeTool(functionCall.name, args, toolEntry.handler);
                 this.throwIfAborted(options?.signal);
@@ -1032,7 +1085,7 @@ export class ChatGPTClient {
                     round,
                     result: this.debugPreview(result),
                 });
-                await this.notifyToolStep(options, { phase: 'completed', name: functionCall.name, round });
+                await this.notifyToolStep(options, { phase: 'completed', name: functionCall.name, round, callId: functionCall.callId, arguments: functionCall.name === 'output_file' ? JSON.stringify({ filename: JSON.parse(functionCall.arguments || '{}').filename }) : undefined });
                 outputs.push({
                     type: 'function_call_output',
                     call_id: functionCall.callId,
@@ -1052,6 +1105,7 @@ export class ChatGPTClient {
                 await this.notifyToolStep(options, {
                     phase: 'failed',
                     name: functionCall.name,
+                    callId: functionCall.callId,
                     round,
                     error: error instanceof Error ? error.message : String(error),
                 });
@@ -1342,6 +1396,7 @@ export class ChatGPTClient {
                 await this.notifyToolStep(options, {
                     phase: 'failed',
                     name: toolCall.function.name,
+                    callId: toolCall.id,
                     round,
                     error: `Tool not found: ${toolCall.function.name}`,
                 });
@@ -1365,7 +1420,7 @@ export class ChatGPTClient {
                     round,
                     arguments: this.debugPreview(toolCall.function.arguments),
                 });
-                await this.notifyToolStep(options, { phase: 'started', name: toolCall.function.name, round });
+                await this.notifyToolStep(options, { phase: 'started', name: toolCall.function.name, round, callId: toolCall.id, arguments: toolCall.function.name === 'output_file' ? JSON.stringify({ filename: JSON.parse(toolCall.function.arguments || '{}').filename }) : undefined });
                 const args = JSON.parse(toolCall.function.arguments);
 
                 if (discordClient?.user && typeof discordClient.user.setPresence === 'function') {
@@ -1405,7 +1460,7 @@ export class ChatGPTClient {
                     round,
                     result: this.debugPreview(resultStr),
                 });
-                await this.notifyToolStep(options, { phase: 'completed', name: toolCall.function.name, round });
+                await this.notifyToolStep(options, { phase: 'completed', name: toolCall.function.name, round, callId: toolCall.id, arguments: toolCall.function.name === 'output_file' ? JSON.stringify({ filename: JSON.parse(toolCall.function.arguments || '{}').filename }) : undefined });
 
                 return {
                     role: 'tool',
@@ -1427,6 +1482,7 @@ export class ChatGPTClient {
                 await this.notifyToolStep(options, {
                     phase: 'failed',
                     name: toolCall.function.name,
+                    callId: toolCall.id,
                     round,
                     error: error instanceof Error ? error.message : String(error),
                 });

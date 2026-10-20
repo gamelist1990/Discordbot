@@ -21,7 +21,7 @@ import { PdfRAGManager } from '../../../core/ai/PdfRAGManager.js';
 import { recordStaffUsage, queueCurrentStaffDailyMemory, queueStaffDailyMemory, staffMemoryContext } from '../../../core/ai/StaffAIMemory.js';
 import { staffMemoryDefinition, staffMemoryHandler, staffMemoryToolScope } from './ai-tools/staff_memory.js';
 import { database } from '../../../core/persistence/Database.js';
-import { staffOutputFileDefinition, staffOutputFileHandler, isStaffFileOutputRequest } from './ai-tools/fileOutput.js';
+import { staffOutputFileDefinition, staffOutputFileHandler, staffFileOutputResponse, isStaffFileOutputRequest } from './ai-tools/fileOutput.js';
 import { searchChannelMessagesDefinition, searchChannelMessagesHandler, fetchDiscordMessageDefinition, fetchDiscordMessageHandler } from './ai-tools/channelSearch.js';
 import { fetchPublicUrlDefinition, fetchPublicUrlHandler } from './ai-tools/fetchPublicUrl.js';
 import {
@@ -450,7 +450,7 @@ ${reason}` });
         }
         if (forceTextFileTools) messages.splice(1, 0, {
             role: 'system',
-            content: 'この依頼は実際のファイル出力です。output_file(filename, content)を呼んでUTF-8ファイルをDiscordに直接添付してください。成功結果に返るファイルURLを最終回答で案内し、実際に送信していないなら成功と主張しないでください。',
+            content: 'この依頼は実際のファイル出力です。output_file(filename, content)を呼んでUTF-8ファイルをDiscordに直接添付してください。成功結果に返るファイルURLを最終回答で案内し、実際に送信していないなら成功と主張しないでください。同じファイルを繰り返し送信せず、成功後は本文やコードブロックを再掲せずリンクで案内してください。ツールは構造化されたfunction callで呼び出し、tool_call/function/parameterのXMLを本文に書かないでください。',
         });
 
         // Persistent memory is retrieved only for the requesting user in this guild.
@@ -597,6 +597,7 @@ ${reason}` });
                 chatManager.streamResponseText(messages, handleResponseDelta, streamOptions));
             // A response with reasoning only, no final text and no tool result is
             // not successful. Retry once without reasoning before failing visibly.
+            responseContent = staffFileOutputResponse(interaction, responseContent) ?? responseContent;
             if (!responseContent.trim()) {
                 const recoveryMessages: OpenAIChatCompletionMessage[] = [
                     ...messages,
@@ -617,7 +618,10 @@ ${reason}` });
             }
             isCompleted = true;
             finishPreview();
-            const { cleanedResponse, codeFiles } = processCodeBlocks(stripDiscordStreamMetadata(responseContent));
+            const fileResponse = staffFileOutputResponse(interaction, stripDiscordStreamMetadata(responseContent));
+            const { cleanedResponse, codeFiles } = fileResponse !== null
+                ? { cleanedResponse: fileResponse, codeFiles: [] as any[] }
+                : processCodeBlocks(stripDiscordStreamMetadata(responseContent));
             await drainPreview();
             const sentMessage = await safeRespond({
                 ...streamState.renderDiscord(true, cleanedResponse),

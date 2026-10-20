@@ -4,6 +4,7 @@ import { renderStaffAnsiStatus } from './StaffAIAnsiStatus.js';
 import type { OpenAIChatCompletionChunk } from '../../../types/openai.js';
 import type { ToolExecutionStep, ResponseApiStreamDelta } from '../../../core/ai/ChatGPTClient.js';
 import { stripDiscordStreamMetadata } from '../../../core/ai/AIConversationHistory.js';
+import { ToolProtocolTextFilter, stripToolProtocolText } from '../../../core/ai/ToolProtocolTextFilter.js';
 
 type ToolPreview = {
     id: string;
@@ -34,6 +35,7 @@ export class StaffAIStreamState {
     private hasReasoning = false;
     private reasoningCharacters = 0;
     private thinkingPreview = '';
+    private readonly thinkingProtocol = new ToolProtocolTextFilter();
     private tools: ToolPreview[] = [];
     private promptTokens = 0;
     private cacheTokens = 0;
@@ -50,7 +52,7 @@ export class StaffAIStreamState {
         this.hasReasoning = true;
         this.reasoningCharacters += text.length;
         // Keep a rolling window so new thoughts replace the oldest text.
-        this.thinkingPreview = Array.from(this.thinkingPreview + text)
+        this.thinkingPreview = Array.from(this.thinkingPreview + this.thinkingProtocol.push(text))
             .slice(-THINKING_PREVIEW_LIMIT)
             .join('');
     }
@@ -132,13 +134,15 @@ export class StaffAIStreamState {
     }
 
     recordToolStep(step: ToolExecutionStep): void {
-        const active = [...this.tools].reverse().find(item =>
-            item.name === step.name && (item.phase === '準備中' || item.phase === '実行中'));
+        const id = step.callId || `step-${step.round}-${step.name}`;
+        const active = this.tools.find(item => item.id === id) ?? (!step.callId ? [...this.tools].reverse().find(item =>
+            item.name === step.name && (item.phase === '準備中' || item.phase === '実行中')) : undefined);
         const tool = active ?? {
-            id: `step-${++this.callIndex}`, index: -1, name: step.name,
+            id, index: -1, name: step.name,
             arguments: '', phase: '準備中' as const,
         };
         if (!active) this.tools.push(tool);
+        if (step.arguments) tool.arguments = step.arguments;
         tool.phase = step.phase === 'started' ? '実行中'
             : step.phase === 'completed' ? '完了' : '失敗';
     }
@@ -192,7 +196,7 @@ export class StaffAIStreamState {
             : '';
         // Keep token usage at the very bottom, after optional tool progress.
         const suffix = (showThinking ? '' : status) + '\n' + footer;
-        const response = stripDiscordStreamMetadata(answer) || (
+        const response = stripDiscordStreamMetadata(stripToolProtocolText(answer)) || (
             showThinking ? '' : isComplete ? '（応答なし）' : this.tools.length ? '処理中…' : '考え中…'
         );
         const separatorLength = showThinking && prefix && response ? 1 : 0;
