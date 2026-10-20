@@ -13,7 +13,7 @@ export function toolResultSummary(name: string, args: unknown, result: unknown):
     const count = (value: unknown) => Array.isArray(value) ? value.length : undefined;
     if (name === 'web_search') {
         if (/^SEARCH_EMPTY:/.test(text)) return '検索結果 0件';
-        const hits = [...text.matchAll(/^\d+\. \[([^\]\n]+)\]\(/gm)];
+        const hits = [...text.matchAll(/^(?:## )?\d+\. \[([^\]\n]+)\]\(/gm)];
         const number = count(data?.results) ?? (hits.length || undefined);
         const titles = Array.isArray(data?.results) ? data.results.slice(0, 2).map((item: any) =>
             typeof item?.title === 'string' ? item.title : '').filter(Boolean) : hits.slice(0, 2).map(hit => hit[1]);

@@ -6,7 +6,7 @@ export const webSearchDefinition: OpenAITool = {
     type: 'function',
     function: {
         name: 'web_search',
-        description: 'PEX Serverで複数検索元を一括照会し、必要に応じて内部で検索語も整理します。最新情報や事実確認に使います。空結果・障害・既取得の情報しか得られない場合は同じ検索や言い換えを無限に繰り返さず、確認できない点を明示して回答してください。',
+        description: 'PEX Serverで複数検索元を照会し、上位サイトを内部のHeadless Chromeで開いてJavaScript描画後の本文をMarkdownで取得します。検索スニペットと実ページ本文・取得日時・取得失敗を区別して返します。最新情報や事実確認に使います。空結果・障害・既取得の情報しか得られない場合は同じ検索を繰り返さず、未確認の点を明示してください。',
         parameters: {
             type: 'object',
             properties: {
@@ -34,6 +34,8 @@ interface WebSearchResult {
     snippet: string;
     engine: string;
     display_url?: string | null;
+    published_at?: string | null;
+    sources?: string[];
 }
 
 interface WebSearchResponse {
@@ -44,6 +46,7 @@ interface WebSearchResponse {
     errors: Array<{ engine: string; message: string }>;
     warnings?: string[];
     searched_at?: string;
+    markdown?: string;
 }
 
 export const webSearchHandler: ToolHandler = async (args) => {
@@ -58,6 +61,8 @@ export const webSearchHandler: ToolHandler = async (args) => {
         count,
         offset,
         safe_search: args?.safe_search !== false,
+        read_pages: true,
+        page_count: 3,
         ...(typeof args?.country === 'string' && args.country.trim() ? { country: args.country.trim() } : {}),
         ...(typeof args?.language === 'string' && args.language.trim() ? { language: args.language.trim() } : {}),
         ...(Array.isArray(args?.engines)
@@ -73,7 +78,8 @@ export const webSearchHandler: ToolHandler = async (args) => {
                 ...(config.pexAi.apiKey ? { authorization: `Bearer ${config.pexAi.apiKey}` } : {}),
             },
             body: JSON.stringify(body),
-            signal: AbortSignal.timeout(20_000),
+            // Provider queries + one bounded rewrite + Chrome rendering.
+            signal: AbortSignal.timeout(45_000),
         });
         if (!response.ok) {
             const detail = (await response.text()).slice(0, 500);
@@ -88,8 +94,16 @@ export const webSearchHandler: ToolHandler = async (args) => {
             return `${unavailable ? 'SEARCH_UNAVAILABLE' : 'SEARCH_EMPTY'}: ${unavailable ? '検索元の障害を伴い、情報を取得できませんでした' : '今回の検索では一致する結果を取得できませんでした'}: ${query}${detail ? `\n${detail}` : ''}\n情報が存在しない証拠ではありません。同じ検索や言い換えを無限に繰り返さず、確認できなければ未確認と伝えて回答を終えてください。`;
         }
 
+        // Preserve the endpoint's structured source/snippet/body distinctions.
+        if (typeof data.markdown === 'string' && data.markdown.trim()) {
+            const markdown = data.markdown.trim();
+            return markdown.length > 48_000 ? markdown.slice(0, 48_000) + '\n\n[検索応答は文字数上限で省略]' : markdown;
+        }
+        // Older endpoints still produce explicit, readable Markdown.
         const output = results.map(entry =>
-            `${entry.rank}. [${entry.title}](${entry.url})\n   ${entry.snippet}\n   検索元: ${entry.engine}`,
+            `## ${entry.rank}. [${entry.title}](${entry.url})\n\n- 検索元: ${entry.sources?.join(', ') || entry.engine}`
+            + (entry.published_at ? `\n- 検索元の公開日: ${entry.published_at}` : '')
+            + `\n\n### 検索スニペット\n${entry.snippet}\n\n本文取得: 未実施。スニペットのみです。`,
         );
         if (Array.isArray(data.errors) && data.errors.length > 0) {
             output.push('', `一部検索元のエラー: ${data.errors.map(error => `${error.engine}: ${error.message}`).join(' / ')}`);
