@@ -6,7 +6,7 @@ export const webSearchDefinition: OpenAITool = {
     type: 'function',
     function: {
         name: 'web_search',
-        description: 'PEX Serverの複数検索元を統合したWeb検索を実行します。最新情報や調査が必要な時に使います。',
+        description: 'PEX Serverで複数検索元を一括照会し、必要に応じて内部で検索語も整理します。最新情報や事実確認に使います。空結果・障害・既取得の情報しか得られない場合は同じ検索や言い換えを無限に繰り返さず、確認できない点を明示して回答してください。',
         parameters: {
             type: 'object',
             properties: {
@@ -42,6 +42,8 @@ interface WebSearchResponse {
     engines: string[];
     results: WebSearchResult[];
     errors: Array<{ engine: string; message: string }>;
+    warnings?: string[];
+    searched_at?: string;
 }
 
 export const webSearchHandler: ToolHandler = async (args) => {
@@ -78,8 +80,13 @@ export const webSearchHandler: ToolHandler = async (args) => {
             return `SEARCH_ERROR: PEX Server HTTP ${response.status}${detail ? `: ${detail}` : ''}`;
         }
         const data = await response.json() as WebSearchResponse;
-        const results = Array.isArray(data.results) ? data.results : [];
-        if (results.length === 0) return `Web検索結果がありませんでした: ${query}`;
+        if (!Array.isArray(data.results)) return 'SEARCH_ERROR: 検索APIの応答形式が不正です。結果0件とは区別してください。';
+        const results = data.results;
+        if (results.length === 0) {
+            const unavailable = Array.isArray(data.errors) && data.errors.length > 0;
+            const detail = unavailable ? data.errors.map(error => `${error.engine}: ${error.message}`).join(' / ').slice(0, 700) : '';
+            return `${unavailable ? 'SEARCH_UNAVAILABLE' : 'SEARCH_EMPTY'}: ${unavailable ? '検索元の障害を伴い、情報を取得できませんでした' : '今回の検索では一致する結果を取得できませんでした'}: ${query}${detail ? `\n${detail}` : ''}\n情報が存在しない証拠ではありません。同じ検索や言い換えを無限に繰り返さず、確認できなければ未確認と伝えて回答を終えてください。`;
+        }
 
         const output = results.map(entry =>
             `${entry.rank}. [${entry.title}](${entry.url})\n   ${entry.snippet}\n   検索元: ${entry.engine}`,
@@ -87,6 +94,10 @@ export const webSearchHandler: ToolHandler = async (args) => {
         if (Array.isArray(data.errors) && data.errors.length > 0) {
             output.push('', `一部検索元のエラー: ${data.errors.map(error => `${error.engine}: ${error.message}`).join(' / ')}`);
         }
+        if (Array.isArray(data.warnings) && data.warnings.length > 0) {
+            output.push(`検索時の注意: ${data.warnings.join(' / ').slice(0, 1200)}`);
+        }
+        if (data.searched_at) output.push(`検索日時: ${data.searched_at}`);
         return output.join('\n');
     } catch (error) {
         return `SEARCH_ERROR: ${error instanceof Error ? error.message : String(error)}`;

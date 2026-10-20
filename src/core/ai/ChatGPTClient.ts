@@ -1,5 +1,7 @@
 // src/core/ai/ChatGPTClient.ts
 import OpenAI from 'openai';
+import { AsyncLocalStorage } from 'node:async_hooks';
+import { AIProgressGuard, AIProgressStalledError, AI_LOOP_STOP_MESSAGE, AI_LOOP_FINALIZE_INSTRUCTION } from './AIProgressGuard.js';
 import { config } from '../../config.js';
 import { ChatGPTModel } from './ChatGPTModels.js';
 import { Logger } from '../../utils/Logger.js';
@@ -120,6 +122,7 @@ export class ChatGPTClient {
     private readonly rateLimitMaxWaitMs: number;
     private readonly tools: Map<string, { definition: OpenAITool; handler: ToolHandler }> = new Map();
     private toolContext: any = null;
+    private readonly progress = new AsyncLocalStorage<AIProgressGuard>();
     private readonly modelCache: Map<string, ModelCacheEntry> = new Map();
     private readonly modelCacheTtlMs = 5 * 60 * 1000;
     private readonly maxRateLimitWaitRounds = 2;
@@ -251,7 +254,10 @@ export class ChatGPTClient {
         toolRound = 0
     ): Promise<OpenAIChatCompletionResponse> {
         return runAIRequestWithPriority(options?.priority, () =>
-            this.sendMessageInternal(messages, options, toolRound, 0));
+            this.withProgress(() => this.sendMessageInternal(messages, options, toolRound, 0), () => ({
+                id: 'local-loop-stop', object: 'chat.completion', created: Math.floor(Date.now() / 1000), model: this.defaultModel,
+                choices: [{ index: 0, message: { role: 'assistant', content: AI_LOOP_STOP_MESSAGE }, finish_reason: 'stop' }],
+            })));
     }
 
     public async streamMessage(
@@ -261,7 +267,10 @@ export class ChatGPTClient {
         toolRound = 0
     ): Promise<void> {
         return runAIRequestWithPriority(options?.priority, () =>
-            this.streamMessageInternal(messages, onChunkReceive, options, toolRound, 0));
+            this.withProgress(() => this.streamMessageInternal(messages, onChunkReceive, options, toolRound, 0), () => {
+                onChunkReceive({ id: 'local-loop-stop', object: 'chat.completion.chunk', created: Math.floor(Date.now() / 1000), model: this.defaultModel,
+                    choices: [{ index: 0, delta: { content: '\n\n' + AI_LOOP_STOP_MESSAGE }, finish_reason: 'stop' }] });
+            }));
     }
 
     public async streamResponse(
@@ -271,7 +280,26 @@ export class ChatGPTClient {
         toolRound = 0
     ): Promise<void> {
         return runAIRequestWithPriority(options?.priority, () =>
-            this.streamResponseInternal(messages, onDeltaReceive, options, toolRound, 0));
+            this.withProgress(() => this.streamResponseInternal(messages, onDeltaReceive, options, toolRound, 0), () => {
+                onDeltaReceive({ type: 'text', text: '\n\n' + AI_LOOP_STOP_MESSAGE });
+            }));
+    }
+
+    private withProgress<T>(work: () => Promise<T>, onStopped: () => T): Promise<T> {
+        return this.progress.run(new AIProgressGuard(), async () => {
+            try { return await work(); }
+            catch (error) {
+                if (!(error instanceof AIProgressStalledError)) throw error;
+                this.debugToolCall('progress-stalled', { reason: error.message });
+                return onStopped();
+            }
+        });
+    }
+
+    private async invokeTool(name: string, args: unknown, handler: ToolHandler): Promise<string | object> {
+        const result = await handler(args, this.toolContext);
+        this.progress.getStore()?.record(name, args, result);
+        return result;
     }
 
     private async sendMessageInternal(
@@ -299,7 +327,7 @@ export class ChatGPTClient {
             const client = this.createClient(auth);
             for (const model of modelCandidates) {
                 try {
-                    const payload = this.buildRequestPayload(messages, options, model, false);
+                    const payload = this.buildRequestPayload(messages, options, model, false, Array.from(this.tools.values()).map(tool => tool.definition), toolRound);
                     const response = await client.chat.completions.create(
                         payload as OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming,
                         { signal: options?.signal },
@@ -309,12 +337,18 @@ export class ChatGPTClient {
 
                     const toolCalls = typedResponse.choices[0]?.message?.tool_calls ?? [];
                     if (toolCalls.length > 0) {
+                        this.progress.getStore()?.assertToolsAllowed();
                         const nextMessages = await this.executeToolCalls(toolCalls, messages, options, toolRound + 1);
                         return this.sendMessageInternal(nextMessages, options, toolRound + 1, 0);
                     }
 
+                    const text = typedResponse.choices[0]?.message?.content;
+                    if (this.progress.getStore()?.stalled && (typeof text !== 'string' || !text.trim())) throw new AIProgressStalledError();
+                    if (typeof text === 'string') this.progress.getStore()?.observe(text + '\n', 'text');
                     return typedResponse;
                 } catch (error) {
+                    this.throwIfAborted(options?.signal);
+                    if (error instanceof AIProgressStalledError) throw error;
                     lastError = error;
                     const rateLimitInfo = this.buildRateLimitWaitInfo(error, options, auth.apiEndpoint, model);
                     if (rateLimitInfo) {
@@ -367,6 +401,7 @@ export class ChatGPTClient {
             for (const model of modelCandidates) {
                 const toolCallsBuffer: Map<number, ToolCallBufferItem> = new Map();
                 let emittedChunk = false;
+                let emittedText = false;
 
                 try {
                     const payload = this.buildRequestPayload(messages, options, model, true, toolDefinitions, toolRound);
@@ -392,18 +427,28 @@ export class ChatGPTClient {
                             }
                         }
 
+                        for (const choice of typedChunk.choices) {
+                            const delta = choice.delta;
+                            if (delta.content) { emittedText = true; this.progress.getStore()?.observe(delta.content, 'text'); }
+                            if (delta.reasoning_content || delta.reasoning) this.progress.getStore()?.observe(delta.reasoning_content || delta.reasoning || '', 'thinking');
+                        }
                         onChunkReceive(typedChunk);
                     }
 
                     if (toolCallsBuffer.size > 0) {
+                        this.progress.getStore()?.assertToolsAllowed();
                         const nextMessages = await this.executeToolCallsFromBuffer(toolCallsBuffer, messages, options, toolRound + 1);
                         await this.streamMessageInternal(nextMessages, onChunkReceive, options, toolRound + 1, 0);
+                    } else if (this.progress.getStore()?.stalled && !emittedText) {
+                        throw new AIProgressStalledError();
                     } else if (this.forcedToolForRound(options, toolDefinitions, toolRound)) {
                         throw new Error(`Required tool was not called: ${this.forcedToolForRound(options, toolDefinitions, toolRound)}`);
                     }
 
                     return;
                 } catch (error) {
+                    this.throwIfAborted(options?.signal);
+                    if (error instanceof AIProgressStalledError) throw error;
                     lastError = error;
                     if (emittedChunk) {
                         break;
@@ -460,6 +505,7 @@ export class ChatGPTClient {
 
             for (const model of modelCandidates) {
                 let emittedDelta = false;
+                let emittedText = false;
 
                 try {
                     const currentInput = responseInput ?? this.convertChatMessagesToResponseInput(messages);
@@ -477,11 +523,13 @@ export class ChatGPTClient {
                         model,
                         round: toolRound,
                         registeredTools: toolDefinitions.map(tool => tool.function.name),
-                        toolChoice: toolDefinitions.length > 0
+                        toolChoice: this.progress.getStore()?.stalled ? 'none' : toolDefinitions.length > 0
                             ? (this.forcedToolForRound(options, toolDefinitions, toolRound) || 'auto')
                             : 'none',
                     });
                     const result = await this.streamResponseApiPayload(auth, payload, (delta) => {
+                        if (delta.type === 'text' && delta.text.trim()) emittedText = true;
+                        if (delta.type !== 'usage') this.progress.getStore()?.observe(delta.text, delta.type);
                         emittedDelta = true;
                         onDeltaReceive(delta);
                     }, options?.signal);
@@ -493,6 +541,7 @@ export class ChatGPTClient {
                     }
 
                     if (result.functionCalls.length > 0) {
+                        this.progress.getStore()?.assertToolsAllowed();
                         this.debugToolCall('model-requested', {
                             api: 'responses',
                             round: toolRound + 1,
@@ -528,6 +577,7 @@ export class ChatGPTClient {
                             );
                         }
                     } else {
+                        if (this.progress.getStore()?.stalled && !emittedText) throw new AIProgressStalledError();
                         this.debugToolCall('model-finished-without-tool', {
                             api: 'responses',
                             requestLabel: options?.requestLabel || 'chatgpt-request',
@@ -537,6 +587,8 @@ export class ChatGPTClient {
 
                     return;
                 } catch (error) {
+                    this.throwIfAborted(options?.signal);
+                    if (error instanceof AIProgressStalledError) throw error;
                     lastError = error;
                     const modelLimitError = this.isModelLimitError(error);
                     this.debugToolCall('model-failed', {
@@ -658,10 +710,11 @@ export class ChatGPTClient {
         previousResponseId?: string,
         toolRound = 0,
     ): Record<string, unknown> {
-        const forcedTool = this.forcedToolForRound(options, tools, toolRound);
+        const stalled = this.progress.getStore()?.stalled;
+        const forcedTool = stalled ? null : this.forcedToolForRound(options, tools, toolRound);
         return {
             model,
-            input,
+            input: stalled ? [...input, { role: 'system', content: AI_LOOP_FINALIZE_INSTRUCTION }] : input,
             ...(options?.level !== undefined ? { level: options.level } : {}),
             temperature: options?.temperature ?? 0.7,
             max_output_tokens: model === 'gemma4:12b-it-q4_K_M'
@@ -675,12 +728,13 @@ export class ChatGPTClient {
             ...(previousResponseId ? { previous_response_id: previousResponseId } : {}),
             ...(tools.length > 0 ? {
                 tools: this.convertToolsToResponseTools(tools),
-                tool_choice: forcedTool ? { type: 'function', name: forcedTool } : 'auto',
-            } : {}),
+                tool_choice: stalled ? 'none' : forcedTool ? { type: 'function', name: forcedTool } : 'auto',
+            } : stalled ? { tool_choice: 'none' } : {}),
         };
     }
 
     private forcedToolForRound(options: ChatOptions | undefined, tools: OpenAITool[], toolRound: number): string | null {
+        if (this.progress.getStore()?.stalled) return null;
         const name = options?.forceToolSequence?.[toolRound];
         return name && tools.some(tool => tool.function.name === name) ? name : null;
     }
@@ -937,6 +991,7 @@ export class ChatGPTClient {
         for (const functionCall of functionCalls) {
             const toolEntry = this.tools.get(functionCall.name);
             if (!toolEntry) {
+                this.progress.getStore()?.record(functionCall.name, functionCall.arguments, `Error: Tool not found: ${functionCall.name}`);
                 this.debugToolCall('not-found', {
                     api: 'responses',
                     name: functionCall.name,
@@ -968,7 +1023,7 @@ export class ChatGPTClient {
                 });
                 await this.notifyToolStep(options, { phase: 'started', name: functionCall.name, round });
                 const args = functionCall.arguments ? JSON.parse(functionCall.arguments) : {};
-                const result = await toolEntry.handler(args, this.toolContext);
+                const result = await this.invokeTool(functionCall.name, args, toolEntry.handler);
                 this.throwIfAborted(options?.signal);
                 this.debugToolCall('executed', {
                     api: 'responses',
@@ -984,6 +1039,9 @@ export class ChatGPTClient {
                     output: typeof result === 'string' ? result : JSON.stringify(result),
                 });
             } catch (error) {
+                this.throwIfAborted(options?.signal);
+                if (error instanceof AIProgressStalledError) throw error;
+                this.progress.getStore()?.record(functionCall.name, functionCall.arguments, `Error: ${error instanceof Error ? error.message : String(error)}`);
                 this.debugToolCall('failed', {
                     api: 'responses',
                     name: functionCall.name,
@@ -1186,8 +1244,9 @@ export class ChatGPTClient {
         tools: OpenAITool[] = [],
         toolRound = 0,
     ): OpenAIChatCompletionRequest {
-        const forcedTool = this.forcedToolForRound(options, tools, toolRound);
-        const toolChoice = forcedTool
+        const stalled = this.progress.getStore()?.stalled;
+        const forcedTool = stalled ? null : this.forcedToolForRound(options, tools, toolRound);
+        const toolChoice = stalled ? 'none' as const : forcedTool
             ? { type: 'function' as const, function: { name: forcedTool } }
             : 'auto' as const;
         this.debugToolCall('request', {
@@ -1196,11 +1255,11 @@ export class ChatGPTClient {
             model,
             stream,
             registeredTools: tools.map(tool => tool.function.name),
-            toolChoice: tools.length > 0 ? (forcedTool || 'auto') : 'none',
+            toolChoice: stalled ? 'none' : tools.length > 0 ? (forcedTool || 'auto') : 'none',
         });
         return {
             model,
-            messages,
+            messages: stalled ? [...messages, { role: 'system', content: AI_LOOP_FINALIZE_INSTRUCTION }] : messages,
             temperature: options?.temperature ?? 0.7,
             // gemma4:12b-it-q4_K_M は reasoning も出力トークンを消費するため、
             // 小さすぎる上限では最終 content が空になる。最低 512 を確保する。
@@ -1210,7 +1269,7 @@ export class ChatGPTClient {
             top_p: options?.topP ?? 1,
             stream,
             ...(stream && options?.includeUsage ? { stream_options: { include_usage: true } } : {}),
-            ...(tools.length > 0 ? { tools, tool_choice: toolChoice } : {}),
+            ...(tools.length > 0 ? { tools, tool_choice: toolChoice } : stalled ? { tool_choice: 'none' as const } : {}),
         };
     }
 
@@ -1272,6 +1331,7 @@ export class ChatGPTClient {
         const toolResultMessages = await Promise.all(toolCalls.map(async toolCall => {
             const toolEntry = this.tools.get(toolCall.function.name);
             if (!toolEntry) {
+                this.progress.getStore()?.record(toolCall.function.name, toolCall.function.arguments, `Error: Tool not found: ${toolCall.function.name}`);
                 console.error(`Tool not found: ${toolCall.function.name}`);
                 this.debugToolCall('not-found', {
                     api: 'chat-completions',
@@ -1335,7 +1395,7 @@ export class ChatGPTClient {
                     }, 1000);
                 }
 
-                const result = await toolEntry.handler(args, this.toolContext);
+                const result = await this.invokeTool(toolCall.function.name, args, toolEntry.handler);
                 this.throwIfAborted(options?.signal);
                 const resultStr = typeof result === 'string' ? result : JSON.stringify(result);
                 this.debugToolCall('executed', {
@@ -1353,6 +1413,9 @@ export class ChatGPTClient {
                     tool_call_id: toolCall.id,
                 } as OpenAIChatCompletionMessage;
             } catch (error) {
+                this.throwIfAborted(options?.signal);
+                if (error instanceof AIProgressStalledError) throw error;
+                this.progress.getStore()?.record(toolCall.function.name, toolCall.function.arguments, `Error: ${error instanceof Error ? error.message : String(error)}`);
                 console.error(`Error executing tool ${toolCall.function.name}:`, error);
                 this.debugToolCall('failed', {
                     api: 'chat-completions',

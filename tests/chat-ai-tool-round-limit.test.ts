@@ -3,13 +3,13 @@ import assert from 'node:assert/strict';
 import { ChatGPTClient } from '../src/core/ai/ChatGPTClient.ts';
 
 function setup() {
-    const client = new ChatGPTClient({ apiEndpoint: 'http://127.0.0.1:1', apiKey: 'test-key', defaultModel: 'test-model' });
+    const client = new ChatGPTClient({ apiEndpoint: 'http://207.0.0.1:1', apiKey: 'test-key', defaultModel: 'test-model' });
     const internal = client as any;
     let executions = 0;
     internal.resolveModelCandidates = async () => ['test-model'];
     client.registerTool({ type: 'function', function: {
         name: 'lookup', description: 'Lookup test data', parameters: { type: 'object', properties: {} },
-    } }, async () => { executions += 1; return 'known result'; });
+    } }, async () => { executions += 1; return `new result ${executions}`; });
     return { client, internal, executions: () => executions };
 }
 
@@ -17,9 +17,9 @@ const options = { model: 'test-model', strictModel: true };
 
 function chatResponse(round: number) {
     return { id: `chat_${round}`, object: 'chat.completion', model: 'test-model', created: 0,
-        choices: [{ index: 0, finish_reason: round <= 12 ? 'tool_calls' : 'stop', message: {
-            role: 'assistant', content: round <= 12 ? null : '調査完了',
-            ...(round <= 12 ? { tool_calls: [{ id: `call_${round}`, type: 'function',
+        choices: [{ index: 0, finish_reason: round <= 20 ? 'tool_calls' : 'stop', message: {
+            role: 'assistant', content: round <= 20 ? null : '調査完了',
+            ...(round <= 20 ? { tool_calls: [{ id: `call_${round}`, type: 'function',
                 function: { name: 'lookup', arguments: '{}' } }] } : {}),
         } }] };
 }
@@ -31,7 +31,7 @@ test('Responses continues beyond eight tool rounds, preserving results and autom
         requests += 1;
         assert.equal(payload.tool_choice, 'auto');
         assert.equal(payload.input.filter((item: any) => item.type === 'function_call_output').length, requests - 1);
-        if (requests > 12) {
+        if (requests > 20) {
             emit({ type: 'text', text: '調査完了' });
             return { responseId: 'resp_final', functionCalls: [], outputItems: [] };
         }
@@ -45,8 +45,8 @@ test('Responses continues beyond eight tool rounds, preserving results and autom
     await client.streamResponse([{ role: 'user', content: '調べて' }], delta => {
         if (delta.type === 'text') text += delta.text;
     }, options);
-    assert.equal(executions(), 12);
-    assert.equal(requests, 13);
+    assert.equal(executions(), 20);
+    assert.equal(requests, 21);
     assert.equal(text, '調査完了');
 });
 
@@ -57,8 +57,8 @@ test('Non-streaming Chat Completions continues beyond eight tool rounds', async 
         create: async () => chatResponse(++requests),
     } } });
     const result = await client.sendMessage([{ role: 'user', content: '調べて' }], options);
-    assert.equal(executions(), 12);
-    assert.equal(requests, 13);
+    assert.equal(executions(), 20);
+    assert.equal(requests, 21);
     assert.equal(result.choices[0].message.content, '調査完了');
 });
 
@@ -78,8 +78,8 @@ test('Streaming Chat Completions continues beyond eight tool rounds', async () =
     await client.streamMessage([{ role: 'user', content: '調べて' }], chunk => {
         text += chunk.choices[0]?.delta?.content || '';
     }, options);
-    assert.equal(executions(), 12);
-    assert.equal(requests, 13);
+    assert.equal(executions(), 20);
+    assert.equal(requests, 21);
     assert.equal(text, '調査完了');
 });
 
@@ -89,7 +89,7 @@ test('An unlimited Responses tool chain still stops on explicit cancellation', a
     let requests = 0;
     internal.streamResponseApiPayload = async () => {
         requests += 1;
-        if (requests === 13) controller.abort(new DOMException('Cancelled', 'AbortError'));
+        if (requests === 21) controller.abort(new DOMException('Cancelled', 'AbortError'));
         return { responseId: `resp_${requests}`, functionCalls: [{
             id: `fc_${requests}`, callId: `call_${requests}`, name: 'lookup', arguments: '{}',
         }], outputItems: [] };
@@ -97,6 +97,6 @@ test('An unlimited Responses tool chain still stops on explicit cancellation', a
     await assert.rejects(client.streamResponse([{ role: 'user', content: '調べて' }], () => {}, {
         ...options, signal: controller.signal,
     }), (error: unknown) => error instanceof DOMException && error.name === 'AbortError');
-    assert.equal(executions(), 12);
-    assert.equal(requests, 13);
+    assert.equal(executions(), 20);
+    assert.equal(requests, 21);
 });
