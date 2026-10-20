@@ -5,17 +5,18 @@ import { ChatGPTClient } from '../src/core/ai/ChatGPTClient.ts';
 import { StaffAIStreamState } from '../src/commands/staff/subcommands/StaffAIStreamState.ts';
 import { StaffAILiveUpdates } from '../src/commands/staff/subcommands/StaffAILiveUpdates.ts';
 
-test('Native tool cards show preparation, execution and results without ANSI, raw arguments or thinking', () => {
+test('Native tool cards stream Thinking alongside tools and hide its text when complete', () => {
     const state = new StaffAIStreamState(true, true);
-    state.consumeResponse({type: 'thinking', text: 'Internal private reasoning'});
+    state.consumeResponse({type: 'thinking', text: '必要な情報を確認しています。'});
     state.recordToolCall({name: 'output_file', round: 1, itemId: 'item', index: 0, argumentCharacters: 20, argumentsComplete: false});
     let card = state.renderDiscord();
     assert.equal(card.embeds.length, 1);
     assert.match(JSON.stringify(card), /引数を生成中（20文字）/);
-    assert.doesNotMatch(JSON.stringify(card), /Internal|```ansi/);
+    assert.match(JSON.stringify(card), /必要な情報を確認しています/);
+    assert.doesNotMatch(JSON.stringify(card), /```ansi/);
     state.recordToolCall({name: 'output_file', round: 1, callId: 'call', itemId: 'item', index: 0,
         argumentCharacters: 100, argumentsComplete: true, arguments: '{"filename":"answer.txt"}'});
-    assert.equal(state.renderDiscord().embeds[0].fields!.length, 1);
+    assert.equal(state.renderDiscord().embeds[0].fields!.length, 2);
     state.recordToolStep({name: 'output_file', round: 1, callId: 'call', phase: 'started'});
     card = state.renderDiscord();
     assert.match(JSON.stringify(card), /実行中|answer/);
@@ -25,7 +26,27 @@ test('Native tool cards show preparation, execution and results without ANSI, ra
     assert.equal(card.content, 'ファイルを添付しました。');
     assert.equal(card.embeds[0].fields!.length, 1);
     assert.match(JSON.stringify(card.embeds), /完了 1件/);
+    assert.doesNotMatch(JSON.stringify(card), /必要な情報を確認しています/);
+    assert.match(JSON.stringify(card.embeds), /Thinking · 完了/);
     assert.match(card.embeds[0].footer!.text, /toks\/s/);
+});
+
+test('Native Thinking updates while the answer streams, uses a rolling preview, and escapes tool protocol', () => {
+    const state = new StaffAIStreamState(false, true);
+    state.consumeResponse({type: 'thinking', text: '最初の確認。'});
+    const first = JSON.stringify(state.renderDiscord());
+    assert.match(first, /最初の確認/);
+    state.consumeResponse({type: 'text', text: '回答の途中です。'});
+    state.consumeResponse({type: 'thinking', text: '次の確認をしています。'});
+    const second = state.renderDiscord();
+    assert.equal(second.content, '回答の途中です。');
+    assert.match(JSON.stringify(second.embeds), /次の確認をしています/);
+    assert.notEqual(first, JSON.stringify(second));
+    state.consumeResponse({type: 'thinking', text: 'あ'.repeat(400) + '@everyone ``` <tool_call>SECRET</tool_call>'});
+    const rendered = JSON.stringify(state.renderDiscord());
+    assert.match(rendered, /…/);
+    assert.doesNotMatch(rendered, /最初の確認|SECRET|<tool_call>|@everyone/);
+    assert.ok(state.renderDiscord().embeds[0].fields![0].value.length <= 1024);
 });
 
 test('Parallel active tools stay visible, round/index reuse does not merge calls, and Discord limits are respected', () => {

@@ -294,6 +294,7 @@ export class StaffAIStreamState {
         const description = [
             !isComplete ? active.length ? 'ツールを使用しています。'
                 : this.content ? '回答を生成しています。' : '💭 応答を準備しています。' : '',
+            isComplete && this.hasReasoning ? `💭 Thinking · 完了（${this.reasoningCharacters}文字）` : '',
             this.tools.length ? `ツール ${this.tools.length}件 · 完了 ${completed}件 · 失敗 ${failed}件` : '',
             isComplete && active.length ? `未完了 ${active.length}件` : '',
             this.tools.length > visible.length ? `直近と実行中の${visible.length}件を表示` : '',
@@ -306,6 +307,14 @@ export class StaffAIStreamState {
                 : tool.startedAt !== undefined ? `${Math.max(0, Math.floor(((tool.endedAt ?? now) - tool.startedAt) / 1000))}秒` : '';
             return {name: info.name, value: [info.value, detail].filter(Boolean).join('\n'), inline: false};
         });
+        if (!isComplete && this.hasReasoning) {
+            const preview = escapeMarkdownTail(this.thinkingPreview
+                .replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ')
+                .replace(/@/g, '@\u200b').replace(/</g, '‹').replace(/\s+/g, ' ').trim(), 800);
+            const trimmed = this.reasoningCharacters > this.thinkingPreview.length || preview.trimmed;
+            fields.unshift({name: `💭 Thinking · ストリーミング中（${this.reasoningCharacters}文字）`,
+                value: preview.text ? `${trimmed ? '…' : ''}${preview.text}` : 'Thinkingを受信中…', inline: false});
+        }
         const speed = this.timedOutputSeconds > 0 ? (this.timedOutputTokens / this.timedOutputSeconds).toFixed(1) : '—';
         const tokens = this.usageReceived ? `合計 ${this.promptTokens + this.completionTokens} toks (in ${this.promptTokens} / out ${this.completionTokens})`
             : '合計 未取得 (API未提供)';
