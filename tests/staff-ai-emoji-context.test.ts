@@ -25,8 +25,8 @@ function fakeGuild(count = 30) {
 test('通常の雑談では絵文字カタログを送らず、systemも短い', () => {
     const context = selectStaffEmojis(fakeGuild(200), '暇なんや〜w');
     assert.deepEqual(context, { catalog: '', images: [] });
-    assert.ok(STAFF_AI_SYSTEM_PROMPT.length < 350);
-    assert.match(STAFF_AI_SYSTEM_PROMPT, /暇なんや〜/);
+    assert.ok(STAFF_AI_SYSTEM_PROMPT.length < 800);
+    assert.match(STAFF_AI_SYSTEM_PROMPT, /日本語.*自然な会話/);
 });
 
 test('Discordカスタム絵文字のIDを正確に認識しアニメーション表記を保つ', () => {

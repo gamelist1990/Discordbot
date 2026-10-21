@@ -148,17 +148,17 @@ export async function clearAIExperienceMemories(guildId: string): Promise<number
         return memories.length + channelMemories;
     });
 }
-export async function staffMemoryContext(guildId: string, userId: string, query: string): Promise<string> {
+export async function staffMemoryContext(guildId: string, userId: string, query: string, compact = false): Promise<string> {
     const list = await staffMemoryList(guildId);
     const recentDaily = list.filter(record => record.kind === 'daily').slice(-3);
     const profile = list.find(record => record.kind === 'user' && record.userId === userId);
     const matching = /覚え|メモリ|思い出|昨日|今日|以前/i.test(query);
-    // Always provide recent server context and the current speaker's own profile.
-    // Older daily summaries are fetched on demand through the unified memory tool.
-    const daily = matching ? recentDaily : recentDaily.slice(-2);
+    // Compact requests include only the speaker profile; daily context is added when asked.
+    // Full records remain available through manage_memory.
+    const daily = compact ? matching ? recentDaily.slice(-1) : [] : matching ? recentDaily : recentDaily.slice(-2);
     const personalAndDaily = [...(profile ? [profile] : []), ...daily]
-        .map(record => `[${record.title} / 更新 ${record.updatedAt}] ${record.content.slice(0, 700)}${record.kind === 'user' && record.publicInterests ? ` / 公開可能な興味: ${record.publicInterests.slice(0, 500)}` : ''}`);
-    return personalAndDaily.join('\n').slice(0, 3_500);
+        .map(record => `[${record.title} / 更新 ${record.updatedAt}] ${record.content.slice(0, compact ? 500 : 700)}${record.kind === 'user' && record.publicInterests ? ` / 公開可能な興味: ${record.publicInterests.slice(0, compact ? 200 : 500)}` : ''}`);
+    return personalAndDaily.join('\n').slice(0, compact ? 1200 : 3500);
 }
 async function summarize(
     input: string,
