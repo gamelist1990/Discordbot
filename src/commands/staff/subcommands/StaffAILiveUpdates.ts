@@ -11,7 +11,8 @@ export class StaffAILiveUpdates<T> {
     private waiters: Array<() => void> = [];
 
     constructor(private readonly send: (payload: T) => Promise<unknown>, private readonly intervalMs = 600,
-        private readonly onError: (error: unknown) => void = () => {}) {}
+        private readonly onError: (error: unknown) => void = () => {},
+        private readonly maxPendingMilestones = 8) {}
 
     queue(payload: T, milestone = false): void {
         if (this.closed || this.failed) return;
@@ -21,7 +22,7 @@ export class StaffAILiveUpdates<T> {
         if (milestone) {
             this.latest = undefined;
             this.milestones.push(payload);
-            if (this.milestones.length > 8) this.milestones.shift();
+            while (this.milestones.length > Math.max(1, this.maxPendingMilestones)) this.milestones.shift();
         } else this.latest = payload;
         this.pump();
     }

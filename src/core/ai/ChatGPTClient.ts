@@ -1,6 +1,7 @@
 // src/core/ai/ChatGPTClient.ts
 import OpenAI from 'openai';
 import { toolResultError, toolStepArguments } from './ToolResultStatus.js';
+import { executeToolBatch } from './ToolCallBatch.js';
 import { toolResultSummary } from './ToolResultSummary.js';
 import { ToolProtocolTextFilter, stripToolProtocolText } from './ToolProtocolTextFilter.js';
 import { AsyncLocalStorage } from 'node:async_hooks';
@@ -576,7 +577,13 @@ export class ChatGPTClient {
                             ? (this.forcedToolForRound(options, toolDefinitions, toolRound) || 'auto')
                             : 'none',
                     });
+                    const requestStarted = Date.now();
+                    let firstContentReceived = false;
                     const result = await this.streamResponseApiPayload(auth, payload, (delta) => {
+                        if (toolRound > 0 && delta.type !== 'usage' && !firstContentReceived) {
+                            firstContentReceived = true;
+                            this.debugToolCall('continuation-first-delta', {round: toolRound, waitMs: Date.now() - requestStarted, type: delta.type});
+                        }
                         if (delta.type === 'text' && delta.text.trim()) emittedText = true;
                         if (delta.type !== 'usage') this.progress.getStore()?.observe(delta.text, delta.type);
                         emittedDelta = true;
@@ -784,6 +791,7 @@ export class ChatGPTClient {
             ...(previousResponseId ? { previous_response_id: previousResponseId } : {}),
             ...(tools.length > 0 ? {
                 tools: this.convertToolsToResponseTools(tools),
+                parallel_tool_calls: !stalled && !forcedTool,
                 tool_choice: stalled ? 'none' : forcedTool ? { type: 'function', name: forcedTool } : 'auto',
             } : stalled ? { tool_choice: 'none' } : {}),
         };
@@ -956,6 +964,9 @@ export class ChatGPTClient {
         for await (const event of stream as AsyncIterable<OpenAI.Responses.ResponseStreamEvent>) {
             this.throwIfAborted(signal);
             handleEvent(event);
+            // A completed Responses event already includes final output and usage.
+            // Do not wait for a delayed proxy EOF before executing tools/continuing.
+            if (event.type === 'response.completed') break;
         }
 
         // Some compatible Responses endpoints omit output_text delta/done events
@@ -1091,9 +1102,7 @@ export class ChatGPTClient {
         options?: ChatOptions,
         round = 1,
     ): Promise<any[]> {
-        const outputs: any[] = [];
-
-        for (const functionCall of functionCalls) {
+        return executeToolBatch(functionCalls, call => call.name, call => call.arguments, async functionCall => {
             const toolEntry = this.tools.get(functionCall.name);
             if (!toolEntry) {
                 this.progress.getStore()?.record(functionCall.name, functionCall.arguments, `Error: Tool not found: ${functionCall.name}`);
@@ -1110,12 +1119,11 @@ export class ChatGPTClient {
                     round,
                     error: `Tool not found: ${functionCall.name}`,
                 });
-                outputs.push({
+                return {
                     type: 'function_call_output',
                     call_id: functionCall.callId,
                     output: `Error: Tool not found: ${functionCall.name}`,
-                });
-                continue;
+                };
             }
 
             try {
@@ -1140,11 +1148,11 @@ export class ChatGPTClient {
                 });
                 const reportedError = toolResultError(result);
                 await this.notifyToolStep(options, { phase: reportedError ? 'failed' : 'completed', error: reportedError, resultSummary: toolResultSummary(functionCall.name, args, result), name: functionCall.name, round, callId: functionCall.callId, arguments: toolStepArguments(functionCall.name, functionCall.arguments) });
-                outputs.push({
+                return {
                     type: 'function_call_output',
                     call_id: functionCall.callId,
                     output: typeof result === 'string' ? result : JSON.stringify(result),
-                });
+                };
             } catch (error) {
                 this.throwIfAborted(options?.signal);
                 if (error instanceof AIProgressStalledError) throw error;
@@ -1163,15 +1171,13 @@ export class ChatGPTClient {
                     round,
                     error: error instanceof Error ? error.message : String(error),
                 });
-                outputs.push({
+                return {
                     type: 'function_call_output',
                     call_id: functionCall.callId,
                     output: `Error: ${error instanceof Error ? error.message : String(error)}`,
-                });
+                };
             }
-        }
-
-        return outputs;
+        });
     }
 
     private buildRateLimitWaitInfo(
@@ -1443,7 +1449,7 @@ export class ChatGPTClient {
         options?: ChatOptions,
         round = 1,
     ): Promise<OpenAIChatCompletionMessage[]> {
-        const toolResultMessages = await Promise.all(toolCalls.map(async toolCall => {
+        const toolResultMessages = await executeToolBatch(toolCalls, call => call.function.name, call => call.function.arguments, async toolCall => {
             const toolEntry = this.tools.get(toolCall.function.name);
             if (!toolEntry) {
                 this.progress.getStore()?.record(toolCall.function.name, toolCall.function.arguments, `Error: Tool not found: ${toolCall.function.name}`);
@@ -1578,7 +1584,7 @@ export class ChatGPTClient {
                     // ignore restore errors
                 }
             }
-        }));
+        });
 
         return [...messages, ...toolResultMessages];
     }

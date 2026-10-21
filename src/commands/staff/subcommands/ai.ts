@@ -456,7 +456,7 @@ ${reason}` });
             payload => interaction.editReply(payload), UPDATE_INTERVAL, error => {
                 console.error('AI preview edit failed:', error);
                 interactionExpired = true;
-            },
+            }, 2, // Every snapshot contains the timeline; keep newer Thinking from queuing behind old edits.
         );
         let liveUpdates = createLiveUpdates();
 
