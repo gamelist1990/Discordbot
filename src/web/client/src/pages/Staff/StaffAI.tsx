@@ -4,12 +4,6 @@ import { useAppToast } from '../../AppToastProvider';
 import ui from '../ManagementDashboard.module.css';
 
 type Guild = { id: string; name: string };
-type GuildChannel = { id: string; name: string; type: number; position: number };
-type ChannelImport = {
-  id: string; channelId: string; channelName: string; status: 'queued' | 'processing' | 'completed' | 'failed';
-  messageCount: number; totalUsers: number; processedUsers: number; totalDays: number; processedDays: number;
-  createdAt: string; updatedAt: string; error?: string;
-};
 type Metrics = {
   requests: number; inputTokens: number; outputTokens: number;
   totalTokens: number; generatedSeconds: number; cacheHitTokens: number; cacheInputTokens: number;
@@ -63,9 +57,6 @@ const StaffAIPage: React.FC = () => {
   selectedGuildRef.current = guildId;
   const [metrics, setMetrics] = useState<Metrics>(zero);
   const [memories, setMemories] = useState<Memory[]>([]);
-  const [channels, setChannels] = useState<GuildChannel[]>([]);
-  const [selectedChannelId, setSelectedChannelId] = useState('');
-  const [channelImports, setChannelImports] = useState<ChannelImport[]>([]);
   const [personality, setPersonality] = useState<Personality>(defaultPersonality);
   const [personalityDraft, setPersonalityDraft] = useState<PersonalitySettings>(defaultPersonality);
   const [personalityDirty, setPersonalityDirty] = useState(false);
@@ -74,7 +65,6 @@ const StaffAIPage: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [personalityBusy, setPersonalityBusy] = useState(false);
-  const [channelImportBusy, setChannelImportBusy] = useState(false);
   const [resetPersonalityConfirm, setResetPersonalityConfirm] = useState(false);
   const [error, setError] = useState('');
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
@@ -109,14 +99,10 @@ const StaffAIPage: React.FC = () => {
     if (!selectedGuild) return;
     if (showLoading) setLoading(true);
     try {
-      const [data, importData] = await Promise.all([
-        readJson(`/api/staff/ai/${selectedGuild}`),
-        readJson(`/api/staff/ai/${selectedGuild}/memories/channel-imports`),
-      ]);
+      const data = await readJson(`/api/staff/ai/${selectedGuild}`);
       if (selectedGuild !== selectedGuildRef.current) return;
       setMetrics(data.metrics ?? zero);
       setMemories(data.memories ?? []);
-      setChannelImports(importData.imports ?? []);
       const nextPersonality = data.personality ?? defaultPersonality;
       setPersonality(nextPersonality);
       if (showLoading || !personalityDirtyRef.current) {
@@ -138,22 +124,6 @@ const StaffAIPage: React.FC = () => {
     } finally {
       if (showLoading) setLoading(false);
     }
-  }, [guildId]);
-
-  useEffect(() => {
-    if (!guildId) { setChannels([]); setSelectedChannelId(''); return; }
-    let active = true;
-    void readJson(`/api/staff/ai/${guildId}/channels`)
-      .then(data => {
-        if (!active || guildId !== selectedGuildRef.current) return;
-        const next = (data.channels || []) as GuildChannel[];
-        setChannels(next);
-        setSelectedChannelId(current => next.some(channel => channel.id === current) ? current : next[0]?.id || '');
-      })
-      .catch(error => {
-        if (active) setError(error instanceof Error ? error.message : 'チャンネル一覧を取得できませんでした');
-      });
-    return () => { active = false; };
   }, [guildId]);
 
   const savePersonality = async () => {
@@ -214,43 +184,6 @@ const StaffAIPage: React.FC = () => {
     return () => window.clearInterval(timer);
   }, [guildId, refresh]);
 
-  const hasActiveChannelImport = channelImports.some(job => job.status === 'queued' || job.status === 'processing');
-  useEffect(() => {
-    if (!guildId || !hasActiveChannelImport) return;
-    let wasActive = true;
-    const poll = () => {
-      const selectedGuild = guildId;
-      void readJson(`/api/staff/ai/${selectedGuild}/memories/channel-imports`)
-        .then(data => {
-          if (selectedGuild !== selectedGuildRef.current) return;
-          const next = (data.imports || []) as ChannelImport[];
-          const stillActive = next.some(job => job.status === 'queued' || job.status === 'processing');
-          setChannelImports(next);
-          if (wasActive && !stillActive) void refresh(selectedGuild);
-          wasActive = stillActive;
-        }).catch(() => undefined);
-    };
-    const timer = window.setInterval(poll, 3000);
-    return () => window.clearInterval(timer);
-  }, [guildId, hasActiveChannelImport, refresh]);
-
-  const startChannelImport = async () => {
-    if (!guildId || !selectedChannelId || channelImportBusy) return;
-    setChannelImportBusy(true);
-    try {
-      const data = await readJson(`/api/staff/ai/${guildId}/memories/import-channel`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ channelId: selectedChannelId }),
-      });
-      const job = data.job as ChannelImport;
-      setChannelImports(current => [...current.filter(item => item.id !== job.id), job]);
-      addToast(job.status === 'completed' ? 'このチャンネルの履歴は取り込み済みです' : '履歴をバックグラウンドで取り込みます', 'success');
-    } catch (error) {
-      const message = error instanceof Error ? error.message : '履歴を取り込めませんでした';
-      setError(message); addToast(message, 'error');
-    } finally { setChannelImportBusy(false); }
-  };
-
   const save = async (item: Memory) => {
     if (!draft.trim() || busy || draft.length > 6000) return;
     setBusy(true);
@@ -292,9 +225,6 @@ const StaffAIPage: React.FC = () => {
   const speed = metrics.generatedSeconds > 0 ? metrics.outputTokens / metrics.generatedSeconds : null;
   const cache = metrics.cacheInputTokens > 0 ? metrics.cacheHitTokens / metrics.cacheInputTokens * 100 : null;
   const selected = guilds.find(g => g.id === guildId);
-  const selectedChannelImport = [...channelImports].reverse().find(job => job.channelId === selectedChannelId);
-  const selectedChannelImported = selectedChannelImport?.status === 'completed' && selectedChannelImport.totalUsers > 0;
-  const channelImportJobsForSelectedChannel = channelImports.filter(job => job.channelId === selectedChannelId).slice(-1);
 
   return <div className={ui.page}>
     <header className={ui.hero}>
@@ -413,15 +343,15 @@ const StaffAIPage: React.FC = () => {
           <section className={ui.panel} aria-labelledby="staff-ai-memories-title">
             <div className={ui.sectionHeader}>
               <div><span className={ui.eyebrow}>Memory workspace</span><h2 id="staff-ai-memories-title" style={{ marginTop: 10 }}>メモリーライブラリ</h2>
-                <p>選んだチャンネルの直近15日分から参加者全員のプロフィールと日次記録を初期作成し、その後は/staff aiの会話から話したユーザーのプロフィールも更新します。AIChannelとStaff AIは共通の話し方設定を使います。</p></div>
-              <button type="button" className={ui.buttonDanger} disabled={busy || hasActiveChannelImport || (!memories.length && !personality.learnedSummary)} onClick={() => { setDeleting('all'); setConfirmation(''); }}>
+                <p>通常のサーバー会話を蓄積し、12時間ごとにチャンネル別の会話を確認し、バックグラウンドで出来事とユーザー別メモリーを更新します。/staff aiの利用は不要です。AIChannelとStaff AIは共通の話し方設定を使います。</p></div>
+              <button type="button" className={ui.buttonDanger} disabled={busy || (!memories.length && !personality.learnedSummary)} onClick={() => { setDeleting('all'); setConfirmation(''); }}>
                 {icon('delete_outline')} 全件削除
               </button>
             </div>
             <div className={ui.toolbar}>
               <div className={ui.tabs} role="tablist" aria-label="メモリー種別">
                 <button role="tab" aria-selected={tab === 'daily'} type="button" className={`${ui.tab} ${tab === 'daily' ? ui.tabActive : ''}`} onClick={() => setTab('daily')}>
-                  日次ダイジェスト <small>{counts.daily}</small>
+                  出来事 <small>{counts.daily}</small>
                 </button>
                 <button role="tab" aria-selected={tab === 'user'} type="button" className={`${ui.tab} ${tab === 'user' ? ui.tabActive : ''}`} onClick={() => setTab('user')}>
                   ユーザー別 <small>{counts.user}</small>
@@ -430,33 +360,6 @@ const StaffAIPage: React.FC = () => {
               <label className={ui.searchWrap}>{icon('search')}<input aria-label="メモリー検索" placeholder="タイトル・本文を検索" value={search} onChange={e => setSearch(e.target.value)} /></label>
               <span className={ui.muted}>{filtered.length} 件表示</span>
             </div>
-            {tab === 'user' && !search && <div className={ui.panelBody}>
-              <div className={ui.personalityInsight}>
-                <strong>{icon('history')} チャンネル履歴からプロフィールを初期作成</strong>
-                <p>{counts.user === 0 ? 'チャンネルを選ぶと、過去15日分の発言から参加ユーザー全員の興味・活動・繰り返し見られる話し方を初期作成します。' : '別チャンネルの会話を追加して、参加者全員のプロフィールを補強できます。'}発言内の命令は実行せず、観測できた内容だけを記録します。取り込みと要約はAIへのリクエストを優先して、何も処理していない時間に進みます。</p>
-                <div className={ui.channelImportGrid}>
-                  <label className={ui.label}>会話履歴を読むチャンネル
-                    <select className={ui.select} value={selectedChannelId} onChange={event => setSelectedChannelId(event.target.value)} disabled={!channels.length || channelImportBusy}>
-                      {!channels.length && <option value="">利用できるテキストチャンネルがありません</option>}
-                      {channels.map(channel => <option value={channel.id} key={channel.id}>#{channel.name}</option>)}
-                    </select>
-                  </label>
-                  <div className={ui.label}>
-                    <span>取り込み範囲</span><span className={ui.muted}>過去15日 / 最大5,000件</span>
-                    <button type="button" className={ui.buttonPrimary} style={{ marginTop: 8, width: 'fit-content' }}
-                      disabled={!selectedChannelId || channelImportBusy || hasActiveChannelImport || selectedChannelImported} onClick={() => void startChannelImport()}>
-                      {icon('auto_awesome')} {channelImportBusy ? '登録中…' : selectedChannelImported ? 'このチャンネルは取り込み済み' : counts.user === 0 ? '初期メモリーを作成' : '履歴からプロフィールを追加'}
-                    </button>
-                  </div>
-                </div>
-                {channelImportJobsForSelectedChannel.map(job => <p className={ui.muted} key={job.id} style={{ marginTop: 12 }}>
-                  {job.status === 'queued' ? '待機中：AIリクエストが落ち着いてから開始します。' : job.status === 'processing'
-                    ? `作成中：発言 ${fmt(job.messageCount)} 件 / 日次 ${job.processedDays}・${job.totalDays} 日 / ユーザー ${job.processedUsers}・${job.totalUsers} 人`
-                    : job.status === 'failed' ? `失敗：${job.error || '履歴を読み込めませんでした'}`
-                      : `完了：発言 ${fmt(job.messageCount)} 件から ${job.totalUsers} 人分を確認しました。`}
-                </p>)}
-              </div>
-            </div>}
             {loading ? <div className={ui.panelBody}><div className={ui.skeleton}/></div>
               : filtered.length ? <div className={ui.list} role="tabpanel">
                 {filtered.map(item => <article className={ui.listItem} key={item.id}>
@@ -497,7 +400,7 @@ const StaffAIPage: React.FC = () => {
                 <p>{search ? '検索条件を変えてみてください。' : tab === 'daily' ? 'チャンネル履歴や/staff aiの会話から、日々の振り返りをバックグラウンドで作成します。' : 'チャンネル履歴から参加者全員のプロフィールを初期作成できます。その後は/staff aiで話したユーザーのプロフィールも更新されます。'}</p>
               </div>}
           </section>
-          <div className={ui.notice}>{icon('verified_user')} <div><strong style={{ color: 'var(--app-ink)' }}>メモリーの取り扱い</strong><p>メモリーはサーバーごとに分離して保存します。初期プロフィールはStaffが選んだチャンネルの履歴から参加者全員について作ります。興味・活動・話し方は会話で観測できる範囲に限り、私的情報や性格診断は保存しません。AIChannelとStaff AIは共通の話し方設定を使い、会話履歴からユーザー別プロフィールと日次記録を作成します。</p></div></div>
+          <div className={ui.notice}>{icon('verified_user')} <div><strong style={{ color: 'var(--app-ink)' }}>メモリーの取り扱い</strong><p>メモリーはサーバーごとに分離して保存します。通常のサーバー会話をもとに、12時間ごとにメモリーを更新します。興味・活動・話し方は会話で観測できる範囲に限り、私的情報や性格診断は保存しません。AIChannelとStaff AIは共通の話し方設定を使い、会話履歴からユーザー別プロフィールと日次記録を作成します。</p></div></div>
         </>}
 
     {deleting && <div className={ui.modalBackdrop} role="presentation" onMouseDown={e => { if (e.target === e.currentTarget && !busy) setDeleting(null); }}>
@@ -510,7 +413,7 @@ const StaffAIPage: React.FC = () => {
         </label>}
         <div className={ui.dialogActions}>
           <button className={ui.button} type="button" disabled={busy} onClick={() => setDeleting(null)}>キャンセル</button>
-          <button className={ui.buttonDanger} type="button" disabled={busy || (deleting === 'all' && (confirmation !== 'すべて削除' || hasActiveChannelImport))} onClick={() => void remove()}>
+          <button className={ui.buttonDanger} type="button" disabled={busy || (deleting === 'all' && (confirmation !== 'すべて削除'))} onClick={() => void remove()}>
             {busy ? '削除中…' : '削除する'}
           </button>
         </div>
@@ -520,7 +423,7 @@ const StaffAIPage: React.FC = () => {
       <div className={ui.dialog} role="alertdialog" aria-modal="true" aria-labelledby="staff-ai-personality-reset-title">
         <span className={ui.eyebrow}>{icon('restart_alt')} 性格設定の初期化</span>
         <h2 id="staff-ai-personality-reset-title">このサーバーのAI設定を初期状態に戻しますか？</h2>
-        <p>Staffが調整した共通の話し方と学習済みの雰囲気を初期化します。ユーザー別プロフィールと日次ダイジェストは残ります。</p>
+        <p>Staffが調整した共通の話し方と学習済みの雰囲気を初期化します。ユーザー別プロフィールと出来事は残ります。</p>
         <div className={ui.dialogActions}>
           <button className={ui.button} type="button" disabled={personalityBusy} onClick={() => setResetPersonalityConfirm(false)}>キャンセル</button>
           <button className={ui.buttonDanger} type="button" disabled={personalityBusy} onClick={() => void resetPersonality()}>

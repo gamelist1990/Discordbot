@@ -352,6 +352,21 @@ export class EventHandler {
                 Logger.debug('Failed to handle AntiCheat on messageCreate:', error);
             }
 
+            if (!message.webhookId && message.content.trim()) {
+                try {
+                    const { recordGuildConversation } = await import('../ai/StaffAIMemory.js');
+                    await recordGuildConversation(message.guild.id, {
+                        userId: message.author.id,
+                        userName: message.member?.displayName || message.author.globalName || message.author.username,
+                        timestamp: message.createdTimestamp, content: message.content,
+                        channelId: message.channelId,
+                        channelName: 'name' in message.channel ? message.channel.name ?? undefined : undefined,
+                    });
+                } catch (error) {
+                    Logger.debug('Failed to record conversation memory:', error);
+                }
+            }
+
             try {
                 const { coreFeatureManager } = await import('../corepanel/CoreFeatureManager.js');
                 const handled = await coreFeatureManager.onMessage(message);

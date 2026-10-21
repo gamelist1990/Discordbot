@@ -66,3 +66,47 @@ test('他ユーザーには一般的な趣味だけ公開し、私的プロフ�
   assert.doesNotMatch(privateValue,/非公開/);
  } finally {(database as any).get=get;}
 });
+
+test('通常会話をStaff AIなしで蓄積し、同時発言とギルド分離を保持する', async () => {
+    const { recordGuildConversation } = await import('../src/core/ai/StaffAIMemory.ts');
+    const get = database.get.bind(database), set = database.set.bind(database);
+    const records = new Map<string, unknown>();
+    (database as any).get = async (guild: string, key: string, fallback: unknown) =>
+        structuredClone(records.get(`${guild}/${key}`) ?? fallback);
+    (database as any).set = async (guild: string, key: string, value: unknown) => {
+        records.set(`${guild}/${key}`, structuredClone(value));
+    };
+    try {
+        const message = { userId: 'u', userName: '参加者', timestamp: Date.now(), content: '建築が完成した' };
+        await Promise.all([
+            recordGuildConversation('ordinary', message),
+            recordGuildConversation('ordinary', { ...message, content: '次は駅を作る' }),
+            recordGuildConversation('other', message),
+        ]);
+        await recordGuildConversation('ordinary', { ...message, content: '  ' });
+        const saved = records.get('ordinary/Guild/ordinary/conversation-memory-history') as any[];
+        assert.equal(saved.length, 2);
+        assert.equal(saved[1].content, '次は駅を作る');
+        assert.equal((records.get('other/Guild/other/conversation-memory-history') as any[]).length, 1);
+    } finally {
+        (database as any).get = get;
+        (database as any).set = set;
+    }
+});
+
+test('12時間の確認対象を日付とチャンネルごとに分離する', async () => {
+    const { conversationReviewGroups } = await import('../src/core/ai/StaffAIMemory.ts');
+    const now = Date.parse('2026-10-21T05:00:00Z');
+    const since = now - 12 * 60 * 60_000;
+    assert.deepEqual(conversationReviewGroups([
+        { timestamp: now, channelId: 'a', channelName: '雑談' },
+        { timestamp: now - 1, channelId: 'b', channelName: '建築' },
+        { timestamp: now - 2, channelId: 'a' },
+        { timestamp: now },
+        { timestamp: since - 1, channelId: 'old' },
+        { timestamp: now + 1, channelId: 'future' },
+    ], since, now), [
+        { day: '2026-10-21', channelId: 'a', channelName: '雑談' },
+        { day: '2026-10-21', channelId: 'b', channelName: '建築' },
+    ]);
+});

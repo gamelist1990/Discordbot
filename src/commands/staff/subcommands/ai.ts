@@ -22,7 +22,7 @@ import {
 } from '../../../core/ai/GuildAIPersonality.js';
 import { selectStaffEmojis, getStaffEmojiImageParts } from './StaffAIEmojiContext.js';
 import { PdfRAGManager } from '../../../core/ai/PdfRAGManager.js';
-import { recordStaffUsage, queueCurrentStaffDailyMemory, queueStaffDailyMemory, staffMemoryContext } from '../../../core/ai/StaffAIMemory.js';
+import { recordStaffUsage, staffMemoryContext } from '../../../core/ai/StaffAIMemory.js';
 import { registerStaffAITools } from './ai-tools/catalog.js';
 import { staffMemoryToolScope } from './ai-tools/staff_memory.js';
 import { database } from '../../../core/persistence/Database.js';
@@ -604,8 +604,6 @@ ${reason}` });
             // 会話をデータセットに保存（最新100件に切り詰め）
             try {
                 await saveConversationDatasetEntry(interaction, userContentText, cleanedResponse, /* incomplete */ false);
-                queueStaffDailyMemory(interaction.guildId || 'global');
-                queueCurrentStaffDailyMemory(interaction.guildId || 'global');
             } catch (dbErr) {
                 console.error('dataset save error:', dbErr);
             }
@@ -665,8 +663,6 @@ ${reason}` });
                                 .catch(usageError => console.warn('[StaffAI] retry metrics error', usageError));
                             try {
                                 await saveConversationDatasetEntry(interaction, sanitized, retryResponse, false);
-                                queueStaffDailyMemory(interaction.guildId || 'global');
-                                queueCurrentStaffDailyMemory(interaction.guildId || 'global');
                             } catch (dbErr) {
                                 console.error('dataset save error:', dbErr);
                             }
