@@ -11,7 +11,7 @@ type Metrics = {
 type Memory = {
   id: string; kind: 'daily' | 'user'; guildId: string; userId?: string; day?: string;
   title: string; content: string; publicInterests?: string; evidenceCount: number;
-  updatedAt: string; editedByStaff?: boolean;
+  updatedAt: string; editedByStaff?: boolean; sourceChannelName?: string;
 };
 type PersonalitySettings = {
   learningEnabled: boolean;
@@ -68,7 +68,8 @@ const StaffAIPage: React.FC = () => {
   const [resetPersonalityConfirm, setResetPersonalityConfirm] = useState(false);
   const [error, setError] = useState('');
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
-  const [tab, setTab] = useState<'daily' | 'user'>('daily');
+  const tab = 'daily' as const;
+  const [customMemos, setCustomMemos] = useState<Array<{id:string;title?:string;content:string;authorName?:string;createdAt:string;updatedAt?:string}>>([]);
   const [search, setSearch] = useState('');
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
@@ -103,6 +104,7 @@ const StaffAIPage: React.FC = () => {
       if (selectedGuild !== selectedGuildRef.current) return;
       setMetrics(data.metrics ?? zero);
       setMemories(data.memories ?? []);
+      setCustomMemos(data.customMemos ?? []);
       const nextPersonality = data.personality ?? defaultPersonality;
       setPersonality(nextPersonality);
       if (showLoading || !personalityDirtyRef.current) {
@@ -177,7 +179,7 @@ const StaffAIPage: React.FC = () => {
 
   useEffect(() => {
     if (!guildId) return;
-    setMetrics(zero); setMemories([]); setEditing(null); setSearch(''); setLastUpdated(null);
+    setMetrics(zero); setMemories([]); setCustomMemos([]); setEditing(null); setSearch(''); setLastUpdated(null);
     personalityDirtyRef.current = false; setPersonalityDirty(false);
     void refresh(guildId, true);
     const timer = window.setInterval(() => void refresh(guildId), 30_000);
@@ -232,7 +234,7 @@ const StaffAIPage: React.FC = () => {
         <Link to="/staff" className={ui.muted}>{icon('arrow_back')} スタッフ運用に戻る</Link>
         <div style={{ marginTop: 14 }}><span className={ui.eyebrow}>{icon('auto_awesome')} AI Operations</span></div>
         <h1>Staff AI</h1>
-        <p>会話の利用状況、日々の振り返りやユーザープロフィールをまとめて管理。</p>
+        <p>会話の利用状況、日々の振り返りとAI利用履歴をまとめて管理。</p>
       </div>
       <div className={ui.heroActions}>
         <label className={ui.label}>対象サーバー
@@ -252,6 +254,18 @@ const StaffAIPage: React.FC = () => {
     {loadingGuilds ? <div className={ui.state} role="status">{icon('hourglass_top')}<p>サーバー情報を読み込んでいます…</p></div>
       : !guildId ? <div className={ui.state}>{icon('dns')}<h3>管理できるサーバーがありません</h3><p>Staff権限のあるサーバーでログインしてください。</p></div>
         : <>
+          <div className={ui.notice}>
+            {icon('delete_forever')}
+            <div><strong>総履歴のリセット</strong><p>このサーバーのStaff AI統計、会話履歴、日次記録を削除します。元に戻せません。</p>
+              <button type="button" className={ui.buttonDanger} onClick={async () => {
+                if (!window.confirm('このサーバーのAI履歴・累計統計を完全にリセットしますか？元には戻せません。')) return;
+                try {
+                  await readJson(`/api/staff/ai/${guildId}/history/reset`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({confirm:'RESET'})});
+                  await refresh(guildId, true); addToast('総履歴をリセットしました', 'success');
+                } catch (error) { addToast(error instanceof Error ? error.message : 'リセットに失敗しました', 'error'); }
+              }}>総履歴をリセット</button>
+            </div>
+          </div>
           <section aria-label="Staff AIの累計利用統計">
             <div className={ui.sectionHeader} style={{ padding: '0 0 15px', borderBottom: 0 }}>
               <div><h2>利用状況</h2><p>{selected?.name || 'サーバー'} の累計統計</p></div>
@@ -340,21 +354,27 @@ const StaffAIPage: React.FC = () => {
             </div>
           </section>
 
+          <section className={ui.panel}>
+            <div className={ui.sectionHeader}><div><span className={ui.eyebrow}>Custom memos</span><h2>カスタムメモ</h2>
+              <p>Discordの /staff ai に「○○を共有メモに保存して」と依頼すると、ここに表示されます。</p></div></div>
+            {customMemos.length ? <div className={ui.list}>{customMemos.map(memo => <article className={ui.listItem} key={memo.id}><div>
+              <h3 className={ui.listTitle}>{memo.title || '無題のメモ'}</h3>
+              <div className={ui.listMeta}><span>{memo.authorName || 'Staff'}</span><span>{new Date(memo.updatedAt || memo.createdAt).toLocaleString('ja-JP')}</span></div>
+              <p className={ui.listBody}>{memo.content}</p>
+            </div></article>)}</div> : <div className={ui.emptyInner}><h3>まだカスタムメモはありません</h3><p>日次記録や履歴をリセットしても、カスタムメモは保持されます。</p></div>}
+          </section>
           <section className={ui.panel} aria-labelledby="staff-ai-memories-title">
             <div className={ui.sectionHeader}>
               <div><span className={ui.eyebrow}>Memory workspace</span><h2 id="staff-ai-memories-title" style={{ marginTop: 10 }}>メモリーライブラリ</h2>
-                <p>通常のサーバー会話を蓄積し、12時間ごとにチャンネル別の会話を確認し、バックグラウンドで出来事とユーザー別メモリーを更新します。/staff aiの利用は不要です。AIChannelとStaff AIは共通の話し方設定を使います。</p></div>
+                <p>通常のサーバー会話を蓄積し、12時間ごとにチャンネル別の会話を確認し、バックグラウンドで出来事を更新します。/staff aiの利用は不要です。AIChannelとStaff AIは共通の話し方設定を使います。</p></div>
               <button type="button" className={ui.buttonDanger} disabled={busy || (!memories.length && !personality.learnedSummary)} onClick={() => { setDeleting('all'); setConfirmation(''); }}>
                 {icon('delete_outline')} 全件削除
               </button>
             </div>
             <div className={ui.toolbar}>
               <div className={ui.tabs} role="tablist" aria-label="メモリー種別">
-                <button role="tab" aria-selected={tab === 'daily'} type="button" className={`${ui.tab} ${tab === 'daily' ? ui.tabActive : ''}`} onClick={() => setTab('daily')}>
+                <button role="tab" aria-selected={tab === 'daily'} type="button" className={`${ui.tab} ${tab === 'daily' ? ui.tabActive : ''}`}>
                   出来事 <small>{counts.daily}</small>
-                </button>
-                <button role="tab" aria-selected={tab === 'user'} type="button" className={`${ui.tab} ${tab === 'user' ? ui.tabActive : ''}`} onClick={() => setTab('user')}>
-                  ユーザー別 <small>{counts.user}</small>
                 </button>
               </div>
               <label className={ui.searchWrap}>{icon('search')}<input aria-label="メモリー検索" placeholder="タイトル・本文を検索" value={search} onChange={e => setSearch(e.target.value)} /></label>
@@ -397,10 +417,10 @@ const StaffAIPage: React.FC = () => {
               </div> : <div className={ui.emptyInner}>
                 <div className={ui.emptyIcon}>{icon(search ? 'search_off' : tab === 'daily' ? 'event_note' : 'person_search')}</div>
                 <h3>{search ? '一致するメモリーがありません' : 'まだメモリーがありません'}</h3>
-                <p>{search ? '検索条件を変えてみてください。' : tab === 'daily' ? 'チャンネル履歴や/staff aiの会話から、日々の振り返りをバックグラウンドで作成します。' : 'チャンネル履歴から参加者全員のプロフィールを初期作成できます。その後は/staff aiで話したユーザーのプロフィールも更新されます。'}</p>
+                <p>{search ? '検索条件を変えてみてください。' : tab === 'daily' ? 'チャンネル履歴や/staff aiの会話から、日々の振り返りをバックグラウンドで作成します。' : 'Discordからカスタムメモを作成できます。'}</p>
               </div>}
           </section>
-          <div className={ui.notice}>{icon('verified_user')} <div><strong style={{ color: 'var(--app-ink)' }}>メモリーの取り扱い</strong><p>メモリーはサーバーごとに分離して保存します。通常のサーバー会話をもとに、12時間ごとにメモリーを更新します。興味・活動・話し方は会話で観測できる範囲に限り、私的情報や性格診断は保存しません。AIChannelとStaff AIは共通の話し方設定を使い、会話履歴からユーザー別プロフィールと日次記録を作成します。</p></div></div>
+          <div className={ui.notice}>{icon('verified_user')} <div><strong style={{ color: 'var(--app-ink)' }}>メモリーの取り扱い</strong><p>メモリーはサーバーごとに分離して保存します。通常のサーバー会話をもとに、12時間ごとにメモリーを更新します。興味・活動・話し方は会話で観測できる範囲に限り、私的情報や性格診断は保存しません。AIChannelとStaff AIは共通の話し方設定を使い、会話履歴から日次記録を作成します。</p></div></div>
         </>}
 
     {deleting && <div className={ui.modalBackdrop} role="presentation" onMouseDown={e => { if (e.target === e.currentTarget && !busy) setDeleting(null); }}>

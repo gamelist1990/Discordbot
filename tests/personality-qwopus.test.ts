@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ChatGPTClient } from '../src/core/ai/ChatGPTClient.ts';
-import { QWOPUS_MODEL } from '../src/config.ts';
+import { NEMOTRON_MODEL } from '../src/config.ts';
 import { requestPersonalityModelText, requestCoreFeatureNaturalFollowUp, requestCoreFeatureConfidenceCalibration } from '../src/core/corepanel/model.ts';
 import { PersonalityService } from '../src/core/corepanel/personality/PersonalityService.ts';
 import { extractJsonObject, validatePersonalityEvaluation } from '../src/core/corepanel/helpers.ts';
@@ -30,7 +30,7 @@ test('personality uses Qwopus for evaluation, follow-up and confidence without s
     await requestCoreFeatureNaturalFollowUp('回答', '履歴', '', []);
     assert.equal(await requestCoreFeatureConfidenceCalibration('支援者', '理由', [], 4, '履歴', 50), 64);
     assert.equal(calls.length, 3);
-    assert.ok(calls.every((options) => options.model === QWOPUS_MODEL && options.strictModel === true));
+    assert.ok(calls.every((options) => options.model === NEMOTRON_MODEL && options.strictModel === true));
 });
 
 test('empty Qwopus responses are treated as errors', async (t) => {
@@ -74,7 +74,7 @@ test('final evaluation preserves request hooks and never invents an analyst clas
     t.mock.method(ChatGPTClient.prototype, 'sendMessage', async (_messages: unknown, options: any) => { calls.push(options); return response('not JSON'); });
     await assert.rejects(() => service().evaluate(session(6), { requestLabel: 'interview:test' }), /判定結果を読み取れません/);
     assert.equal(calls.length, 2);
-    assert.ok(calls.every((options) => options.model === QWOPUS_MODEL && options.requestLabel === 'interview:test'));
+    assert.ok(calls.every((options) => options.model === NEMOTRON_MODEL && options.requestLabel === 'interview:test'));
 });
 
 test('a slow model does not cause the interview room to timeout while processing', async () => {

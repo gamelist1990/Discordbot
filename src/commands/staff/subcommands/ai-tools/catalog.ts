@@ -14,7 +14,7 @@ import { bashCalculationDefinition, bashCalculationHandler } from './calculate.j
 /** Keep schema constraints, but avoid repeating long examples and system rules on every turn. */
 const COMPACT_DESCRIPTIONS: Record<string, string> = {
     web_search: '複数検索元の結果と取得できた本文をMarkdownで返す。出典・日付を確認し、スニペットと本文・失敗を区別する。空結果や同じ検索を繰り返さない。',
-    manage_memory: 'daily/my_profile/public_interestsはrecall。server_memosは共有メモの検索・一覧・取得・作成・更新・削除。非公開プロフィールは本人だけ。変更は明示依頼時だけ。記録なしを再試行しない。',
+    manage_memory: 'dailyはrecall。server_memosは共有メモの検索・一覧・取得・作成・更新・削除。個人プロフィールは保存しない。変更は明示依頼時だけ。記録なしを再試行しない。',
     manage_schedule: '本人の一回限りの予約をcreate/list/cancel。reminderは通知、taskは指定時刻に公開情報の調査・計算・文章生成を実行し本人にメンション。先に調査せず自己完結したtaskを保存。channel_idで別チャンネル可。日時は現在時計と日本時間を基準に、曖昧・過去は確認。保存成功後だけ完了と伝える。',
     calculate_bash: '計算専用Bash。小数・巨大整数はbc -lでscaleを指定（角度はラジアン）。許可形式はechoによる整数演算、printfからbc -lへのパイプ、引用付きbcヒアドキュメント。任意コマンド・ファイル・ネット・Python不可。5秒・128MiBまで。',
     fetch_url: '公開URLをNode fetchで取得しHTML本文をMarkdown化。Chrome不要。rawはソース、browserはJS描画が必要な場合だけの任意機能。ローカルIPは禁止。URLは正確に転記。',

@@ -28,43 +28,21 @@ test('ギルドごとに統計を分離し不明なKV hit率は取得済み扱�
             {id:'user:u2',kind:'user',guildId:'g1',userId:'u2',title:'u2さん',content:'楽曲が好き',evidenceCount:5,updatedAt:'2026-10-17T00:00:00Z'},
         ];
         await (database as any).set('g1','Guild/g1/staff-ai-memory',sample);
-        assert.equal((await staffMemoryList('g1')).length,3);
+        assert.equal((await staffMemoryList('g1')).length,1);
         const own = await staffMemoryToolScope.run({ guildId:'g1',userId:'u1' },
-            () => staffMemoryHandler({type:'my_profile'}));
-        assert.match(own, /建築が好き/);
-        assert.doesNotMatch(own, /楽曲が好き/);
-        const without = await staffMemoryHandler({type:'my_profile'});
-        assert.match((without as {error: string}).error,/権限がありません/);
+            () => staffMemoryHandler({store:'my_profile',action:'recall'}));
+        assert.match(JSON.stringify(own), /廃止/);
         const context = await staffMemoryContext('g1','u1','昨日何があった？');
         assert.match(context,/マイクラ制作/);
-        assert.doesNotMatch(context,/楽曲が好き/);
-        await editStaffMemory('g1','user:u1','プラグイン制作が得意');
-        assert.equal((await staffMemoryList('g1')).find(m=>m.id==='user:u1')?.editedByStaff,true);
-        assert.equal(await clearStaffMemory('g1','user:u2'),1);
-        assert.equal((await staffMemoryList('g1')).length,2);
+        assert.doesNotMatch(context,/建築が好き|楽曲が好き/);
+        await editStaffMemory('g1','daily:2026-10-16','プラグインを制作した');
+        assert.equal((await staffMemoryList('g1'))[0]?.editedByStaff,true);
+        assert.equal(await clearStaffMemory('g1','daily:2026-10-16'),1);
+        assert.equal((await staffMemoryList('g1')).length,0);
     } finally {
         (database as any).get = get;
         (database as any).set = set;
     }
-});
-
-test('他ユーザーには一般的な趣味だけ公開し、私的プロフィール本文は渡さない', async () => {
- const get = database.get.bind(database);
- (database as any).get = async (_g: string,_k:string,_d:unknown) => [{
-  id:'user:123456789012345678', kind:'user', guildId:'guild',
-  userId:'123456789012345678',title:'テスト',content:'非公開の連絡先情報',
-  publicInterests:'Minecraftの建築が好き。Javaが得意。',
-  updatedAt:new Date().toISOString(), evidenceCount:3,
- }];
- try {
-  const publicValue=await staffMemoryToolScope.run({guildId:'guild',userId:'999999999999999999'},
-    ()=>staffMemoryHandler({type:'public_interests',userId:'123456789012345678'}));
-  assert.match(publicValue,/Minecraft/);
-  assert.doesNotMatch(publicValue,/非公開/);
-  const privateValue=await staffMemoryToolScope.run({guildId:'guild',userId:'999999999999999999'},
-    ()=>staffMemoryHandler({type:'my_profile'}));
-  assert.doesNotMatch(privateValue,/非公開/);
- } finally {(database as any).get=get;}
 });
 
 test('通常会話をStaff AIなしで蓄積し、同時発言とギルド分離を保持する', async () => {

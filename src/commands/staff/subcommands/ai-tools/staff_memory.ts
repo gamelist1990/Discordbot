@@ -2,76 +2,33 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { staffMemoryList } from '../../../../core/ai/StaffAIMemory.js';
 import { serverMemoAction } from './memo.js';
 
-// Explicit guild+requesting-user context, never supplied by model-controlled arguments.
 export const staffMemoryToolScope = new AsyncLocalStorage<{ guildId: string; userId: string }>();
-
 export const staffMemoryDefinition = {
     type: 'function' as const,
     function: {
         name: 'manage_memory',
-        description: [
-            'Staff AIの唯一のメモリーツール。用途に応じてstoreを選ぶ。',
-            'dailyはサーバーの日次要約、my_profileは発言者本人の非公開プロフィール、public_interestsは公開可能な趣味だけを読む。これらはaction=recall。',
-            'server_memosはサーバー共有メモのlist/search/get/create/update/deleteに使う。',
-            '例: 本人プロフィールは{"action":"recall","store":"my_profile"}、共有メモ一覧は{"action":"list","store":"server_memos"}。',
-            '同じ条件の読み取りは一度で十分。記録なしも正常な結果なので同じ引数で再試行しない。WebやDiscord履歴の調査にはそれぞれの検索ツールを使う。',
-            '更新・作成・削除はユーザーが明確に依頼した場合だけ行う。日常会話の好みやプロフィールは自動要約されるため、共有メモへ重複保存しない。',
-        ].join(' '),
+        description: 'dailyは日次要約の参照(action=recall)。server_memosはカスタム共有メモのlist/search/get/create/update/delete。作成・変更・削除はユーザーの明示依頼時だけ。個人プロフィールは保存しない。',
         parameters: {
             type: 'object',
             properties: {
-                action: { type: 'string', enum: ['recall', 'list', 'search', 'get', 'create', 'update', 'delete'] },
-                store: { type: 'string', enum: ['daily', 'my_profile', 'public_interests', 'server_memos'] },
-                day: { type: 'string', description: 'daily指定時の日付（YYYY-MM-DD）。省略すると直近5件。' },
-                userId: { type: 'string', description: 'public_interests指定時のDiscordユーザーID。公開可能な趣味だけを返す。' },
-                query: { type: 'string', description: 'server_memosの検索語' },
-                id: { type: 'string', description: 'server_memosの対象ID' },
-                title: { type: 'string', description: 'server_memosのタイトル' },
-                content: { type: 'string', description: 'server_memosの本文' },
-                limit: { type: 'number', description: 'list/searchの取得件数（最大100）' },
+                action: { type: 'string', enum: ['recall','list','search','get','create','update','delete'] },
+                store: { type: 'string', enum: ['daily','server_memos'] },
+                day: { type: 'string' }, query: { type: 'string' }, id: { type: 'string' },
+                title: { type: 'string' }, content: { type: 'string' }, limit: { type: 'number' },
             },
-            required: ['action', 'store'],
-            additionalProperties: false,
+            required: ['action','store'], additionalProperties: false,
         },
     },
 };
-
-async function recallStaffMemory(type: 'daily' | 'my_profile' | 'public_interests', args: Record<string, unknown>): Promise<string | object> {
-    const scope = staffMemoryToolScope.getStore();
-    if (!scope) return { error: 'このリクエストではメモリーの読み取り権限がありません' };
-
-    const entries = await staffMemoryList(scope.guildId);
-    if (type === 'public_interests') {
-        const requestedId = typeof args.userId === 'string' && /^\d{17,20}$/.test(args.userId)
-            ? args.userId : scope.userId;
-        const profile = entries.find(item => item.kind === 'user' && item.userId === requestedId);
-        return profile?.publicInterests?.trim() || 'このユーザーの一般公開可能な趣味・得意分野は記録されていません';
-    }
-
-    const filtered = type === 'my_profile'
-        ? entries.filter(item => item.kind === 'user' && item.userId === scope.userId)
-        : entries.filter(item => item.kind === 'daily' && (typeof args.day !== 'string' || item.day === args.day)).slice(-5);
-    return filtered.length
-        ? filtered.map(item => `${item.title} (${item.updatedAt}): ${item.content.slice(0, 2500)}`).join('\n')
-        : '記録されたメモリーはありません';
-}
-
 export async function staffMemoryHandler(args: Record<string, unknown>, context?: unknown): Promise<string | object> {
-    if (!args || typeof args !== 'object' || Array.isArray(args)) {
-        return { error: '引数はactionとstoreを含むJSONオブジェクトで指定してください' };
+    if (!args || typeof args !== 'object' || Array.isArray(args)) return { error: 'storeとactionを指定してください' };
+    if (args.store === 'server_memos') return serverMemoAction(String(args.action), args, context);
+    if (args.store === 'daily' && args.action === 'recall') {
+        const scope = staffMemoryToolScope.getStore();
+        if (!scope) return { error: 'このリクエストではメモリーの読み取り権限がありません' };
+        const entries = (await staffMemoryList(scope.guildId))
+            .filter(item => item.kind === 'daily' && (typeof args.day !== 'string' || item.day === args.day)).slice(-5);
+        return entries.length ? entries.map(item => `${item.title}: ${item.content.slice(0,2500)}`).join('\n') : '記録されたメモリーはありません';
     }
-    const action = typeof args.action === 'string' ? args.action : '';
-    const store = typeof args.store === 'string' ? args.store : '';
-
-    if (store === 'server_memos') return serverMemoAction(action, args, context);
-    if (store === 'daily' || store === 'my_profile' || store === 'public_interests') {
-        if (action !== 'recall') return { error: '日次要約とプロフィールは参照専用です。action=recallを指定してください' };
-        return recallStaffMemory(store, args);
-    }
-
-    // Keep the previous handler argument format working for existing in-flight requests.
-    if (!store && (args.type === 'daily' || args.type === 'my_profile' || args.type === 'public_interests')) {
-        return recallStaffMemory(args.type, args);
-    }
-    return { error: 'メモリーのstoreとactionを指定してください。プロフィールはstore=my_profile, action=recall。共有メモ一覧はstore=server_memos, action=list。' };
+    return { error: 'storeとactionを指定してください。dailyはrecall、server_memosはlist/search/get/create/update/delete。ユーザー別記憶は廃止されました。' };
 }

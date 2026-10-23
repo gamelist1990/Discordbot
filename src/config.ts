@@ -7,7 +7,7 @@ import { fillMissingConfig } from './utils/configDefaults.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-export const QWOPUS_MODEL = 'qwopus-coder';
+export const NEMOTRON_MODEL = 'nemotron-bolt';
 export const JEFF_MODEL = 'jeff-base';
 
 export interface AppConfig {
@@ -74,9 +74,10 @@ const contentSafetyModel = !configuredContentSafetyModel || configuredContentSaf
 const defaultChannelModel = 'gemini-3.5-flash-lite';
 const isJeffDecisionModel = (model: string | undefined): boolean =>
     model?.trim().toLowerCase() === JEFF_MODEL || model?.trim().toLowerCase() === 'jev';
-const configuredPexModel = raw.pexAi?.model?.trim();
-const configuredChannelModel = raw.pexAi?.channelModel?.trim();
-const pexModel = isJeffDecisionModel(configuredPexModel) ? QWOPUS_MODEL : configuredPexModel || QWOPUS_MODEL;
+const migrateModel = (model: string | undefined) => model?.replace(/^qwopus-coder$/i, NEMOTRON_MODEL);
+const configuredPexModel = migrateModel(raw.pexAi?.model?.trim());
+const configuredChannelModel = migrateModel(raw.pexAi?.channelModel?.trim());
+const pexModel = isJeffDecisionModel(configuredPexModel) ? NEMOTRON_MODEL : configuredPexModel || NEMOTRON_MODEL;
 const channelModel = isJeffDecisionModel(configuredChannelModel)
     ? defaultChannelModel
     : configuredChannelModel || defaultChannelModel;
@@ -94,7 +95,7 @@ export const config: Required<AppConfig> = {
     openai: {
         apiKey: raw.openai?.apiKey || '',
         apiEndpoint: raw.openai?.apiEndpoint || '',
-        defaultModel: raw.openai?.defaultModel || QWOPUS_MODEL,
+        defaultModel: migrateModel(raw.openai?.defaultModel) || NEMOTRON_MODEL,
         proxyEndpoints: Array.isArray(raw.openai?.proxyEndpoints)
             ? raw.openai?.proxyEndpoints.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
             : [],
@@ -107,7 +108,7 @@ export const config: Required<AppConfig> = {
         model: pexModel,
         channelModel,
         contentSafetyModel,
-        fallbackModel: raw.pexAi?.fallbackModel || '',
+        fallbackModel: migrateModel(raw.pexAi?.fallbackModel) || '',
         steps: Array.isArray(raw.pexAi?.steps)
             ? raw.pexAi.steps
                 .filter(step =>
@@ -117,11 +118,11 @@ export const config: Required<AppConfig> = {
                     && [0, 1, 2, 3].includes(step.level),
                 )
                 .map(step => ({
-                    model: isJeffDecisionModel(step.model) ? channelModel : step.model.trim(),
+                    model: isJeffDecisionModel(step.model) ? channelModel : migrateModel(step.model.trim())!,
                     level: step.level,
                 }))
             : [],
-        visionModel: raw.pexAi?.visionModel || '',
+        visionModel: migrateModel(raw.pexAi?.visionModel) || '',
         apiKey: raw.pexAi?.apiKey || '',
         level: raw.pexAi?.level === 0
             || raw.pexAi?.level === 1

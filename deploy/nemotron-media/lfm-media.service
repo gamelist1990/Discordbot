@@ -1,0 +1,13 @@
+[Unit]
+Description=HomePC image video GIF analysis gateway for A8 Nemotron
+After=network-online.target lfm-vision.service
+Wants=lfm-vision.service
+[Service]
+Type=simple
+WorkingDirectory=/home/pexserver/WorkSpace/LFM-Vision
+ExecStart=/usr/bin/python3 /home/pexserver/WorkSpace/LFM-Vision/media_gateway.py
+Restart=on-failure
+RestartSec=5
+UMask=0077
+[Install]
+WantedBy=default.target

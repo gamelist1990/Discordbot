@@ -1,4 +1,4 @@
-import { config, QWOPUS_MODEL } from '../../../config.js';
+import { config, NEMOTRON_MODEL } from '../../../config.js';
 import type { OpenAITool, ToolHandler } from '../../../types/openai.js';
 import type { ChatAIToolRegistrar } from './types.js';
 
@@ -14,7 +14,7 @@ const visionDescribeDefinition: OpenAITool = {
     type: 'function',
     function: {
         name: 'vision_describe_image',
-        description: '画像認識が必要な場合だけ、指定された直近添付画像をGemmaで解析します。',
+        description: '画像認識が必要な場合だけ、指定された直近添付画像をHomePCのLFMとA8のNemotronで解析します。',
         parameters: {
             type: 'object',
             properties: {
@@ -43,7 +43,7 @@ const visionDescribeHandler: ToolHandler = async (args, context?: VisionToolCont
                 ...(config.pexAi.apiKey ? { authorization: `Bearer ${config.pexAi.apiKey}` } : {}),
             },
             body: JSON.stringify({
-                model: QWOPUS_MODEL,
+                model: NEMOTRON_MODEL,
                 messages: [
                     {
                         role: 'user',
@@ -66,7 +66,7 @@ const visionDescribeHandler: ToolHandler = async (args, context?: VisionToolCont
         const text = data?.choices?.[0]?.message?.content;
         return typeof text === 'string' && text.trim()
             ? text.trim()
-            : 'VISION_ERROR: moondreamから有効な応答がありませんでした。';
+            : 'VISION_ERROR: 画像解析APIから有効な応答がありませんでした。';
     } catch (error) {
         return `VISION_ERROR: ${error instanceof Error ? error.message : String(error)}`;
     }

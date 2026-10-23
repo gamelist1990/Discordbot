@@ -2,7 +2,7 @@ import { ChatInputCommandInteraction } from 'discord.js';
 import { database } from '../../../../core/persistence/Database.js';
 
 /** Backing operations for the single Staff AI memory tool. */
-type MemoEntry = {
+export type MemoEntry = {
     id: string;
     title?: string;
     content: string;
@@ -14,7 +14,7 @@ type MemoEntry = {
 
 const getKey = (guildId: string) => `Guild/${guildId}/memos`;
 
-async function loadMemos(guildId: string): Promise<MemoEntry[]> {
+export async function loadMemos(guildId: string): Promise<MemoEntry[]> {
     try {
         return await database.get<MemoEntry[]>(guildId, getKey(guildId), []) || [];
     } catch (error) {
@@ -27,7 +27,7 @@ async function persistMemos(guildId: string, memos: MemoEntry[]): Promise<void> 
     await database.set(guildId, getKey(guildId), memos);
 }
 
-export async function serverMemoAction(
+async function serverMemoActionUnlocked(
     action: string,
     args: Record<string, unknown>,
     context?: unknown,
@@ -64,7 +64,7 @@ export async function serverMemoAction(
 
         if (action === 'create') {
             const content = typeof args.content === 'string' ? args.content.trim() : '';
-            if (!content) return { error: '作成するメモの本文を指定してください' };
+            if (!content || content.length > 6000 || (typeof args.title === 'string' && args.title.length > 200)) return { error: '作成するメモの本文を指定してください' };
             const now = new Date().toISOString();
             const memo: MemoEntry = {
                 id: `${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
@@ -85,7 +85,10 @@ export async function serverMemoAction(
             const index = memos.findIndex(entry => entry.id === id);
             if (index < 0) return { error: `メモ ${id || '(IDなし)'} が見つかりません` };
             if (typeof args.title === 'string') memos[index].title = args.title.trim() || undefined;
-            if (typeof args.content === 'string') memos[index].content = args.content.trim();
+            if (typeof args.content === 'string') {
+                if (!args.content.trim() || args.content.length > 6000) return { error: '本文は1〜6000文字です' };
+                memos[index].content = args.content.trim();
+            }
             memos[index].updatedAt = new Date().toISOString();
             await persistMemos(guildId, memos);
             return { success: true, memo: memos[index] };
@@ -104,4 +107,18 @@ export async function serverMemoAction(
         console.error(`[StaffAI memory] memo ${action} failed:`, error);
         return { error: 'サーバーメモの処理に失敗しました' };
     }
+}
+
+const memoTails = new Map<string, Promise<void>>();
+export async function serverMemoAction(action: string, args: Record<string, unknown>, context?: unknown): Promise<object> {
+    const guildId = (context as ChatInputCommandInteraction | undefined)?.guild?.id;
+    if (!guildId) return { error: 'サーバーメモはギルド内でのみ利用できます' };
+    const previous = memoTails.get(guildId) ?? Promise.resolve();
+    let release!: () => void;
+    const current = new Promise<void>(resolve => { release = resolve; });
+    const tail = previous.catch(() => undefined).then(() => current);
+    memoTails.set(guildId, tail);
+    await previous.catch(() => undefined);
+    try { return await serverMemoActionUnlocked(action, args, context); }
+    finally { release(); if (memoTails.get(guildId) === tail) memoTails.delete(guildId); }
 }

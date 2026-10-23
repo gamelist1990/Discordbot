@@ -1,7 +1,6 @@
 import { database } from '../persistence/Database.js';
 import type { AIConversationEntry } from './AIConversationHistory.js';
 import { OpenAIChatManager } from './OpenAIChatManager.js';
-import { appendProfileFacts, mergeProfileMemory } from './ProfileMemoryMerge.js';
 import { config } from '../../config.js';
 import { queueAIBackgroundWork } from './AIBackgroundWork.js';
 import { clearAIChannelExperienceMemory } from '../ChatAIChannel/AIChannelExperienceMemory.js';
@@ -24,6 +23,7 @@ const REVIEW_INTERVAL = 12 * 60 * 60_000;
 const METRICS = (guildId: string) => `Guild/${guildId}/staff-ai-metrics`;
 const ZERO: StaffMetrics = { requests: 0, inputTokens: 0, outputTokens: 0, totalTokens: 0,
     generatedSeconds: 0, cacheHitTokens: 0, cacheInputTokens: 0 };
+const historyRevisions = new Map<string, number>();
 const selfMemoryTails = new Map<string, Promise<void>>();
 const legacySelfMemoryCleanup = new Map<string, Promise<void>>();
 const dayInJst = (time: number): string => new Intl.DateTimeFormat('en-CA', {
@@ -52,7 +52,7 @@ export async function staffMemoryList(guildId: string): Promise<StaffMemory[]> {
                 await Promise.all([
                     database.set(guildId, AI_SELF_MEMORY_KEY(guildId), []),
                     database.set(guildId, AI_SELF_MEMORY_REVISION_KEY(guildId), await guildAIExperienceMemoryRevision(guildId) + 1),
-                    database.set(guildId, KEY(guildId), saved.filter(memory => memory.kind !== 'ai')),
+                    database.set(guildId, KEY(guildId), saved.filter(memory => memory.kind === 'daily')),
                 ]);
                 return memories.length;
             })(),
@@ -64,7 +64,7 @@ export async function staffMemoryList(guildId: string): Promise<StaffMemory[]> {
     }
     await cleanup;
     const saved = await database.get<StaffMemory[]>(guildId, KEY(guildId), []);
-    return (saved || []).filter(memory => memory.kind !== 'ai');
+    return (saved || []).filter(memory => memory.kind === 'daily');
 }
 async function guildAIExperienceMemories(guildId: string): Promise<StaffMemory[]> {
     return await database.get<StaffMemory[]>(guildId, AI_SELF_MEMORY_KEY(guildId), []) || [];
@@ -86,6 +86,19 @@ async function withSelfMemoryLock<T>(guildId: string, action: () => Promise<T>):
         release();
         if (selfMemoryTails.get(guildId) === tail) selfMemoryTails.delete(guildId);
     }
+}
+
+export async function resetStaffAIHistory(guildId: string): Promise<void> {
+    historyRevisions.set(guildId, (historyRevisions.get(guildId) ?? 0) + 1);
+    await withSelfMemoryLock(guildId, async () => {
+        await Promise.all([
+            database.set(guildId, METRICS(guildId), { ...ZERO }),
+            database.set(guildId, HISTORY_KEY(guildId), []),
+            database.set(guildId, DATASET(guildId), []),
+            database.set(guildId, CHECKPOINT_KEY(guildId), Date.now()),
+            database.set(guildId, KEY(guildId), []),
+        ]);
+    });
 }
 
 export async function staffMetrics(guildId: string): Promise<StaffMetrics> {
@@ -142,15 +155,14 @@ export async function clearAIExperienceMemories(guildId: string): Promise<number
         return memories.length + channelMemories;
     });
 }
-export async function staffMemoryContext(guildId: string, userId: string, query: string, compact = false): Promise<string> {
+export async function staffMemoryContext(guildId: string, _userId: string, query: string, compact = false): Promise<string> {
     const list = await staffMemoryList(guildId);
     const recentDaily = list.filter(record => record.kind === 'daily').slice(-3);
-    const profile = list.find(record => record.kind === 'user' && record.userId === userId);
     const matching = /覚え|メモリ|思い出|昨日|今日|以前/i.test(query);
     // Compact requests include only the speaker profile; daily context is added when asked.
     // Full records remain available through manage_memory.
     const daily = compact ? matching ? recentDaily.slice(-1) : [] : matching ? recentDaily : recentDaily.slice(-2);
-    const personalAndDaily = [...(profile ? [profile] : []), ...daily]
+    const personalAndDaily = daily
         .map(record => `[${record.title} / 更新 ${record.updatedAt}] ${record.content.slice(0, compact ? 500 : 700)}${record.kind === 'user' && record.publicInterests ? ` / 公開可能な興味: ${record.publicInterests.slice(0, compact ? 200 : 500)}` : ''}`);
     return personalAndDaily.join('\n').slice(0, compact ? 1200 : 3500);
 }
@@ -182,6 +194,7 @@ export async function recordGuildConversation(guildId: string, message: StaffMem
 }
 
 async function updateStaffMemoriesForDay(guildId: string, day: string, updateExistingDaily: boolean, signal: AbortSignal, channelId: string, channelName?: string): Promise<void> {
+    const revision = historyRevisions.get(guildId) ?? 0;
     const memoryId = `daily:channel:${channelId}:${day}`;
     const staffDataset = await database.get<AIConversationEntry[]>(guildId, DATASET(guildId), []) || [];
     const history = await database.get<StaffMemoryHistoryMessage[]>(guildId, HISTORY_KEY(guildId), []) || [];
@@ -214,52 +227,7 @@ async function updateStaffMemoriesForDay(guildId: string, day: string, updateExi
         }
     }
 
-    // Re-read before writing so an edit made while the model was summarizing is preserved.
-    const next = (await staffMemoryList(guildId)).filter(memory => memory.kind !== 'ai');
-    const updatedIds = new Set<string>();
-
-    // Build profiles from the rolling 90-day Staff AI dataset, not one day's messages.
-    // This lets one useful interaction per day gradually produce a profile.
-    const cutoff = Date.now() - 90 * 86400000;
-    const rollingEntries = dataset.filter(entry => !entry.incomplete && entry.timestamp >= cutoff && entry.prompt?.trim());
-    const activeUserIds = new Set(entries.map(entry => entry.userId));
-    const rollingByUser = Object.groupBy(rollingEntries, entry => entry.userId);
-    for (const userId of activeUserIds) {
-        if (signal.aborted) throw signal.reason ?? new Error('Memory processing was preempted.');
-        const own = rollingByUser[userId];
-        if (!own?.length) continue;
-        const id = `user:${userId}`;
-        const old = next.find(memory => memory.id === id);
-        if (old?.editedByStaff) continue;
-        const ownPrompts = own.slice(-20).map(entry => `${entry.userName || userId}: ${entry.prompt.slice(0, 550)}`).join('\n');
-        const facts = await summarize(
-            `既存の確認済みプロフィール: ${old?.content || 'なし'}\n最近90日間の本人発言:\n${ownPrompts}`,
-            'このユーザー本人について、既存プロフィールにまだない、本人が明言した新しい興味・得意分野・活動・継続中の取り組みだけを短い箇条書きで抽出する。既存情報を再要約・削除せず、追加情報だけを書く。新情報がなければ空文字を返し、「特になし」で置き換えない。推測や断定できない属性は含めない。',
-            signal,
-        );
-        if (!appendProfileFacts(undefined, facts, 4000)) continue;
-        const publicInterests = await summarize(
-            `既存の公開可能な興味: ${old?.publicInterests || 'なし'}\n最近の本人発言:\n${own.slice(-20).map(entry => entry.prompt.slice(0, 400)).join('\n')}`,
-            '既存の公開可能な興味にまだない、本人が明示した新しい趣味、好きなゲームや曲、一般的な興味、公開している制作活動や得意分野のみを短く抽出。既存情報は書き直さない。連絡先・本名・住所・健康・恋愛・思想・家族・秘密・推測は記録しない。新情報の確証がなければ空文字を返す。',
-            signal,
-        );
-        const record: StaffMemory = {
-            id, kind: 'user', guildId, userId,
-            title: `${own.at(-1)?.userName || userId} のプロフィール`,
-            content: facts.slice(0, 4000), publicInterests: publicInterests.slice(0, 1000),
-            evidenceCount: Math.max(old?.evidenceCount || 0, own.length), updatedAt: new Date().toISOString(),
-            sourceChannelId: old?.sourceChannelId, sourceChannelName: old?.sourceChannelName,
-        };
-        if (!record.publicInterests) record.publicInterests = old?.publicInterests;
-        const index = next.findIndex(memory => memory.id === id);
-        if (index >= 0) next[index] = record;
-        else next.push(record);
-        updatedIds.add(id);
-    }
-
-    // Merge only records generated in this job onto the latest library state.
-    // This avoids overwriting a staff edit made while profile summaries were running.
-    const latest = (await staffMemoryList(guildId)).filter(memory => memory.kind !== 'ai');
+    const latest = (await staffMemoryList(guildId)).filter(memory => memory.kind === 'daily');
     const latestDailyIndex = latest.findIndex(memory => memory.id === memoryId);
     const latestDaily = latestDailyIndex >= 0 ? latest[latestDailyIndex] : undefined;
     if (summary
@@ -277,19 +245,11 @@ async function updateStaffMemoriesForDay(guildId: string, day: string, updateExi
         if (latestDailyIndex >= 0) latest[latestDailyIndex] = dailyRecord;
         else latest.push(dailyRecord);
     }
-    for (const id of updatedIds) {
-        const generated = next.find(memory => memory.id === id);
-        if (!generated) continue;
-        const currentIndex = latest.findIndex(memory => memory.id === id);
-        if (currentIndex >= 0 && latest[currentIndex].editedByStaff) continue;
-        const merged = generated.kind === 'user'
-            ? mergeProfileMemory(currentIndex >= 0 ? latest[currentIndex] : undefined, generated)
-            : generated;
-        if (currentIndex >= 0) latest[currentIndex] = merged;
-        else latest.push(merged);
-    }
     if (signal.aborted) throw signal.reason ?? new Error('Memory processing was preempted.');
-    await database.set(guildId, KEY(guildId), latest.slice(-1000));
+    await withSelfMemoryLock(guildId, async () => {
+        if ((historyRevisions.get(guildId) ?? 0) !== revision) return;
+        await database.set(guildId, KEY(guildId), latest.filter(memory => memory.kind === 'daily').slice(-1000));
+    });
 }
 
 /** Keep channels separate; legacy messages without a channel cannot be attributed safely. */

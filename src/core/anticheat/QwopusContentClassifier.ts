@@ -1,9 +1,9 @@
-import { config, QWOPUS_MODEL } from '../../config.js';
+import { config, NEMOTRON_MODEL } from '../../config.js';
 import { JEV_CATEGORY_RULES } from './JevContentClassifier.js';
 import { parseContentVerdict } from './detectors/ContentSafetyDetector.js';
 import type { AiRequestMetrics, ContentCategory, ContentScoringPolicy, ContentVerdict } from './detectors/ContentSafetyDetector.js';
 
-export const CONTENT_SAFETY_IMAGE_MODEL = QWOPUS_MODEL;
+export const CONTENT_SAFETY_IMAGE_MODEL = NEMOTRON_MODEL;
 
 export function buildQwopusModerationRequest(text: string, frames: string[], customRules = '') {
     const instructions = [

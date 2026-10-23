@@ -1,7 +1,8 @@
 import { Router } from 'express';
+import { loadMemos } from '../../../commands/staff/subcommands/ai-tools/memo.js';
 import type { SettingsSession } from '../../types/index.js';
 import { verifyAuth, isGuildAccessible, getSessionGuildPermissionLevel } from '../../middleware/auth.js';
-import { clearAIExperienceMemories, staffMemoryList, staffMetrics, editStaffMemory, clearStaffMemory } from '../../../core/ai/StaffAIMemory.js';
+import { resetStaffAIHistory, clearAIExperienceMemories, staffMemoryList, staffMetrics, editStaffMemory, clearStaffMemory } from '../../../core/ai/StaffAIMemory.js';
 import type { BotClient } from '../../../core/platform/BotClient.js';
 import {
     clearGuildAIPersonalityLearning,
@@ -26,12 +27,24 @@ export function createStaffAIRoutes(sessions: Map<string, SettingsSession>, _bot
     router.get('/:guildId', async (req, res) => {
         try {
             const guildId = String(req.params.guildId);
-            const [metrics, memories, personality] = await Promise.all([
-                staffMetrics(guildId), staffMemoryList(guildId), getGuildAIPersonality(guildId),
+            const [metrics, memories, personality, customMemos] = await Promise.all([
+                staffMetrics(guildId), staffMemoryList(guildId), getGuildAIPersonality(guildId), loadMemos(guildId),
             ]);
-            res.json({ metrics, memories, personality });
+            res.json({ metrics, memories, personality, customMemos });
         } catch {
             res.status(500).json({ error: 'Staff AI情報の取得に失敗しました' });
+        }
+    });
+    router.post('/:guildId/history/reset', async (req, res) => {
+        if (req.body?.confirm !== 'RESET') {
+            res.status(400).json({ error: '確認文字列 RESET が必要です' }); return;
+        }
+        try {
+            await resetStaffAIHistory(String(req.params.guildId));
+            await clearGuildAIPersonalityLearning(String(req.params.guildId));
+            res.json({ ok: true });
+        } catch {
+            res.status(500).json({ error: '総履歴のリセットに失敗しました' });
         }
     });
     router.put('/:guildId/personality', async (req, res) => {

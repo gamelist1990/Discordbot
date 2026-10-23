@@ -22,7 +22,7 @@ export function describeDiscordAttachments(message: Message): string[] {
     const files = [...message.attachments.values()].slice(0, 5)
         .map(file => {
             const source = file as typeof file & { content_type?: string; filename?: string };
-            return `${(source.contentType ?? source.content_type)?.startsWith('image/') ? '画像' : 'ファイル'}: ${source.name ?? source.filename ?? '添付ファイル'}`;
+            return `${((source.contentType ?? source.content_type)?.startsWith('image/') || (source.contentType ?? source.content_type)?.startsWith('video/')) ? '画像' : 'ファイル'}: ${source.name ?? source.filename ?? '添付ファイル'}`;
         });
     const stickers = message.stickers?.map?.(sticker => `スタンプ: ${sticker.name}`) ?? [];
     return [...files, ...stickers].slice(0, 5);
@@ -69,13 +69,14 @@ function imageSourceUrls(message: Message): string[] {
     const urls: string[] = [];
     for (const attachment of message.attachments.values()) {
         const source = attachment as typeof attachment & { content_type?: string; filename?: string };
-        if ((source.contentType ?? source.content_type)?.startsWith('image/')
-            || /\.(png|jpe?g|webp|gif)(\?|$)/i.test(source.name ?? source.filename ?? '')) {
+        if (((source.contentType ?? source.content_type)?.startsWith('image/') || (source.contentType ?? source.content_type)?.startsWith('video/'))
+            || /\.(png|jpe?g|webp|gif|mp4|webm|mov)(\?|$)/i.test(source.name ?? source.filename ?? '')) {
             urls.push(attachment.url);
         }
     }
     for (const embed of message.embeds ?? []) {
-        if (embed.image?.url) urls.push(embed.image.url);
+        if (embed.video?.url) urls.push(embed.video.url);
+        else if (embed.image?.url) urls.push(embed.image.url);
         if (embed.thumbnail?.url) urls.push(embed.thumbnail.url);
     }
     return urls.filter(url => {
@@ -97,6 +98,12 @@ export async function loadStaffReplyImageParts(
     const urls = [...new Set(messages.flatMap(imageSourceUrls))].slice(0, MAX_REPLY_IMAGES);
     for (const url of urls) {
         try {
+            if (/\.(gif|mp4|webm|mov)(?:\?|$)/i.test(url)) {
+                parts.push(/\.gif(?:\?|$)/i.test(url)
+                    ? { type: 'image_url', image_url: { url, detail: 'auto' } }
+                    : { type: 'video_url', video_url: { url } });
+                continue;
+            }
             const response = await fetchImage(url, { signal: AbortSignal.timeout(7000) });
             if (!response.ok || Number(response.headers.get('content-length') || 0) > MAX_IMAGE_BYTES) {
                 throw new Error('Image unavailable or too large');

@@ -18,7 +18,8 @@ export interface OpenAIChatCompletionMessage {
  * Content part for vision-enabled messages
  */
 export interface OpenAIContentPart {
-    type: 'text' | 'image_url';
+    type: 'text' | 'image_url' | 'video_url';
+    video_url?: { url: string };
     text?: string;
     image_url?: {
         url: string;

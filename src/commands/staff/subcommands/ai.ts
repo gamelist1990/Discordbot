@@ -3,7 +3,7 @@ import { STAFF_FILE_OUTPUT_FLOW } from '../../../core/ai/AIFileOutputPolicy.js';
 import { ChatInputCommandInteraction, Message, MessageFlags, DiscordAPIError } from 'discord.js';
 import { OpenAIChatManager } from '../../../core/ai/OpenAIChatManager.js';
 import { buildStaffAITimeContext } from '../../../core/ai/StaffAITimeContext.js';
-import { QWOPUS_MODEL } from '../../../config.js';
+import { NEMOTRON_MODEL } from '../../../config.js';
 import { OpenAIChatCompletionMessage, OpenAIChatCompletionChunk } from '../../../types/openai.js';
 import type { ResponseApiStreamDelta } from '../../../core/ai/ChatGPTClient.js';
 import { StaffAIStreamState } from './StaffAIStreamState.js';
@@ -256,17 +256,15 @@ ${reason}` });
         let attachmentContent: string | any[] | null = null;
         const rag = new PdfRAGManager();
         if (attachment) {
-            // 動画ファイルのチェック
-            if (attachment.contentType?.startsWith('video/')) {
-                await safeRespond({ content: '❌ 動画ファイルは未対応です。JSON、テキスト、JS、TS、画像ファイルのみ対応しています。', ephemeral: true });
-                return;
-            }
-
-            // 画像ファイルの場合
-            if (attachment.contentType?.startsWith('image/')) {
+            if (attachment.contentType?.startsWith('video/') || /\.(mp4|webm|mov)$/i.test(attachment.name || '')) {
                 attachmentContent = [
-                    { type: 'text', text: `添付画像: ${attachment.name}` },
-                    { type: 'image_url', image_url: { url: attachment.url, detail: 'auto' } }
+                    { type: 'text', text: `添付動画: ${attachment.name}` },
+                    { type: 'video_url', video_url: { url: attachment.url } },
+                ];
+            } else if (attachment.contentType?.startsWith('image/') || /\.(png|jpe?g|gif|webp)$/i.test(attachment.name || '')) {
+                attachmentContent = [
+                    { type: 'text', text: `添付画像・GIF: ${attachment.name}` },
+                    { type: 'image_url', image_url: { url: attachment.url, detail: 'auto' } },
                 ];
             }
             // PDFファイルの場合 — RAG フローで扱う
@@ -498,7 +496,7 @@ ${reason}` });
         const streamOptions = {
             // Keep enough budget for a final answer after reasoning/tool calls.
             // A smaller limit can end a Responses stream with thinking only.
-            model: QWOPUS_MODEL, strictModel: true, maxTokens: forceTextFileTools ? 4096 : 3072,
+            model: NEMOTRON_MODEL, strictModel: true, maxTokens: forceTextFileTools ? 4096 : 3072,
             reasoningEffort: 'low' as const,
             ...(forceTextFileTools ? { forceToolSequence: ['output_file'] }
                 : forceChannelSearchTool ? { forceToolSequence: ['search_channel_messages'] } : {}),

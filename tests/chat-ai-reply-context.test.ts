@@ -21,7 +21,7 @@ test('ChatAIChannelのtypingループはdestroyで必ず停止する', async () 
         sendTyping: async () => { typingCalls += 1; },
     };
 
-    const stop = (manager as any).startTypingLoop(channel);
+    const stop = await (manager as any).startTypingLoop(channel);
     (manager as any).activeTypingStop = stop;
     assert.equal(typingCalls, 1);
 

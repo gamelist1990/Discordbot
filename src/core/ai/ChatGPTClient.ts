@@ -824,6 +824,7 @@ export class ChatGPTClient {
                     ...messageType,
                     role,
                     content: message.content.map(part => {
+                        if (part.type === 'video_url') return { type: 'input_video', video_url: part.video_url?.url ?? '' };
                         if (part.type === 'image_url') {
                             return {
                                 type: 'input_image',

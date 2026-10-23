@@ -8,7 +8,6 @@ import { registerWebSearchTool } from './webSearchBing.js';
 import { registerYoutubeDetailsTool } from './youtubeDetails.js';
 import { registerUploadImageTool } from './uploadImage.js';
 import { registerImageEditorTool } from './imageEditor.js';
-import { registerUserMemoryEditTool } from './userMemoryEdit.js';
 import { registerChannelUserTimeoutTool } from './channelUserTimeout.js';
 import { registerTextFileTools } from './textFiles.js';
 
@@ -20,7 +19,6 @@ const toolRegistrars: ChatAIToolRegistrar[] = [
     registerUploadImageTool,
     registerWeatherLookupTool,
     registerSandboxBashTool,
-    registerUserMemoryEditTool,
     registerChannelUserTimeoutTool,
     registerTextFileTools,
 ];

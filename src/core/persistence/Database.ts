@@ -35,11 +35,30 @@ export class Database {
                 fs.mkdir(path.join(this.dataDir, 'integrations'), { recursive: true })
             ]);
             await this.migrateLegacyDataIfNeeded();
+            await this.removeRetiredUserMemories();
             console.log(`📁 データベースディレクトリを初期化: ${this.dataDir}`);
         } catch (error) {
             console.error('データベースディレクトリの作成に失敗:', error);
             throw error;
         }
+    }
+
+    /** Retired automatic profiles are deleted, while daily records and custom memos remain. */
+    private async removeRetiredUserMemories(): Promise<void> {
+        let removed = 0;
+        for (const relativeFile of await this.listJsonFiles(this.dataDir)) {
+            const file = this.toFilePath(this.dataDir, this.stripJsonExtension(relativeFile));
+            if (relativeFile.replace(/\\/g, '/').endsWith('/chat-ai-channel/user-memory.json')) {
+                await fs.unlink(file); removed++;
+            } else if (path.basename(relativeFile) === 'staff-ai-memory.json') {
+                const records = await this.readJson<unknown>(file);
+                if (!Array.isArray(records)) continue;
+                const retained = records.filter(record => record?.kind === 'daily');
+                removed += records.length - retained.length;
+                if (retained.length !== records.length) await this.writeJson(this.dataDir, this.stripJsonExtension(relativeFile), retained);
+            }
+        }
+        if (removed) console.log(`[Database] Removed ${removed} retired user memory records/files`);
     }
 
     /**
