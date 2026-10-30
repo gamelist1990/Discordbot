@@ -6,7 +6,7 @@ import { ContentSafetyDetector } from '../src/core/anticheat/detectors/ContentSa
 
 test('diagnostics retain useful codes without copying response content or credentials', () => {
     assert.equal(contentFailureReason(new Error('Media HTTP 403')), 'Media HTTP 403');
-    assert.equal(contentFailureReason(new Error('jev moderation API HTTP 413')), 'jev moderation API HTTP 413');
+    assert.equal(contentFailureReason(new Error('Moderation API HTTP 413')), 'Moderation API HTTP 413');
     assert.equal(contentFailureReason(new Error('fetch failed', { cause: { code: 'ECONNRESET' } })), 'ECONNRESET');
     assert.equal(contentFailureReason(new SyntaxError('private response text')), 'Invalid JSON response');
     assert.equal(contentFailureReason(new Error('fetch failed')), 'Network request failed');
@@ -37,7 +37,7 @@ test('incomplete scans distinguish download, frame extraction and AI failures', 
                 return true;
             });
         }
-        assert.equal(calls, 2, 'failed verdicts must not enter the cache');
+        assert.equal(calls, 4, 'each failed scan retries once and no failed verdict enters the cache');
     } finally { globalThis.fetch = original; }
 });
 

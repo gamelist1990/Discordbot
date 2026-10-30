@@ -4,7 +4,7 @@ import { config } from "../../../config.js";
 import type { Detector, DetectionContext, DetectionResult } from "../types.js";
 import {
   resolveContentMedia,
-  prepareJevMedia,
+  prepareContentMedia,
   extractContentUrls,
 } from "../ContentMedia.js";
 import {
@@ -15,8 +15,7 @@ import { getMediaAttachments, isVisualAttachment } from "./MediaSafetyUtils.js";
 import { normalizeContentExplanation } from "../ContentExplanation.js";
 import { contentFailureReason } from "../ContentScanFailure.js";
 import { Logger } from "../../../utils/Logger.js";
-import { classifyWithJev, buildJevDecisionRequest, JEV_CATEGORY_RULES } from "../JevContentClassifier.js";
-import { classifyWithQwopus, buildQwopusModerationRequest, CONTENT_SAFETY_IMAGE_MODEL } from "../QwopusContentClassifier.js";
+import { classifyWithLfm, buildLfmInstructions, LFM3_MODEL } from "../LfmContentClassifier.js";
 
 export const CONTENT_CATEGORIES = [
   "suggestive",
@@ -72,7 +71,7 @@ export const CONTENT_DEFAULT_CONFIG = {
   customRulesChannelId: "",
   customRulesMessageId: "1381971374947438703",
 };
-export const CONTENT_SAFETY_MODEL = config.pexAi.contentSafetyModel || 'jeff-base';
+export const CONTENT_SAFETY_MODEL = config.pexAi.contentSafetyModel || 'lfm3';
 export function boundedNumber(
   value: unknown,
   fallback: number,
@@ -175,7 +174,7 @@ export function normalizeModerationText(text: string): string {
   return text.normalize("NFKC").replace(/[\u200B-\u200D\u2060\uFEFF]/g, "");
 }
 
-export const CONTENT_SAFETY_PROMPT = 'jev-decide-v2 and qwopus-media-v1: classify current post only; preserve negation and quoted context.';
+export const CONTENT_SAFETY_PROMPT = 'lfm3-moderation-v1: classify current post only; preserve negation and quoted context.';
 export const CONTENT_SAFETY_POLICY_REFERENCE = CONTENT_SAFETY_PROMPT;
 
 export interface AiRequestMetrics {
@@ -192,15 +191,12 @@ export interface AiRequestMetrics {
 
 export async function classifyContent(
   text: string, frames: string[] = [], timeoutMs = 300000, formatRetry = false,
-  scoring?: ContentScoringPolicy, model = CONTENT_SAFETY_MODEL,
+  scoring?: ContentScoringPolicy, _model = CONTENT_SAFETY_MODEL,
   requests: AiRequestMetrics[] = [], customRules = "",
 ): Promise<ContentVerdict> {
   const uniqueFrames = [...new Set(frames)];
-  // Jeff handles every text-only moderation request. Qwopus is reserved for
-  // requests that actually include visual or other multimodal content; a
-  // high Jeff score alone must not change the model for a text-only post.
-  if (uniqueFrames.length) return classifyWithQwopus(text, uniqueFrames, timeoutMs, formatRetry, scoring, requests, customRules);
-  return classifyWithJev(text, [], timeoutMs, formatRetry, scoring, model, requests, customRules);
+  // LFM3 on HomePC handles every moderation request, text and media alike.
+  return classifyWithLfm(text, uniqueFrames, timeoutMs, formatRetry, scoring, requests, customRules);
 }
 
 export class ContentSafetyDetector implements Detector {
@@ -344,16 +340,14 @@ export class ContentSafetyDetector implements Detector {
       text = normalizeModerationText(text);
       frames = [...new Set(frames)];
       trace(`analysis-start source=${source} frames=${frames.length}`);
-      const classifierModel = frames.length ? CONTENT_SAFETY_IMAGE_MODEL : CONTENT_SAFETY_MODEL;
-      const policy = frames.length
-        ? buildQwopusModerationRequest('', [], customRules).messages[0].content
-        : Object.keys(JEV_CATEGORY_RULES).map(category => buildJevDecisionRequest('', category as ContentCategory, customRules).question);
+      const classifierModel = LFM3_MODEL;
+      const policy = buildLfmInstructions(customRules);
       const policyScope = createHash("sha256").update(JSON.stringify([classifierModel, CONTENT_SAFETY_PROMPT, policy, scoring])).digest("hex");
       const key = createHash("sha256")
         .update(
           JSON.stringify([
             classifierModel,
-            "moderation-routing-v2",
+            "moderation-routing-v3",
             CONTENT_SAFETY_PROMPT,
             policyScope,
             scoring,
@@ -496,7 +490,7 @@ export class ContentSafetyDetector implements Detector {
         if (isMessageDeleted?.()) return stopped();
         bytes = media.data.length;
         stage = "frame-extraction";
-        const frames = await prepareJevMedia(
+        const frames = await prepareContentMedia(
           media.data,
           media.type,
           boundedNumber(options.maxSampleFrames, 6, 1, 12),

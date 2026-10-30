@@ -17,6 +17,7 @@ import {
     applyGuildAIPersonalityLearning,
     buildGuildAIPersonalityPrompt,
     getGuildAIPersonality,
+    ensureGuildAIPersona,
 } from '../ai/GuildAIPersonality.js';
 import type { ResponseApiStreamDelta, ToolExecutionStep } from '../ai/ChatGPTClient.js';
 import type { OpenAIChatCompletionMessage, OpenAIContentPart } from '../../types/openai.js';
@@ -630,7 +631,7 @@ export class ChatAIChannelManager {
         // 完了済み発言をもう一度回答対象にしてしまうため、現在ターンだけを使用する。
         const effectiveCurrentTurn = currentTurnMessages;
 
-        const personalityPrompt = buildGuildAIPersonalityPrompt(await getGuildAIPersonality(this.options.guildId));
+        const personalityPrompt = buildGuildAIPersonalityPrompt(await ensureGuildAIPersona(this.options.guildId, false));
         const sandboxSessionId = effectiveCurrentTurn.at(-1)?.id.replace(/[^0-9]/g, '').slice(0, 24)
             || String(Date.now());
 

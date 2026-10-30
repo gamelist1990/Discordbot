@@ -23,6 +23,7 @@ type PersonalitySettings = {
 };
 type Personality = PersonalitySettings & {
   learnedSummary: string; learnedMessageCount: number; learningRevision: number; updatedAt: string;
+  persona?: { name: string; character: string; speakingStyle: string; behavior: string; generatedAt: string; source: 'generated' | 'default' };
 };
 const defaultPersonality: Personality = {
   learningEnabled: true, tone: 'auto', humor: 'auto', emoji: 'auto', verbosity: 'auto',
@@ -65,6 +66,7 @@ const StaffAIPage: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [personalityBusy, setPersonalityBusy] = useState(false);
+  const [personaBusy, setPersonaBusy] = useState(false);
   const [resetPersonalityConfirm, setResetPersonalityConfirm] = useState(false);
   const [error, setError] = useState('');
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
@@ -151,6 +153,22 @@ const StaffAIPage: React.FC = () => {
       setError(e instanceof Error ? e.message : 'AIの話し方を保存できませんでした');
       addToast('AIの話し方を保存できませんでした', 'error');
     } finally { setPersonalityBusy(false); }
+  };
+
+  const regeneratePersona = async () => {
+    const selectedGuild = guildId;
+    if (!selectedGuild || personaBusy) return;
+    setPersonaBusy(true);
+    try {
+      const data = await readJson(`/api/staff/ai/${selectedGuild}/personality/persona/regenerate`, { method: 'POST' });
+      if (selectedGuild === selectedGuildRef.current) {
+        setPersonality(data.personality as Personality);
+        addToast('AIが新しい性格を決めました', 'success');
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'AIの性格を再生成できませんでした');
+      addToast('AIの性格を再生成できませんでした', 'error');
+    } finally { setPersonaBusy(false); }
   };
 
   const resetPersonality = async () => {
@@ -331,6 +349,23 @@ const StaffAIPage: React.FC = () => {
                   onChange={e => updatePersonalityDraft({ ...personalityDraft, customInstructions: e.target.value })} />
                 <span className={ui.muted}>{personalityDraft.customInstructions.length} / 1200文字</span>
               </label>
+              <div className={ui.personalityInsight}>
+                <strong>{icon('theater_comedy')} AIの性格（ロールプレイ定義）</strong>
+                {personality.persona ? <>
+                  <p><b>{personality.persona.name}</b>：{personality.persona.character}</p>
+                  <p>話し方：{personality.persona.speakingStyle}</p>
+                  <p>振る舞い：{personality.persona.behavior}</p>
+                  <span className={ui.muted}>
+                    {personality.persona.source === 'generated' ? 'AIが初期化時に自分で決めた性格です' : 'AI生成に失敗したため標準の性格を使用中です'}
+                    （{new Date(personality.persona.generatedAt).toLocaleString('ja-JP')}）。AIChannelと /staff ai の両方に適用されます。
+                  </span>
+                </> : <p>AIが性格を決めています。まもなく表示されます。</p>}
+                <div className={ui.personalityActions}>
+                  <button type="button" className={ui.button} disabled={personaBusy} onClick={() => void regeneratePersona()}>
+                    {icon('autorenew')} {personaBusy ? '生成中…' : '性格を再生成'}
+                  </button>
+                </div>
+              </div>
               <div className={ui.personalityInsight}>
                 <strong>{icon('auto_awesome')} AIChannelで学んだサーバーの雰囲気</strong>
                 <p>{personality.learnedSummary || 'まだ十分な傾向はありません。AIChannelで会話が増えると、複数人に共通する話題や口調だけを少しずつ学びます。'}</p>

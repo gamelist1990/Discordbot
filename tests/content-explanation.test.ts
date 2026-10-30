@@ -1,3 +1,4 @@
+import { lfmResponse } from './fixtures/lfm.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ContentSafetyDetector, parseContentVerdict } from '../src/core/anticheat/detectors/ContentSafetyDetector.ts';
@@ -22,7 +23,7 @@ test('AI explanations reach repost/delete metadata and survive exact/similar cac
     let calls = 0;
     globalThis.fetch = (async () => {
         calls++;
-        return new Response(JSON.stringify({ choices: [{ message: { tool_calls: [{ type: 'function', function: { name: 'submit_verdict', arguments: JSON.stringify(scores) } }] } }] }));
+        return lfmResponse(scores);
     }) as typeof fetch;
     try {
         const detector = new ContentSafetyDetector();

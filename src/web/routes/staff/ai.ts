@@ -6,11 +6,22 @@ import { resetStaffAIHistory, clearAIExperienceMemories, staffMemoryList, staffM
 import type { BotClient } from '../../../core/platform/BotClient.js';
 import {
     clearGuildAIPersonalityLearning,
+    ensureGuildAIPersona,
+    regenerateGuildAIPersona,
     getGuildAIPersonality,
     resetGuildAIPersonality,
     saveGuildAIPersonality,
     type GuildAIPersonalitySettings,
 } from '../../../core/ai/GuildAIPersonality.js';
+
+/** First view initializes the AI's character; a slow model never blocks the page for long. */
+async function personalityWithPersona(guildId: string) {
+    return Promise.race([
+        ensureGuildAIPersona(guildId, true),
+        new Promise<Awaited<ReturnType<typeof getGuildAIPersonality>>>(resolve =>
+            setTimeout(() => void getGuildAIPersonality(guildId).then(resolve), 12_000)),
+    ]);
+}
 
 export function createStaffAIRoutes(sessions: Map<string, SettingsSession>, _botClient: BotClient): Router {
     const router = Router();
@@ -28,7 +39,7 @@ export function createStaffAIRoutes(sessions: Map<string, SettingsSession>, _bot
         try {
             const guildId = String(req.params.guildId);
             const [metrics, memories, personality, customMemos] = await Promise.all([
-                staffMetrics(guildId), staffMemoryList(guildId), getGuildAIPersonality(guildId), loadMemos(guildId),
+                staffMetrics(guildId), staffMemoryList(guildId), personalityWithPersona(guildId), loadMemos(guildId),
             ]);
             res.json({ metrics, memories, personality, customMemos });
         } catch {
@@ -77,6 +88,14 @@ export function createStaffAIRoutes(sessions: Map<string, SettingsSession>, _bot
             res.json({ personality });
         } catch {
             res.status(500).json({ error: 'AIの話し方設定を初期化できませんでした' });
+        }
+    });
+    router.post('/:guildId/personality/persona/regenerate', async (req, res) => {
+        try {
+            const personality = await regenerateGuildAIPersona(String(req.params.guildId));
+            res.json({ personality });
+        } catch {
+            res.status(500).json({ error: 'AIの性格を再生成できませんでした' });
         }
     });
     router.put('/:guildId/memories/:id', async (req, res) => {

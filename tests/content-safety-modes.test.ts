@@ -1,4 +1,4 @@
-import { jevResponse } from './fixtures/jev.ts';
+import { lfmResponse } from './fixtures/lfm.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import sharp from 'sharp';
@@ -11,7 +11,7 @@ import { DEFAULT_ANTICHEAT_SETTINGS } from '../src/core/anticheat/types.ts';
 const verdict = { suggestive: 1, explicit: 0, harassment: 0, hate: 0, threat: 0, violence: 0, explanation: '性的なポーズを強調している。' };
 const makeMessage = () => ({ id: '123', content: '分類用の文章', editedTimestamp: null, attachments: new Map(), embeds: [] } as any);
 const context = (action: string) => ({ settings: { detectors: { contentSafety: { enabled: true, config: { action } } } } } as any);
-const response = () => jevResponse(verdict);
+const response = () => lfmResponse(verdict);
 
 
 

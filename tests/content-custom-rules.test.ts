@@ -17,13 +17,11 @@ test('複数行の独自ルールをAIリクエストへ含める', async () => 
   let requestBody: any;
   globalThis.fetch = (async (_url, init) => {
     requestBody = JSON.parse(String(init?.body));
-    return Response.json({ choices: [{ finish_reason: 'tool_calls', message: { tool_calls: [{
-      type: 'function', function: { name: 'submit_verdict', arguments: JSON.stringify({ verdict: JSON.stringify(base) }) },
-    }] } }] });
+    return Response.json({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify(base) } }] });
   }) as typeof fetch;
   try {
     const verdict = await classifyContent('宣伝です', [], 5000, false, undefined, 'test', [], '外部サービスの宣伝禁止\n個人情報の掲載禁止');
-    assert.match(requestBody.messages[1].content, /個人情報の掲載禁止/);
+    assert.match(requestBody.messages[0].content, /個人情報の掲載禁止/);
     assert.deepEqual(verdict.customRuleViolations, ['外部サービスの宣伝禁止']);
   } finally { globalThis.fetch = original; }
 });

@@ -8,7 +8,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 export const NEMOTRON_MODEL = 'nemotron-bolt';
-export const JEFF_MODEL = 'jeff-base';
+export const LFM3_MODEL = 'lfm3';
 
 export interface AppConfig {
     token?: string;
@@ -68,20 +68,21 @@ try {
 }
 
 const configuredContentSafetyModel = raw.pexAi?.contentSafetyModel?.trim();
-const contentSafetyModel = !configuredContentSafetyModel || configuredContentSafetyModel.toLowerCase() === 'jev'
-    ? JEFF_MODEL
+// Retired decision-model names ('jev', 'jeff-base') now resolve to LFM3.
+const isLegacyDecisionModel = (model: string | undefined): boolean =>
+    ['jev', 'jeff-base'].includes(model?.trim().toLowerCase() ?? '');
+const contentSafetyModel = !configuredContentSafetyModel || isLegacyDecisionModel(configuredContentSafetyModel)
+    ? LFM3_MODEL
     : configuredContentSafetyModel;
 const defaultChannelModel = 'gemini-3.5-flash-lite';
-const isJeffDecisionModel = (model: string | undefined): boolean =>
-    model?.trim().toLowerCase() === JEFF_MODEL || model?.trim().toLowerCase() === 'jev';
 const migrateModel = (model: string | undefined) => model?.replace(/^qwopus-coder$/i, NEMOTRON_MODEL);
 const configuredPexModel = migrateModel(raw.pexAi?.model?.trim());
 const configuredChannelModel = migrateModel(raw.pexAi?.channelModel?.trim());
-const pexModel = isJeffDecisionModel(configuredPexModel) ? NEMOTRON_MODEL : configuredPexModel || NEMOTRON_MODEL;
-const channelModel = isJeffDecisionModel(configuredChannelModel)
+const pexModel = isLegacyDecisionModel(configuredPexModel) ? NEMOTRON_MODEL : configuredPexModel || NEMOTRON_MODEL;
+const channelModel = isLegacyDecisionModel(configuredChannelModel)
     ? defaultChannelModel
     : configuredChannelModel || defaultChannelModel;
-const hasJeffGenerationStep = raw.pexAi?.steps?.some(step => isJeffDecisionModel(step?.model));
+const hasJeffGenerationStep = raw.pexAi?.steps?.some(step => isLegacyDecisionModel(step?.model));
 
 export const config: Required<AppConfig> = {
     token: raw.token || '',
@@ -118,7 +119,7 @@ export const config: Required<AppConfig> = {
                     && [0, 1, 2, 3].includes(step.level),
                 )
                 .map(step => ({
-                    model: isJeffDecisionModel(step.model) ? channelModel : migrateModel(step.model.trim())!,
+                    model: isLegacyDecisionModel(step.model) ? channelModel : migrateModel(step.model.trim())!,
                     level: step.level,
                 }))
             : [],
@@ -133,11 +134,11 @@ export const config: Required<AppConfig> = {
     },
 };
 
-if (configuredContentSafetyModel?.toLowerCase() === 'jev') {
-    Logger.warn('[Config] pexAi.contentSafetyModel "jev" is a legacy name; using Jeff model "jeff-base".');
+if (isLegacyDecisionModel(configuredContentSafetyModel)) {
+    Logger.warn(`[Config] pexAi.contentSafetyModel "${configuredContentSafetyModel}" is a retired name; using "${LFM3_MODEL}".`);
 }
-if (isJeffDecisionModel(configuredPexModel) || isJeffDecisionModel(configuredChannelModel) || hasJeffGenerationStep) {
-    Logger.warn(`[Config] Jeff is a /v1/decide moderation model, not a generation model; using configured generation defaults (${pexModel}, ${channelModel}).`);
+if (isLegacyDecisionModel(configuredPexModel) || isLegacyDecisionModel(configuredChannelModel) || hasJeffGenerationStep) {
+    Logger.warn(`[Config] A retired decision model was set as a generation model; using configured generation defaults (${pexModel}, ${channelModel}).`);
 }
 
 // Updating the application also migrates an older host's local config on startup.

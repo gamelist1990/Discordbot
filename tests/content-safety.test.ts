@@ -1,4 +1,4 @@
-import { jevResponse } from './fixtures/jev.ts';
+import { lfmResponse } from './fixtures/lfm.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import sharp from 'sharp';

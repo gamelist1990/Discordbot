@@ -21,16 +21,19 @@ test('A single oversized history message cannot bypass the total budget, includi
 });
 
 test('Compact style omits unused defaults but preserves actual server style and user instructions', () => {
-    assert.equal(buildGuildAIPersonalityPrompt(DEFAULT_GUILD_AI_PERSONALITY, true), '');
+    // The roleplay definition is always present; unused style defaults are still omitted from the compact prompt.
+    const defaults = buildGuildAIPersonalityPrompt(DEFAULT_GUILD_AI_PERSONALITY, true);
+    assert.match(defaults, /ロールプレイ定義/);
+    assert.doesNotMatch(defaults, /口調:|ユーモア:|絵文字:|詳しさ:/);
     assert.ok(buildGuildAIPersonalityPrompt(DEFAULT_GUILD_AI_PERSONALITY).length > 0);
     const configured = buildGuildAIPersonalityPrompt({...DEFAULT_GUILD_AI_PERSONALITY,
         tone: 'polite', verbosity: 'detailed', customInstructions: '語尾は落ち着いた表現にする。', learnedSummary: 'ゲーム制作の話題が多い。'}, true);
     assert.match(configured, /丁寧|詳しく|語尾|ゲーム制作/);
     assert.match(configured, /本人の希望を優先/);
-    assert.ok(configured.length < 500);
+    assert.ok(configured.length < 900);
 });
 
-test('Compact memory excludes unrelated daily notes and other users; relevant daily recall is still available', async () => {
+test('Compact memory excludes retired per-user profiles and recalls daily notes only when requested', async () => {
     const original = database.get;
     database.get = (async () => [
         {kind: 'user', userId: 'alice', title: 'Alice', content: '本人の好み', updatedAt: '2026-10-21'},
@@ -39,10 +42,11 @@ test('Compact memory excludes unrelated daily notes and other users; relevant da
     ]) as typeof database.get;
     try {
         const casual = await staffMemoryContext('guild', 'alice', 'こんにちは', true);
-        assert.match(casual, /本人の好み/);
-        assert.doesNotMatch(casual, /他人の非公開|サーバーの出来事/);
+        assert.equal(casual, ''); // Retired per-user profiles must not be loaded.
+        assert.doesNotMatch(casual, /本人の好み|他人の非公開|サーバーの出来事/);
         const recall = await staffMemoryContext('guild', 'alice', '昨日の出来事は？', true);
         assert.match(recall, /サーバーの出来事/);
+        assert.doesNotMatch(recall, /本人の好み|他人の非公開情報/);
         assert.ok(recall.length <= STAFF_AI_PROMPT_BUDGET.memoryCharacters);
     } finally { database.get = original; }
 });

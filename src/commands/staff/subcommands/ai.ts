@@ -18,7 +18,7 @@ import { STAFF_AI_SYSTEM_PROMPT, STAFF_AI_PROMPT_BUDGET } from './StaffAIStyle.j
 import {
     buildGuildAIPersonalityPrompt,
     DEFAULT_GUILD_AI_PERSONALITY,
-    getGuildAIPersonality,
+    ensureGuildAIPersona,
 } from '../../../core/ai/GuildAIPersonality.js';
 import { selectStaffEmojis, getStaffEmojiImageParts } from './StaffAIEmojiContext.js';
 import { PdfRAGManager } from '../../../core/ai/PdfRAGManager.js';
@@ -347,7 +347,7 @@ ${reason}` });
         let sharedPersonalityPrompt = buildGuildAIPersonalityPrompt(DEFAULT_GUILD_AI_PERSONALITY, true);
         try {
             sharedPersonalityPrompt = buildGuildAIPersonalityPrompt(
-                await getGuildAIPersonality(interaction.guildId || 'global'), true,
+                await ensureGuildAIPersona(interaction.guildId || 'global', false), true,
             );
         } catch (error) {
             console.warn('[StaffAI] Unable to load shared guild personality; using defaults:', error);

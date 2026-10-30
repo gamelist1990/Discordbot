@@ -1,3 +1,9 @@
+import { execFile as execFileCallback } from 'node:child_process';
+import { mkdtemp as makeTempDir, writeFile as writeTempFile, readFile as readTempFile, rm as removeTempDir } from 'node:fs/promises';
+import { tmpdir as osTmpdir } from 'node:os';
+import { join as joinPath } from 'node:path';
+import { promisify as promisifyFn } from 'node:util';
+const execFileAsync = promisifyFn(execFileCallback);
 import { lookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -116,7 +122,7 @@ export async function resolveContentMedia(input: string, maxBytes: number): Prom
         result = await fetchPublicMedia(new URL(image, result.url).href, maxBytes, 12000, signal);
     }
     // MP4 requires an ISO BMFF file-type box, not just a declared MIME type.
-    // The jev API probes and decodes the container before making a decision.
+    // ffmpeg probes and decodes the container before the LFM3 classifier sees frames.
     if (result.data.length >= 12 && result.data.toString('ascii', 4, 8) === 'ftyp'
         && /^(?:isom|iso[2-9]|mp4[12]|avc1|M4V |dash)/.test(result.data.toString('ascii', 8, 12))) {
         return { ...result, type: 'mp4' };
@@ -134,12 +140,33 @@ export async function resolveImage(input: string, maxBytes: number): Promise<{ d
     return result;
 }
 
-export async function prepareJevMedia(data: Buffer, type: string, maxFrames = 6): Promise<string[]> {
-    if (type === 'mp4' || type === 'gif') {
-        const mime = type === 'mp4' ? 'video/mp4' : 'image/gif';
-        return [`data:${mime};base64,${data.toString('base64')}`];
-    }
+/** Turn any supported media into still frames: LFM3 accepts images only (GIF/MP4 are sampled, see extractVideoFrames). */
+export async function prepareContentMedia(data: Buffer, type: string, maxFrames = 6): Promise<string[]> {
+    if (type === 'mp4') return extractVideoFrames(data, maxFrames);
+    if (type === 'gif') return sampleImageFrames(data, maxFrames, 'jpeg');
     return sampleImageFrames(data, maxFrames);
+}
+
+/** Sample evenly spaced JPEG frames from an MP4 with ffmpeg (LFM3 accepts still images only). */
+export async function extractVideoFrames(data: Buffer, count = 6): Promise<string[]> {
+    const folder = await makeTempDir(joinPath(osTmpdir(), 'content-video-'));
+    try {
+        const source = joinPath(folder, 'input.mp4');
+        await writeTempFile(source, data);
+        const probe = await execFileAsync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'default=nw=1:nk=1', source], { timeout: 15000 });
+        const duration = Math.max(0, Number(String(probe.stdout).trim()) || 0);
+        const total = Math.max(1, Math.min(12, Math.floor(count)));
+        const frames: string[] = [];
+        for (let i = 0; i < total; i++) {
+            const target = joinPath(folder, `frame-${i}.jpg`);
+            await execFileAsync('ffmpeg', ['-v', 'error', '-ss', String(total === 1 ? 0 : duration * i / total), '-i', source, '-frames:v', '1',
+                '-vf', 'scale=768:768:force_original_aspect_ratio=decrease', '-q:v', '3', '-y', target], { timeout: 20000 });
+            frames.push(`data:image/jpeg;base64,${(await readTempFile(target)).toString('base64')}`);
+        }
+        return frames;
+    } finally {
+        await removeTempDir(folder, { recursive: true, force: true }).catch(() => undefined);
+    }
 }
 
 export async function sampleImageFrames(data: Buffer, maxFrames = 6, encoding: 'auto' | 'jpeg' = 'auto'): Promise<string[]> {

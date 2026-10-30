@@ -1,209 +1,61 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import sharp from 'sharp';
-import { Collection } from 'discord.js';
-import { classifyContent, ContentSafetyDetector } from '../src/core/anticheat/detectors/ContentSafetyDetector.ts';
-import { buildQwopusModerationRequest, CONTENT_SAFETY_IMAGE_MODEL } from '../src/core/anticheat/QwopusContentClassifier.ts';
-import { JEV_CATEGORY_RULES, buildJevDecisionRequest, scoreJevDecision } from '../src/core/anticheat/JevContentClassifier.ts';
-import { AntiCheatManager } from '../src/core/anticheat/AntiCheatManager.ts';
+import { classifyContent } from '../src/core/anticheat/detectors/ContentSafetyDetector.ts';
+import { buildLfmModerationRequest, LFM3_MODEL, LFM_CATEGORY_RULES } from '../src/core/anticheat/LfmContentClassifier.ts';
+import { lfmResponse } from './fixtures/lfm.ts';
 
 (globalThis as any)._cacheCleanupInterval?.unref?.();
 
-const keys = Object.keys(JEV_CATEGORY_RULES);
-const zero = { suggestive: 0, explicit: 0, harassment: 0, hate: 0, threat: 0, violence: 0 };
-const evidence = {
-  suggestive: 'sexual invitations or sexualized posing/contact',
-  explicit: 'explicit sexual acts or sexual nudity',
-  harassment: 'direct personal insults or harassment',
-  hate: 'protected-group hatred or discrimination',
-  threat: 'concrete threats to harm or kill living people or animals',
-  violence: 'violent injury or killing of living beings',
-};
-type Scores = typeof zero;
-const decisionResponse = (value = 0) => new Response(JSON.stringify({
-  model: 'jeff-base', prompt_tokens: 60,
-  choices: ['none','mild','clear','severe'].map((id, i) => ({id, probability: i === 0 ? 1 - value : i === 3 ? value : 0}))
-}));
-const multimodalResponse = (scores: Scores = zero) => new Response(JSON.stringify({
-  choices: [{ finish_reason: 'stop', message: { content: JSON.stringify({ ...scores, explanation: '分析しました。', customRuleViolations: [] }) } }],
-  usage: { prompt_tokens: 30, completion_tokens: 70, total_tokens: 100 },
-}));
-function mockApi(jev: Partial<Scores> = {}, multimodal: Scores = zero) {
-  const requests: Array<{url:string; body:any}> = [];
-  const api = (async (url: string, options: RequestInit) => {
-    const body = JSON.parse(String(options.body));
-    requests.push({url:String(url),body});
-    if (String(url).endsWith('/decide')) {
-      const key = keys.find(k => body.question.includes(evidence[k as keyof Scores]));
-      return decisionResponse(jev[key as keyof Scores] || 0);
-    }
-    if (String(url).endsWith('/chat/completions')) return multimodalResponse(multimodal);
-    throw new Error('Unexpected API route');
-  }) as typeof fetch;
-  return { api, requests };
-}
-const msg = (content = 'post') => ({ id:'post', content, editedTimestamp:null, attachments:new Collection(), embeds:[] } as any);
-const ctx = (options: Record<string, unknown> = {}) => ({
-  guildId:'guild', settings:{detectors:{contentSafety:{enabled:true, config:options}}}
-} as any);
+const originalFetch = globalThis.fetch;
+test.afterEach(() => { globalThis.fetch = originalFetch; });
 
-test('text goes to jeff-base /decide once per category with typed options', async () => {
-  const original = globalThis.fetch; const mock = mockApi();
-  globalThis.fetch=mock.api;
-  try {
-    const metrics:any[] = [];
-    const value = await classifyContent('おはよう！',[],8000,false,undefined,'jeff-base',metrics);
-    assert.deepEqual(keys.map(k=>value[k as keyof Scores]),[0,0,0,0,0,0]);
-    assert.equal(mock.requests.length,6);
-    assert.ok(mock.requests.every(r=>r.url.endsWith('/decide') && r.body.model==='jeff-base'));
-    assert.ok(mock.requests.every(r=>r.body.options.length===4 && r.body.latest.text==='おはよう！'));
-    assert.equal(metrics.length,6);
-    assert.ok(metrics.every(r=>r.outputTokens===0));
-  } finally { globalThis.fetch=original; }
+test('text-only posts go to LFM3 chat completions with a strict JSON schema', async () => {
+    const calls: any[] = [];
+    globalThis.fetch = (async (url: any, init: any) => {
+        calls.push({ url: String(url), body: JSON.parse(String(init.body)) });
+        return lfmResponse({ harassment: 0.67 });
+    }) as typeof fetch;
+    const verdict = await classifyContent('お前なんか消えろ');
+    assert.equal(calls.length, 1);
+    assert.match(calls[0].url, /\/chat\/completions$/);
+    assert.equal(calls[0].body.model, LFM3_MODEL);
+    assert.equal(calls[0].body.response_format.type, 'json_schema');
+    assert.equal(calls[0].body.messages[1].content, 'お前なんか消えろ');
+    assert.equal(verdict.harassment, 0.67);
 });
 
-test('decision probabilities are validated and text-only results are not silently rerouted to a multimodal model', async () => {
-  assert.equal(scoreJevDecision({choices:['none','mild','clear','severe'].map((id,i)=>({id,probability:i===3?1:0}))}),1);
-  assert.throws(()=>scoreJevDecision({choices:[]}),/Invalid jev decision/);
-  const original=globalThis.fetch; const mock=mockApi({suggestive:1},zero);
-  globalThis.fetch=mock.api;
-  try {
-    const verdict=await classifyContent('今日は散歩に行った',[],8000);
-    assert.equal(verdict.suggestive,1);
-    assert.equal(mock.requests.filter(x=>x.url.endsWith('/chat/completions')).length,0);
-  } finally {globalThis.fetch=original;}
+test('images are sent to the same LFM3 model, never to a separate media model', async () => {
+    const calls: any[] = [];
+    globalThis.fetch = (async (_url: any, init: any) => {
+        calls.push(JSON.parse(String(init.body)));
+        return lfmResponse();
+    }) as typeof fetch;
+    const png = await sharp({ create: { width: 8, height: 8, channels: 3, background: '#fff' } }).png().toBuffer();
+    await classifyContent('', [`data:image/png;base64,${png.toString('base64')}`]);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].model, LFM3_MODEL);
+    assert.equal(calls[0].messages[1].content.filter((part: any) => part.type === 'image_url').length, 1);
 });
 
-test('text matches retain categories and points and invalidate the scoring cache', async () => {
-  const original=globalThis.fetch;
-  const mock=mockApi({threat:1},{...zero,threat:1});
-  globalThis.fetch=mock.api;
-  try {
-    const detector=new ContentSafetyDetector();
-    const message=msg('物理的危害を告げる');
-    const result=await detector.detect(message,ctx({awardScore:1,maxAiScore:10}));
-    assert.ok(result.spoilerRepost);
-    assert.ok(result.reasons.includes('脅迫'));
-    assert.equal(result.scoreDelta,10);
-    const count=mock.requests.length;
-    assert.equal((await detector.detect(message,ctx({awardScore:1,maxAiScore:10}))).scoreDelta,10);
-    assert.equal(mock.requests.length,count);
-    assert.equal((await detector.detect(message,ctx({awardScore:1,maxAiScore:5}))).scoreDelta,5);
-    assert.equal(mock.requests.length,count+6);
-  } finally { globalThis.fetch=original; }
+test('several frames are merged into one image so the LFM3 context is not exceeded', async () => {
+    let body: any;
+    globalThis.fetch = (async (_url: any, init: any) => { body = JSON.parse(String(init.body)); return lfmResponse(); }) as typeof fetch;
+    const make = async (color: string) => `data:image/png;base64,${(await sharp({ create: { width: 16, height: 16, channels: 3, background: color } }).png().toBuffer()).toString('base64')}`;
+    await classifyContent('', [await make('#f00'), await make('#0f0'), await make('#00f')]);
+    assert.equal(body.messages[1].content.filter((part: any) => part.type === 'image_url').length, 1);
 });
 
-test('images, GIF and MP4 are routed to Qwopus, with native video_url parts', async () => {
-  const original=globalThis.fetch; const mock=mockApi({}, {...zero,suggestive:1});
-  globalThis.fetch=mock.api;
-  try {
-    for (const url of ['data:image/png;base64,AA==','data:image/gif;base64,AA==','data:video/mp4;base64,AA==']) {
-      const result=await classifyContent('caption',[url],8000);
-      assert.equal(result.suggestive,1);
-      const req=mock.requests.at(-1)!;
-      assert.equal(req.body.model,CONTENT_SAFETY_IMAGE_MODEL);
-      assert.ok(req.url.endsWith('/chat/completions'));
-      const part=req.body.messages[1].content[1];
-      assert.equal(part.type,url.includes('png')?'image_url':'video_url');
-      assert.equal((part.image_url||part.video_url).url,url);
-    }
-    assert.equal(mock.requests.length,3);
-    assert.equal(buildQwopusModerationRequest('',[]).model,CONTENT_SAFETY_IMAGE_MODEL);
-  } finally {globalThis.fetch=original;}
+test('a transient gateway error is retried once and a persistent one is not a safe verdict', async () => {
+    let attempts = 0;
+    globalThis.fetch = (async () => { attempts++; return new Response('{}', { status: 503 }); }) as typeof fetch;
+    await assert.rejects(classifyContent('hello'), /Moderation API HTTP 503/);
+    assert.equal(attempts, 2);
 });
 
-test('413 splits images without changing them, combines strongest evidence and preserves captions', async () => {
-  const original=globalThis.fetch; const accepted:string[]=[];
-  globalThis.fetch=(async (_url,options) => {
-    const body=JSON.parse(String(options?.body));
-    const parts=body.messages[1].content;
-    assert.equal(parts[0].text,'caption');
-    const images=parts.slice(1);
-    if(images.length>1)return new Response('',{status:413});
-    accepted.push(images[0].image_url.url);
-    return multimodalResponse({...zero, suggestive:images[0].image_url.url==='first'?.3:.9});
-  }) as typeof fetch;
-  try{
-    const verdict=await classifyContent('caption',['first','second'],8000);
-    assert.equal(verdict.suggestive,.9);
-    assert.deepEqual(accepted,['first','second']);
-    globalThis.fetch=(async()=>new Response('',{status:413})) as typeof fetch;
-    await assert.rejects(classifyContent('caption',['only'],8000),/HTTP 413/);
-  }finally{globalThis.fetch=original;}
-});
-
-test('all attached media are scanned even after positive text; original bytes are included', async () => {
-  const original=globalThis.fetch;
-  const mock=mockApi({threat:1},{...zero,threat:1});
-  globalThis.fetch=mock.api;
-  try{
-    const image=await sharp({create:{width:16,height:16,channels:3,background:'blue'}}).png().toBuffer();
-    const detector=new ContentSafetyDetector(async url=>({data:image,type:'png',url}));
-    const message=msg('実際の脅迫');
-    message.attachments.set('a',{id:'a',name:'a.png',url:'https://cdn.discordapp.com/a.png',contentType:'image/png'});
-    message.attachments.set('b',{id:'b',name:'b.png',url:'https://cdn.discordapp.com/b.png',contentType:'image/png'});
-    const r=await detector.detect(message,ctx());
-    assert.ok(r.spoilerRepost);
-    assert.equal(r.spoilerRepost.files.length,2);
-    assert.equal(r.metadata?.analyses.length,3);
-    assert.equal(mock.requests.filter(r=>r.url.endsWith('/chat/completions')).length,1); // second image is byte-identical and uses the exact cache
-  }finally{globalThis.fetch=original;}
-});
-
-test('failed media analysis never authorizes a destructive action, even after a confirmed text match',async()=>{
-  const original=globalThis.fetch;const mock=mockApi({threat:1},{...zero,threat:1});
-  globalThis.fetch=mock.api;
-  try{
-    const detector=new ContentSafetyDetector(async()=>{throw new Error('Media HTTP 503');});
-    const message=msg('脅迫'); message.attachments.set('a',{id:'a',name:'a.png',url:'https://cdn.discordapp.com/a.png',contentType:'image/png'});
-    await assert.rejects(detector.detect(message,ctx({action:'delete'})),/incomplete.*image-analysis-failed/);
-    const max=new ContentSafetyDetector();
-    const over=msg('safe');
-    for(let i=0;i<2;i++)over.attachments.set(String(i),{id:String(i),name:'image.png',url:'https://cdn.discordapp.com/'+i+'.png',contentType:'image/png'});
-    await assert.rejects(max.detect(over,ctx({maxImages:1,scanText:0,action:'delete'})),/incomplete/);
-  }finally{globalThis.fetch=original;}
-});
-
-test('invalid replies or failed providers cannot create a safe result',async()=>{
-  const original=globalThis.fetch;
-  globalThis.fetch=(async()=>new Response(JSON.stringify({choices:[{id:'yes',probability:1}]}))) as typeof fetch;
-  try{await assert.rejects(classifyContent('post',[],5000),/Invalid jev decision/);}
-  finally{globalThis.fetch=original;}
-});
-
-test('API failure retry refetches the original and re-runs the normal message pipeline',async()=>{
-  const manager:any=new AntiCheatManager();
-  const id='retry-test'; const message:any={id,guild:{id:'guild'},fetch:async()=>message};
-  const oldTimeout=globalThis.setTimeout;
-  let callback:(()=>void)|undefined;
-  globalThis.setTimeout=((fn:()=>void)=>{callback=fn;return {unref(){}} as any;}) as typeof setTimeout;
-  let calls=0;
-  manager.onMessage=async(fresh:any,only:boolean)=>{ assert.equal(fresh,message);assert.equal(only,true);calls++;return false;};
-  try{
-    manager.scheduleContentRetry(message,new Error('Moderation API HTTP 503'));
-    assert.equal(manager.contentRetries.get(id).attempts,1);
-    assert.ok(callback);
-    callback!();
-    await new Promise(resolve=>setImmediate(resolve));
-    assert.equal(calls,1);
-    manager.cancelContentRetry(id);
-  }finally{globalThis.setTimeout=oldTimeout;manager.cancelContentRetry(id);}
-});
-
-test('API failure keeps scheduling retries after the old six-attempt limit',()=>{
-  const manager:any=new AntiCheatManager();
-  const id='persistent-retry'; const message:any={id,guild:{id:'guild'},fetch:async()=>message};
-  const oldTimeout=globalThis.setTimeout;
-  const delays:number[]=[];
-  globalThis.setTimeout=((_fn:()=>void,delay?:number)=>{delays.push(delay||0);return {unref(){}} as any;}) as typeof setTimeout;
-  try{
-    for(let attempt=1;attempt<=9;attempt++){
-      const pending=manager.contentRetries.get(id);
-      if(pending)pending.timer=undefined;
-      manager.scheduleContentRetry(message,new Error('Moderation API HTTP 503'));
-      assert.equal(manager.contentRetries.get(id).attempts,attempt);
-    }
-    assert.equal(delays.length,9);
-    assert.equal(delays.at(-1),15*60_000);
-  }finally{globalThis.setTimeout=oldTimeout;manager.cancelContentRetry(id);}
+test('custom server rules require a customRuleViolations answer in the schema', () => {
+    const request = buildLfmModerationRequest('post', [], 'No spoilers');
+    assert.ok(request.response_format.json_schema.schema.required.includes('customRuleViolations'));
+    assert.match(String(request.messages[0].content), /No spoilers/);
+    assert.deepEqual(Object.keys(LFM_CATEGORY_RULES), ['suggestive', 'explicit', 'harassment', 'hate', 'threat', 'violence']);
 });

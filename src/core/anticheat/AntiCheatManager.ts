@@ -112,7 +112,7 @@ export class AntiCheatManager {
 
     private scheduleContentRetry(message: Message, error: unknown): void {
         const reason = contentFailureReason(error);
-        const transient = /^(?:(?:jev moderation API|Moderation API|Media) HTTP (?:408|425|429|5\d\d)|(?:TimeoutError|AbortError|ECONN|ENET|EAI_AGAIN|ETIMEDOUT|UND_ERR)|Network request failed|Invalid JSON response|Invalid jev decision|Invalid moderation|Truncated moderation response|Moderation queue|Unrecognized processing error)/.test(reason);
+        const transient = /^(?:(?:Moderation API|Media) HTTP (?:408|425|429|5\d\d)|(?:TimeoutError|AbortError|ECONN|ENET|EAI_AGAIN|ETIMEDOUT|UND_ERR)|Network request failed|Invalid JSON response|Invalid jev decision|Invalid moderation|Truncated moderation response|Moderation queue|Unrecognized processing error)/.test(reason);
         if (!transient || !message.guild || typeof message.fetch !== 'function' ||
             this.replacedMessages.has(message.id) || this.deletedMessages.has(message.id)) {
             Logger.warn(`[ContentSafety] scan-unresolved message=${message.id} reason=${reason}; original preserved`);

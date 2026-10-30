@@ -54,7 +54,9 @@ const visionDescribeHandler: ToolHandler = async (args, context?: VisionToolCont
                     },
                 ],
                 temperature: 0.2,
-                max_tokens: 500,
+                // Leave room for reasoning plus a final user-visible answer.
+                max_tokens: 1200,
+                chat_template_kwargs: { enable_thinking: true },
             }),
         });
 
@@ -63,7 +65,11 @@ const visionDescribeHandler: ToolHandler = async (args, context?: VisionToolCont
         }
 
         const data = await response.json() as any;
-        const text = data?.choices?.[0]?.message?.content;
+        const choice = data?.choices?.[0];
+        const text = choice?.message?.content;
+        if ((!text || !String(text).trim()) && choice?.finish_reason === 'length') {
+            return 'VISION_ERROR: 思考が出力上限に達し、最終回答を生成できませんでした。';
+        }
         return typeof text === 'string' && text.trim()
             ? text.trim()
             : 'VISION_ERROR: 画像解析APIから有効な応答がありませんでした。';
