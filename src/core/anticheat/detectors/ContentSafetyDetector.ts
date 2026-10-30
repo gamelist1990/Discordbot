@@ -174,7 +174,20 @@ export function normalizeModerationText(text: string): string {
   return text.normalize("NFKC").replace(/[\u200B-\u200D\u2060\uFEFF]/g, "");
 }
 
-export const CONTENT_SAFETY_PROMPT = 'lfm3-moderation-v1: classify current post only; preserve negation and quoted context.';
+/** Discord user mentions alone are addressing someone, not offensive content. */
+export function isOnlyDiscordUserMentions(text: string): boolean {
+  const normalized = normalizeModerationText(text).trim();
+  return /^(?:<@!?\d{15,22}>\s*)+$/u.test(normalized);
+}
+
+/** Allow servers to explicitly prohibit user mentions; do not silently bypass such rules. */
+export function customRulesBanUserMentions(rules: string): boolean {
+  // Only direct mention bans count. Rules against harassment via mentions
+  // do not prohibit a harmless ping.
+  return /(?:無断|不要|無意味|過度な|連続)\s*(?:の|な)?\s*(?:メンション|mention|ping)|(?:メンション|mention|ping(?:ing)?)(?:を|は|の|すること|行為|自体|そのもの|\s){0,5}(?:原則)?(?:禁止|不可|NG)|(?:禁止|不可|NG)(?:\s|することは)*(?:メンション|mention|ping(?:ing)?)/iu.test(rules);
+}
+
+export const CONTENT_SAFETY_PROMPT = 'lfm3-moderation-v2: user mentions alone are safe unless explicitly forbidden; validate custom-rule evidence.';
 export const CONTENT_SAFETY_POLICY_REFERENCE = CONTENT_SAFETY_PROMPT;
 
 export interface AiRequestMetrics {
@@ -445,6 +458,9 @@ export class ContentSafetyDetector implements Detector {
     if (
       options.scanText === 1 &&
       content.trim() &&
+      // A ping-only text is not abuse or a custom-rule breach by itself.
+      // Other attachments and embeds are still checked below.
+      !(isOnlyDiscordUserMentions(content) && !customRulesBanUserMentions(customRules)) &&
       !(urlOnly && options.scanImages === 1 && options.scanUrls === 1)
     ) {
       try {
