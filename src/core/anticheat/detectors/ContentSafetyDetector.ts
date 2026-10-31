@@ -15,6 +15,7 @@ import { getMediaAttachments, isVisualAttachment } from "./MediaSafetyUtils.js";
 import { normalizeContentExplanation } from "../ContentExplanation.js";
 import { contentFailureReason } from "../ContentScanFailure.js";
 import { Logger } from "../../../utils/Logger.js";
+import { loadContentConversationContext } from "../ContentConversationContext.js";
 import { classifyWithLfm, buildLfmInstructions, LFM3_MODEL } from "../LfmContentClassifier.js";
 
 export const CONTENT_CATEGORIES = [
@@ -187,7 +188,16 @@ export function customRulesBanUserMentions(rules: string): boolean {
   return /(?:無断|不要|無意味|過度な|連続)\s*(?:の|な)?\s*(?:メンション|mention|ping)|(?:メンション|mention|ping(?:ing)?)(?:を|は|の|すること|行為|自体|そのもの|\s){0,5}(?:原則)?(?:禁止|不可|NG)|(?:禁止|不可|NG)(?:\s|することは)*(?:メンション|mention|ping(?:ing)?)/iu.test(rules);
 }
 
-export const CONTENT_SAFETY_PROMPT = 'lfm3-moderation-v2: user mentions alone are safe unless explicitly forbidden; validate custom-rule evidence.';
+/** Do not let an LLM turn a short, untargeted complaint about being pinged into abuse. */
+export function isHarmlessMentionComplaint(text: string): boolean {
+  const plain = normalizeModerationText(text).replace(/<@!?\d{15,22}>/g, "").trim();
+  return plain.length > 0 && plain.length <= 70 &&
+    /(?:メンション|ping|通知)/iu.test(plain) &&
+    /(?:され|来|多すぎ|多い|しつこ|うざ|迷惑|困る|飛んで|鳴り)/u.test(plain) &&
+    !/(?:お前|あいつ|無能|クズ|死ね|殺す|殴る|差別|肉体関係|セックス|性的|裸|暴力|https?:\/\/)/iu.test(plain);
+}
+
+export const CONTENT_SAFETY_PROMPT = 'lfm3-moderation-v3: judge only the current post using same-channel context.';
 export const CONTENT_SAFETY_POLICY_REFERENCE = CONTENT_SAFETY_PROMPT;
 
 export interface AiRequestMetrics {
@@ -205,11 +215,11 @@ export interface AiRequestMetrics {
 export async function classifyContent(
   text: string, frames: string[] = [], timeoutMs = 300000, formatRetry = false,
   scoring?: ContentScoringPolicy, _model = CONTENT_SAFETY_MODEL,
-  requests: AiRequestMetrics[] = [], customRules = "",
+  requests: AiRequestMetrics[] = [], customRules = "", conversationContext = "",
 ): Promise<ContentVerdict> {
   const uniqueFrames = [...new Set(frames)];
   // LFM3 on HomePC handles every moderation request, text and media alike.
-  return classifyWithLfm(text, uniqueFrames, timeoutMs, formatRetry, scoring, requests, customRules);
+  return classifyWithLfm(text, uniqueFrames, timeoutMs, formatRetry, scoring, requests, customRules, 0, conversationContext);
 }
 
 export class ContentSafetyDetector implements Detector {
@@ -294,15 +304,17 @@ export class ContentSafetyDetector implements Detector {
         const referenced = await message.fetchReference();
         if (isMessageDeleted?.()) return stopped();
         const referencedText = referenced.content?.trim();
-        if (referencedText)
+        if (referencedText && (!referenced.channelId || referenced.channelId === message.channelId))
           replyContext = referencedText.slice(0, 1000);
       } catch {
         // A deleted or inaccessible reply target must not make moderation fail.
       }
     }
-    const contextualContent = replyContext
-      ? `現在の投稿:\n${content}\n\n返信先（解釈用・採点対象外）:\n${replyContext}`
-      : content;
+    // Surrounding conversation is context data and must not be scored as this post.
+    const contextualContent = content;
+    let conversationContext = options.scanText === 1
+      ? await loadContentConversationContext(message, replyContext)
+      : "";
     let customRules = "";
     if (/^[1-9]\d{0,19}$/.test(String(options.customRulesChannelId || "")) &&
         /^[1-9]\d{0,19}$/.test(String(options.customRulesMessageId || ""))) {
@@ -365,13 +377,16 @@ export class ContentSafetyDetector implements Detector {
             policyScope,
             scoring,
             customRules,
+            conversationContext,
             text,
             frames,
           ]),
         )
         .digest("hex");
       const input = await similarityInput(text, frames);
-      input.guard = `moderation-v2:${policyScope}:${input.guard}`;
+      // Different nearby conversations must never reuse a positive cached verdict.
+      const contextHash = createHash("sha256").update(conversationContext).digest("hex");
+      input.guard = "moderation-v3:" + policyScope + ":" + contextHash + ":" + input.guard;
       const revision = this.cache.revision(guildId);
       const requestKey = `${guildId}:${revision}:${key}`;
       const cached = this.cache.get(
@@ -397,7 +412,7 @@ export class ContentSafetyDetector implements Detector {
           const aiDeadline = Date.now() + boundedNumber(options.timeoutMs, 600000, 5000, 600000);
           const requestVerdict = (retry: boolean) => classifyContent(
             text, frames, Math.max(1, aiDeadline - Date.now()), retry, scoring,
-            CONTENT_SAFETY_MODEL, requests, customRules,
+            CONTENT_SAFETY_MODEL, requests, customRules, conversationContext,
           );
           pending = requestVerdict(false).catch((error) => {
             const reason = contentFailureReason(error);
@@ -427,6 +442,14 @@ export class ContentSafetyDetector implements Detector {
         verdict = await pending;
       }
       if (isMessageDeleted?.()) return false;
+      // LFM3 sometimes fabricates harassment or suggestive content from neutral
+      // complaints about receiving pings. Only override a short, untargeted,
+      // text-only complaint; any image or substantive harmful language is scanned.
+      if (!frames.length && isHarmlessMentionComplaint(text)) {
+        for (const category of CONTENT_CATEGORIES) verdict[category] = 0;
+        verdict.customRuleViolations = [];
+        verdict.explanation = "メンションに関する状況説明で、違反表現はありません。";
+      }
       analyses.push({
         source,
         scores: verdict,
@@ -541,6 +564,25 @@ export class ContentSafetyDetector implements Detector {
         errors.push(
           `image-analysis-failed source=image-${index + 1} stage=${stage} bytes=${bytes} frames=${frameCount}: ${contentFailureReason(error)}`,
         );
+      }
+    }
+    // Inference takes several seconds. Before an irreversible action on
+    // text-only content, re-fetch follow-ups posted while the model was thinking.
+    // If context changes, discard the old positive result and reassess once.
+    if (!errors.length && analyses.length === 1 && analyses[0].source === "text" &&
+        (hits.size > 0 || customRuleHits.size > 0) && !isMessageDeleted?.()) {
+      const freshContext = await loadContentConversationContext(message, replyContext, 0);
+      if (freshContext && freshContext !== conversationContext) {
+        trace("context-updated rechecking text before action");
+        conversationContext = freshContext;
+        analyses.length = 0;
+        hits.clear();
+        customRuleHits.clear();
+        try {
+          if (!(await check(content, [], "text"))) return stopped();
+        } catch (error) {
+          errors.push("text-recheck-failed stage=" + stage + ": " + contentFailureReason(error));
+        }
       }
     }
     trace(

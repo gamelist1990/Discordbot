@@ -10,7 +10,7 @@
 | 通常チャンネルのメンション AI | 廃止 |
 
 HomePC EndPoint（ポート 9000）は現在 `gemini-3.5-flash-lite`、`nemotron-bolt`、`lfm3` を公開します。
-LFM3-VL-2B は HomePC の user systemd `lfm-vision.service` で稼働し、Tailscale `100.83.127.8:18670` に bind しています（ctx 16384、並列2、`--reasoning off`）。
+LFM3-VL-2B は HomePC の user systemd `lfm-vision.service` で稼働し、Tailscale `100.83.127.8:18670` に bind しています（ctx 16384、並列2、`--reasoning on --reasoning-budget 128`）。
 旧 Jeff / Jev / Qwopus / Gemma のコンテンツ分類器は削除されています。A8 の Jeff 本体・キャッシュも撤去済みです。EndPoint の `/v1/decide` ルートだけは残しますが、`jev` プロバイダーはありません。
 古い生成モデル名 `qwopus-coder` は起動時 `nemotron-bolt` に読み替え、コンテンツ検査の `jeff-base` / `jev` は `lfm3` に読み替えます。
 
@@ -53,3 +53,6 @@ cd src/web/client && npx --no-install tsc --noEmit -p tsconfig.json
 
 Bot 本番更新の前に実画像・GIF・MP4 の経路、誤検知、WebUI の再生成操作、ロールバックを検証してください。GitHub push と本番 Bot のデプロイは別工程です。
 旧構成の履歴は `WorkSpace/engineerDocs/discordbot/` を参照してください。
+
+
+2026-10-31: LFM3 のコンテンツ検査では思考を有効化し、最終JSONを判定します。通常の推論と異なり思考と前後文脈の取り込みで遅延が増えるため、Bot側では処分前の会話再確認・失敗時保全を行います。
