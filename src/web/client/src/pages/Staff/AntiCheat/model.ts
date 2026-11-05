@@ -72,15 +72,15 @@ export const DETECTORS: DetectorDefinition[] = [
     { kind: 'number', key: 'perceptualDistance', label: '類似許容値', defaultValue: 5, min: 0, max: 16 },
     { kind: 'number', key: 'maxFileSizeMb', label: '解析上限(MB)', defaultValue: 8, min: 1, max: 25 },
   ] },
-  { key: 'mentionSpam', title: 'メンションスパム', description: '連続メンション攻撃を止めます。', icon: 'record_voice_over', fields: [
-    { kind: 'number', key: 'windowSeconds', label: '監視秒数', defaultValue: 30, min: 1 },
-    { kind: 'number', key: 'sameUserMentionThreshold', label: '同一ユーザー上限', defaultValue: 5, min: 1 },
-    { kind: 'number', key: 'roleMentionThreshold', label: 'ロール上限', defaultValue: 5, min: 1 },
-    { kind: 'number', key: 'totalMentionThreshold', label: '合計上限', defaultValue: 10, min: 1 },
+  { key: 'mentionSpam', title: 'メンションスパム', description: '受信・編集時に即時判定します。同じ相手・ロールの繰り返しも1回ずつ数え、チャンネルをまたぐ連打を合算します。', icon: 'record_voice_over', fields: [
+    { kind: 'number', key: 'windowSeconds', label: '監視秒数', defaultValue: 30, min: 1, max: 3600 },
+    { kind: 'number', key: 'sameUserMentionThreshold', label: '同一ユーザーの検知開始回数', defaultValue: 5, min: 1, max: 4096 },
+    { kind: 'number', key: 'roleMentionThreshold', label: 'ロールの検知開始回数（同一ロールも加算）', defaultValue: 5, min: 1, max: 4096 },
+    { kind: 'number', key: 'totalMentionThreshold', label: '合計の検知開始回数', defaultValue: 10, min: 1, max: 4096 },
   ] },
-  { key: 'mentionLimit', title: '最大メンション数', description: '大量メンションを制御します。', icon: 'groups', fields: [
-    { kind: 'number', key: 'maxUserMentions', label: 'ユーザー上限', defaultValue: 200, min: 1 },
-    { kind: 'number', key: 'maxRoleMentions', label: 'ロール上限', defaultValue: 200, min: 1 },
+  { key: 'mentionLimit', title: '最大メンション数', description: '1投稿内のメンションの出現回数を制限します。同じユーザー・ロールの繰り返しも対象です。', icon: 'groups', fields: [
+    { kind: 'number', key: 'maxUserMentions', label: 'ユーザー上限', defaultValue: 200, min: 1, max: 4096 },
+    { kind: 'number', key: 'maxRoleMentions', label: 'ロール上限', defaultValue: 200, min: 1, max: 4096 },
   ] },
   { key: 'maxLines', title: '最大行数', description: '長文スパムを行数で検知します。', icon: 'format_line_spacing', fields: [
     { kind: 'number', key: 'maxLines', label: '最大行数', defaultValue: 10, min: 1 },

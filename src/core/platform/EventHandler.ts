@@ -7,6 +7,7 @@ import { Logger } from '../../utils/Logger.js';
 import { Event } from '../../types/events.js';
 import { executeModalHandler } from '../../utils/Modal.js';
 import { handleTodoSelectInteraction } from '../todo/TodoMessageManager.js';
+import { antiCheatManager } from '../anticheat/AntiCheatManager.js';
 
 /**
  * Discord イベントハンドラー
@@ -346,7 +347,6 @@ export class EventHandler {
 
             // Run moderation before feature rooms can consume/forward a message.
             try {
-                const { antiCheatManager } = await import('../anticheat/AntiCheatManager.js');
                 if (await antiCheatManager.onMessage(message)) return;
             } catch (error) {
                 Logger.debug('Failed to handle AntiCheat on messageCreate:', error);
@@ -398,16 +398,22 @@ export class EventHandler {
 
         this.botClient.client.on(Events.MessageDelete, async (message) => {
             try {
-                const { antiCheatManager } = await import('../anticheat/AntiCheatManager.js');
                 await antiCheatManager.onMessageDelete(message as any);
             } catch (error) {
                 Logger.debug('Failed to handle AntiCheat on messageDelete:', error);
             }
         });
 
+        this.botClient.client.on(Events.MessageBulkDelete, (messages) => {
+            for (const message of messages.values()) {
+                void antiCheatManager.onMessageDelete(message).catch(error => {
+                    Logger.debug('Failed to handle AntiCheat on messageDeleteBulk:', error);
+                });
+            }
+        });
+
         this.botClient.client.on(Events.MessageUpdate, async (oldMessage, newMessage) => {
             try {
-                const { antiCheatManager } = await import('../anticheat/AntiCheatManager.js');
                 await antiCheatManager.onMessageUpdate(oldMessage as any, newMessage as any);
             } catch (error) {
                 Logger.debug('Failed to handle AntiCheat on messageUpdate:', error);

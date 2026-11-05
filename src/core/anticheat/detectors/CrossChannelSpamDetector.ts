@@ -25,7 +25,7 @@ export class CrossChannelSpamDetector implements Detector {
         const duplicateThreshold = numberSetting(options.duplicateThreshold, 2, 2, 100);
         const rapidThreshold = numberSetting(options.rapidMessageCount, 6, 2, 100);
         const minChannels = numberSetting(options.minChannels, 2, 2, 100);
-        const now = Date.now();
+        const now = context.receivedAt ?? Date.now();
         const retentionMs = Math.max(windowSeconds, rapidWindowSeconds) * 1000;
         const key = `anticheat:cross-channel:${context.guildId}:${context.userId}`;
         const normalized = normalizeContent(message.content.normalize('NFKC').replace(/[\u200b-\u200d\u2060\ufeff]/g, ''));

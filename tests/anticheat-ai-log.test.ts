@@ -52,12 +52,13 @@ test('retry usage is retained per request, absent usage is not invented', async 
     globalThis.fetch = async () => {
         calls++;
         if (calls === 1) return Response.json({ usage: { prompt_tokens: 100, completion_tokens: 10, total_tokens: 110 }, choices: [{ finish_reason: 'stop', message: {} }] });
-        return Response.json({ choices: [{ finish_reason: 'tool_calls', message: { tool_calls: [{ type: 'function', function: {
-            name: 'submit_verdict', arguments: JSON.stringify({ suggestive: 0, explicit: 0, harassment: 0, hate: 0, threat: 0, violence: 0, explanation: '挨拶です。' })
-        } }] } }] });
+        return Response.json({ choices: [{ finish_reason: 'stop', message: {
+            content: JSON.stringify({ suggestive: 0, explicit: 0, harassment: 0, hate: 0, threat: 0, violence: 0, explanation: '挨拶です。' })
+        } }] });
     };
     try {
-        await classifyContent('こんにちは', [], 5000, false, undefined, 'test', requests);
+        await assert.rejects(classifyContent('こんにちは', [], 5000, false, undefined, 'test', requests), /Invalid moderation verdict/);
+        await classifyContent('こんにちは', [], 5000, true, undefined, 'test', requests);
         assert.equal(requests.length, 2);
         assert.equal(requests[0].totalTokens, 110);
         assert.equal(requests[1].retry, true);

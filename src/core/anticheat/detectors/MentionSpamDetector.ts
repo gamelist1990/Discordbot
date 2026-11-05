@@ -1,138 +1,51 @@
-import { Message } from 'discord.js';
+import type { Message } from 'discord.js';
 import { CacheManager } from '../../../utils/CacheManager.js';
-import { Detector, DetectionContext, DetectionResult } from '../types.js';
+import type { Detector, DetectionContext, DetectionResult } from '../types.js';
 import { getDetectorConfig } from '../utils.js';
-
-interface MentionRecord {
-    timestamp: number;
-    userIds: string[];
-    roleIds: string[];
-    messageId: string;
-}
-
-function extractMentionIds(content: string, pattern: RegExp): string[] {
-    const ids: string[] = [];
-    for (const match of content.matchAll(pattern)) {
-        if (match[1]) {
-            ids.push(match[1]);
-        }
-    }
-    return ids;
-}
-
-function countById(ids: string[]): Map<string, number> {
-    const counts = new Map<string, number>();
-    for (const id of ids) {
-        counts.set(id, (counts.get(id) || 0) + 1);
-    }
-    return counts;
-}
-
-function maxCount(counts: Map<string, number>): number {
-    return Math.max(0, ...counts.values());
-}
+import { extractMentions, MentionWindow, positiveSetting } from '../MentionWindow.js';
 
 export class MentionSpamDetector implements Detector {
     name = 'mentionSpam';
 
     async detect(message: Message, context: DetectionContext): Promise<DetectionResult> {
-        const detectorConfig = getDetectorConfig(context, this.name);
-        const config = detectorConfig.config || {};
-        const windowSeconds = Number(config.windowSeconds) || 30;
-        const sameUserMentionThreshold = Number(config.sameUserMentionThreshold) || 5;
-        const roleMentionThreshold = Number(config.roleMentionThreshold) || 5;
-        const totalMentionThreshold = Number(config.totalMentionThreshold) || 10;
-        const content = message.content || '';
-        const userIds = extractMentionIds(content, /<@!?(\d+)>/g);
-        const roleIds = extractMentionIds(content, /<@&(\d+)>/g);
-        const now = Date.now();
-        const windowMs = windowSeconds * 1000;
-        const cacheKey = `anticheat:mention-spam:${context.guildId}:${context.userId}`;
-        const previous = (CacheManager.get<MentionRecord[]>(cacheKey) || [])
-            .filter((entry) => now - entry.timestamp <= windowMs);
-        const previousMessage = previous.find((entry) => entry.messageId === message.id);
-        const withoutCurrent = previous.filter((entry) => entry.messageId !== message.id);
+        const detector = getDetectorConfig(context, this.name);
+        const config = detector.config || {};
+        const windowSeconds = positiveSetting(config.windowSeconds, 30, 3600);
+        const sameUserMentionThreshold = positiveSetting(config.sameUserMentionThreshold, 5);
+        const roleMentionThreshold = positiveSetting(config.roleMentionThreshold, 5);
+        const totalMentionThreshold = positiveSetting(config.totalMentionThreshold, 10);
+        const mentions = extractMentions(message.content || '');
+        const key = `anticheat:mention-window:v2:${context.guildId}:${context.userId}`;
+        const window = CacheManager.get<MentionWindow>(key) || new MentionWindow();
+        const changed = window.update(message.id, mentions, context.receivedAt ?? Date.now(), windowSeconds * 1000);
+        CacheManager.set(key, window, (windowSeconds + 1) * 1000);
+        if (!changed) return { scoreDelta: 0, reasons: [] };
 
-        if (userIds.length === 0 && roleIds.length === 0) {
-            CacheManager.set(cacheKey, withoutCurrent, (windowSeconds + 30) * 1000);
-            return { scoreDelta: 0, reasons: [] };
-        }
-
-        if (
-            previousMessage
-            && previousMessage.userIds.join(',') === userIds.join(',')
-            && previousMessage.roleIds.join(',') === roleIds.join(',')
-        ) {
-            return { scoreDelta: 0, reasons: [] };
-        }
-        const next = [
-            ...withoutCurrent,
-            {
-                timestamp: previousMessage?.timestamp ?? now,
-                userIds,
-                roleIds,
-                messageId: message.id
-            }
-        ];
-        CacheManager.set(cacheKey, next, (windowSeconds + 30) * 1000);
-
-        const windowUserCounts = countById(next.flatMap((entry) => entry.userIds));
-        const windowRoleMentions = next.reduce((sum, entry) => sum + entry.roleIds.length, 0);
-        const windowTotalMentions = next.reduce((sum, entry) => sum + entry.userIds.length + entry.roleIds.length, 0);
-        const repeatedUserMentions = maxCount(windowUserCounts);
-        const sameMessageRepeatedUserMentions = maxCount(countById(userIds));
-        const sameMessageRoleMentions = roleIds.length;
-        const sameMessageTotalMentions = userIds.length + roleIds.length;
-
+        let repeatedUserMentions = 0, repeatedRoleMentions = 0;
+        // Only current targets can cause a new violation.
+        for (const id of mentions.userIds) repeatedUserMentions = Math.max(repeatedUserMentions, window.users.get(id) || 0);
+        for (const id of mentions.roleIds) repeatedRoleMentions = Math.max(repeatedRoleMentions, window.roles.get(id) || 0);
+        const windowRoleMentions = window.roleCount;
+        const windowTotalMentions = window.userCount + window.roleCount;
         const reasons: string[] = [];
-        let scoreMultiplier = 0;
-
-        if (sameMessageRepeatedUserMentions >= sameUserMentionThreshold || repeatedUserMentions >= sameUserMentionThreshold) {
-            const count = Math.max(sameMessageRepeatedUserMentions, repeatedUserMentions);
-            reasons.push(`同一ユーザーへのメンションスパムを検知しました (${count}回/${windowSeconds}秒)`);
-            scoreMultiplier += Math.max(1, Math.ceil(count / sameUserMentionThreshold) - 1);
-        }
-
-        if (sameMessageRoleMentions >= roleMentionThreshold || windowRoleMentions >= roleMentionThreshold) {
-            const count = Math.max(sameMessageRoleMentions, windowRoleMentions);
-            reasons.push(`ロールメンションスパムを検知しました (${count}回/${windowSeconds}秒)`);
-            scoreMultiplier += Math.max(1, Math.ceil(count / roleMentionThreshold) - 1);
-        }
-
-        if (sameMessageTotalMentions >= totalMentionThreshold || windowTotalMentions >= totalMentionThreshold) {
-            const count = Math.max(sameMessageTotalMentions, windowTotalMentions);
-            reasons.push(`大量メンションを検知しました (${count}回/${windowSeconds}秒)`);
-            scoreMultiplier += Math.max(1, Math.ceil(count / totalMentionThreshold) - 1);
-        }
-
-        if (reasons.length === 0) {
-            return {
-                scoreDelta: 0,
-                reasons: [],
-                metadata: {
-                    userMentionCount: userIds.length,
-                    roleMentionCount: roleIds.length,
-                    windowTotalMentions,
-                    repeatedUserMentions
-                }
-            };
-        }
-
+        let multiplier = 0;
+        const check = (count: number, threshold: number, reason: string) => {
+            if (count < threshold) return;
+            reasons.push(`${reason}を検知しました (${count}回/${windowSeconds}秒)`);
+            multiplier += Math.max(1, Math.ceil(count / threshold) - 1);
+        };
+        check(repeatedUserMentions, sameUserMentionThreshold, '同一ユーザーへのメンションスパム');
+        if (mentions.roleIds.length) check(windowRoleMentions, roleMentionThreshold, 'ロールメンションスパム');
+        check(windowTotalMentions, totalMentionThreshold, '大量メンション');
         return {
-            scoreDelta: detectorConfig.score * scoreMultiplier,
+            scoreDelta: detector.score * multiplier,
             reasons,
+            ...(reasons.length ? { deleteMessage: detector.deleteMessage !== false } : {}),
             metadata: {
-                userMentionCount: userIds.length,
-                roleMentionCount: roleIds.length,
-                windowTotalMentions,
-                repeatedUserMentions,
-                windowRoleMentions,
-                windowSeconds,
-                sameUserMentionThreshold,
-                roleMentionThreshold,
-                totalMentionThreshold
-            },
-            deleteMessage: detectorConfig.deleteMessage !== false
+                userMentionCount: mentions.userIds.length, roleMentionCount: mentions.roleIds.length,
+                repeatedUserMentions, repeatedRoleMentions, windowRoleMentions, windowTotalMentions,
+                windowSeconds, sameUserMentionThreshold, roleMentionThreshold, totalMentionThreshold
+            }
         };
     }
 }

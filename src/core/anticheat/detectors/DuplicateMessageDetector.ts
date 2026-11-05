@@ -20,7 +20,7 @@ export class DuplicateMessageDetector implements Detector {
         const scoreFrom = Number(config.scoreFrom) || 4;
         const cacheKey = `anticheat:duplicate:${context.guildId}:${context.channelId}:${context.userId}`;
         const normalized = normalizeContent(message.content);
-        const now = Date.now();
+        const now = context.receivedAt ?? Date.now();
         const existing = (CacheManager.get<DuplicateRecord[]>(cacheKey) || [])
             .filter((entry) => now - entry.timestamp <= windowSeconds * 1000);
         const previous = existing.find((entry) => entry.messageId === message.id);

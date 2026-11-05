@@ -30,7 +30,7 @@ export class TextSpamDetector implements Detector {
         const rapidWindowMs = (Number(config.windowSeconds) || 5) * 1000;
         const cacheKey = `anticheat:messages:${context.guildId}:${context.channelId}:${context.userId}`;
         const normalizedContent = normalizeContent(message.content);
-        const now = Date.now();
+        const now = context.receivedAt ?? Date.now();
         
         // Get user's recent messages from cache
         let recentMessages = (CacheManager.get<MessageRecord[]>(cacheKey) || [])

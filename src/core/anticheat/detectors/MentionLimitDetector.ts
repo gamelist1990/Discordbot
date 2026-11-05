@@ -1,6 +1,7 @@
 import { Message } from 'discord.js';
 import { Detector, DetectionContext, DetectionResult } from '../types.js';
 import { getDetectorConfig, scoreBuckets } from '../utils.js';
+import { extractMentions, positiveSetting } from '../MentionWindow.js';
 
 export class MentionLimitDetector implements Detector {
     name = 'mentionLimit';
@@ -8,10 +9,11 @@ export class MentionLimitDetector implements Detector {
     async detect(message: Message, context: DetectionContext): Promise<DetectionResult> {
         const detectorConfig = getDetectorConfig(context, this.name);
         const config = detectorConfig.config || {};
-        const maxUserMentions = Number(config.maxUserMentions) || 200;
-        const maxRoleMentions = Number(config.maxRoleMentions) || 200;
-        const userMentionCount = message.mentions.users.size;
-        const roleMentionCount = message.mentions.roles.size;
+        const maxUserMentions = positiveSetting(config.maxUserMentions, 200);
+        const maxRoleMentions = positiveSetting(config.maxRoleMentions, 200);
+        const mentions = extractMentions(message.content || '');
+        const userMentionCount = mentions.userIds.length;
+        const roleMentionCount = mentions.roleIds.length;
 
         const userBuckets = scoreBuckets(userMentionCount, maxUserMentions);
         const roleBuckets = scoreBuckets(roleMentionCount, maxRoleMentions);
