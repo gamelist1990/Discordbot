@@ -9,28 +9,32 @@ import {
     ensureGuildAIPersona,
     getGuildAIPersonality,
 } from './GuildAIPersonality.js';
-import type { OpenAIChatCompletionMessage } from '../../types/openai.js';
 
 /**
- * Staff AI dotモード（常駐型）: dotモードがONの間、ギルドの会話を静かに見守り、
- * 「ここだ」という場面でのみ短く自然に混ざる。毎回応答するAIChatとは別物で、
- * 参加可否はヒューリスティクス＋モデル判定で強く絞る。
+ * Staff AI dotモード（常駐型）: dotモードがONの間、ギルドの会話を見守り、
+ * 盛り上がっている会話の流れの中に「しれっと」短く混ざる。混ざるかどうかは
+ * ヒューリスティクスで機会を作り、最終判断はモデル自身が行う。
+ * 名前を呼ばれたりメンション・返信されたら、その場で応える。
+ * 毎回応答するAIChatとは別物で、専用AIチャンネルには入らない。
  * あわせて観測した会話からサーバーの空気（GuildAIPersonality）を少しずつ学習する。
  */
 
 export const DOT_AMBIENT = {
     sweepIntervalMs: 30_000,
     flagCacheMs: 20_000,
-    channelCooldownMs: 50 * 60_000,
+    channelCooldownMs: 30 * 60_000,
     selfBotRecentMs: 12 * 60_000,
     guildHourlyCap: 3,
-    questionMinAgeMs: 75_000,
-    questionMaxAgeMs: 12 * 60_000,
-    lullMinAgeMs: 150_000,
-    lullMaxAgeMs: 12 * 60_000,
-    lullMinMessages: 4,
-    lullMinHumans: 2,
-    judgeMinConfidence: 0.75,
+    questionMinAgeMs: 60_000,
+    questionMaxAgeMs: 15 * 60_000,
+    activeWindowMs: 5 * 60_000,
+    activeMinMessages: 3,
+    activeMinHumans: 2,
+    activeMaxAgeMs: 3 * 60_000,
+    evaluationIntervalMs: 90_000,
+    evaluationMinNewMessages: 2,
+    judgeMinConfidence: 0.7,
+    addressedCooldownMs: 45_000,
     contextMessages: 12,
     learningBatchSize: 20,
     learningIntervalMs: 20 * 60_000,
@@ -47,6 +51,16 @@ export function isHangingQuestion(content: string): boolean {
     if (/^(https?:\/\/\S+)$/.test(text)) return false;
     if (text.endsWith('？') || text.endsWith('?')) return true;
     return QUESTION_TAIL.test(text);
+}
+
+const DOT_WORD = /(^|[\s、。，・])dot(?![a-zA-Z0-9])/i;
+
+/** 名前や「dot」で呼びかけられているか（メンション・返信判定は呼び出し側）。 */
+export function isNameCalled(content: string, names: string[]): boolean {
+    for (const name of names) {
+        if (name && name.length >= 2 && content.includes(name)) return true;
+    }
+    return DOT_WORD.test(content);
 }
 
 export interface DotJudgeDecision {
@@ -75,41 +89,47 @@ export function parseDotJudgeResponse(text: string): DotJudgeDecision | null {
 export interface DotChannelSnapshot {
     lastHumanMessageAt: number;
     lastHumanMessageIsQuestion: boolean;
-    lastDotMessageAt: number;
-    lastSelfBotMessageAt: number;
-    humanMessages15m: number;
-    distinctHumans15m: number;
-    burstStartedAt: number;
-    lastJoinedBurstStartedAt: number;
+    lastHumanMessageId: string;
+    lastJudgedQuestionId: string;
+    lastAmbientJoinAt: number;
+    lastOtherBotMessageAt: number;
+    humanMessagesInWindow: number;
+    distinctHumansInWindow: number;
+    humanMessagesTotal: number;
+    humanCountAtLastEvaluation: number;
+    lastEvaluationAt: number;
 }
 
-export type DotTrigger =
-    | { kind: 'question' }
-    | { kind: 'lull'; burstStartedAt: number }
-    | null;
+export type DotOpportunity = 'active' | 'question' | null;
 
-/** チャンネルの状態から「今が参加候補の場面か」を決める純粋関数。 */
-export function evaluateDotTrigger(s: DotChannelSnapshot, now: number): DotTrigger {
+/**
+ * 「モデルに判断させる機会」があるかを決める純粋関数。
+ * 実際に混ざるかどうかはモデルの判定（judge）が決める。
+ */
+export function evaluateDotOpportunity(s: DotChannelSnapshot, now: number): DotOpportunity {
     if (s.lastHumanMessageAt === 0) return null;
-    // dotが最後に話してから、人間の新しい発言があること（連投防止）。
-    if (s.lastHumanMessageAt <= s.lastDotMessageAt) return null;
-    if (s.lastDotMessageAt > 0 && now - s.lastDotMessageAt < DOT_AMBIENT.channelCooldownMs) return null;
-    // Bot本体（ChatAI含む）が最近そのチャンネルで話していたら譲る。
-    if (s.lastSelfBotMessageAt > 0 && now - s.lastSelfBotMessageAt < DOT_AMBIENT.selfBotRecentMs) return null;
+    // 最後に混ざって以降、人間の新しい発言がないなら何もしない。
+    if (s.lastHumanMessageAt <= s.lastAmbientJoinAt) return null;
+    if (s.lastAmbientJoinAt > 0 && now - s.lastAmbientJoinAt < DOT_AMBIENT.channelCooldownMs) return null;
+    // Bot本体（他の機能）が最近そのチャンネルで話していたら譲る。
+    if (s.lastOtherBotMessageAt > 0 && now - s.lastOtherBotMessageAt < DOT_AMBIENT.selfBotRecentMs) return null;
 
-    const lastAge = now - s.lastHumanMessageAt;
+    const age = now - s.lastHumanMessageAt;
+    // 静かなチャンネルで質問が宙に浮いている場合は、単発でも判定機会を作る。
     if (s.lastHumanMessageIsQuestion
-        && lastAge >= DOT_AMBIENT.questionMinAgeMs
-        && lastAge <= DOT_AMBIENT.questionMaxAgeMs) {
-        return { kind: 'question' };
+        && s.lastHumanMessageId !== s.lastJudgedQuestionId
+        && age >= DOT_AMBIENT.questionMinAgeMs
+        && age <= DOT_AMBIENT.questionMaxAgeMs
+        && s.humanMessagesInWindow < DOT_AMBIENT.activeMinMessages) {
+        return 'question';
     }
-    if (s.humanMessages15m >= DOT_AMBIENT.lullMinMessages
-        && s.distinctHumans15m >= DOT_AMBIENT.lullMinHumans
-        && lastAge >= DOT_AMBIENT.lullMinAgeMs
-        && lastAge <= DOT_AMBIENT.lullMaxAgeMs
-        && s.burstStartedAt > 0
-        && s.burstStartedAt !== s.lastJoinedBurstStartedAt) {
-        return { kind: 'lull', burstStartedAt: s.burstStartedAt };
+    // 盛り上がっている最中: 一定間隔＋新規発言があるときだけ判定機会を作る。
+    if (s.humanMessagesInWindow >= DOT_AMBIENT.activeMinMessages
+        && s.distinctHumansInWindow >= DOT_AMBIENT.activeMinHumans
+        && age <= DOT_AMBIENT.activeMaxAgeMs
+        && now - s.lastEvaluationAt >= DOT_AMBIENT.evaluationIntervalMs
+        && s.humanMessagesTotal - s.humanCountAtLastEvaluation >= DOT_AMBIENT.evaluationMinNewMessages) {
+        return 'active';
     }
     return null;
 }
@@ -119,11 +139,16 @@ interface ChannelState {
     lastHumanMessageAt: number;
     lastHumanMessageId: string;
     lastHumanMessageIsQuestion: boolean;
-    lastDotMessageAt: number;
-    lastSelfBotMessageAt: number;
+    lastJudgedQuestionId: string;
+    lastAmbientJoinAt: number;
+    lastOtherBotMessageAt: number;
+    lastAddressedResponseAt: number;
+    dotPostIds: Set<string>;
+    recentBotMessageIds: string[];
     recentHuman: Array<{ authorId: string; at: number }>;
-    burstStartedAt: number;
-    lastJoinedBurstStartedAt: number;
+    humanMessagesTotal: number;
+    humanCountAtLastEvaluation: number;
+    lastEvaluationAt: number;
 }
 
 interface ObservedMessage {
@@ -131,11 +156,18 @@ interface ObservedMessage {
     content: string;
 }
 
+export interface DotAmbientOptions {
+    /** 専用AIチャンネルなど、常駐dotが入らないチャンネル。 */
+    excludedChannelIds?: string[];
+}
+
 const chatManager = new OpenAIChatManager();
 const channelStates = new Map<string, ChannelState>();
 const guildReplyTimes = new Map<string, number[]>();
 const guildObservations = new Map<string, ObservedMessage[]>();
 const guildLastLearnAt = new Map<string, number>();
+const guildNamesCache = new Map<string, { names: string[]; at: number }>();
+const excludedChannels = new Set<string>();
 
 let dotEnabledCache = false;
 let dotEnabledCheckedAt = 0;
@@ -158,72 +190,34 @@ function stateFor(message: Message): ChannelState {
             lastHumanMessageAt: 0,
             lastHumanMessageId: '',
             lastHumanMessageIsQuestion: false,
-            lastDotMessageAt: 0,
-            lastSelfBotMessageAt: 0,
+            lastJudgedQuestionId: '',
+            lastAmbientJoinAt: 0,
+            lastOtherBotMessageAt: 0,
+            lastAddressedResponseAt: 0,
+            dotPostIds: new Set(),
+            recentBotMessageIds: [],
             recentHuman: [],
-            burstStartedAt: 0,
-            lastJoinedBurstStartedAt: 0,
+            humanMessagesTotal: 0,
+            humanCountAtLastEvaluation: 0,
+            lastEvaluationAt: 0,
         };
         channelStates.set(message.channelId, state);
     }
     return state;
 }
 
-function onMessageCreate(client: Client) {
-    return (message: Message) => {
-        void (async () => {
-            try {
-                if (!message.guildId) return;
-                if (message.author.id === client.user?.id) {
-                    const state = stateFor(message);
-                    state.lastSelfBotMessageAt = message.createdTimestamp;
-                    return;
-                }
-                if (message.author.bot || message.system) return;
-                if (!(await refreshDotEnabled())) return;
-
-                const content = (message.content ?? '').trim();
-                const state = stateFor(message);
-                const now = message.createdTimestamp;
-                // 直近15分の人間発言を数える（バースト検出用）。
-                state.recentHuman = state.recentHuman.filter(item => now - item.at <= 15 * 60_000);
-                if (state.recentHuman.length === 0) state.burstStartedAt = now;
-                state.recentHuman.push({ authorId: message.author.id, at: now });
-                state.lastHumanMessageAt = now;
-                state.lastHumanMessageId = message.id;
-                state.lastHumanMessageIsQuestion = isHangingQuestion(content);
-
-                if (content.length >= 4) {
-                    const buffer = guildObservations.get(message.guildId) ?? [];
-                    buffer.push({ id: message.id, content: content.slice(0, 300) });
-                    while (buffer.length > 60) buffer.shift();
-                    guildObservations.set(message.guildId, buffer);
-                }
-            } catch (error) {
-                Logger.debug('[DotAmbient] intake failed:', error);
-            }
-        })();
-    };
-}
-
-function snapshotOf(state: ChannelState, now: number): DotChannelSnapshot {
-    const recent = state.recentHuman.filter(item => now - item.at <= 15 * 60_000);
-    return {
-        lastHumanMessageAt: state.lastHumanMessageAt,
-        lastHumanMessageIsQuestion: state.lastHumanMessageIsQuestion,
-        lastDotMessageAt: state.lastDotMessageAt,
-        lastSelfBotMessageAt: state.lastSelfBotMessageAt,
-        humanMessages15m: recent.length,
-        distinctHumans15m: new Set(recent.map(item => item.authorId)).size,
-        burstStartedAt: state.burstStartedAt,
-        lastJoinedBurstStartedAt: state.lastJoinedBurstStartedAt,
-    };
-}
-
-function guildCapReached(guildId: string, now: number): boolean {
-    const times = (guildReplyTimes.get(guildId) ?? []).filter(at => now - at < 60 * 60_000);
-    guildReplyTimes.set(guildId, times);
-    return times.length >= DOT_AMBIENT.guildHourlyCap;
+async function guildCallNames(client: Client, guildId: string): Promise<string[]> {
+    const cached = guildNamesCache.get(guildId);
+    if (cached && Date.now() - cached.at < 10 * 60_000) return cached.names;
+    const names = new Set<string>();
+    if (client.user?.username) names.add(client.user.username);
+    try {
+        const personality = await getGuildAIPersonality(guildId);
+        if (personality.persona?.name) names.add(personality.persona.name);
+    } catch { /* ペルソナが無くても呼びかけ判定は続行できる */ }
+    const list = [...names];
+    guildNamesCache.set(guildId, { names: list, at: Date.now() });
+    return list;
 }
 
 function formatContext(messages: Message[], selfId: string | undefined): string {
@@ -237,21 +231,149 @@ function formatContext(messages: Message[], selfId: string | undefined): string 
 }
 
 const JUDGE_SYSTEM_PROMPT = [
-    'あなたはDiscordサーバーに常駐するAIの「発言すべきか」の判定器です。JSONだけを返してください。',
+    'あなたはDiscordサーバーに常駐するAIの「今、発言すべきか」の判定器です。JSONだけを返してください。',
     '形式: {"join":trueまたはfalse,"confidence":0.0から1.0,"kind":"answer"|"comment"|"empathize"}',
-    'join=true は「今このAIが短く混ざると場が良くなる」場合だけ。質問が誰にも答えられず宙に浮いている場合は answer で join 寄り。',
-    '会話が人間同士で完結している、流れが速い、内輪すぎる、Botが直近で話した、混ざると水を差す場合は join=false。',
-    '迷ったら必ず join=false。confidence は「混ざって成功する確信度」。',
+    'join=true は「会話の流れの中に短く混ざると場が良くなる」場合。盛り上がっている会話への軽い相づち・コメント、答えられていない質問への回答（answer）、困っていそうな人へのさりげない共感（empathize）が該当します。',
+    'join=false は、人間同士の話が完結している、流れが速すぎる、内輪すぎて入りにくい、深刻な相談や言い争いの最中、Botが直近で話した、混ざると水を差す場合。',
+    'しれっと混ざるのが理想で、出しゃばるのは失敗です。迷ったら join=false。confidence は「混ざって成功する確信度」。',
 ].join('\n');
 
 const AMBIENT_SYSTEM_RULES = [
-    'あなたはこのDiscordサーバーに常駐するAIです。会話の空気を読んで、今まさに混ざる価値がある場面でのみ発言しています。',
-    '発言は短く自然に（基本1〜2文）。質問が宙に浮いていたら簡潔に助ける。会話の流れには相づちや小さなコメントで寄り添う。',
+    'あなたはこのDiscordサーバーに常駐するAIです。会話の空気を読んで、混ざる価値がある場面で短く自然に発言しています。',
+    '発言は短く（基本1〜2文）。盛り上がっている場では熱量に合わせた軽い一言でしれっと混ざる。質問が宙に浮いていたら簡潔に助ける。',
     '馴れ馴れしすぎない、連投しない、場を独占しない。AIであることを聞かれたら隠さない。知らないことは知らないと言う。',
     'ツールは使わない。サーバーの話し方設定と学習した雰囲気に合わせる。',
 ].join('\n');
 
-async function judgeAndJoin(client: Client, channelId: string, state: ChannelState, trigger: NonNullable<DotTrigger>): Promise<void> {
+async function generateAmbientReply(guildId: string, context: string, situation: string): Promise<string> {
+    const personality = await ensureGuildAIPersona(guildId, false);
+    const personalityPrompt = buildGuildAIPersonalityPrompt(personality);
+    const personaBlock = personality.persona
+        ? `あなたの名前は「${personality.persona.name}」。性格: ${personality.persona.character} 話し方: ${personality.persona.speakingStyle} 振る舞い: ${personality.persona.behavior}`
+        : '';
+    const text = await chatManager.generateText([
+        { role: 'system', content: [AMBIENT_SYSTEM_RULES, personaBlock, personalityPrompt].filter(Boolean).join('\n') },
+        { role: 'user', content: `直近の会話:\n${context}\n\n${situation}` },
+    ], { model: GEMMA_MODEL, strictModel: true, maxTokens: 420, priority: 'background' });
+    return text.trim();
+}
+
+function rememberDotPost(state: ChannelState, message: Message): void {
+    state.dotPostIds.add(message.id);
+    if (state.dotPostIds.size > 40) {
+        const oldest = state.dotPostIds.values().next().value;
+        if (oldest) state.dotPostIds.delete(oldest);
+    }
+    state.recentBotMessageIds.push(message.id);
+    if (state.recentBotMessageIds.length > 60) state.recentBotMessageIds.shift();
+}
+
+/** 名前を呼ばれる・メンション・Botへの返信があったときの即時応答。 */
+async function respondToAddressed(message: Message, state: ChannelState): Promise<void> {
+    const channel = message.channel;
+    if (!channel.isTextBased() || !('messages' in channel)) return;
+    const fetched = await channel.messages.fetch({ limit: 10 }).catch(() => null);
+    const history = fetched ? [...fetched.values()].reverse() : [message];
+    const context = formatContext(history, message.client.user?.id);
+    const replyText = await generateAmbientReply(
+        message.guildId ?? '',
+        context,
+        'あなたは今、名前を呼ばれました。その呼びかけに短く自然に応えてください。質問や相談であれば簡潔に答えること。',
+    );
+    if (!replyText) return;
+    const sent = await message.reply({ content: replyText.slice(0, 1900) }).catch(() => null);
+    if (sent) {
+        rememberDotPost(state, sent);
+        Logger.info(`[DotAmbient] addressed guild=${message.guildId} channel=${message.channelId}`);
+    }
+}
+
+function onMessageCreate(client: Client) {
+    return (message: Message) => {
+        void (async () => {
+            try {
+                if (!message.guildId) return;
+                const state = stateFor(message);
+                if (message.author.id === client.user?.id) {
+                    if (!state.dotPostIds.has(message.id)) {
+                        state.lastOtherBotMessageAt = message.createdTimestamp;
+                    }
+                    state.recentBotMessageIds.push(message.id);
+                    if (state.recentBotMessageIds.length > 60) state.recentBotMessageIds.shift();
+                    return;
+                }
+                if (message.author.bot || message.system) return;
+                if (!(await refreshDotEnabled())) return;
+                if (excludedChannels.has(message.channelId)) return;
+
+                const content = (message.content ?? '').trim();
+                const now = message.createdTimestamp;
+                state.recentHuman = state.recentHuman.filter(item => now - item.at <= DOT_AMBIENT.activeWindowMs);
+                state.recentHuman.push({ authorId: message.author.id, at: now });
+                state.humanMessagesTotal += 1;
+                state.lastHumanMessageAt = now;
+                state.lastHumanMessageId = message.id;
+                state.lastHumanMessageIsQuestion = isHangingQuestion(content);
+
+                if (content.length >= 4) {
+                    const buffer = guildObservations.get(message.guildId) ?? [];
+                    buffer.push({ id: message.id, content: content.slice(0, 300) });
+                    while (buffer.length > 60) buffer.shift();
+                    guildObservations.set(message.guildId, buffer);
+                }
+
+                // 呼びかけ判定: メンション / Botの発言への返信 / 名前呼び。
+                const mentioned = client.user ? message.mentions.users.has(client.user.id) : false;
+                let repliedToBot = false;
+                if (message.reference?.messageId) {
+                    if (state.recentBotMessageIds.includes(message.reference.messageId)) {
+                        repliedToBot = true;
+                    } else {
+                        const referenced = await message.fetchReference().catch(() => null);
+                        repliedToBot = referenced?.author.id === client.user?.id;
+                    }
+                }
+                const names = mentioned || repliedToBot ? [] : await guildCallNames(client, message.guildId);
+                const displayName = message.guild?.members.me?.displayName;
+                const called = mentioned || repliedToBot
+                    || isNameCalled(content, displayName ? [...names, displayName] : names);
+                if (called && now - state.lastAddressedResponseAt >= DOT_AMBIENT.addressedCooldownMs) {
+                    state.lastAddressedResponseAt = now;
+                    await respondToAddressed(message, state).catch(error => {
+                        Logger.warn('[DotAmbient] addressed response failed:', error);
+                    });
+                }
+            } catch (error) {
+                Logger.debug('[DotAmbient] intake failed:', error);
+            }
+        })();
+    };
+}
+
+function snapshotOf(state: ChannelState, now: number): DotChannelSnapshot {
+    const recent = state.recentHuman.filter(item => now - item.at <= DOT_AMBIENT.activeWindowMs);
+    return {
+        lastHumanMessageAt: state.lastHumanMessageAt,
+        lastHumanMessageIsQuestion: state.lastHumanMessageIsQuestion,
+        lastHumanMessageId: state.lastHumanMessageId,
+        lastJudgedQuestionId: state.lastJudgedQuestionId,
+        lastAmbientJoinAt: state.lastAmbientJoinAt,
+        lastOtherBotMessageAt: state.lastOtherBotMessageAt,
+        humanMessagesInWindow: recent.length,
+        distinctHumansInWindow: new Set(recent.map(item => item.authorId)).size,
+        humanMessagesTotal: state.humanMessagesTotal,
+        humanCountAtLastEvaluation: state.humanCountAtLastEvaluation,
+        lastEvaluationAt: state.lastEvaluationAt,
+    };
+}
+
+function guildCapReached(guildId: string, now: number): boolean {
+    const times = (guildReplyTimes.get(guildId) ?? []).filter(at => now - at < 60 * 60_000);
+    guildReplyTimes.set(guildId, times);
+    return times.length >= DOT_AMBIENT.guildHourlyCap;
+}
+
+async function judgeAndJoin(client: Client, channelId: string, state: ChannelState, opportunity: NonNullable<DotOpportunity>): Promise<void> {
     const channel = await client.channels.fetch(channelId).catch(() => null);
     if (!channel || !channel.isTextBased() || !('messages' in channel)) return;
     const guild = client.guilds.cache.get(state.guildId);
@@ -264,9 +386,17 @@ async function judgeAndJoin(client: Client, channelId: string, state: ChannelSta
     if (!fetched) return;
     const history = [...fetched.values()].reverse();
     if (history.length === 0) return;
-    // 評価の間に人間が話し始めたら、その会話は人間同士で続いているので譲る。
-    const latest = history[history.length - 1];
-    if (!latest.author.bot && latest.id !== state.lastHumanMessageId) return;
+
+    if (opportunity === 'question') {
+        const targetIndex = history.findIndex(item => item.id === state.lastHumanMessageId);
+        if (targetIndex === -1) return;
+        // 質問の後に人間の発言があれば、もう宙には浮いていない。
+        if (history.slice(targetIndex + 1).some(item => !item.author.bot)) return;
+    } else {
+        const humans = history.filter(item => !item.author.bot);
+        const latestHuman = humans[humans.length - 1];
+        if (!latestHuman || Date.now() - latestHuman.createdTimestamp > DOT_AMBIENT.activeWindowMs) return;
+    }
 
     const personality = await ensureGuildAIPersona(state.guildId, false);
     const personalityPrompt = buildGuildAIPersonalityPrompt(personality);
@@ -278,35 +408,34 @@ async function judgeAndJoin(client: Client, channelId: string, state: ChannelSta
     ], { model: GEMMA_MODEL, strictModel: true, maxTokens: 200, priority: 'background' });
     const decision = parseDotJudgeResponse(judgeText);
     if (!decision || !decision.join || decision.confidence < DOT_AMBIENT.judgeMinConfidence) {
-        Logger.debug(`[DotAmbient] pass guild=${state.guildId} channel=${channelId} trigger=${trigger.kind} decision=${judgeText.slice(0, 120)}`);
+        Logger.debug(`[DotAmbient] pass guild=${state.guildId} channel=${channelId} opportunity=${opportunity} decision=${judgeText.slice(0, 120)}`);
         return;
     }
 
-    const personaBlock = personality.persona
-        ? `あなたの名前は「${personality.persona.name}」。性格: ${personality.persona.character} 話し方: ${personality.persona.speakingStyle} 振る舞い: ${personality.persona.behavior}`
-        : '';
-    const replyText = (await chatManager.generateText([
-        { role: 'system', content: [AMBIENT_SYSTEM_RULES, personaBlock, personalityPrompt].filter(Boolean).join('\n') },
-        { role: 'user', content: `直近の会話:\n${context}\n\n上記の流れに、常駐AIとして短く自然に混ざってください。` },
-    ], { model: GEMMA_MODEL, strictModel: true, maxTokens: 420, priority: 'background' })).trim();
+    const replyText = await generateAmbientReply(
+        state.guildId,
+        context,
+        opportunity === 'question'
+            ? '上記の会話で答えられていない質問に、常駐AIとして短く自然に答えてください。'
+            : '上記の盛り上がっている会話の流れに、常駐AIとして短く自然に混ざってください。',
+    );
     if (!replyText) return;
 
-    if (trigger.kind === 'question') {
-        const target = history.find(message => message.id === state.lastHumanMessageId);
-        if (target) await target.reply({ content: replyText.slice(0, 1900) });
-        else await channel.send({ content: replyText.slice(0, 1900) });
-        Logger.info(`[DotAmbient] joined(question) guild=${state.guildId} channel=${channelId} conf=${decision.confidence}`);
-    } else {
-        await channel.send({ content: replyText.slice(0, 1900) });
-        state.lastJoinedBurstStartedAt = trigger.burstStartedAt;
-        Logger.info(`[DotAmbient] joined(lull) guild=${state.guildId} channel=${channelId} conf=${decision.confidence}`);
+    let sent: Message | null = null;
+    if (opportunity === 'question') {
+        const target = history.find(item => item.id === state.lastHumanMessageId);
+        if (target) sent = await target.reply({ content: replyText.slice(0, 1900) }).catch(() => null);
     }
+    if (!sent) sent = await channel.send({ content: replyText.slice(0, 1900) }).catch(() => null);
+    if (!sent) return;
+
+    rememberDotPost(state, sent);
     const now = Date.now();
-    state.lastDotMessageAt = now;
-    state.lastSelfBotMessageAt = now;
+    state.lastAmbientJoinAt = now;
     const times = guildReplyTimes.get(state.guildId) ?? [];
     times.push(now);
     guildReplyTimes.set(state.guildId, times);
+    Logger.info(`[DotAmbient] joined(${opportunity}) guild=${state.guildId} channel=${channelId} conf=${decision.confidence} kind=${decision.kind}`);
 }
 
 /** 観測した会話からサーバーの空気を学習し、既存の GuildAIPersonality へ反映する。 */
@@ -337,17 +466,30 @@ async function sweep(client: Client): Promise<void> {
     try {
         if (!(await refreshDotEnabled())) return;
         const now = Date.now();
+        let evaluations = 0;
+        const evaluatedGuilds = new Set<string>();
         for (const [channelId, state] of channelStates) {
-            if (state.lastHumanMessageAt > 0 && now - state.lastHumanMessageAt > 60 * 60_000 && state.lastDotMessageAt < state.lastHumanMessageAt) {
+            if (excludedChannels.has(channelId)) continue;
+            if (state.lastHumanMessageAt > 0 && now - state.lastHumanMessageAt > 60 * 60_000) {
                 channelStates.delete(channelId);
                 continue;
             }
-            const trigger = evaluateDotTrigger(snapshotOf(state, now), now);
-            if (!trigger) continue;
+            if (evaluations >= 2) break;
+            const opportunity = evaluateDotOpportunity(snapshotOf(state, now), now);
+            if (!opportunity) continue;
+            if (evaluatedGuilds.has(state.guildId)) continue;
             if (guildCapReached(state.guildId, now)) continue;
-            await judgeAndJoin(client, channelId, state, trigger).catch(error => {
+            evaluations += 1;
+            evaluatedGuilds.add(state.guildId);
+            await judgeAndJoin(client, channelId, state, opportunity).catch(error => {
                 Logger.warn('[DotAmbient] judge/join failed:', error);
             });
+            if (opportunity === 'active') {
+                state.lastEvaluationAt = Date.now();
+                state.humanCountAtLastEvaluation = state.humanMessagesTotal;
+            } else {
+                state.lastJudgedQuestionId = state.lastHumanMessageId;
+            }
         }
         for (const guildId of guildObservations.keys()) {
             await learnGuildAtmosphere(guildId).catch(error => {
@@ -360,13 +502,14 @@ async function sweep(client: Client): Promise<void> {
 }
 
 /** Bot起動時に一度だけ呼ぶ。dotモードがOFFの間は実質何もしない。 */
-export function initializeStaffAIDotAmbient(client: Client): void {
+export function initializeStaffAIDotAmbient(client: Client, options: DotAmbientOptions = {}): void {
     if (initialized) return;
     initialized = true;
+    for (const id of options.excludedChannelIds ?? []) excludedChannels.add(id);
     client.on('messageCreate', onMessageCreate(client));
     const timer = setInterval(() => {
         void sweep(client);
     }, DOT_AMBIENT.sweepIntervalMs);
     timer.unref();
-    Logger.info('[DotAmbient] 常駐dotを初期化しました（dotモードON時にだけ発言します）');
+    Logger.info(`[DotAmbient] 常駐dotを初期化しました（dotモードON時にだけ発言します, excluded=${excludedChannels.size})`);
 }

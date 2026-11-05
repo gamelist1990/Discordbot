@@ -152,7 +152,14 @@ async function main() {
         // Staff AI dotモードの常駐参加（dotモードONの間だけ会話に混ざる）
         try {
             const dotAmbient = await import('./core/ai/StaffAIDotAmbient.js');
-            dotAmbient.initializeStaffAIDotAmbient(botClient.client);
+            let excludedChannelIds: string[] = [];
+            try {
+                const loader = await import('./integrations/guild890315487962095637/Loader.js');
+                if (loader.CHAT_AI_CHANNEL_ENABLED && loader.CHAT_AI_CHANNEL_ID) {
+                    excludedChannelIds = [loader.CHAT_AI_CHANNEL_ID];
+                }
+            } catch { /* 連携側の定数が読めなくても常駐dotは継続する */ }
+            dotAmbient.initializeStaffAIDotAmbient(botClient.client, { excludedChannelIds });
         } catch (error) {
             Logger.warn('[DotAmbient] 初期化に失敗しました（Botは継続します）:', error);
         }
