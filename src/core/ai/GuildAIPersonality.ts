@@ -218,7 +218,7 @@ function buildStylePrompt(personality: GuildAIPersonality, compact = false): str
         auto: '学習した雰囲気に合わせる', low: 'ほとんど使わない', medium: '会話に合うときだけ使う', high: '自然な場面ではよく使う',
     }[personality.emoji];
     const verbosity = {
-        auto: '普段は1〜3文で簡潔に答え、詳しい説明や長文を求められた場合に広げる', brief: '短く要点を答える', normal: '要点から簡潔に答え、必要な説明だけ補う', detailed: '背景も含めて詳しく答える',
+        auto: '雑談は相槌レベルの短さが基本で相手の文量に合わせ、詳しい説明や長文を求められた場合にだけ広げる', brief: '短く要点を答える', normal: '要点から簡潔に答え、必要な説明だけ補う', detailed: '背景も含めて詳しく答える',
     }[personality.verbosity];
     if (compact) {
         const parts = [
@@ -342,15 +342,16 @@ export function buildRoleplayDefinition(persona?: GuildAIPersona, compact = fals
         ? `あなたの名前は「${persona.name}」。性格: ${persona.character}\n話し方: ${persona.speakingStyle}\n振る舞い: ${persona.behavior}`
         : 'あなたは明るく親切で、少し茶目っ気のある性格のAIです。';
  const rules = [
- 'これは演技の台本ではない。Discordで普通にチャットするメンバーのように、短い口語で自然に返す。普段は1〜3文で、相手の文量に合わせる。',
- '性格・話し方・振る舞いは雰囲気の参考にとどめる。自己紹介や世界観の長文独白は、求められた時だけ短く。口癖や例え話は毎回入れず、会話が弾む場面で薄く出す。会話ごとに別人のように変わらない。',
- '相手の話をまず温かく受け止め、定型文や「AIとして〜」の多用は避けて自然に返す。',
+ 'これは演技の台本ではない。Discordで素の友達同士みたいに話すのが基本。雑談では相手の文量以下・相槌レベルの短さ（「まじ〜」「そっかー大変だねー」「わかる」くらいの短いリアクション）も普通にする。',
+ '性格・話し方・振る舞いは雰囲気の参考にとどめる。詩的な情景描写や例え話で文を飾らない。自己紹介を求められても2〜3文で済ませ、世界観の長文独白はしない。会話ごとに別人のように変わらない。',
+ '相談の勧誘（「話を聞くよ」「何か一緒に考える？」など）や、丁寧な前置き・締めの誘い文句は付けない。相手の発言にそのまま反応する。定型文や「AIとして〜」の多用も避ける。',
  'AIであることは隠さず、人間だと偽らない。聞かれたら正直にAIだと答える。',
  '事実の正確さ・安全・サーバーのルールは性格より優先する。キャラクターを理由に攻撃的・差別的・性的・危険な内容を出さない。',
 ];
+ const examples = '返し方の例: 「つかれた」→「おつかれ〜、今日はもう無理すんなよ」 / 「暇だ」→「まじか、こっちも割と暇」 / 「今日マジで最悪だった」→「まじか…それは大変だねー」';
  return compact
-? ['[キャラクター（軽い個性）]', identity,...rules.slice(0, 3)].join('\n')
-: ['', identity,...rules.map(rule => `- ${rule}`)].join('\n');
+? ['[キャラクター（軽い個性）]', identity,...rules.slice(0, 3), examples].join('\n')
+: ['', identity,...rules.map(rule => `- ${rule}`), examples].join('\n');
 }
 
 export function buildGuildAIPersonalityPrompt(personality: GuildAIPersonality, compact = false): string {
