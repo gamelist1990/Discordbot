@@ -1,4 +1,4 @@
-import { config, NEMOTRON_MODEL } from '../../../config.js';
+import { config, GEMMA_MODEL } from '../../../config.js';
 import type { OpenAITool, ToolHandler } from '../../../types/openai.js';
 import type { ChatAIToolRegistrar } from './types.js';
 
@@ -43,7 +43,7 @@ const visionDescribeHandler: ToolHandler = async (args, context?: VisionToolCont
                 ...(config.pexAi.apiKey ? { authorization: `Bearer ${config.pexAi.apiKey}` } : {}),
             },
             body: JSON.stringify({
-                model: NEMOTRON_MODEL,
+                model: GEMMA_MODEL,
                 messages: [
                     {
                         role: 'user',

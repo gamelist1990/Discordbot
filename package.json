@@ -45,7 +45,7 @@
   "scripts": {
     "generate:chatgpt-models": "py scripts/generate_chatgpt_models.py",
     "web": "cd src/web/client &&  vite build ",
-    "start": "cd src/web/client && vite build && cd ../../../ && bun run src/index.ts",
+    "start": "bun run src/index.ts",
     "dev": "concurrently \"cd src/web/client && vite build\" \"bun --watch run src/index.ts \"",
     "webserver": "concurrently \"cd src/web/client && vite\" \"npx tsx src/web/webDebug.ts\"",
     "webDebug": "npx tsx src/web/webDebug.ts",
@@ -53,7 +53,8 @@
     "test:visual-ui": "node tests/run-visual-tests.js && npx playwright show-report",
     "debug:session": "node tests/create-debug-session.js",
     "test:visual-new": "node tests/run-visual-tests-new.js",
-    "test:visual-new-ui": "node tests/run-visual-tests-new.js && npx playwright show-report"
+    "test:visual-new-ui": "node tests/run-visual-tests-new.js && npx playwright show-report",
+    "build:client": "cd src/web/client && vite build && cd ../../../"
   },
   "devDependencies": {
     "@playwright/test": "^1.40.0",

@@ -7,7 +7,7 @@ import { fillMissingConfig } from './utils/configDefaults.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-export const NEMOTRON_MODEL = 'nemotron-bolt';
+export const GEMMA_MODEL = 'gemma-4-E4B-it';
 export const LFM3_MODEL = 'lfm3';
 
 export interface AppConfig {
@@ -75,10 +75,10 @@ const contentSafetyModel = !configuredContentSafetyModel || isLegacyDecisionMode
     ? LFM3_MODEL
     : configuredContentSafetyModel;
 const defaultChannelModel = 'gemini-3.5-flash-lite';
-const migrateModel = (model: string | undefined) => model?.replace(/^qwopus-coder$/i, NEMOTRON_MODEL);
+const migrateModel = (model: string | undefined) => model?.replace(/^qwopus-coder$/i, GEMMA_MODEL);
 const configuredPexModel = migrateModel(raw.pexAi?.model?.trim());
 const configuredChannelModel = migrateModel(raw.pexAi?.channelModel?.trim());
-const pexModel = isLegacyDecisionModel(configuredPexModel) ? NEMOTRON_MODEL : configuredPexModel || NEMOTRON_MODEL;
+const pexModel = isLegacyDecisionModel(configuredPexModel) ? GEMMA_MODEL : configuredPexModel || GEMMA_MODEL;
 const channelModel = isLegacyDecisionModel(configuredChannelModel)
     ? defaultChannelModel
     : configuredChannelModel || defaultChannelModel;
@@ -96,7 +96,7 @@ export const config: Required<AppConfig> = {
     openai: {
         apiKey: raw.openai?.apiKey || '',
         apiEndpoint: raw.openai?.apiEndpoint || '',
-        defaultModel: migrateModel(raw.openai?.defaultModel) || NEMOTRON_MODEL,
+        defaultModel: migrateModel(raw.openai?.defaultModel) || GEMMA_MODEL,
         proxyEndpoints: Array.isArray(raw.openai?.proxyEndpoints)
             ? raw.openai?.proxyEndpoints.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
             : [],

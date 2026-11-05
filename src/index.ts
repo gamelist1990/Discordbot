@@ -149,6 +149,14 @@ async function main() {
         guild890315487962095637Integration = integrationModule.guild890315487962095637Integration;
         await guild890315487962095637Integration.initialize(botClient.client);
 
+        // Staff AI dotモードの常駐参加（dotモードONの間だけ会話に混ざる）
+        try {
+            const dotAmbient = await import('./core/ai/StaffAIDotAmbient.js');
+            dotAmbient.initializeStaffAIDotAmbient(botClient.client);
+        } catch (error) {
+            Logger.warn('[DotAmbient] 初期化に失敗しました（Botは継続します）:', error);
+        }
+
         // 設定サーバーを起動
         Logger.info('🌐 設定サーバーを起動します...');
         settingsServer = new SettingsServer(botClient, 3000);

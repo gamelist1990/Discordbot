@@ -3,7 +3,7 @@ import { STAFF_FILE_OUTPUT_FLOW } from '../../../core/ai/AIFileOutputPolicy.js';
 import { ChatInputCommandInteraction, Message, MessageFlags, DiscordAPIError } from 'discord.js';
 import { OpenAIChatManager } from '../../../core/ai/OpenAIChatManager.js';
 import { buildStaffAITimeContext } from '../../../core/ai/StaffAITimeContext.js';
-import { NEMOTRON_MODEL } from '../../../config.js';
+import { GEMMA_MODEL, isOwner } from '../../../config.js';
 import { OpenAIChatCompletionMessage, OpenAIChatCompletionChunk } from '../../../types/openai.js';
 import type { ResponseApiStreamDelta } from '../../../core/ai/ChatGPTClient.js';
 import { StaffAIStreamState } from './StaffAIStreamState.js';
@@ -14,7 +14,8 @@ import { toolResultSummary } from '../../../core/ai/ToolResultSummary.js';
 import { parseStaffReplyTarget, buildStaffVisualReplyContext, discordMessageAuthor, describeDiscordAttachments } from './StaffAIReplyContext.js';
 import { webSearchHandler } from '../../../core/ChatAIChannel/tools/webSearchBing.js';
 import { musicResearchQuery } from './StaffAIResearch.js';
-import { STAFF_AI_SYSTEM_PROMPT, STAFF_AI_PROMPT_BUDGET } from './StaffAIStyle.js';
+import { STAFF_AI_SYSTEM_PROMPT, STAFF_AI_DOT_SYSTEM_PROMPT, STAFF_AI_PROMPT_BUDGET } from './StaffAIStyle.js';
+import { parseStaffAISettings, getStaffAIDotMode, setStaffAIDotMode } from './StaffAIDotMode.js';
 import {
     buildGuildAIPersonalityPrompt,
     DEFAULT_GUILD_AI_PERSONALITY,
@@ -83,11 +84,48 @@ export const subcommandHandler = {
                 opt.setName('safety')
                     .setDescription('（任意）true にするとユーザーの system_prompt を補助的に扱います（保守的モード）')
                     .setRequired(false)
+            )
+            .addStringOption((opt: any) =>
+                opt.setName('settings')
+                    .setDescription('Bot管理者用設定（例: mode dot true でdotモードを有効化）')
+                    .setRequired(false)
             );
     },
 
     async execute(interaction: ChatInputCommandInteraction): Promise<void> {
         const userId = interaction.user.id;
+
+        // Bot管理者用設定（settings オプション）。通常のAI実行・レート制限とは独立に処理する。
+        const settingsInput = interaction.options.getString('settings', false);
+        if (settingsInput !== null) {
+            if (!isOwner(userId)) {
+                await interaction.reply({
+                    content: '⛔ この設定はBot管理者（グローバル管理者）のみ変更できます。ギルドの管理者権限では変更できません。',
+                    flags: MessageFlags.Ephemeral
+                });
+                return;
+            }
+            const parsed = parseStaffAISettings(settingsInput);
+            if (parsed.kind === 'invalid') {
+                await interaction.reply({
+                    content: '⚠️ 使い方: settings に `mode dot true`（有効化）/ `mode dot false`（無効化）/ `mode dot`（状態確認）を指定してください。',
+                    flags: MessageFlags.Ephemeral
+                });
+                return;
+            }
+            try {
+                if (parsed.kind === 'set') await setStaffAIDotMode(parsed.value);
+                const current = await getStaffAIDotMode();
+                await interaction.reply({
+                    content: `⚙️ Staff AI dotモード: **${current ? 'ON' : 'OFF'}**${parsed.kind === 'set' ? ' に設定しました' : '（現在の設定）'}`,
+                    flags: MessageFlags.Ephemeral
+                });
+            } catch (error) {
+                console.error('[StaffAI] dotモード設定の保存に失敗:', error);
+                await interaction.reply({ content: '❌ 設定の保存に失敗しました。', flags: MessageFlags.Ephemeral });
+            }
+            return;
+        }
 
         // レート制限のチェック
         if (isRateLimited(userId)) {
@@ -338,7 +376,11 @@ ${reason}` });
         const safetyOverride = interaction.options.getBoolean('safety', false);
 
         // A fixed, tiny system prompt keeps llama.cpp prefix cache effective.
-        const defaultSystemPrompt = STAFF_AI_SYSTEM_PROMPT;
+        // dotモード時はタスク遂行型の指示を後ろに足す（prefix は共通なのでキャッシュも効く）。
+        const dotMode = await getStaffAIDotMode();
+        const defaultSystemPrompt = dotMode
+            ? STAFF_AI_SYSTEM_PROMPT + '\n' + STAFF_AI_DOT_SYSTEM_PROMPT
+            : STAFF_AI_SYSTEM_PROMPT;
 
         // ユーザーが提供した system prompt をサニタイズしてマージ
         const mergedSystemPrompt = mergeSystemPrompts(defaultSystemPrompt, userSystemPrompt, safetyOverride === true);
@@ -496,8 +538,8 @@ ${reason}` });
         const streamOptions = {
             // Keep enough budget for a final answer after reasoning/tool calls.
             // A smaller limit can end a Responses stream with thinking only.
-            model: NEMOTRON_MODEL, strictModel: true, maxTokens: forceTextFileTools ? 4096 : 3072,
-            reasoningEffort: 'low' as const,
+            model: GEMMA_MODEL, strictModel: true, maxTokens: dotMode ? (forceTextFileTools ? 8192 : 6144) : (forceTextFileTools ? 4096 : 3072),
+            reasoningEffort: (dotMode ? 'medium' : 'low') as const,
             ...(forceTextFileTools ? { forceToolSequence: ['output_file'] }
                 : forceChannelSearchTool ? { forceToolSequence: ['search_channel_messages'] } : {}),
             includeUsage: true,
