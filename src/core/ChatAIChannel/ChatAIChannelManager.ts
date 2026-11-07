@@ -12,14 +12,9 @@ import { config } from '../../config.js';
 import { Logger } from '../../utils/Logger.js';
 import { OpenAIChatManager } from '../ai/OpenAIChatManager.js';
 import { AI_RESEARCH_POLICY } from '../ai/AIResearchPolicy.js';
-import { beginAIRequestPriority, queueAIBackgroundWork } from '../ai/AIBackgroundWork.js';
+import { beginAIRequestPriority } from '../ai/AIBackgroundWork.js';
 import {
-    applyGuildAIPersonalityLearning,
-    ATMOSPHERE_LEARNING_MAX_TOKENS,
-    ATMOSPHERE_LEARNING_SYSTEM_PROMPT,
-    buildAtmosphereLearningUserPrompt,
     buildGuildAIPersonalityPrompt,
-    getGuildAIPersonality,
     ensureGuildAIPersona,
 } from '../ai/GuildAIPersonality.js';
 import type { ResponseApiStreamDelta, ToolExecutionStep } from '../ai/ChatGPTClient.js';
@@ -551,10 +546,6 @@ export class ChatAIChannelManager {
             queueStreamingUpdate(true);
             await updateChain;
             this.activeConversationUntil = Date.now() + CONTINUATION_WINDOW_MS;
-            const styleHistory = history.slice();
-            void queueAIBackgroundWork(`ai-channel-style:${this.options.guildId}:${this.options.channelId}`, signal =>
-                this.updateMemoryWithAi(styleHistory, signal))
-                .catch(error => Logger.debug('[ChatAIChannel] server style update failed:', error));
 
         } finally {
             stopTyping();
@@ -1119,20 +1110,6 @@ export class ChatAIChannelManager {
 
         if (changed) await this.saveTimeouts(timeouts);
         return timeouts.entries[`${this.options.channelId}:${userId}`] || null;
-    }
-
-    private async updateMemoryWithAi(history: Message[], signal: AbortSignal): Promise<void> {
-        const personality = await getGuildAIPersonality(this.options.guildId);
-        if (!personality.learningEnabled) return;
-        const messages = history.filter(message => !message.author.bot && (!personality.lastAnalyzedMessageId
-            || BigInt(message.id) > BigInt(personality.lastAnalyzedMessageId))).slice(-20);
-        if (messages.length < 2) return;
-        const summary = await this.chatManager.generateText([
-            { role: 'system', content: ATMOSPHERE_LEARNING_SYSTEM_PROMPT },
-            { role: 'user', content: buildAtmosphereLearningUserPrompt(personality.learnedSummary, messages.map(message => message.content.slice(0, 500))) },
-        ], { model: config.pexAi.channelModel || config.pexAi.model, strictModel: true, maxTokens: ATMOSPHERE_LEARNING_MAX_TOKENS, signal, priority: 'background' });
-        signal.throwIfAborted();
-        await applyGuildAIPersonalityLearning(this.options.guildId, personality.learningRevision, summary, messages.length, messages.at(-1)!.id);
     }
 
     private async loadMemory(): Promise<ChatAIMemoryFile> {
