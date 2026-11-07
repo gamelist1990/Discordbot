@@ -1,5 +1,6 @@
 import { PermissionFlagsBits, type Client, type Message } from 'discord.js';
 import { OpenAIChatManager } from './OpenAIChatManager.js';
+import type { OpenAIChatCompletionMessage } from '../../types/openai.js';
 import { GEMMA_MODEL, config } from '../../config.js';
 import { Logger } from '../../utils/Logger.js';
 import { getEffectiveContent } from '../anticheat/ForwardedContent.js';
@@ -65,6 +66,9 @@ export const DOT_AMBIENT = {
     episodeMaxTokens: 1600,
     episodePendingCap: 300,
     judgeMaxTokens: 1024,
+    judgeSessionMaxChars: 24_000,
+    judgeSessionMaxTurns: 40,
+    judgeSessionMaxLoggedMessages: 150,
     generationMaxTokens: 1024,
     learningMaxTokens: 1600,
     mediaDescribeMaxPerMessage: 2,
@@ -433,6 +437,8 @@ interface ChannelState {
     engagedUntil: number;
     recentReactions: RecentReaction[];
     recentMessages: BufferedMessage[];
+    participationSession: AppendOnlySession;
+    addressedSession: AppendOnlySession;
     dotPostIds: Set<string>;
     recentBotMessageIds: string[];
     recentHuman: Array<{ authorId: string; at: number }>;
@@ -496,6 +502,8 @@ function stateFor(message: Message): ChannelState {
             engagedUntil: 0,
             recentReactions: [],
             recentMessages: [],
+            participationSession: createAppendOnlySession(),
+            addressedSession: createAppendOnlySession(),
             dotPostIds: new Set(),
             recentBotMessageIds: [],
             recentHuman: [],
@@ -522,7 +530,7 @@ async function guildCallNames(client: Client, guildId: string): Promise<string[]
     return list;
 }
 
-interface BufferedMessage {
+export interface BufferedMessage {
     id: string;
     authorId: string;
     authorName: string;
@@ -563,6 +571,154 @@ function formatBuffered(messages: BufferedMessage[], selfId: string | undefined,
 function pushBuffered(state: ChannelState, entry: BufferedMessage): void {
     state.recentMessages.push(entry);
     if (state.recentMessages.length > DOT_AMBIENT.contextBufferSize) state.recentMessages.shift();
+}
+
+/**
+ * dsh（deepseek-harness）方式の追記専用ジャッジセッション。
+ *
+ * 設計:
+ * - システムプロンプトはセッション中バイト同一（呼び出し側が固定文字列を渡す）。
+ * - 会話ログは「一度送った行は二度と書き換えない」追記専用。各ターンは
+ *   [新規発言の行] + [メディア説明の補足] + [更新された場合のみ雰囲気] + [今回の判定材料（末尾）]
+ *   という1つの user メッセージとして末尾へ追加されるだけなので、前回までの
+ *   リクエスト全体が今回のリクエストの接頭辞になり、ゲートウェイの接頭辞キャッシュが効く。
+ * - 相対時刻（「3分前」）のような可変表現はログ行に使わない（行は作った瞬間に凍結される）。
+ *   メディア説明が後から揃った場合は行を書き換えず、補足ブロックとして末尾に追記する。
+ * - 満杯（文字数/ターン数/ログ件数の上限）になったら途中編集はせずリベースする:
+ *   セッションを閉じ、現在の候補行全体から新しいセッションを開始する（コールド1回を受け入れる）。
+ */
+export interface AppendOnlySession {
+    turns: string[];
+    loggedMessageIds: Set<string>;
+    mediaNotesByMessage: Map<string, string>;
+    personalitySent: string;
+    lastLoggedAt: number;
+    chars: number;
+}
+
+export function createAppendOnlySession(): AppendOnlySession {
+    return {
+        turns: [],
+        loggedMessageIds: new Set(),
+        mediaNotesByMessage: new Map(),
+        personalitySent: '',
+        lastLoggedAt: 0,
+        chars: 0,
+    };
+}
+
+export function appendOnlySessionNeedsRebase(session: AppendOnlySession, additionalChars: number): boolean {
+    if (session.turns.length === 0) return false;
+    return session.chars + additionalChars > DOT_AMBIENT.judgeSessionMaxChars
+        || session.turns.length >= DOT_AMBIENT.judgeSessionMaxTurns
+        || session.loggedMessageIds.size >= DOT_AMBIENT.judgeSessionMaxLoggedMessages;
+}
+
+/** 判定ログ用の安定行整形。相対時刻を含めないため、同じ発言からは常に同じバイト列が得られる。 */
+export function formatJudgeLogLine(entry: BufferedMessage, selfId: string | undefined): string {
+    const name = entry.authorId === selfId ? '(自分=このBot)' : sanitizeAiText(entry.authorName);
+    const textBody = entry.content.replace(/\s+/g, ' ').slice(0, 300);
+    const body = sanitizeAiText([textBody, formatMediaNotes(entry.media)].filter(Boolean).join(' ')) || '(本文なし)';
+    return `[${entry.id}] ${name}: ${body}`;
+}
+
+export interface JudgeLogEntry {
+    id: string;
+    at: number;
+    /** 凍結済みの行テキスト（formatJudgeLogLine の出力） */
+    text: string;
+    /** 現時点のメディア注記（説明が揃うと変わる。変わったら補足として追記される） */
+    mediaNotes: string;
+}
+
+export interface AppendOnlyTurnInput {
+    entries: JudgeLogEntry[];
+    /** 学習サマリ等の「更新される安定情報」。前回送信分と変わった時だけ末尾側に載る */
+    personalityPrompt?: string;
+    /** プレゼンス・きっかけ・リアクション履歴・対象メッセージ等の今回限りの材料（必ず末尾） */
+    tailLines: string[];
+    /** 初回ターン先頭の説明 */
+    firstTurnHeader: string;
+}
+
+export interface PreparedAppendOnlyTurn {
+    /** 実際に送信するメッセージ列（system + 凍結済みターン群 + 今回ターン） */
+    messages: OpenAIChatCompletionMessage[];
+    /** 送信（トランスポート）が成功したら呼ぶ。セッションへ今回ターンを確定する */
+    commit: () => void;
+    /** このターンでリベース（新セッション開始）が起きたか */
+    rebased: boolean;
+    /** 今回ターンに新規発言が何件含まれたか */
+    newEntryCount: number;
+}
+
+/**
+ * 追記専用ターンを組み立てる（セッションはまだ変更しない）。
+ * リベース時は候補 entries 全体を新しい初回ターンとして組み直す。
+ */
+export function prepareAppendOnlyTurn(
+    session: AppendOnlySession,
+    systemPrompt: string,
+    input: AppendOnlyTurnInput,
+): PreparedAppendOnlyTurn {
+    const sorted = [...input.entries].sort((a, b) => a.at - b.at);
+    // リベース判定: 現在のセッションへ「本当に増える分（未送信の新規行＋末尾材料）」を足して上限を超えるか
+    const provisionalNew = sorted.filter(e => !session.loggedMessageIds.has(e.id) && e.at >= session.lastLoggedAt);
+    const estimate = provisionalNew.reduce((sum, e) => sum + e.text.length, 0) + input.tailLines.join('\n').length + 64;
+    const rebased = appendOnlySessionNeedsRebase(session, estimate);
+    const baseLogged = rebased ? new Set<string>() : session.loggedMessageIds;
+    const baseMedia = rebased ? new Map<string, string>() : session.mediaNotesByMessage;
+    const baseLastAt = rebased ? 0 : session.lastLoggedAt;
+    const basePersonality = rebased ? '' : session.personalitySent;
+
+    const newEntries = sorted.filter(e => !baseLogged.has(e.id) && e.at >= baseLastAt);
+    const supplements = sorted.filter(e => baseLogged.has(e.id) && e.mediaNotes && e.mediaNotes !== baseMedia.get(e.id));
+
+    const parts: string[] = [];
+    if (rebased || session.turns.length === 0) parts.push(input.firstTurnHeader);
+    if (newEntries.length > 0) {
+        parts.push('【会話ログ追記】\n' + newEntries.map(e => e.text).join('\n'));
+    }
+    if (supplements.length > 0) {
+        parts.push('【メディア説明の補足（既出発言の添付について、説明が揃いました）】\n'
+            + supplements.map(e => `[${e.id}] ${e.mediaNotes}`).join('\n'));
+    }
+    const personality = (input.personalityPrompt ?? '').slice(0, 700);
+    const personalityChanged = personality.length > 0 && personality !== basePersonality;
+    if (personalityChanged) {
+        parts.push('【サーバーの雰囲気・話し方（最新の学習結果）】\n' + personality);
+    }
+    parts.push('【今回の判定材料】\n' + input.tailLines.join('\n'));
+    const turnText = sanitizeAiText(parts.join('\n\n'));
+
+    const priorTurns = rebased ? [] : session.turns;
+    const messages: OpenAIChatCompletionMessage[] = [
+        { role: 'system', content: systemPrompt },
+        ...priorTurns.map(content => ({ role: 'user' as const, content })),
+        { role: 'user', content: turnText },
+    ];
+
+    const commit = () => {
+        if (rebased) {
+            session.turns = [];
+            session.loggedMessageIds = new Set();
+            session.mediaNotesByMessage = new Map();
+            session.personalitySent = '';
+            session.lastLoggedAt = 0;
+            session.chars = 0;
+        }
+        session.turns.push(turnText);
+        session.chars += turnText.length;
+        for (const e of newEntries) {
+            session.loggedMessageIds.add(e.id);
+            session.mediaNotesByMessage.set(e.id, e.mediaNotes);
+            if (e.at > session.lastLoggedAt) session.lastLoggedAt = e.at;
+        }
+        for (const e of supplements) session.mediaNotesByMessage.set(e.id, e.mediaNotes);
+        if (personalityChanged) session.personalitySent = personality;
+    };
+
+    return { messages, commit, rebased, newEntryCount: newEntries.length };
 }
 
 /** メッセージの添付メディアを抽出し、説明キャッシュの正規オブジェクトへ寄せて返す。 */
@@ -686,9 +842,11 @@ async function generateAmbientReply(guildId: string, context: string, situation:
     const personaBlock = personality.persona
         ? `あなたの名前は「${personality.persona.name}」。${personality.persona.firstPerson ? `一人称は「${personality.persona.firstPerson}」。` : ''}性格: ${personality.persona.character} 話し方: ${personality.persona.speakingStyle} 振る舞い: ${personality.persona.behavior}`
         : '';
+    // dsh原則: システムは固定ルールのみ（全ギルド共通でバイト同一）。ペルソナや学習サマリ等の
+    // 可変情報は user 側の末尾に置き、先頭の接頭辞を安定させる。
     const text = await chatManager.generateText([
-        { role: 'system', content: sanitizeAiText([AMBIENT_SYSTEM_RULES, personaBlock, personalityPrompt].filter(Boolean).join('\n')) },
-        { role: 'user', content: sanitizeAiText(`直近の会話:\n${context}\n\n${situation}`) },
+        { role: 'system', content: AMBIENT_SYSTEM_RULES },
+        { role: 'user', content: sanitizeAiText(`直近の会話:\n${context}\n\n${situation}${personaBlock || personalityPrompt ? `\n\n${[personaBlock, personalityPrompt].filter(Boolean).join('\n')}` : ''}`) },
     ], { model: GEMMA_MODEL, strictModel: true, maxTokens: DOT_AMBIENT.generationMaxTokens, priority: 'background' });
     return text.trim();
 }
@@ -704,31 +862,69 @@ function rememberDotPost(state: ChannelState, message: Message): void {
     if (state.recentBotMessageIds.length > 60) state.recentBotMessageIds.shift();
 }
 
+/** Discord Message を判定ログ候補へ変換する（行は安定整形で凍結される）。 */
+function judgeEntriesOf(history: Message[], selfId: string | undefined): JudgeLogEntry[] {
+    return history.map(message => {
+        const media = mediaItemsOf(message);
+        const entry: BufferedMessage = {
+            id: message.id,
+            authorId: message.author.id,
+            authorName: message.author.username,
+            content: (getEffectiveContent(message) || message.content || '').slice(0, 300),
+            at: message.createdTimestamp,
+            isBot: message.author.bot,
+            media,
+        };
+        return { id: entry.id, at: entry.at, text: formatJudgeLogLine(entry, selfId), mediaNotes: formatMediaNotes(media) };
+    });
+}
+
+function judgeEntriesOfBuffered(buffered: BufferedMessage[], selfId: string | undefined): JudgeLogEntry[] {
+    return buffered.map(entry => ({
+        id: entry.id,
+        at: entry.at,
+        text: formatJudgeLogLine(entry, selfId),
+        mediaNotes: formatMediaNotes(entry.media),
+    }));
+}
+
 /** ノミネートされた候補が「Botに話しかけている」かをモデルに文脈で判定させる。basis はノミネート根拠で、判定への伝え方に使う。 */
-async function judgeAddressed(message: Message, basis: AddressedNominationBasis = 'message-signal'): Promise<ParticipationDecision | null> {
+async function judgeAddressed(message: Message, state: ChannelState, basis: AddressedNominationBasis = 'message-signal'): Promise<ParticipationDecision | null> {
     const channel = message.channel;
     if (!channel.isTextBased() || !('messages' in channel)) return null;
     const fetched = await channel.messages.fetch({ limit: DOT_AMBIENT.contextMessages }).catch(() => null);
     const history = fetched ? [...fetched.values()].reverse() : [message];
     await ensureHistoryMedia(history);
-    const context = formatContext(history, message.client.user?.id);
     const selfId = message.client.user?.id;
     const mentionsOthers = message.mentions.users.some(user => user.id !== selfId);
     const candidate = sanitizeAiText((message.content ?? '').replace(/\s+/g, ' ').slice(0, 300));
     const authorName = sanitizeAiText(message.author.username);
+    // 参加判定と同じ追記専用セッション規律（呼びかけ専用セッション。システムプロンプトが違うため分ける）。
+    const prepared = prepareAppendOnlyTurn(state.addressedSession, ADDRESSED_JUDGE_SYSTEM_PROMPT, {
+        entries: judgeEntriesOf(history, selfId),
+        tailLines: [
+            `対象メッセージ: ${authorName}: ${candidate}`,
+            ...(mentionsOthers ? ['（このメッセージは他のユーザーをメンションしています）'] : []),
+            ...(basis === 'recent-bot-only' ? ['（候補化の経緯: この発言には名前・メンションなどの呼びかけ信号がありません。あなたが直近に発言していたことと、質問形であることだけが根拠です）'] : []),
+            '上記の追記ログ全体が直近の会話です。判定は末尾の対象メッセージについて行ってください。',
+        ],
+        firstTurnHeader: '以下はこのチャンネルの会話ログです（新しい発言は追記として末尾に足されます）。',
+    });
+    if (prepared.rebased) Logger.info(`[DotAmbient] addressed judge session rebased guild=${message.guildId} channel=${message.channelId}`);
     // 欲しいのは短いJSONだけなので思考を切り、トークン予算も確保する。解釈不能なら1回だけ再試行する。
-    const runJudge = (contextText: string) => parseDecisionWithRetry(
-        () => chatManager.generateText([
-            { role: 'system', content: ADDRESSED_JUDGE_SYSTEM_PROMPT },
-            { role: 'user', content: sanitizeAiText(`直近の会話:\n${contextText}\n\n対象メッセージ: ${authorName}: ${candidate}${mentionsOthers ? '\n（このメッセージは他のユーザーをメンションしています）' : ''}${basis === 'recent-bot-only' ? '\n（候補化の経緯: この発言には名前・メンションなどの呼びかけ信号がありません。あなたが直近に発言していたことと、質問形であることだけが根拠です）' : ''}`) },
-        ], { model: GEMMA_MODEL, strictModel: true, maxTokens: DOT_AMBIENT.judgeMaxTokens, priority: 'background', chatTemplateKwargs: { enable_thinking: false } }),
+    const runJudge = (messages: OpenAIChatCompletionMessage[]) => parseDecisionWithRetry(
+        () => chatManager.generateText(messages,
+            { model: GEMMA_MODEL, strictModel: true, maxTokens: DOT_AMBIENT.judgeMaxTokens, priority: 'background', chatTemplateKwargs: { enable_thinking: false } }),
         (raw, attempt) => Logger.warn(`[DotAmbient] addressed judge parse failed guild=${message.guildId} channel=${message.channelId} attempt=${attempt}/2 raw=${JSON.stringify(raw.slice(0, 200))}`),
     );
     // 生成リクエスト自体が落ちた場合は、履歴なし（対象メッセージのみの文脈）で組み立て直して再試行する。
     // それでも落ちたら null を返す（呼び出し側の名前呼びフォールバック判定に委ねる）。
     return generateWithContextFallback(
-        () => runJudge(context),
-        () => runJudge(formatContext([message], selfId)),
+        async () => { const decision = await runJudge(prepared.messages); prepared.commit(); return decision; },
+        () => runJudge([
+            { role: 'system', content: ADDRESSED_JUDGE_SYSTEM_PROMPT },
+            { role: 'user', content: sanitizeAiText(`直近の会話:\n${formatContext([message], selfId)}\n\n対象メッセージ: ${authorName}: ${candidate}`) },
+        ]),
         error => Logger.warn(`[DotAmbient] addressed judge request failed guild=${message.guildId} channel=${message.channelId}; retrying with minimal context:`, error),
     ).catch(() => null);
 }
@@ -859,7 +1055,7 @@ function onMessageCreate(client: Client) {
                     });
                     if (basis) {
                         Logger.debug(`[DotAmbient] addressed judge guild=${message.guildId} channel=${message.channelId} self=${selfId ?? '?'} mentionUsers=[${mentionUserIds.join(',')}] rawMention=${rawMention} basis=${basis}`);
-                        const decision = await judgeAddressed(message, basis).catch(error => {
+                        const decision = await judgeAddressed(message, state, basis).catch(error => {
                             Logger.debug('[DotAmbient] addressed judge failed:', error);
                             return null;
                         });
@@ -943,23 +1139,45 @@ async function judgeAndParticipate(client: Client, channelId: string, state: Cha
     const personalityPrompt = buildGuildAIPersonalityPrompt(personality);
     const presence = presenceOf(snapshotOf(state, Date.now()), Date.now());
     // 会話の絵: バッファの方が厚ければそちらを、そうでなければ取得した履歴を使う。
+    // ただし判定へ渡す形は dsh 方式の追記専用セッション（過去ターン不変・新規分だけ末尾追記）。
     const context = state.recentMessages.length > history.length
         ? formatBuffered(state.recentMessages, client.user?.id, Date.now())
         : formatContext(history, client.user?.id);
+    // バッファ側メディアの説明も判定前にできるだけ揃える（揃った分は補足として追記される）。
+    if (state.recentMessages.length > 0) {
+        const bufferedItems = state.recentMessages.flatMap(entry => entry.media);
+        if (bufferedItems.length > 0) await dotMediaStore.ensure(bufferedItems, DOT_AMBIENT.mediaEnsureMaxPerCall).catch(() => undefined);
+    }
+    const judgeEntries = state.recentMessages.length > history.length
+        ? judgeEntriesOfBuffered(state.recentMessages, client.user?.id)
+        : judgeEntriesOf(history, client.user?.id);
+    const prepared = prepareAppendOnlyTurn(state.participationSession, PARTICIPATION_JUDGE_SYSTEM_PROMPT, {
+        entries: judgeEntries,
+        personalityPrompt,
+        tailLines: [
+            `あなたの状態: ${presence === 'engaged' ? 'このチャンネルでは会話に参加中（engaged）' : 'このチャンネルでは様子見中（lurking）'}`,
+            `きっかけ: ${trigger}`,
+            `あなたの直近のリアクション（このチャンネル）:\n${formatRecentReactions(state.recentReactions, Date.now())}`,
+            '上記の追記ログ全体が現在の会話です。最後の追記が最新の発言です。判定は最新の状態で行ってください。',
+        ],
+        firstTurnHeader: '以下はこのチャンネルの会話ログです（新しい発言は追記として末尾に足されます。過去の内容は変わりません）。',
+    });
+    if (prepared.rebased) Logger.info(`[DotAmbient] participation judge session rebased guild=${state.guildId} channel=${channelId} trigger=${trigger}`);
 
-    const judgeUserContent = (contextText: string) => sanitizeAiText(`${personalityPrompt ? personalityPrompt.slice(0, 700) + '\n' : ''}あなたの状態: ${presence === 'engaged' ? 'このチャンネルでは会話に参加中（engaged）' : 'このチャンネルでは様子見中（lurking）'}\nきっかけ: ${trigger}\nあなたの直近のリアクション（このチャンネル）:\n${formatRecentReactions(state.recentReactions, Date.now())}\n直近の会話:\n${contextText}`);
-    const runJudge = (contextText: string) => parseDecisionWithRetry(
-        () => chatManager.generateText([
-            { role: 'system', content: PARTICIPATION_JUDGE_SYSTEM_PROMPT },
-            { role: 'user', content: judgeUserContent(contextText) },
-        ], { model: GEMMA_MODEL, strictModel: true, maxTokens: DOT_AMBIENT.judgeMaxTokens, priority: 'background', chatTemplateKwargs: { enable_thinking: false } }),
+    const runJudge = (messages: OpenAIChatCompletionMessage[]) => parseDecisionWithRetry(
+        () => chatManager.generateText(messages,
+            { model: GEMMA_MODEL, strictModel: true, maxTokens: DOT_AMBIENT.judgeMaxTokens, priority: 'background', chatTemplateKwargs: { enable_thinking: false } }),
         (raw, attempt) => Logger.warn(`[DotAmbient] participation judge parse failed guild=${state.guildId} channel=${channelId} trigger=${trigger} attempt=${attempt}/2 raw=${JSON.stringify(raw.slice(0, 200))}`),
     );
     const latestHumanMessage = [...history].reverse().find(item => !item.author.bot) ?? history[history.length - 1];
     // 生成リクエスト自体が落ちた場合は、最新の人間の発言だけの最小文脈で再試行する。それでも落ちたら参加しない。
+    // フォールバック時はセッションへ確定しない（見ていない追記は次回もう一度送る）。
     const decision = await generateWithContextFallback(
-        () => runJudge(context),
-        () => runJudge(formatContext([latestHumanMessage], client.user?.id)),
+        async () => { const d = await runJudge(prepared.messages); prepared.commit(); return d; },
+        () => runJudge([
+            { role: 'system', content: PARTICIPATION_JUDGE_SYSTEM_PROMPT },
+            { role: 'user', content: sanitizeAiText(`あなたの状態: ${presence === 'engaged' ? 'このチャンネルでは会話に参加中（engaged）' : 'このチャンネルでは様子見中（lurking）'}\nきっかけ: ${trigger}\n直近の会話:\n${formatContext([latestHumanMessage], client.user?.id)}`) },
+        ]),
         error => Logger.warn(`[DotAmbient] participation judge request failed guild=${state.guildId} channel=${channelId} trigger=${trigger}; retrying with minimal context:`, error),
     ).catch(() => null);
     if (!shouldExecuteParticipation(decision, presence)) {

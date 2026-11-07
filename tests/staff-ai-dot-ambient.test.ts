@@ -25,6 +25,11 @@ import {
     AMBIENT_SYSTEM_RULES,
     PARTICIPATION_JUDGE_SYSTEM_PROMPT,
     ADDRESSED_JUDGE_SYSTEM_PROMPT,
+    createAppendOnlySession,
+    prepareAppendOnlyTurn,
+    appendOnlySessionNeedsRebase,
+    formatJudgeLogLine,
+    type JudgeLogEntry,
     type DotChannelSnapshot,
     type ParticipationDecision,
 } from '../src/core/ai/StaffAIDotAmbient.ts';
@@ -577,4 +582,109 @@ test('ambient system rules ban deflection with abstract words and require concre
     assert.ok(AMBIENT_SYSTEM_RULES.includes('サーバーの雰囲気そのものへの感想'));
     assert.ok(AMBIENT_SYSTEM_RULES.includes('この鯖の魅力だよね'));
     assert.ok(AMBIENT_SYSTEM_RULES.includes('判定の下書きにあった具体（人名・物・出来事）をそのまま短く言う'));
+});
+
+test('dsh judge session: turns are append-only and prior turns stay byte-identical', () => {
+    const session = createAppendOnlySession();
+    const e = (id: string, at: number, text: string, mediaNotes = ''): JudgeLogEntry => ({ id, at, text, mediaNotes });
+    const entries1 = [e('1', 1000, '[1] たろう: おはよう'), e('2', 2000, '[2] はな: 昨日のゲーム進んだ？')];
+    const t1 = prepareAppendOnlyTurn(session, 'SYS', {
+        entries: entries1,
+        personalityPrompt: '雰囲気A',
+        tailLines: ['あなたの状態: 様子見中（lurking）', 'きっかけ: open', 'あなたの直近のリアクション:\n（まだありません）'],
+        firstTurnHeader: 'HEADER',
+    });
+    assert.equal(t1.rebased, false);
+    assert.equal(t1.newEntryCount, 2);
+    t1.commit();
+    const firstTurnBytes = t1.messages[1].content;
+
+    // 次ターン: 既出の 1,2 は再送されず、新規 3 だけが追記される。可変情報は末尾ターンにだけある
+    const entries2 = [...entries1, e('3', 3000, '[3] たろう: ボス倒したよ')];
+    const t2 = prepareAppendOnlyTurn(session, 'SYS', {
+        entries: entries2,
+        personalityPrompt: '雰囲気A',
+        tailLines: ['あなたの状態: 様子見中（lurking）', 'きっかけ: open'],
+        firstTurnHeader: 'HEADER',
+    });
+    assert.equal(t2.messages.length, 3);
+    assert.equal(t2.messages[1].content, firstTurnBytes); // バイト同一
+    assert.equal(t2.newEntryCount, 1);
+    const turn2 = String(t2.messages[2].content);
+    assert.ok(turn2.includes('[3] たろう: ボス倒したよ'));
+    assert.ok(!turn2.includes('[1] たろう'));
+    // 変わっていない雰囲気は再送しない
+    assert.ok(!turn2.includes('雰囲気A'));
+    t2.commit();
+
+    // 雰囲気が更新されたら、末尾ターンの補足としてだけ載る（先頭には置かない）
+    const t3 = prepareAppendOnlyTurn(session, 'SYS', {
+        entries: entries2,
+        personalityPrompt: '雰囲気B（更新）',
+        tailLines: ['きっかけ: open'],
+        firstTurnHeader: 'HEADER',
+    });
+    const turn3 = String(t3.messages[3].content);
+    assert.ok(turn3.includes('雰囲気B（更新）'));
+    assert.equal(t3.messages[1].content, firstTurnBytes);
+    t3.commit();
+});
+
+test('dsh judge session: late media descriptions arrive as append-only supplements, never rewrites', () => {
+    const session = createAppendOnlySession();
+    const placeholder = '[画像が添付されています（内容未確認）]';
+    const described = '[画像: 猫がソファで寝ている]';
+    const v1: JudgeLogEntry = { id: '9', at: 1000, text: `[9] みく: 見て ${placeholder}`, mediaNotes: placeholder };
+    const t1 = prepareAppendOnlyTurn(session, 'SYS', { entries: [v1], tailLines: ['判定'], firstTurnHeader: 'H' });
+    t1.commit();
+    const turn1Bytes = t1.messages[1].content;
+
+    // 説明が後から揃っても既出ターンは書き換えず、補足ブロックで最新の説明が判定に渡る
+    const v2: JudgeLogEntry = { ...v1, mediaNotes: described };
+    const t2 = prepareAppendOnlyTurn(session, 'SYS', { entries: [v2], tailLines: ['判定2'], firstTurnHeader: 'H' });
+    assert.equal(t2.messages[1].content, turn1Bytes);
+    const turn2 = String(t2.messages[2].content);
+    assert.ok(turn2.includes('メディア説明の補足'));
+    assert.ok(turn2.includes(described));
+    t2.commit();
+    // 同じ説明は二度送らない
+    const t3 = prepareAppendOnlyTurn(session, 'SYS', { entries: [v2], tailLines: ['判定3'], firstTurnHeader: 'H' });
+    assert.ok(!String(t3.messages[3].content).includes('メディア説明の補足'));
+});
+
+test('dsh judge session: rebase starts a fresh session instead of editing history', () => {
+    const session = createAppendOnlySession();
+    const big = 'x'.repeat(23_950);
+    const t1 = prepareAppendOnlyTurn(session, 'SYS', {
+        entries: [{ id: '1', at: 1, text: `[1] a: ${big}`, mediaNotes: '' }],
+        tailLines: ['判定'], firstTurnHeader: 'H',
+    });
+    t1.commit();
+    assert.equal(appendOnlySessionNeedsRebase(session, 1_000), true);
+    const t2 = prepareAppendOnlyTurn(session, 'SYS', {
+        entries: [
+            { id: '1', at: 1, text: '[1] a: old', mediaNotes: '' },
+            { id: '2', at: 2, text: '[2] b: new', mediaNotes: '' },
+        ],
+        tailLines: ['判定'], firstTurnHeader: 'H',
+    });
+    assert.equal(t2.rebased, true);
+    // リベース後は system + 初回ターンだけになり、候補全体が載る（コールド1回）
+    assert.equal(t2.messages.length, 2);
+    assert.ok(String(t2.messages[1].content).includes('[2] b: new'));
+    t2.commit();
+    assert.equal(session.turns.length, 1);
+});
+
+test('dsh judge log line: stable formatting without relative time', () => {
+    const entry = {
+        id: '42', authorId: 'u1', authorName: 'たろう', content: 'やあ  テスト', at: 1_700_000_000_000, isBot: false, media: [],
+    } as const;
+    const a = formatJudgeLogLine(entry as never, 'bot-id');
+    const b = formatJudgeLogLine(entry as never, 'bot-id');
+    assert.equal(a, b);
+    assert.equal(a, '[42] たろう: やあ テスト');
+    assert.ok(!/分前|時間前/.test(a));
+    const self = formatJudgeLogLine({ ...entry, authorId: 'bot-id' } as never, 'bot-id');
+    assert.ok(self.startsWith('[42] (自分=このBot):'));
 });
