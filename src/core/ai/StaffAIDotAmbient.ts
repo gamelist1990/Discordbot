@@ -14,7 +14,8 @@ import {
  * Staff AI dotモード（常駐型）: dotモードがONの間、ギルドの会話を見守り、
  * 盛り上がっている会話の流れの中に「しれっと」短く混ざる。混ざるかどうかは
  * ヒューリスティクスで機会を作り、最終判断はモデル自身が行う。
- * 名前を呼ばれたりメンション・返信されたら、その場で応える。
+ * メンション・Botへの返信はその場で応え、それ以外の「呼びかけっぽい」発言は
+ * 緩く拾って、モデルが文脈で「話しかけられたか」を判定してから応える。
  * 毎回応答するAIChatとは別物で、専用AIチャンネルには入らない。
  * あわせて観測した会話からサーバーの空気（GuildAIPersonality）を少しずつ学習する。
  */
@@ -35,6 +36,8 @@ export const DOT_AMBIENT = {
     evaluationMinNewMessages: 2,
     judgeMinConfidence: 0.7,
     addressedCooldownMs: 45_000,
+    addressedJudgeMinConfidence: 0.65,
+    addressedContextWindowMs: 10 * 60_000,
     contextMessages: 12,
     learningBatchSize: 20,
     learningIntervalMs: 20 * 60_000,
@@ -61,6 +64,59 @@ export function isNameCalled(content: string, names: string[]): boolean {
         if (name && name.length >= 2 && content.includes(name)) return true;
     }
     return DOT_WORD.test(content);
+}
+
+const AI_CUE = /(^|[\s、。，・「『（(])AI(?![a-zA-Z0-9])|ＡＩ|エーアイ/;
+const BOT_CUE = /\bbot\b|ボット/i;
+const VOCATIVE_HEAD = /^(ねえ|ねぇ|ねー|ちょっと|聞いて|おい|あのさ|あのね|すみません|あの)/;
+
+export interface AddressedCandidateOptions {
+    names: string[];
+    isQuestion: boolean;
+    botRecentlyActive: boolean;
+}
+
+/**
+ * 「Botに話しかけているかも」しれない発言の緩いノミネート（純粋関数）。
+ * ここは最終判断ではなく候補拾い。応答するかどうかはモデルの文脈判定が決める。
+ */
+export function isAddressedCandidate(content: string, options: AddressedCandidateOptions): boolean {
+    const text = content.trim();
+    if (text.length < 2) return false;
+    if (text.startsWith('/') || text.startsWith('!') || text.startsWith('！')) return false;
+    if (isNameCalled(text, options.names)) return true;
+    if (AI_CUE.test(text) || BOT_CUE.test(text)) return true;
+    // Botが直近でそのチャンネルで話した流れの中での、宛先が書かれていない呼びかけ・質問。
+    if (options.botRecentlyActive && (options.isQuestion || VOCATIVE_HEAD.test(text))) return true;
+    return false;
+}
+
+export interface AddressedJudgeDecision {
+    addressed: boolean;
+    confidence: number;
+}
+
+/** 呼びかけ判定モデルのJSON出力を解釈する。解釈できない場合は応答しない。 */
+export function parseAddressedJudgeResponse(text: string): AddressedJudgeDecision | null {
+    const match = text.match(/\{[\s\S]*\}/);
+    if (!match) return null;
+    try {
+        const value = JSON.parse(match[0]) as Record<string, unknown>;
+        if (typeof value.addressed !== 'boolean') return null;
+        const confidence = typeof value.confidence === 'number'
+            ? Math.min(1, Math.max(0, value.confidence))
+            : 0;
+        return { addressed: value.addressed, confidence };
+    } catch {
+        return null;
+    }
+}
+
+/** モデル判定で応答してよいか。解釈不能・低確信度なら応答しない。 */
+export function shouldRespondToAddressed(decision: AddressedJudgeDecision | null): boolean {
+    return decision !== null
+        && decision.addressed
+        && decision.confidence >= DOT_AMBIENT.addressedJudgeMinConfidence;
 }
 
 export interface DotJudgeDecision {
@@ -143,6 +199,7 @@ interface ChannelState {
     lastAmbientJoinAt: number;
     lastOtherBotMessageAt: number;
     lastAddressedResponseAt: number;
+    lastBotMessageAt: number;
     dotPostIds: Set<string>;
     recentBotMessageIds: string[];
     recentHuman: Array<{ authorId: string; at: number }>;
@@ -194,6 +251,7 @@ function stateFor(message: Message): ChannelState {
             lastAmbientJoinAt: 0,
             lastOtherBotMessageAt: 0,
             lastAddressedResponseAt: 0,
+            lastBotMessageAt: 0,
             dotPostIds: new Set(),
             recentBotMessageIds: [],
             recentHuman: [],
@@ -238,6 +296,16 @@ const JUDGE_SYSTEM_PROMPT = [
     'しれっと混ざるのが理想で、出しゃばるのは失敗です。迷ったら join=false。confidence は「混ざって成功する確信度」。',
 ].join('\n');
 
+const ADDRESSED_JUDGE_SYSTEM_PROMPT = [
+    'あなたはDiscordサーバーに常駐するAIの「呼びかけ判定器」です。JSONだけを返してください。',
+    '形式: {"addressed":trueまたはfalse,"confidence":0.0から1.0}',
+    '判定するのは「対象メッセージ」が、常駐AIであるあなた自身に話しかけているかどうかです。会話ログの中であなたは「(自分=このBot)」と表示されています。直近の会話は文脈としてだけ使い、判定は対象メッセージについて行ってください。',
+    'addressed=true: 名前や「AI」などでの呼びかけ、あなたへの質問・依頼・相談、あなたの直前の発言への返答・ツッコミ・続きの質問、二人称であなたに向けられた発言。',
+    'addressed=false: あなたを話題にしているだけの発言（感想・報告・他人への説明）、他の特定の人への発言・質問、独り言、あなたが入ると割り込みになる発言。他のユーザーをメンションしている発言は原則その人宛です。',
+    '例外として、話題にしているだけでも、発言の形が明らかにあなたへの呼びかけ・ツッコミで、あなた本人が短く返すのが会話の流れとして自然な場合に限り、高い確信度でtrueにしてよい。',
+    '迷ったら addressed=false。confidence は「話しかけられた」確信度。',
+].join('\n');
+
 const AMBIENT_SYSTEM_RULES = [
     'あなたはこのDiscordサーバーに常駐するAIです。会話の空気を読んで、混ざる価値がある場面で短く自然に発言しています。',
     '発言は短く（基本1〜2文）。混ざるときは相槌や短いリアクション（「まじ〜」「それな」程度）も普通に使い、盛り上がっている場では熱量に合わせた軽い一言でしれっと混ざる。詩的な飾りや相談の勧誘はしない。見出し・箇条書きのレポート形式にもしない。質問が宙に浮いていたら簡潔に助ける。',
@@ -259,6 +327,7 @@ async function generateAmbientReply(guildId: string, context: string, situation:
 }
 
 function rememberDotPost(state: ChannelState, message: Message): void {
+    state.lastBotMessageAt = message.createdTimestamp;
     state.dotPostIds.add(message.id);
     if (state.dotPostIds.size > 40) {
         const oldest = state.dotPostIds.values().next().value;
@@ -268,8 +337,25 @@ function rememberDotPost(state: ChannelState, message: Message): void {
     if (state.recentBotMessageIds.length > 60) state.recentBotMessageIds.shift();
 }
 
-/** 名前を呼ばれる・メンション・Botへの返信があったときの即時応答。 */
-async function respondToAddressed(message: Message, state: ChannelState): Promise<void> {
+/** ノミネートされた候補が「Botに話しかけている」かをモデルに文脈で判定させる。 */
+async function judgeAddressed(message: Message): Promise<AddressedJudgeDecision | null> {
+    const channel = message.channel;
+    if (!channel.isTextBased() || !('messages' in channel)) return null;
+    const fetched = await channel.messages.fetch({ limit: DOT_AMBIENT.contextMessages }).catch(() => null);
+    const history = fetched ? [...fetched.values()].reverse() : [message];
+    const context = formatContext(history, message.client.user?.id);
+    const selfId = message.client.user?.id;
+    const mentionsOthers = message.mentions.users.some(user => user.id !== selfId);
+    const candidate = (message.content ?? '').replace(/\s+/g, ' ').slice(0, 300);
+    const judgeText = await chatManager.generateText([
+        { role: 'system', content: ADDRESSED_JUDGE_SYSTEM_PROMPT },
+        { role: 'user', content: `直近の会話:\n${context}\n\n対象メッセージ: ${message.author.username}: ${candidate}${mentionsOthers ? '\n（このメッセージは他のユーザーをメンションしています）' : ''}` },
+    ], { model: GEMMA_MODEL, strictModel: true, maxTokens: 120, priority: 'background' });
+    return parseAddressedJudgeResponse(judgeText);
+}
+
+/** 呼びかけへの応答。direct=メンション/返信の確定信号、judged=モデルが文脈で話しかけられたと判定。 */
+async function respondToAddressed(message: Message, state: ChannelState, via: 'direct' | 'judged' = 'direct', confidence?: number): Promise<void> {
     const channel = message.channel;
     if (!channel.isTextBased() || !('messages' in channel)) return;
     const fetched = await channel.messages.fetch({ limit: 10 }).catch(() => null);
@@ -278,13 +364,15 @@ async function respondToAddressed(message: Message, state: ChannelState): Promis
     const replyText = await generateAmbientReply(
         message.guildId ?? '',
         context,
-        'あなたは今、名前を呼ばれました。その呼びかけに短く自然に応えてください。質問や相談であれば簡潔に答えること。',
+        via === 'judged'
+            ? 'あなたは今、文脈の流れから自分に話しかけられたと判断しました。その発言に短く自然に応えてください。質問や相談であれば簡潔に答えること。'
+            : 'あなたは今、名前を呼ばれました。その呼びかけに短く自然に応えてください。質問や相談であれば簡潔に答えること。',
     );
     if (!replyText) return;
     const sent = await message.reply({ content: replyText.slice(0, 1900) }).catch(() => null);
     if (sent) {
         rememberDotPost(state, sent);
-        Logger.info(`[DotAmbient] addressed guild=${message.guildId} channel=${message.channelId}`);
+        Logger.info(`[DotAmbient] addressed guild=${message.guildId} channel=${message.channelId} via=${via}${via === 'judged' ? ` conf=${confidence ?? '?'}` : ''}`);
     }
 }
 
@@ -295,6 +383,7 @@ function onMessageCreate(client: Client) {
                 if (!message.guildId) return;
                 const state = stateFor(message);
                 if (message.author.id === client.user?.id) {
+                    state.lastBotMessageAt = message.createdTimestamp;
                     if (!state.dotPostIds.has(message.id)) {
                         state.lastOtherBotMessageAt = message.createdTimestamp;
                     }
@@ -322,7 +411,8 @@ function onMessageCreate(client: Client) {
                     guildObservations.set(message.guildId, buffer);
                 }
 
-                // 呼びかけ判定: メンション / Botの発言への返信 / 名前呼び。
+                // 呼びかけ判定: Discordメンション / Botの発言への直接返信は「呼ばれた」確定信号として即応答。
+                // それ以外は緩くノミネートし、最終判断はモデル（文脈）に任せる。
                 const mentioned = client.user ? message.mentions.users.has(client.user.id) : false;
                 let repliedToBot = false;
                 if (message.reference?.messageId) {
@@ -333,15 +423,36 @@ function onMessageCreate(client: Client) {
                         repliedToBot = referenced?.author.id === client.user?.id;
                     }
                 }
-                const names = mentioned || repliedToBot ? [] : await guildCallNames(client, message.guildId);
-                const displayName = message.guild?.members.me?.displayName;
-                const called = mentioned || repliedToBot
-                    || isNameCalled(content, displayName ? [...names, displayName] : names);
-                if (called && now - state.lastAddressedResponseAt >= DOT_AMBIENT.addressedCooldownMs) {
+                const addressedReady = now - state.lastAddressedResponseAt >= DOT_AMBIENT.addressedCooldownMs;
+                if ((mentioned || repliedToBot) && addressedReady) {
                     state.lastAddressedResponseAt = now;
-                    await respondToAddressed(message, state).catch(error => {
+                    await respondToAddressed(message, state, 'direct').catch(error => {
                         Logger.warn('[DotAmbient] addressed response failed:', error);
                     });
+                } else if (!mentioned && !repliedToBot && addressedReady && content.length >= 2) {
+                    const names = await guildCallNames(client, message.guildId);
+                    const displayName = message.guild?.members.me?.displayName;
+                    const botRecentlyActive = state.lastBotMessageAt > 0
+                        && now - state.lastBotMessageAt <= DOT_AMBIENT.addressedContextWindowMs;
+                    const candidate = isAddressedCandidate(content, {
+                        names: displayName ? [...names, displayName] : names,
+                        isQuestion: state.lastHumanMessageIsQuestion,
+                        botRecentlyActive,
+                    });
+                    if (candidate) {
+                        const decision = await judgeAddressed(message).catch(error => {
+                            Logger.debug('[DotAmbient] addressed judge failed:', error);
+                            return null;
+                        });
+                        if (shouldRespondToAddressed(decision)) {
+                            state.lastAddressedResponseAt = Date.now();
+                            await respondToAddressed(message, state, 'judged', decision?.confidence).catch(error => {
+                                Logger.warn('[DotAmbient] addressed response failed:', error);
+                            });
+                        } else {
+                            Logger.debug(`[DotAmbient] addressed pass guild=${message.guildId} channel=${message.channelId} decision=${decision ? `addressed=${decision.addressed} conf=${decision.confidence}` : 'null'}`);
+                        }
+                    }
                 }
             } catch (error) {
                 Logger.debug('[DotAmbient] intake failed:', error);

@@ -3,6 +3,9 @@ import assert from 'node:assert/strict';
 import {
     isHangingQuestion,
     isNameCalled,
+    isAddressedCandidate,
+    parseAddressedJudgeResponse,
+    shouldRespondToAddressed,
     parseDotJudgeResponse,
     evaluateDotOpportunity,
     type DotChannelSnapshot,
@@ -103,4 +106,50 @@ test('opportunity: cooldown and other-bot activity suppress judging', () => {
         { ...active, lastAmbientJoinAt: T + 30_000 },
         T + 60_000,
     ), null);
+});
+
+test('addressed candidate nomination is loose but bounded', () => {
+    const base = { names: ['リン'], isQuestion: false, botRecentlyActive: false };
+    // 名前呼びは候補になる（最終判断はモデル）
+    assert.equal(isAddressedCandidate('リン、ちょっと聞きたいんだけど', base), true);
+    // 「AI」への呼びかけは名前パターンに一致しなくても候補になる
+    assert.equal(isNameCalled('AIさ、これ翻訳して', ['リン']), false);
+    assert.equal(isAddressedCandidate('AIさ、これ翻訳して', base), true);
+    // Botを話題にしているだけの発言も候補にはなる（モデルが addressed=false で落とす）
+    assert.equal(isAddressedCandidate('AIの判定理由おもろすぎ', base), true);
+    // 通常の会話・コマンドは候補にならない
+    assert.equal(isAddressedCandidate('普通の会話だよ', base), false);
+    assert.equal(isAddressedCandidate('草', base), false);
+    assert.equal(isAddressedCandidate('/staff ai 質問', base), false);
+});
+
+test('addressed candidate: natural follow-ups need the bot to have spoken recently', () => {
+    // パターンに一致しない自然な呼びかけでも、Botが直前に話した流れなら候補になる
+    assert.equal(isNameCalled('ねえ、今のってどう思う？', ['リン']), false);
+    assert.equal(isAddressedCandidate('ねえ、今のってどう思う？', { names: ['リン'], isQuestion: true, botRecentlyActive: true }), true);
+    assert.equal(isAddressedCandidate('それどういうこと？', { names: ['リン'], isQuestion: true, botRecentlyActive: true }), true);
+    // Botが最近話していない場では、宛先不明の発言は候補にしない（他人同士の会話を拾わない）
+    assert.equal(isAddressedCandidate('ねえ、今のってどう思う？', { names: ['リン'], isQuestion: true, botRecentlyActive: false }), false);
+    assert.equal(isAddressedCandidate('それどういうこと？', { names: ['リン'], isQuestion: true, botRecentlyActive: false }), false);
+    // 他人へのメンション挨拶は、Botが最近話していても候補にならない
+    assert.equal(isAddressedCandidate('<@123456789> おはよう', { names: ['リン'], isQuestion: false, botRecentlyActive: true }), false);
+});
+
+test('addressed judge response parsing and threshold', () => {
+    assert.deepEqual(parseAddressedJudgeResponse('{"addressed":true,"confidence":0.85}'), { addressed: true, confidence: 0.85 });
+    assert.deepEqual(parseAddressedJudgeResponse('判定: {"addressed":false,"confidence":0.9}'), { addressed: false, confidence: 0.9 });
+    assert.equal(parseAddressedJudgeResponse('{"addressed":"yes"}'), null);
+    assert.equal(parseAddressedJudgeResponse('わかりません'), null);
+    assert.equal(parseAddressedJudgeResponse(''), null);
+
+    // (a) 自然な呼びかけをモデルが高確信度で肯定したら応答する
+    assert.equal(shouldRespondToAddressed(parseAddressedJudgeResponse('{"addressed":true,"confidence":0.85}')), true);
+    assert.equal(shouldRespondToAddressed({ addressed: true, confidence: 0.65 }), true);
+    // (b) Botを話題にしているだけ → 応答しない
+    assert.equal(shouldRespondToAddressed(parseAddressedJudgeResponse('{"addressed":false,"confidence":0.9}')), false);
+    // (c) 他人宛 → 応答しない
+    assert.equal(shouldRespondToAddressed({ addressed: false, confidence: 0.8 }), false);
+    // (d) 低確信度 → 応答しない
+    assert.equal(shouldRespondToAddressed(parseAddressedJudgeResponse('{"addressed":true,"confidence":0.4}')), false);
+    assert.equal(shouldRespondToAddressed(null), false);
 });
