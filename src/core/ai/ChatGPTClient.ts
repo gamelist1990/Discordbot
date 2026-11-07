@@ -27,6 +27,8 @@ export interface ChatOptions {
     fallbackOnLimitOnly?: boolean;
     level?: 0 | 1 | 2 | 3;
     reasoningEffort?: 'none' | 'minimal' | 'low' | 'medium' | 'high';
+    /** llama.cpp 等のサーバーへそのまま渡す chat template 引数（例: { enable_thinking: false }）。 */
+    chatTemplateKwargs?: Record<string, unknown>;
     temperature?: number;
     maxTokens?: number;
     topP?: number;
@@ -1384,6 +1386,7 @@ export class ChatGPTClient {
             top_p: options?.topP ?? 1,
             stream,
             ...(stream && options?.includeUsage ? { stream_options: { include_usage: true } } : {}),
+            ...(options?.chatTemplateKwargs ? { chat_template_kwargs: options.chatTemplateKwargs } : {}),
             ...(tools.length > 0 ? { tools, tool_choice: toolChoice } : stalled ? { tool_choice: 'none' as const } : {}),
         };
     }

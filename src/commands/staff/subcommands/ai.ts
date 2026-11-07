@@ -539,7 +539,7 @@ ${reason}` });
             // Keep enough budget for a final answer after reasoning/tool calls.
             // A smaller limit can end a Responses stream with thinking only.
             model: GEMMA_MODEL, strictModel: true, maxTokens: dotMode ? (forceTextFileTools ? 8192 : 6144) : (forceTextFileTools ? 4096 : 3072),
-            reasoningEffort: (dotMode ? 'medium' : 'low') as const,
+            reasoningEffort: (dotMode ? 'medium' : 'low') as 'medium' | 'low',
             ...(forceTextFileTools ? { forceToolSequence: ['output_file'] }
                 : forceChannelSearchTool ? { forceToolSequence: ['search_channel_messages'] } : {}),
             includeUsage: true,

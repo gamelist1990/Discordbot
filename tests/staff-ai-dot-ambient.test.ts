@@ -7,6 +7,10 @@ import {
     parseParticipationDecision,
     shouldExecuteParticipation,
     shouldRespondToAddressed,
+    hasRawBotMention,
+    hasExplicitNameCall,
+    shouldFallbackToAddressed,
+    parseDecisionWithRetry,
     presenceOf,
     evaluateEvaluationTrigger,
     ambientSendDelayMs,
@@ -214,4 +218,70 @@ test('send delays are human-like ranges by kind', () => {
     assert.equal(ambientSendDelayMs('join', 0.999), 3997);
     assert.equal(ambientSendDelayMs('react', 0), 300);
     assert.equal(ambientSendDelayMs('react', 0.999), 899);
+});
+
+test('raw mention text counts as a direct bot mention even when mentions.users misses it', () => {
+    // (a) 生文字列 <@id> / <@!id> が本文にあればメンション扱いにする
+    assert.equal(hasRawBotMention('<@123456789012345678> おー', '123456789012345678'), true);
+    assert.equal(hasRawBotMention('<@!123456789012345678> おー', '123456789012345678'), true);
+    assert.equal(hasRawBotMention('あいだに <@123456789012345678> いる', '123456789012345678'), true);
+    // 他人のメンションや、テキスト表記の @名前 は生メンションではない
+    assert.equal(hasRawBotMention('<@987654321098765432> おー', '123456789012345678'), false);
+    assert.equal(hasRawBotMention('@PEXserver おー', '123456789012345678'), false);
+    assert.equal(hasRawBotMention('<@123456789012345678> おー', undefined), false);
+});
+
+test('participation parser extracts JSON embedded in noisy surrounding text', () => {
+    // (b) 前後にテキストや別の波括弧があっても本命のJSONを拾える
+    const noisy = '考え中… 形式は {"action": ...} のような形で、結果は {"action":"reply","confidence":0.9,"reason":"呼びかけ"} です';
+    const d = parseParticipationDecision(noisy);
+    assert.equal(d?.action, 'reply');
+    assert.equal(d?.confidence, 0.9);
+    // 末尾に余分な波括弧が付いていても拾える
+    const trailing = '{"action":"none","confidence":0.2} （補足 } あり）';
+    assert.equal(parseParticipationDecision(trailing)?.action, 'none');
+    // 文字列リテラル内の波括弧は対応付けを壊さない
+    const bracesInString = '{"action":"comment","confidence":0.8,"reason":"波括弧 } を含む理由"}';
+    assert.equal(parseParticipationDecision(bracesInString)?.action, 'comment');
+});
+
+test('decision retry: unparseable judge output is retried exactly once', async () => {
+    // (c) 1回目が解釈不能でも、再試行で解釈できれば応答判断に使える
+    let calls = 0;
+    const failures: Array<{ raw: string; attempt: number }> = [];
+    const decision = await parseDecisionWithRetry(async () => {
+        calls++;
+        return calls === 1 ? 'JSONを返せませんでした' : '{"action":"reply","confidence":0.9}';
+    }, (raw, attempt) => { failures.push({ raw, attempt }); });
+    assert.equal(calls, 2);
+    assert.equal(decision?.action, 'reply');
+    assert.equal(shouldRespondToAddressed(decision), true);
+    assert.deepEqual(failures, [{ raw: 'JSONを返せませんでした', attempt: 1 }]);
+    // 2回とも解釈不能なら null（再試行は1回だけ）
+    let calls2 = 0;
+    const none = await parseDecisionWithRetry(async () => { calls2++; return 'だめ'; });
+    assert.equal(calls2, 2);
+    assert.equal(none, null);
+    // 1回目で解釈できれば再試行しない
+    let calls3 = 0;
+    const first = await parseDecisionWithRetry(async () => { calls3++; return '{"action":"none","confidence":0.1}'; });
+    assert.equal(calls3, 1);
+    assert.equal(first?.action, 'none');
+});
+
+test('addressed fallback: explicit name call responds even when the judge returns null', () => {
+    // (d) 再試行後も null だが、明確な名前呼びならフォールバックで応答する
+    assert.equal(shouldFallbackToAddressed(null, 'ロコ、ご挨拶してくれんのか', ['ロコ']), true);
+    // 今回の事象の再現: @表示名 のテキスト表記を含む呼びかけ
+    assert.equal(shouldFallbackToAddressed(null, 'AIちゃん会話に参加してくれるようになったよ @PEXserver ご挨拶してくれんのか', ['PEXserver']), true);
+    assert.equal(hasExplicitNameCall('@PEXserver おー', ['PEXserver']), true);
+    assert.equal(hasExplicitNameCall('ねえ PEXserver これ見て', ['PEXserver']), true);
+    // 判定が正常に none を返した場合は、名前呼びでもフォールバックしない（モデルの判断を尊重）
+    assert.equal(shouldFallbackToAddressed(
+        { action: 'none', targetMessageId: null, emoji: null, confidence: 0.9, reason: '話題にしているだけ' },
+        'ロコ、ご挨拶してくれんのか', ['ロコ']), false);
+    // (e) 名前呼びでない候補は、判定 null でも応答しない
+    assert.equal(shouldFallbackToAddressed(null, 'AIの判定理由おもろすぎ', ['PEXserver', 'ロコ']), false);
+    assert.equal(shouldFallbackToAddressed(null, 'ねえ、今のってどう思う？', ['PEXserver', 'ロコ']), false);
+    assert.equal(shouldFallbackToAddressed(null, 'AIさ、これ翻訳して', ['PEXserver', 'ロコ']), false);
 });

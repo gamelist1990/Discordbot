@@ -103,6 +103,30 @@ export function shouldRespondToAddressed(decision: ParticipationDecision | null)
         && decision.confidence >= DOT_AMBIENT.addressedJudgeMinConfidence;
 }
 
+/** 本文中の生メンション文字列（<@id> / <@!id>）で Bot がメンションされているか。mentions.users に載らないケースの補強。 */
+export function hasRawBotMention(content: string, botId: string | undefined): boolean {
+    if (!botId) return false;
+    return content.includes(`<@${botId}>`) || content.includes(`<@!${botId}>`);
+}
+
+/** 表示名・ペルソナ名での明確な名前呼び（@表示名 のテキスト表記を含む）か。 */
+export function hasExplicitNameCall(content: string, names: string[]): boolean {
+    if (isNameCalled(content, names)) return true;
+    for (const name of names) {
+        if (name && name.length >= 2 && content.includes(`@${name}`)) return true;
+    }
+    return false;
+}
+
+/**
+ * 判定が解釈不能（null）のまま終わった場合の最終フォールバック。
+ * 名前で明確に呼ばれている時だけ応答し、名前呼びでない候補は無言のままにする。
+ * 判定が正常に none 等を返した場合はモデルの判断を尊重してフォールバックしない。
+ */
+export function shouldFallbackToAddressed(decision: ParticipationDecision | null, content: string, names: string[]): boolean {
+    return decision === null && hasExplicitNameCall(content, names);
+}
+
 export type ParticipationAction = 'none' | 'reply' | 'comment' | 'react' | 'continue';
 
 export interface ParticipationDecision {
@@ -115,13 +139,48 @@ export interface ParticipationDecision {
 
 /**
  * 参加判断モデルのJSON出力を解釈する。解釈できない場合は参加しない。
+ * 前後に説明文や別の波括弧が混ざっていても、対応の取れた {...} 断片を順に試して本命のJSONを探す。
  * emoji は通常のUnicode絵文字だけを採用する（カスタム絵文字・英数字は落とす）。
  */
 export function parseParticipationDecision(text: string): ParticipationDecision | null {
-    const match = text.match(/\{[\s\S]*\}/);
-    if (!match) return null;
+    for (const candidate of extractJsonObjectCandidates(text)) {
+        const decision = parseDecisionCandidate(candidate);
+        if (decision) return decision;
+    }
+    return null;
+}
+
+/** テキスト中の波括弧の対応が取れた {...} 断片を出現順に取り出す（文字列リテラル内の波括弧は数えない）。 */
+function* extractJsonObjectCandidates(text: string): Generator<string> {
+    for (let start = 0; start < text.length; start++) {
+        if (text[start] !== '{') continue;
+        let depth = 0;
+        let inString = false;
+        let escaped = false;
+        for (let i = start; i < text.length; i++) {
+            const ch = text[i];
+            if (inString) {
+                if (escaped) escaped = false;
+                else if (ch === '\\') escaped = true;
+                else if (ch === '"') inString = false;
+                continue;
+            }
+            if (ch === '"') inString = true;
+            else if (ch === '{') depth++;
+            else if (ch === '}') {
+                depth--;
+                if (depth === 0) {
+                    yield text.slice(start, i + 1);
+                    break;
+                }
+            }
+        }
+    }
+}
+
+function parseDecisionCandidate(candidate: string): ParticipationDecision | null {
     try {
-        const value = JSON.parse(match[0]) as Record<string, unknown>;
+        const value = JSON.parse(candidate) as Record<string, unknown>;
         const action = value.action;
         if (action !== 'none' && action !== 'reply' && action !== 'comment' && action !== 'react' && action !== 'continue') return null;
         const confidence = typeof value.confidence === 'number'
@@ -140,6 +199,23 @@ export function parseParticipationDecision(text: string): ParticipationDecision 
     } catch {
         return null;
     }
+}
+
+/**
+ * 判定モデルの出力を解釈し、解釈できない場合は1回だけ再試行する。
+ * parse に失敗した生出力は onParseFailure 経由でログに残す（恒常的な原因追跡用）。
+ */
+export async function parseDecisionWithRetry(
+    generate: () => Promise<string>,
+    onParseFailure?: (raw: string, attempt: number) => void,
+): Promise<ParticipationDecision | null> {
+    for (let attempt = 1; attempt <= 2; attempt++) {
+        const text = await generate();
+        const decision = parseParticipationDecision(text);
+        if (decision) return decision;
+        onParseFailure?.(text, attempt);
+    }
+    return null;
 }
 
 /** アクションごとの実行しきい値。冷たい新規参加（reply/comment）は高く、軽い参加（react）と参加中の追随（continue）は低め。 */
@@ -445,11 +521,14 @@ async function judgeAddressed(message: Message): Promise<ParticipationDecision |
     const selfId = message.client.user?.id;
     const mentionsOthers = message.mentions.users.some(user => user.id !== selfId);
     const candidate = (message.content ?? '').replace(/\s+/g, ' ').slice(0, 300);
-    const judgeText = await chatManager.generateText([
-        { role: 'system', content: ADDRESSED_JUDGE_SYSTEM_PROMPT },
-        { role: 'user', content: `直近の会話:\n${context}\n\n対象メッセージ: ${message.author.username}: ${candidate}${mentionsOthers ? '\n（このメッセージは他のユーザーをメンションしています）' : ''}` },
-    ], { model: GEMMA_MODEL, strictModel: true, maxTokens: 120, priority: 'background' });
-    return parseParticipationDecision(judgeText);
+    // 欲しいのは短いJSONだけなので思考を切り、トークン予算も確保する。解釈不能なら1回だけ再試行する。
+    return parseDecisionWithRetry(
+        () => chatManager.generateText([
+            { role: 'system', content: ADDRESSED_JUDGE_SYSTEM_PROMPT },
+            { role: 'user', content: `直近の会話:\n${context}\n\n対象メッセージ: ${message.author.username}: ${candidate}${mentionsOthers ? '\n（このメッセージは他のユーザーをメンションしています）' : ''}` },
+        ], { model: GEMMA_MODEL, strictModel: true, maxTokens: 320, priority: 'background', chatTemplateKwargs: { enable_thinking: false } }),
+        (raw, attempt) => Logger.warn(`[DotAmbient] addressed judge parse failed guild=${message.guildId} channel=${message.channelId} attempt=${attempt}/2 raw=${JSON.stringify(raw.slice(0, 200))}`),
+    );
 }
 
 /** 呼びかけへの応答。direct=メンション/返信の確定信号、judged=モデルが文脈で話しかけられたと判定。 */
@@ -517,7 +596,11 @@ function onMessageCreate(client: Client) {
 
                 // 呼びかけ判定: Discordメンション / Botの発言への直接返信は「呼ばれた」確定信号として即応答。
                 // それ以外は緩くノミネートし、最終判断はモデル（文脈）に任せる。
-                const mentioned = client.user ? message.mentions.users.has(client.user.id) : false;
+                const selfId = client.user?.id;
+                const mentionUserIds = [...message.mentions.users.keys()];
+                // mentions.users に載らないメンション（生文字列 <@id> のみ残るケース等）を取りこぼさない。
+                const rawMention = hasRawBotMention(content, selfId);
+                const mentioned = (selfId ? message.mentions.users.has(selfId) : false) || rawMention;
                 let repliedToBot = false;
                 if (message.reference?.messageId) {
                     if (state.recentBotMessageIds.includes(message.reference.messageId)) {
@@ -529,6 +612,7 @@ function onMessageCreate(client: Client) {
                 }
                 const addressedReady = now - state.lastAddressedResponseAt >= DOT_AMBIENT.addressedCooldownMs;
                 if ((mentioned || repliedToBot) && addressedReady) {
+                    Logger.debug(`[DotAmbient] addressed direct guild=${message.guildId} channel=${message.channelId} self=${selfId ?? '?'} mentionUsers=[${mentionUserIds.join(',')}] rawMention=${rawMention} repliedToBot=${repliedToBot}`);
                     state.lastAddressedResponseAt = now;
                     await respondToAddressed(message, state, 'direct').catch(error => {
                         Logger.warn('[DotAmbient] addressed response failed:', error);
@@ -544,17 +628,26 @@ function onMessageCreate(client: Client) {
                         botRecentlyActive,
                     });
                     if (candidate) {
+                        Logger.debug(`[DotAmbient] addressed judge guild=${message.guildId} channel=${message.channelId} self=${selfId ?? '?'} mentionUsers=[${mentionUserIds.join(',')}] rawMention=${rawMention}`);
                         const decision = await judgeAddressed(message).catch(error => {
                             Logger.debug('[DotAmbient] addressed judge failed:', error);
                             return null;
                         });
+                        const callNames = displayName ? [...names, displayName] : names;
                         if (shouldRespondToAddressed(decision)) {
                             state.lastAddressedResponseAt = Date.now();
                             await respondToAddressed(message, state, 'judged', decision?.confidence).catch(error => {
                                 Logger.warn('[DotAmbient] addressed response failed:', error);
                             });
+                        } else if (shouldFallbackToAddressed(decision, content, callNames)) {
+                            // 判定基盤の不調で解釈不能（null）でも、名前で明確に呼ばれているなら無言にしない。
+                            Logger.info(`[DotAmbient] addressed fallback (judge null, explicit name call) guild=${message.guildId} channel=${message.channelId}`);
+                            state.lastAddressedResponseAt = Date.now();
+                            await respondToAddressed(message, state, 'judged').catch(error => {
+                                Logger.warn('[DotAmbient] addressed response failed:', error);
+                            });
                         } else {
-                            Logger.debug(`[DotAmbient] addressed pass guild=${message.guildId} channel=${message.channelId} decision=${decision ? `addressed=${decision.addressed} conf=${decision.confidence}` : 'null'}`);
+                            Logger.debug(`[DotAmbient] addressed pass guild=${message.guildId} channel=${message.channelId} self=${selfId ?? '?'} mentionUsers=[${mentionUserIds.join(',')}] decision=${decision ? `action=${decision.action} conf=${decision.confidence}` : 'null'}`);
                         }
                     }
                 }
@@ -624,13 +717,15 @@ async function judgeAndParticipate(client: Client, channelId: string, state: Cha
         ? formatBuffered(state.recentMessages, client.user?.id, Date.now())
         : formatContext(history, client.user?.id);
 
-    const judgeText = await chatManager.generateText([
-        { role: 'system', content: PARTICIPATION_JUDGE_SYSTEM_PROMPT },
-        { role: 'user', content: `${personalityPrompt ? personalityPrompt.slice(0, 700) + '\n' : ''}あなたの状態: ${presence === 'engaged' ? 'このチャンネルでは会話に参加中（engaged）' : 'このチャンネルでは様子見中（lurking）'}\nきっかけ: ${trigger}\n直近の会話:\n${context}` },
-    ], { model: GEMMA_MODEL, strictModel: true, maxTokens: 220, priority: 'background' });
-    const decision = parseParticipationDecision(judgeText);
+    const decision = await parseDecisionWithRetry(
+        () => chatManager.generateText([
+            { role: 'system', content: PARTICIPATION_JUDGE_SYSTEM_PROMPT },
+            { role: 'user', content: `${personalityPrompt ? personalityPrompt.slice(0, 700) + '\n' : ''}あなたの状態: ${presence === 'engaged' ? 'このチャンネルでは会話に参加中（engaged）' : 'このチャンネルでは様子見中（lurking）'}\nきっかけ: ${trigger}\n直近の会話:\n${context}` },
+        ], { model: GEMMA_MODEL, strictModel: true, maxTokens: 220, priority: 'background' }),
+        (raw, attempt) => Logger.warn(`[DotAmbient] participation judge parse failed guild=${state.guildId} channel=${channelId} trigger=${trigger} attempt=${attempt}/2 raw=${JSON.stringify(raw.slice(0, 200))}`),
+    );
     if (!shouldExecuteParticipation(decision, presence)) {
-        Logger.debug(`[DotAmbient] pass guild=${state.guildId} channel=${channelId} trigger=${trigger} decision=${judgeText.slice(0, 140)}`);
+        Logger.debug(`[DotAmbient] pass guild=${state.guildId} channel=${channelId} trigger=${trigger} decision=${decision ? `action=${decision.action} conf=${decision.confidence}` : 'null'}`);
         return;
     }
     if (!decision) return;
