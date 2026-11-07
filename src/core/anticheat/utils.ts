@@ -414,6 +414,19 @@ function isRandomFillerToken(token: string): boolean {
  *   returned unchanged, which degrades to the previous exact-match behaviour
  *   and keeps short everyday chat (greetings, backchannels) out of scope.
  */
+const INVITE_SIGNATURE_PATTERN = /(?:dsc\.gg|discord\.gg|discord(?:app)?\.com\/invite)\//;
+
+/**
+ * Whether a similarity signature still contains an invite link. Signatures
+ * keep invites in `host/code-prefix` form, so this also matches links whose
+ * random tail was stripped while building the signature. Note that dsc.gg is
+ * treated as an invite here (and only here): InviteReferralDetector does not
+ * recognize it, so the similarity path is what contains dsc.gg raid spam.
+ */
+export function signatureContainsInvite(signature: string): boolean {
+    return INVITE_SIGNATURE_PATTERN.test(signature);
+}
+
 export function createSimilaritySignature(normalizedContent: string): string {
     if (!normalizedContent) {
         return '';

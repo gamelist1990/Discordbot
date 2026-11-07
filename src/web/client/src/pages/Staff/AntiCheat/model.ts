@@ -40,6 +40,7 @@ export const DETECTORS: DetectorDefinition[] = [
     { kind: 'number', key: 'rapidMessageCount', label: '大量投稿回数', defaultValue: 6, min: 1 },
     { kind: 'number', key: 'duplicateThreshold', label: '重複しきい値', defaultValue: 3, min: 1 },
     { kind: 'number', key: 'repeatedLineThreshold', label: '同じ行の繰り返し検知開始回数', defaultValue: 3, min: 1 },
+    { kind: 'number', key: 'inviteDuplicateThreshold', label: '招待リンク付き類似投稿の検知開始回数', defaultValue: 2, min: 2 },
   ] },
   { key: 'inviteReferral', title: '広告・紹介リンク', description: '招待リンクと紹介パターンを止めます。', icon: 'campaign', fields: [
     { kind: 'list', key: 'blockedDomains', label: 'ブロックドメイン', wide: true, placeholder: 'example.com' },

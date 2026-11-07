@@ -164,7 +164,8 @@ export const DEFAULT_ANTICHEAT_SETTINGS: GuildAntiCheatSettings = {
                 windowSeconds: 5,
                 rapidMessageCount: 6,
                 duplicateThreshold: 3,
-                repeatedLineThreshold: 3
+                repeatedLineThreshold: 3,
+                inviteDuplicateThreshold: 2
             }
         },
         inviteReferral: {

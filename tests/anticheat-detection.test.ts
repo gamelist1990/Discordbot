@@ -880,7 +880,10 @@ test('textSpam detects similar duplicates that vary random tails', async (t) => 
         'Raid by INMU dsc.gg/inmu inaipgnau9hq7t'
     ];
     assert.deepEqual((await detector.detect({ id: 'sim-1', content: samples[0] } as any, context)).reasons, []);
-    assert.deepEqual((await detector.detect({ id: 'sim-2', content: samples[1] } as any, context)).reasons, []);
+    // Invite-bearing lookalikes score one post earlier than ordinary ones.
+    const second = await detector.detect({ id: 'sim-2', content: samples[1] } as any, context);
+    assert.equal(second.scoreDelta, 2);
+    assert.match(second.reasons[0], /招待リンクを含む類似した重複投稿を検知しました \(2回\)/);
     const third = await detector.detect({ id: 'sim-3', content: samples[2] } as any, context);
     assert.equal(third.scoreDelta, 2);
     assert.match(third.reasons[0], /類似した重複投稿を検知しました \(3回\)/);
@@ -987,4 +990,91 @@ test('mentionSpam does not flag mentioning a few friends once', async (t) => {
     const result = await detector.detect({ id: 'friends-1', content: '<@1> <@2> <@3> あとでゲームしよう' } as any, context);
     assert.deepEqual(result.reasons, []);
     assert.equal(result.scoreDelta, 0);
+});
+
+
+test('textSpam keeps the full threshold for similar duplicates without invite links', async (t) => {
+    CacheManager.clear();
+    t.after(() => CacheManager.clear());
+
+    const detector = new TextSpamDetector();
+    const context = createSimilarTextSpamContext('guild-similar-noinvite');
+    const samples = [
+        '大会 参加者 募集中 です qwer1234',
+        '大会 参加者 募集中 です asdf9876',
+        '大会 参加者 募集中 です zxcv5555'
+    ];
+    assert.deepEqual((await detector.detect({ id: 'noinv-1', content: samples[0] } as any, context)).reasons, []);
+    assert.deepEqual((await detector.detect({ id: 'noinv-2', content: samples[1] } as any, context)).reasons, []);
+    const third = await detector.detect({ id: 'noinv-3', content: samples[2] } as any, context);
+    assert.equal(third.scoreDelta, 2);
+    assert.match(third.reasons[0], /類似した重複投稿を検知しました \(3回\)/);
+});
+
+test('raid spam trigger counts: random-tail type scores on the 2nd post, composite type on the 1st', async (t) => {
+    CacheManager.clear();
+    t.after(() => CacheManager.clear());
+
+    // Random-tail single-line posts: nothing on post 1, textSpam score plus
+    // duplicateMessage deletion on post 2.
+    const textSpam = new TextSpamDetector();
+    const duplicate = new DuplicateMessageDetector();
+    const textContext = createSimilarTextSpamContext('guild-trigger-text');
+    const dupContext = {
+        guildId: 'guild-trigger-text', userId: 'user-guild-trigger-text', channelId: 'channel-guild-trigger-text',
+        settings: { detectors: { duplicateMessage: {
+            enabled: true, score: 1, deleteMessage: true, notifyChannel: false,
+            config: { windowSeconds: 180, deleteFrom: 2, scoreFrom: 4 }
+        } } }
+    } as any;
+    const tails = [
+        'Raid by INMU dsc.gg/inmu0iqajg89qahgaq9hgagai0',
+        'Raid by INMU dsc.gg/inmu gfaoghag'
+    ];
+    const firstText = await textSpam.detect({ id: 'trig-1', content: tails[0] } as any, textContext);
+    const firstDup = await duplicate.detect({ id: 'trig-1', content: tails[0] } as any, dupContext);
+    assert.deepEqual(firstText.reasons, []);
+    assert.deepEqual(firstDup.reasons, []);
+    const secondText = await textSpam.detect({ id: 'trig-2', content: tails[1] } as any, textContext);
+    const secondDup = await duplicate.detect({ id: 'trig-2', content: tails[1] } as any, dupContext);
+    assert.equal(secondText.scoreDelta, 2);
+    assert.equal(secondDup.deleteMessage, true);
+
+    // Composite multi-line post: scored and deleted by the very first message,
+    // even when textSpam deleteMessage is disabled in the detector config.
+    const strictContext = {
+        guildId: 'guild-trigger-lines', userId: 'user-guild-trigger-lines', channelId: 'channel-guild-trigger-lines',
+        settings: { detectors: { textSpam: {
+            enabled: true, score: 2, deleteMessage: false, notifyChannel: false,
+            config: { windowSeconds: 5, rapidMessageCount: 100, duplicateThreshold: 3, repeatedLineThreshold: 3, inviteDuplicateThreshold: 2 }
+        } } }
+    } as any;
+    const composite = [
+        'Raid by INMU dsc.gg/inmu <@111111>',
+        'Raid by INMU dsc.gg/inmu <@222222>',
+        'Raid by INMU dsc.gg/inmu <@333333>'
+    ].join('\n');
+    const first = await textSpam.detect({ id: 'trig-lines-1', content: composite } as any, strictContext);
+    assert.equal(first.scoreDelta, 2);
+    assert.equal(first.deleteMessage, true);
+    assert.match(first.reasons[0], /同一行の繰り返しを検知しました \(3行\)/);
+});
+
+test('textSpam scores repeated lines without invite links but does not force deletion', async (t) => {
+    CacheManager.clear();
+    t.after(() => CacheManager.clear());
+
+    const detector = new TextSpamDetector();
+    const context = {
+        guildId: 'guild-lines-noinvite', userId: 'user-guild-lines-noinvite', channelId: 'channel-guild-lines-noinvite',
+        settings: { detectors: { textSpam: {
+            enabled: true, score: 2, deleteMessage: false, notifyChannel: false,
+            config: { windowSeconds: 5, rapidMessageCount: 100, duplicateThreshold: 3, repeatedLineThreshold: 3, inviteDuplicateThreshold: 2 }
+        } } }
+    } as any;
+    const repeated = ['今日の連絡事項を確認してください', '今日の連絡事項を確認してください', '今日の連絡事項を確認してください'].join('\n');
+    const result = await detector.detect({ id: 'lines-noinv-1', content: repeated } as any, context);
+    assert.equal(result.scoreDelta, 2);
+    assert.equal(result.deleteMessage, false);
+    assert.match(result.reasons[0], /同一行の繰り返しを検知しました \(3行\)/);
 });

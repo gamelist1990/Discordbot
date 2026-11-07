@@ -1,7 +1,7 @@
 import { Message } from 'discord.js';
 import { Detector, DetectionContext, DetectionResult } from '../types.js';
 import { CacheManager } from '../../../utils/CacheManager.js';
-import { createSimilaritySignature, getDetectorConfig, normalizeContent } from '../utils.js';
+import { createSimilaritySignature, getDetectorConfig, normalizeContent, signatureContainsInvite } from '../utils.js';
 
 interface MessageRecord {
     content: string;
@@ -28,12 +28,17 @@ export class TextSpamDetector implements Detector {
         const config = detectorConfig.config || {};
         const maxMessages = Number(config.maxMessages) || 12;
         const duplicateThreshold = Number(config.duplicateThreshold) || 3;
+        // Invite-bearing lookalikes are unambiguous raid material, so they do
+        // not need the full duplicate threshold before scoring. Never below 2:
+        // a single invite post must stay legitimate.
+        const inviteDuplicateThreshold = Math.max(2, Number(config.inviteDuplicateThreshold) || 2);
         const repeatedLineThreshold = Number(config.repeatedLineThreshold) || 3;
         const rapidThreshold = Number(config.rapidMessageCount) || 6;
         const rapidWindowMs = (Number(config.windowSeconds) || 5) * 1000;
         const cacheKey = `anticheat:messages:${context.guildId}:${context.channelId}:${context.userId}`;
         const normalizedContent = normalizeContent(message.content);
         const signature = createSimilaritySignature(normalizedContent);
+        const hasInvite = signatureContainsInvite(signature);
         const now = context.receivedAt ?? Date.now();
 
         // Get user's recent messages from cache
@@ -89,6 +94,11 @@ export class TextSpamDetector implements Detector {
             m => (m.signature ?? createSimilaritySignature(m.content)) === signature
         ).length;
 
+        // One message that repeats the same invite line over and over is a
+        // complete raid post on its own: it scores here and is deleted below
+        // even when this detector's deleteMessage setting is off.
+        const inviteLineRepeat = hasInvite && repeatedLineCount >= repeatedLineThreshold;
+
         if (repeatedLineCount >= repeatedLineThreshold) {
             scoreDelta += detectorConfig.score;
             reasons.push(`同一行の繰り返しを検知しました (${repeatedLineCount}行)`);
@@ -100,6 +110,11 @@ export class TextSpamDetector implements Detector {
         } else if (similarCount >= duplicateThreshold) {
             scoreDelta += detectorConfig.score;
             reasons.push(`類似した重複投稿を検知しました (${similarCount}回)`);
+        } else if (hasInvite && similarCount >= inviteDuplicateThreshold) {
+            // Similar posts carrying an invite link reach the score one post
+            // earlier than ordinary lookalikes (2nd instead of 3rd).
+            scoreDelta += detectorConfig.score;
+            reasons.push(`招待リンクを含む類似した重複投稿を検知しました (${similarCount}回)`);
         }
 
         // Check for rapid sending
@@ -119,6 +134,7 @@ export class TextSpamDetector implements Detector {
                 metadata: {
                     duplicateCount,
                     similarDuplicateCount: similarCount,
+                    signatureHasInvite: hasInvite,
                     repeatedLineCount,
                     recentCount,
                     totalMessages: recentMessages.length
@@ -132,11 +148,12 @@ export class TextSpamDetector implements Detector {
             metadata: {
                 duplicateCount,
                 similarDuplicateCount: similarCount,
+                signatureHasInvite: hasInvite,
                 repeatedLineCount,
                 recentCount,
                 totalMessages: recentMessages.length
             },
-            deleteMessage: detectorConfig.deleteMessage === true
+            deleteMessage: detectorConfig.deleteMessage === true || inviteLineRepeat
         };
     }
 }
