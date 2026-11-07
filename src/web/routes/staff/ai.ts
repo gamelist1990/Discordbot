@@ -2,7 +2,8 @@ import { Router } from 'express';
 import { loadMemos } from '../../../commands/staff/subcommands/ai-tools/memo.js';
 import type { SettingsSession } from '../../types/index.js';
 import { verifyAuth, isGuildAccessible, getSessionGuildPermissionLevel } from '../../middleware/auth.js';
-import { resetStaffAIHistory, clearAIExperienceMemories, staffMemoryList, staffMetrics, editStaffMemory, clearStaffMemory } from '../../../core/ai/StaffAIMemory.js';
+import { resetStaffAIHistory, clearAIExperienceMemories, staffMemoryList, editStaffMemory, clearStaffMemory } from '../../../core/ai/StaffAIMemory.js';
+import { ensureAIUsageMetrics, getGlobalAIUsageMetrics } from '../../../core/ai/AIUsageMetrics.js';
 import type { BotClient } from '../../../core/platform/BotClient.js';
 import {
     applyGuildAIPersona,
@@ -85,10 +86,13 @@ export function createStaffAIRoutes(sessions: Map<string, SettingsSession>, _bot
     router.get('/:guildId', async (req, res) => {
         try {
             const guildId = String(req.params.guildId);
-            const [metrics, memories, personality, customMemos] = await Promise.all([
-                staffMetrics(guildId), staffMemoryList(guildId), personalityWithPersona(guildId), loadMemos(guildId),
+            // 利用状況は全AI経路を共通層で数える新集計（AIUsageMetrics）。
+            // 旧 staffMetrics（/staff ai のみ）は表示に使わない。
+            const [metrics, globalMetrics, memories, personality, customMemos] = await Promise.all([
+                ensureAIUsageMetrics(guildId), getGlobalAIUsageMetrics(),
+                staffMemoryList(guildId), personalityWithPersona(guildId), loadMemos(guildId),
             ]);
-            res.json({ metrics, memories, personality, customMemos });
+            res.json({ metrics, globalMetrics, memories, personality, customMemos });
         } catch {
             res.status(500).json({ error: 'Staff AI情報の取得に失敗しました' });
         }

@@ -6,7 +6,17 @@ import ui from '../ManagementDashboard.module.css';
 type Guild = { id: string; name: string };
 type Metrics = {
   requests: number; inputTokens: number; outputTokens: number;
-  totalTokens: number; generatedSeconds: number; cacheHitTokens: number; cacheInputTokens: number;
+  totalTokens: number; generatedSeconds: number; timedOutputTokens?: number;
+  cacheHitTokens: number; cacheInputTokens: number;
+  startedAt?: string | null;
+  byPurpose?: Record<string, { requests: number; totalTokens: number }>;
+};
+const purposeLabels: Record<string, string> = {
+  'staff-ai': '/staff ai', 'staff-ai-scheduled': '予約タスク', 'chat-ai': 'ChatAI',
+  'dot-judge': 'dot判定', 'dot-generate': 'dot生成', 'dot-learn': 'dot学習',
+  media: 'メディア説明', vision: '画像解析', episode: '出来事抽出', persona: '性格生成',
+  'content-safety': 'コンテンツ安全判定', 'server-builder': 'サーバー構築', memory: '会話要約',
+  corepanel: '性格診断など', other: 'その他',
 };
 type Memory = {
   id: string; kind: 'daily' | 'user'; guildId: string; userId?: string; day?: string;
@@ -37,7 +47,7 @@ const defaultPersonality: Personality = {
   customInstructions: '', learnedSummary: '', learnedMessageCount: 0, learningRevision: 0, updatedAt: '',
 };
 const zero: Metrics = { requests: 0, inputTokens: 0, outputTokens: 0, totalTokens: 0,
-  generatedSeconds: 0, cacheHitTokens: 0, cacheInputTokens: 0 };
+  generatedSeconds: 0, timedOutputTokens: 0, cacheHitTokens: 0, cacheInputTokens: 0, startedAt: null, byPurpose: {} };
 const fmt = (n: number) => {
   const value = Math.round(n);
   const absolute = Math.abs(value);
@@ -305,7 +315,8 @@ const StaffAIPage: React.FC = () => {
     daily: memories.filter(item => item.kind === 'daily').length,
     user: memories.filter(item => item.kind === 'user').length,
   }), [memories]);
-  const speed = metrics.generatedSeconds > 0 ? metrics.outputTokens / metrics.generatedSeconds : null;
+  const speed = metrics.generatedSeconds > 0 && (metrics.timedOutputTokens ?? 0) > 0
+    ? (metrics.timedOutputTokens as number) / metrics.generatedSeconds : null;
   const cache = metrics.cacheInputTokens > 0 ? metrics.cacheHitTokens / metrics.cacheInputTokens * 100 : null;
   const selected = guilds.find(g => g.id === guildId);
 
@@ -355,9 +366,9 @@ const StaffAIPage: React.FC = () => {
             <div className={ui.metrics}>
               {[
                 { label: '総トークン', value: fmt(metrics.totalTokens), meta: `入力 ${fmt(metrics.inputTokens)} / 出力 ${fmt(metrics.outputTokens)}`, pict: 'analytics' },
-                { label: '生成速度', value: speed === null ? '—' : speed.toFixed(1), suffix: speed === null ? '' : 'tok/s', meta: '出力トークン数 ÷ 生成時間', pict: 'speed' },
+                { label: '生成速度', value: speed === null ? '—' : speed.toFixed(1), suffix: speed === null ? '' : 'tok/s', meta: '生成時間の分かる出力トークン ÷ 生成時間（prefill除く）', pict: 'speed' },
                 { label: 'KVヒット率', value: cache === null ? '—' : cache.toFixed(1) + '%', meta: cache === null ? '取得可能なヒット統計はありません' : `${fmt(metrics.cacheHitTokens)} / ${fmt(metrics.cacheInputTokens)} トークン`, pict: 'memory', percent: cache },
-                { label: 'リクエスト数', value: fmt(metrics.requests), meta: 'この機能の導入以降', pict: 'forum' },
+                { label: 'リクエスト数', value: fmt(metrics.requests), meta: metrics.startedAt ? `${new Date(metrics.startedAt).toLocaleString('ja-JP')} 以降・全AI経路` : '集計開始前', pict: 'forum' },
               ].map(m => <div className={ui.metric} key={m.label}>
                 <div className={ui.metricTop}><span className={ui.metricLabel}>{m.label}</span><span className={ui.metricIcon}>{icon(m.pict)}</span></div>
                 <strong className={ui.metricValue}>{m.value} {m.suffix && <small>{m.suffix}</small>}</strong>
@@ -365,6 +376,14 @@ const StaffAIPage: React.FC = () => {
                 <span className={ui.metricMeta}>{m.meta}</span>
               </div>)}
             </div>
+            {metrics.byPurpose && Object.keys(metrics.byPurpose).length > 0 && (
+              <p className={ui.muted} style={{ marginTop: 10 }}>
+                用途別: {Object.entries(metrics.byPurpose)
+                  .sort((a, b) => b[1].requests - a[1].requests)
+                  .map(([purpose, totals]) => `${purposeLabels[purpose] ?? purpose} ${fmt(totals.requests)}件・${fmt(totals.totalTokens)}`)
+                  .join(' / ')}
+              </p>
+            )}
           </section>
 
           <section className={ui.panel} aria-labelledby="staff-ai-personality-title">
