@@ -21,9 +21,16 @@ type PersonalitySettings = {
   verbosity: 'auto' | 'brief' | 'normal' | 'detailed';
   customInstructions: string;
 };
+type Persona = {
+  name: string; character: string; speakingStyle: string; behavior: string;
+  generatedAt: string; source: 'generated' | 'default';
+  firstPerson?: string; exampleLines?: string[]; catchphrases?: string[];
+  likes?: string; dislikes?: string; interactionStrengths?: string;
+  weakTopicReaction?: string; avoidBehaviors?: string[];
+};
 type Personality = PersonalitySettings & {
   learnedSummary: string; learnedMessageCount: number; learningRevision: number; updatedAt: string;
-  persona?: { name: string; character: string; speakingStyle: string; behavior: string; generatedAt: string; source: 'generated' | 'default' };
+  persona?: Persona;
 };
 const defaultPersonality: Personality = {
   learningEnabled: true, tone: 'auto', humor: 'auto', emoji: 'auto', verbosity: 'auto',
@@ -50,6 +57,21 @@ async function readJson(url: string, options?: RequestInit) {
   return body;
 }
 
+const PersonaDetails: React.FC<{ persona: Persona }> = ({ persona }) => (
+  <>
+    <p><b>{persona.name}</b>{persona.firstPerson ? `（一人称：${persona.firstPerson}）` : ''}：{persona.character}</p>
+    <p>話し方：{persona.speakingStyle}</p>
+    {persona.exampleLines?.length ? <p>口調の例：{persona.exampleLines.map(line => `「${line}」`).join(' ')}</p> : null}
+    {persona.catchphrases?.length ? <p>口癖：{persona.catchphrases.join('、')}</p> : null}
+    {persona.likes ? <p>好きなもの・話題：{persona.likes}</p> : null}
+    {persona.dislikes ? <p>苦手なもの・話題：{persona.dislikes}</p> : null}
+    {persona.interactionStrengths ? <p>得意な絡み方：{persona.interactionStrengths}</p> : null}
+    {persona.weakTopicReaction ? <p>苦手な話題への反応：{persona.weakTopicReaction}</p> : null}
+    <p>振る舞い：{persona.behavior}</p>
+    {persona.avoidBehaviors?.length ? <p>避ける振る舞い：{persona.avoidBehaviors.join('、')}</p> : null}
+  </>
+);
+
 const StaffAIPage: React.FC = () => {
   const { addToast } = useAppToast();
   const [guilds, setGuilds] = useState<Guild[]>([]);
@@ -67,6 +89,10 @@ const StaffAIPage: React.FC = () => {
   const [busy, setBusy] = useState(false);
   const [personalityBusy, setPersonalityBusy] = useState(false);
   const [personaBusy, setPersonaBusy] = useState(false);
+  const [personaDirection, setPersonaDirection] = useState('');
+  const [personaPreview, setPersonaPreview] = useState<{ previewId: string; persona: Persona } | null>(null);
+  const [personaPreviewBusy, setPersonaPreviewBusy] = useState(false);
+  const [personaApplyBusy, setPersonaApplyBusy] = useState(false);
   const [resetPersonalityConfirm, setResetPersonalityConfirm] = useState(false);
   const [error, setError] = useState('');
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
@@ -171,6 +197,42 @@ const StaffAIPage: React.FC = () => {
     } finally { setPersonaBusy(false); }
   };
 
+  const previewPersona = async () => {
+    const selectedGuild = guildId;
+    if (!selectedGuild || personaPreviewBusy) return;
+    setPersonaPreviewBusy(true);
+    try {
+      const data = await readJson(`/api/staff/ai/${selectedGuild}/personality/persona/preview`, {
+        method: 'POST', body: JSON.stringify({ direction: personaDirection }),
+      });
+      if (selectedGuild === selectedGuildRef.current) {
+        setPersonaPreview({ previewId: data.previewId as string, persona: data.persona as Persona });
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'AIの性格を生成できませんでした');
+      addToast('AIの性格を生成できませんでした', 'error');
+    } finally { setPersonaPreviewBusy(false); }
+  };
+
+  const applyPersonaPreview = async () => {
+    const selectedGuild = guildId;
+    if (!selectedGuild || !personaPreview || personaApplyBusy) return;
+    setPersonaApplyBusy(true);
+    try {
+      const data = await readJson(`/api/staff/ai/${selectedGuild}/personality/persona/apply`, {
+        method: 'POST', body: JSON.stringify({ previewId: personaPreview.previewId }),
+      });
+      if (selectedGuild === selectedGuildRef.current) {
+        setPersonality(data.personality as Personality);
+        setPersonaPreview(null);
+        addToast('新しい性格を適用しました', 'success');
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'AIの性格を適用できませんでした');
+      addToast('AIの性格を適用できませんでした', 'error');
+    } finally { setPersonaApplyBusy(false); }
+  };
+
   const resetPersonality = async () => {
     const selectedGuild = guildId;
     if (!selectedGuild || personalityBusy) return;
@@ -198,6 +260,7 @@ const StaffAIPage: React.FC = () => {
   useEffect(() => {
     if (!guildId) return;
     setMetrics(zero); setMemories([]); setCustomMemos([]); setEditing(null); setSearch(''); setLastUpdated(null);
+    setPersonaPreview(null); setPersonaDirection('');
     personalityDirtyRef.current = false; setPersonalityDirty(false);
     void refresh(guildId, true);
     const timer = window.setInterval(() => void refresh(guildId), 30_000);
@@ -352,9 +415,7 @@ const StaffAIPage: React.FC = () => {
               <div className={ui.personalityInsight}>
                 <strong>{icon('theater_comedy')} AIの性格（ロールプレイ定義）</strong>
                 {personality.persona ? <>
-                  <p><b>{personality.persona.name}</b>：{personality.persona.character}</p>
-                  <p>話し方：{personality.persona.speakingStyle}</p>
-                  <p>振る舞い：{personality.persona.behavior}</p>
+                  <PersonaDetails persona={personality.persona} />
                   <span className={ui.muted}>
                     {personality.persona.source === 'generated' ? 'AIが初期化時に自分で決めた性格です' : 'AI生成に失敗したため標準の性格を使用中です'}
                     （{new Date(personality.persona.generatedAt).toLocaleString('ja-JP')}）。AIChannelと /staff ai の両方に適用されます。
@@ -365,6 +426,30 @@ const StaffAIPage: React.FC = () => {
                     {icon('autorenew')} {personaBusy ? '生成中…' : '性格を再生成'}
                   </button>
                 </div>
+                <label className={ui.label}>性格の方向（任意）
+                  <textarea className={ui.textarea} maxLength={300} rows={2} value={personaDirection}
+                    placeholder="例: もっと毒舌でツッコミ寄りに。関西弁のノリを強めに。"
+                    onChange={e => setPersonaDirection(e.target.value)} />
+                  <span className={ui.muted}>{personaDirection.length} / 300文字。現在の性格をもとに、方向に寄せて作り直します。生成・適用にはサーバー管理者権限が必要です。</span>
+                </label>
+                <div className={ui.personalityActions}>
+                  <button type="button" className={ui.button} disabled={personaPreviewBusy} onClick={() => void previewPersona()}>
+                    {icon('science')} {personaPreviewBusy ? '生成中…' : '方向を指定して生成（プレビュー）'}
+                  </button>
+                </div>
+                {personaPreview ? <div className={ui.personalityInsight}>
+                  <strong>{icon('preview')} 新しい性格のプレビュー（未適用）</strong>
+                  <PersonaDetails persona={personaPreview.persona} />
+                  <span className={ui.muted}>プレビューは10分間だけ有効です。適用すると現在の性格と置き換わります。</span>
+                  <div className={ui.personalityActions}>
+                    <button type="button" className={ui.buttonPrimary} disabled={personaApplyBusy} onClick={() => void applyPersonaPreview()}>
+                      {icon('check')} {personaApplyBusy ? '適用中…' : 'この性格を適用'}
+                    </button>
+                    <button type="button" className={ui.button} disabled={personaApplyBusy} onClick={() => setPersonaPreview(null)}>
+                      {icon('close')} やめる
+                    </button>
+                  </div>
+                </div> : null}
               </div>
               <div className={ui.personalityInsight}>
                 <strong>{icon('auto_awesome')} サーバーの雰囲気</strong>

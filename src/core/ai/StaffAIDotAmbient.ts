@@ -609,7 +609,7 @@ async function generateAmbientReply(guildId: string, context: string, situation:
     const personality = await ensureGuildAIPersona(guildId, false);
     const personalityPrompt = buildGuildAIPersonalityPrompt(personality);
     const personaBlock = personality.persona
-        ? `あなたの名前は「${personality.persona.name}」。性格: ${personality.persona.character} 話し方: ${personality.persona.speakingStyle} 振る舞い: ${personality.persona.behavior}`
+        ? `あなたの名前は「${personality.persona.name}」。${personality.persona.firstPerson ? `一人称は「${personality.persona.firstPerson}」。` : ''}性格: ${personality.persona.character} 話し方: ${personality.persona.speakingStyle} 振る舞い: ${personality.persona.behavior}`
         : '';
     const text = await chatManager.generateText([
         { role: 'system', content: sanitizeAiText([AMBIENT_SYSTEM_RULES, personaBlock, personalityPrompt].filter(Boolean).join('\n')) },
