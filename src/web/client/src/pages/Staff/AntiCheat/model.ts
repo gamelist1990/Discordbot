@@ -39,6 +39,7 @@ export const DETECTORS: DetectorDefinition[] = [
     { kind: 'number', key: 'windowSeconds', label: '監視秒数', defaultValue: 5, min: 1 },
     { kind: 'number', key: 'rapidMessageCount', label: '大量投稿回数', defaultValue: 6, min: 1 },
     { kind: 'number', key: 'duplicateThreshold', label: '重複しきい値', defaultValue: 3, min: 1 },
+    { kind: 'number', key: 'repeatedLineThreshold', label: '同じ行の繰り返し検知開始回数', defaultValue: 3, min: 1 },
   ] },
   { key: 'inviteReferral', title: '広告・紹介リンク', description: '招待リンクと紹介パターンを止めます。', icon: 'campaign', fields: [
     { kind: 'list', key: 'blockedDomains', label: 'ブロックドメイン', wide: true, placeholder: 'example.com' },
@@ -77,6 +78,7 @@ export const DETECTORS: DetectorDefinition[] = [
     { kind: 'number', key: 'sameUserMentionThreshold', label: '同一ユーザーの検知開始回数', defaultValue: 5, min: 1, max: 4096 },
     { kind: 'number', key: 'roleMentionThreshold', label: 'ロールの検知開始回数（同一ロールも加算）', defaultValue: 5, min: 1, max: 4096 },
     { kind: 'number', key: 'totalMentionThreshold', label: '合計の検知開始回数', defaultValue: 10, min: 1, max: 4096 },
+    { kind: 'number', key: 'uniqueUserMentionThreshold', label: '宛先の種類数の検知開始回数', defaultValue: 8, min: 1, max: 4096 },
   ] },
   { key: 'mentionLimit', title: '最大メンション数', description: '1投稿内のメンションの出現回数を制限します。同じユーザー・ロールの繰り返しも対象です。', icon: 'groups', fields: [
     { kind: 'number', key: 'maxUserMentions', label: 'ユーザー上限', defaultValue: 200, min: 1, max: 4096 },
