@@ -22,6 +22,7 @@ import {
     getStylePreset,
     planContextFromStructure,
     summarizePlan,
+    validateManualPlan,
     validatePlan,
 } from '../../../core/serverBuilder/ServerBuilder.js';
 
@@ -95,6 +96,32 @@ export function createServerBuilderRoutes(sessions: Map<string, SettingsSession>
         const guildId = String(req.params.guildId);
         const session = authorize(req, res, guildId);
         if (!session) return;
+        // 手動プラン入力（v2）: AIを介さず operations を直接受け付け、同じ検証・プレビュー保持に通す。
+        // AI予算・レート制限は消費/適用しない。認可・監査はAI経路と同一で、即時適用はせずプレビュー必須。
+        if (Array.isArray(req.body?.operations)) {
+            const guildForManual = resolveGuild(res, guildId);
+            if (!guildForManual) return;
+            try {
+                const structure = buildGuildStructure(guildForManual);
+                const summary = typeof req.body?.summary === 'string' ? req.body.summary.slice(0, 300) : '手動プラン';
+                const validated = validateManualPlan(req.body.operations, planContextFromStructure(structure), summary);
+                if (!validated.ok) {
+                    Logger.info(`[ServerBuilderAudit] action=plan-manual-rejected guild=${guildId} user=${session.userId} errors=${validated.errors.slice(0, 3).join(' | ')}`);
+                    res.status(422).json({ error: '手動プランが検証を通過しませんでした', details: validated.errors.slice(0, 5) });
+                    return;
+                }
+                const previewId = createServerBuilderPreview({
+                    guildId, userId: session.userId, plan: validated.plan,
+                    styleId: 'manual', request: '', source: 'manual',
+                });
+                Logger.info(`[ServerBuilderAudit] action=plan-manual guild=${guildId} user=${session.userId} (${session.username ?? ''}) ops=${validated.plan.operations.length} ops-summary=${summarizePlan(validated.plan)}`);
+                const status = await budget.status(guildId);
+                res.json({ previewId, plan: validated.plan, budget: status, usage: { tokens: 0, estimated: false }, source: 'manual', expiresInSeconds: 600 });
+            } catch {
+                res.status(500).json({ error: '手動プランの作成に失敗しました' });
+            }
+            return;
+        }
         const requestText = typeof req.body?.request === 'string' ? req.body.request.trim() : '';
         if (!requestText || requestText.length > MAX_REQUEST_LENGTH) {
             res.status(400).json({ error: `依頼文は1〜${MAX_REQUEST_LENGTH}文字で入力してください` });
@@ -197,6 +224,7 @@ export function createServerBuilderRoutes(sessions: Map<string, SettingsSession>
                 plan: validated.plan,
                 styleId: style.id,
                 request: requestText.slice(0, 200),
+                source: 'ai',
             });
             Logger.info(`[ServerBuilderAudit] action=plan guild=${guildId} user=${session.userId} (${session.username ?? ''}) style=${style.id} ops=${validated.plan.operations.length} tokens=${tokensUsed} estimated=${estimated} ops-summary=${summarizePlan(validated.plan)}`);
             res.json({
