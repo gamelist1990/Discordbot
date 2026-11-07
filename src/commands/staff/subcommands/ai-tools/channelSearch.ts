@@ -104,7 +104,7 @@ function data(message: Message, guild: string, channel: string, maxChars: number
     };
 }
 
-/** Compact context keeps long conversations within the Gemma' context budget. */
+/** Compact context keeps long conversations within the Gemma context budget. */
 function contextMessage(message: Message) {
     return {
         message_id: message.id,
