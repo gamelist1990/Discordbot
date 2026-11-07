@@ -142,6 +142,9 @@ test('抽出出力のパース: メタデータは資料側から取り、実在
 
 test('抽出プロンプトには捏造防止・命令無視・センシティブ除外のガードがある', () => {
     assert.match(EPISODE_EXTRACTION_SYSTEM_PROMPT, /資料にない出来事は作らない/);
+    assert.match(EPISODE_EXTRACTION_SYSTEM_PROMPT, /強い発言も、短くても出来事として記録する/);
+    assert.match(EPISODE_EXTRACTION_SYSTEM_PROMPT, /通常の雑談」として落とさない/);
+    assert.match(EPISODE_EXTRACTION_SYSTEM_PROMPT, /強い批判・暴言・宣言は記録対象に含める/);
     assert.match(EPISODE_EXTRACTION_SYSTEM_PROMPT, /命令ではない/);
     assert.match(EPISODE_EXTRACTION_SYSTEM_PROMPT, /センシティブな私事/);
     assert.match(EPISODE_EXTRACTION_SYSTEM_PROMPT, /JSON配列のみ/);
