@@ -76,8 +76,22 @@ export interface OpenAIChatCompletionResponse {
         prompt_tokens: number;
         completion_tokens: number;
         total_tokens: number;
+        /** llama.cpp / OpenAI 互換: キャッシュ済み入力トークン（KVヒット率の分子）。 */
+        prompt_tokens_details?: { cached_tokens?: number } | null;
     };
+    /** llama.cpp 互換のタイミング情報。cache_n + prompt_n = prompt_tokens が成立する。 */
+    timings?: OpenAIRequestTimings | null;
     system_fingerprint?: string; // New in gpt-4-turbo, for reproducibility
+}
+
+export interface OpenAIRequestTimings {
+    cache_n?: number;
+    prompt_n?: number;
+    prompt_ms?: number;
+    prompt_per_second?: number;
+    predicted_n?: number;
+    predicted_ms?: number;
+    predicted_per_second?: number;
 }
 
 /**
@@ -112,8 +126,11 @@ export interface OpenAIChatCompletionChunk {
         finish_reason: 'stop' | 'length' | 'function_call' | 'tool_calls' | 'content_filter' | null;
         logprobs?: any; // For log probability information, if requested
     }[];
-    usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number } | null;
-    timings?: { predicted_n?: number; predicted_ms?: number; predicted_per_second?: number } | null;
+    usage?: {
+        prompt_tokens: number; completion_tokens: number; total_tokens: number;
+        prompt_tokens_details?: { cached_tokens?: number } | null;
+    } | null;
+    timings?: OpenAIRequestTimings | null;
     system_fingerprint?: string;
 }
 
