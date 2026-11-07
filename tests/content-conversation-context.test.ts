@@ -16,7 +16,7 @@ function buildMessage(content: string, neighbors: any[], fetchThrows = false) {
         editedTimestamp:null, attachments:new Map(), embeds:[], author:author('current'),
         channel:{messages:{fetch:async (options: any)=>{
             calls++;
-            assert.deepEqual(options, {around:'target', limit:13});
+            assert.deepEqual(options, {around:'target', limit:50});
             if(fetchThrows) throw new Error('missing permission');
             return new Map(neighbors.map(item=>[item.id,item]));
         }}},
@@ -29,13 +29,13 @@ function context():any {
 
 test('fetch same-channel before and after, excluding bot/system, stale and target messages', async () => {
     const nearby = [
-        post('old','old sexual topic',t - 20*60_000),
+        post('old','old sexual topic',t - 40*60_000),
         post('before','前の話題',t-20_000),
         post('target','現投稿',t),
         post('after','補足だよ',t+2_000),
         post('bot','automated moderation repost',t+3_000,true),
         {...post('other','private channel content',t-1000),channelId:'other'},
-        post('muchlater','after 30 minutes',t+30*60_000),
+        post('muchlater','after 45 minutes',t+45*60_000),
     ];
     const {message,getCalls}=buildMessage('くっそメンションされてるんだが',nearby);
     const data=JSON.parse(await loadContentConversationContext(message,'返信先だよ',0));
@@ -123,4 +123,37 @@ test('a newer reply during inference triggers one context refresh before censori
         assert.deepEqual(result.reasons,[]);
         assert.equal(result.spoilerRepost,undefined);
     } finally {globalThis.fetch=orig;}
+});
+
+test('includes up to ten neighboring posts per side, keeping the nearest ones', async () => {
+    const neighbors: any[] = [];
+    for (let i = 12; i >= 1; i--) neighbors.push(post('before' + i, '前' + i, t - i * 60_000));
+    neighbors.push(post('target', '現投稿', t));
+    for (let i = 1; i <= 12; i++) neighbors.push(post('after' + i, '後' + i, t + i * 60_000));
+    const {message} = buildMessage('対象の投稿', neighbors);
+    const data = JSON.parse(await loadContentConversationContext(message, '', 0));
+    assert.equal(data.before.length, 10);
+    assert.equal(data.after.length, 10);
+    // The two farthest posts on each side are the ones left out.
+    assert.equal(data.before[0].text, '前10');
+    assert.equal(data.before.at(-1).text, '前1');
+    assert.equal(data.after[0].text, '後1');
+    assert.equal(data.after.at(-1).text, '後10');
+});
+
+test('total context budget drops the temporally farthest posts first', async () => {
+    const longText = 'x'.repeat(400); // truncated to the 300-char preview per post
+    const neighbors: any[] = [];
+    for (let i = 10; i >= 1; i--) neighbors.push(post('b' + String(i).padStart(17, '0'), longText, t - i * 60_000));
+    neighbors.push(post('target', '現投稿', t));
+    for (let i = 1; i <= 10; i++) neighbors.push(post('a' + String(i).padStart(17, '0'), longText, t + i * 60_000));
+    const {message} = buildMessage('対象の投稿', neighbors);
+    const raw = await loadContentConversationContext(message, 'y'.repeat(500), 0);
+    assert.ok(raw.length <= 8000, `context length ${raw.length} exceeds the budget`);
+    const data = JSON.parse(raw);
+    // Nearest posts survive; at least one farthest post was dropped.
+    assert.equal(data.before.at(-1).timestamp, t - 60_000);
+    assert.equal(data.after[0].timestamp, t + 60_000);
+    assert.ok(data.before.length + data.after.length < 20);
+    assert.equal(data.repliedTo, 'y'.repeat(500));
 });

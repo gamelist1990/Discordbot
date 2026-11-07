@@ -1,10 +1,18 @@
 import type { Message } from 'discord.js';
 
 /** Bounded, same-channel conversation context. Never score neighboring posts. */
-const WINDOW_MS = 12 * 60_000;
-const PER_SIDE = 4;
-const PREVIEW_LENGTH = 240;
+const WINDOW_MS = 30 * 60_000;
+const PER_SIDE = 10;
+const PREVIEW_LENGTH = 300;
 const AFTER_MESSAGE_GRACE_MS = 1800;
+const FETCH_LIMIT = 50;
+/**
+ * Total budget for the serialized context string. A wider window and more
+ * posts help catch slow/intermittent raids, but an oversized context dilutes
+ * the classifier's attention; when the budget is exceeded, the posts
+ * farthest in time from the target post are dropped first.
+ */
+const MAX_CONTEXT_CHARS = 8000;
 
 export async function loadContentConversationContext(message: Message, replyContext = '', graceMs = AFTER_MESSAGE_GRACE_MS): Promise<string> {
     const channel = message.channel as typeof message.channel & {
@@ -20,7 +28,7 @@ export async function loadContentConversationContext(message: Message, replyCont
         await new Promise<void>(resolve => setTimeout(resolve, graceMs));
     }
     try {
-        const fetched = await channel.messages.fetch({ around: message.id, limit: 13 });
+        const fetched = await channel.messages.fetch({ around: message.id, limit: FETCH_LIMIT });
         const created = Number(message.createdTimestamp) || Date.now();
         const nearby = Array.from(fetched.values()).filter((item: any) => {
             if (!item || item.id === message.id || item.author?.bot || item.webhookId || !item.content?.trim()) return false;
@@ -36,11 +44,23 @@ export async function loadContentConversationContext(message: Message, replyCont
         const before = nearby.filter(item => item.timestamp <= created).slice(-PER_SIDE);
         const after = nearby.filter(item => item.timestamp > created).slice(0, PER_SIDE);
         if (!before.length && !after.length && !reply) return '';
-        return JSON.stringify({
+        const serialize = () => JSON.stringify({
             ...(before.length ? { before } : {}),
             ...(reply ? { repliedTo: reply } : {}),
             ...(after.length ? { after } : {}),
         });
+        let serialized = serialize();
+        // Enforce the total budget. Both arrays are time-ascending, so
+        // before[0] and after[after.length - 1] are the farthest posts.
+        while (serialized.length > MAX_CONTEXT_CHARS && (before.length || after.length)) {
+            const farthestBefore = before.length ? created - before[0].timestamp : -1;
+            const farthestAfter = after.length ? after[after.length - 1].timestamp - created : -1;
+            if (farthestBefore >= farthestAfter) before.shift();
+            else after.pop();
+            serialized = serialize();
+        }
+        if (!before.length && !after.length && !reply) return '';
+        return serialized;
     } catch {
         // Missing history permission or transient Discord errors must not block scanning.
         return reply ? JSON.stringify({ repliedTo: reply }) : '';
