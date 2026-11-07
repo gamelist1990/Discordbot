@@ -11,6 +11,8 @@ import {
     hasExplicitNameCall,
     shouldFallbackToAddressed,
     parseDecisionWithRetry,
+    sanitizeAiText,
+    generateWithContextFallback,
     presenceOf,
     evaluateEvaluationTrigger,
     ambientSendDelayMs,
@@ -284,4 +286,102 @@ test('addressed fallback: explicit name call responds even when the judge return
     assert.equal(shouldFallbackToAddressed(null, 'AIの判定理由おもろすぎ', ['PEXserver', 'ロコ']), false);
     assert.equal(shouldFallbackToAddressed(null, 'ねえ、今のってどう思う？', ['PEXserver', 'ロコ']), false);
     assert.equal(shouldFallbackToAddressed(null, 'AIさ、これ翻訳して', ['PEXserver', 'ロコ']), false);
+});
+
+function hasLoneSurrogate(text: string): boolean {
+    for (let i = 0; i < text.length; i++) {
+        const code = text.charCodeAt(i);
+        if (code >= 0xD800 && code <= 0xDBFF) {
+            const next = text.charCodeAt(i + 1);
+            if (!(next >= 0xDC00 && next <= 0xDFFF)) return true;
+            i++;
+        } else if (code >= 0xDC00 && code <= 0xDFFF) {
+            return true;
+        }
+    }
+    return false;
+}
+
+test('sanitize: lone surrogates in history text are replaced so the payload stays parseable', () => {
+    // 単独サロゲート（上側・下側）は U+FFFD に置換される
+    const loneHigh = 'abc' + String.fromCharCode(0xD83D) + 'def';
+    const loneLow = 'abc' + String.fromCharCode(0xDE00) + 'def';
+    assert.equal(sanitizeAiText(loneHigh), 'abc\uFFFDdef');
+    assert.equal(sanitizeAiText(loneLow), 'abc\uFFFDdef');
+    // formatContext の slice(0, 300) で絵文字のペアが切り離されたケース
+    const cut = ('あ'.repeat(299) + '😀').slice(0, 300);
+    assert.equal(hasLoneSurrogate(cut), true);
+    assert.equal(hasLoneSurrogate(sanitizeAiText(cut)), false);
+    // 健全性: サニタイズ後は JSON 化しても単独サロゲートの \u エスケープが出ず、往復で一致する
+    // （EndPoint の serde_json はペアになっていない \uD83D 等を「unexpected end of hex escape」で弾く）
+    for (const raw of [loneHigh, loneLow, cut]) {
+        const out = sanitizeAiText(raw);
+        assert.equal(hasLoneSurrogate(out), false);
+        assert.equal(JSON.parse(JSON.stringify(out)), out);
+        assert.equal(JSON.stringify(out).toLowerCase().includes('\\ud83d'), false);
+    }
+    // 正常なサロゲートペア（絵文字）はそのまま残る
+    assert.equal(sanitizeAiText('ok 😀 end'), 'ok 😀 end');
+    // リテラルなバックスラッシュ列（コード片の \u 表記など）はテキストとして無害なので変えない
+    assert.equal(sanitizeAiText('broken \\u12 escape'), 'broken \\u12 escape');
+});
+
+test('sanitize: unsafe control characters are dropped, newline/tab/CR are kept', () => {
+    assert.equal(sanitizeAiText('a\u0001b\u0007c\u007Fd'), 'abcd');
+    assert.equal(sanitizeAiText('a\nb\tc\rd'), 'a\nb\tc\rd');
+    assert.equal(sanitizeAiText('普通のテキスト'), '普通のテキスト');
+});
+
+test('generation fallback: reply generation retries once with minimal context on request failure', async () => {
+    // (b) 応答生成が1回失敗しても、最小文脈で組み立て直した再試行の結果が使われる
+    let primaryCalls = 0;
+    let fallbackCalls = 0;
+    const retriedErrors: unknown[] = [];
+    const value = await generateWithContextFallback(
+        async () => { primaryCalls++; throw new Error('400 [proxy-error-body] Failed to parse the request body as JSON'); },
+        async () => { fallbackCalls++; return 'ご挨拶の返信'; },
+        error => { retriedErrors.push(error); },
+    );
+    assert.equal(value, 'ご挨拶の返信');
+    assert.equal(primaryCalls, 1);
+    assert.equal(fallbackCalls, 1);
+    assert.equal(retriedErrors.length, 1);
+    // 1回目が成功すれば再試行は走らない
+    let unusedFallback = 0;
+    const ok = await generateWithContextFallback(
+        async () => '通常の返信',
+        async () => { unusedFallback++; return 'unused'; },
+    );
+    assert.equal(ok, '通常の返信');
+    assert.equal(unusedFallback, 0);
+    // 再試行も失敗したら、そのエラーが呼び出し側へ伝播する（失敗として記録される）
+    await assert.rejects(
+        generateWithContextFallback(
+            async () => { throw new Error('first failure'); },
+            async () => { throw new Error('second failure'); },
+        ),
+        /second failure/,
+    );
+});
+
+test('generation fallback: judge request errors retry with minimal context before returning null', async () => {
+    // (c) 判定の生成エラー時は最小文脈で再試行し、再試行の応答が解釈できればそれを使う
+    let seenContexts: string[] = [];
+    const runJudge = async (contextText: string) => {
+        seenContexts.push(contextText);
+        if (contextText === 'full-context') throw new Error('400 [proxy-error-body]');
+        return '{"action":"reply","confidence":0.9}';
+    };
+    const decision = await generateWithContextFallback(
+        () => parseDecisionWithRetry(() => runJudge('full-context')),
+        () => parseDecisionWithRetry(() => runJudge('minimal-context')),
+    ).catch(() => null);
+    assert.deepEqual(seenContexts, ['full-context', 'minimal-context']);
+    assert.equal(decision?.action, 'reply');
+    // 再試行も生成エラーなら null（従来どおり無言＋フォールバック判定へ）
+    const failed = await generateWithContextFallback(
+        () => parseDecisionWithRetry(async () => { throw new Error('400'); }),
+        () => parseDecisionWithRetry(async () => { throw new Error('400 again'); }),
+    ).catch(() => null);
+    assert.equal(failed, null);
 });
