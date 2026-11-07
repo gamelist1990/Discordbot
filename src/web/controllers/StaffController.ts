@@ -2,6 +2,8 @@ import { Request, Response } from 'express';
 import { SettingsSession } from '../types/index.js';
 import { BotClient } from '../../core/platform/BotClient.js';
 import { userHasAdminOrManageFlag } from '../routes/permissionsUtils.js';
+import { getSessionGuildPermissionLevel } from '../middleware/auth.js';
+import { PermissionFlagsBits } from 'discord.js';
 import { database } from '../../core/persistence/Database.js';
 
 /**
@@ -12,6 +14,26 @@ export class StaffController {
 
     constructor(botClient: BotClient) {
         this.botClient = botClient;
+    }
+
+    /**
+     * 変更系（プライベートチャットの作成・削除・メンバー変更）の追加ガード。
+     * 従来の allowed チェックはギルド所属の確認だけで、OAuthセッションは
+     * 共有ギルド全てに level 0 の permissions を持つため、一般メンバーでも
+     * 変更できてしまう。OAuthセッションはギルド権限レベル1以上を必須とし、
+     * 保存レベルが過小な場合は Discord 上の実権限（オーナー/管理者/サーバー管理）
+     * でも確認する。permissions を持たない従来型トークンセッションは対象ギルドに
+     * 束縛された発行済みセッションとして従来通り扱う。
+     */
+    private async hasGuildMutationAccess(session: SettingsSession, guildId: string, guild: any): Promise<boolean> {
+        if (!Array.isArray((session as any).permissions)) return true;
+        if (getSessionGuildPermissionLevel(session, guildId) >= 1) return true;
+        try {
+            if (guild?.ownerId === session.userId) return true;
+            const member = await guild?.members?.fetch(session.userId).catch(() => null);
+            return Boolean(member?.permissions?.has(PermissionFlagsBits.Administrator)
+                || member?.permissions?.has(PermissionFlagsBits.ManageGuild));
+        } catch { return false; }
     }
 
     /**
@@ -217,6 +239,11 @@ export class StaffController {
                 res.status(404).json({ error: 'Guild not found' });
                 return;
             }
+            if (!(await this.hasGuildMutationAccess(session, targetGuildId, guild))) {
+                res.status(403).json({ error: 'Forbidden: guild staff permission required' });
+                return;
+            }
+
 
             const { PrivateChatManager } = await import('../../core/private-chat/PrivateChatManager.js');
             let chat;
@@ -265,6 +292,11 @@ export class StaffController {
                 res.status(404).json({ error: 'Guild not found' });
                 return;
             }
+            if (!(await this.hasGuildMutationAccess(session, targetGuildId, guild))) {
+                res.status(403).json({ error: 'Forbidden: guild staff permission required' });
+                return;
+            }
+
 
             const { PrivateChatManager } = await import('../../core/private-chat/PrivateChatManager.js');
             const deleted = await PrivateChatManager.deleteChat(guild, chatId);
@@ -569,6 +601,11 @@ export class StaffController {
                 res.status(404).json({ error: 'Guild not found' });
                 return;
             }
+            if (!(await this.hasGuildMutationAccess(session, targetGuildId, guild))) {
+                res.status(403).json({ error: 'Forbidden: guild staff permission required' });
+                return;
+            }
+
 
             // ユーザー名からユーザーIDを取得
             const searchName = userName.trim().toLowerCase();
@@ -637,6 +674,11 @@ export class StaffController {
                 res.status(404).json({ error: 'Guild not found' });
                 return;
             }
+            if (!(await this.hasGuildMutationAccess(session, targetGuildId, guild))) {
+                res.status(403).json({ error: 'Forbidden: guild staff permission required' });
+                return;
+            }
+
 
             const { PrivateChatManager } = await import('../../core/private-chat/PrivateChatManager.js');
             await PrivateChatManager.removeMember(guild, chatId, userId);

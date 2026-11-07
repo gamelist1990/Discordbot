@@ -6,6 +6,7 @@ import { GuildAntiCheatSettings, PunishmentAction } from '../../../core/antichea
 import { Logger } from '../../../utils/Logger.js';
 import { TextChannel, PermissionFlagsBits } from 'discord.js';
 import { validateExclusions } from '../../../core/anticheat/ExclusionPolicy.js';
+import { getSessionGuildPermissionLevel } from '../../middleware/auth.js';
 
 /** Runtime state is exposed by dedicated endpoints and must not be echoed into
  * the editable settings document. Apart from leaking history to the browser,
@@ -50,7 +51,7 @@ export class AntiCheatController {
     clearContentCache = async (req: Request, res: Response): Promise<void> => {
         const guildId = String(req.params.guildId);
         const session = (req as any).session;
-        if (!session || !hasAccessToGuild(session, guildId)) { res.status(403).json({ error: 'Access denied to this guild' }); return; }
+        if (!session || !(await hasGuildMutationAccess(this.botClient, session, guildId))) { res.status(403).json({ error: 'Access denied to this guild' }); return; }
         res.json({ success: true, removed: antiCheatManager.clearContentCache(guildId) });
     };
 
@@ -93,7 +94,7 @@ export class AntiCheatController {
 
             // Verify user has access to this guild
             const session = (req as any).session;
-            if (!session || !hasAccessToGuild(session, guildId)) {
+            if (!session || !(await hasGuildMutationAccess(this.botClient, session, guildId))) {
                 res.status(403).json({ error: 'Access denied to this guild' });
                 return;
             }
@@ -194,7 +195,7 @@ export class AntiCheatController {
 
             // Verify user has access to this guild
             const session = (req as any).session;
-            if (!session || !hasAccessToGuild(session, guildId)) {
+            if (!session || !(await hasGuildMutationAccess(this.botClient, session, guildId))) {
                 res.status(403).json({ error: 'Access denied to this guild' });
                 return;
             }
@@ -263,7 +264,7 @@ export class AntiCheatController {
 
             // Verify user has access to this guild
             const session = (req as any).session;
-            if (!session || !hasAccessToGuild(session, guildId)) {
+            if (!session || !(await hasGuildMutationAccess(this.botClient, session, guildId))) {
                 res.status(403).json({ error: 'Access denied to this guild' });
                 return;
             }
@@ -333,7 +334,7 @@ export class AntiCheatController {
 
             // Verify user has access to this guild
             const session = (req as any).session;
-            if (!session || !hasAccessToGuild(session, guildId)) {
+            if (!session || !(await hasGuildMutationAccess(this.botClient, session, guildId))) {
                 res.status(403).json({ error: 'Access denied to this guild' });
                 return;
             }
@@ -516,6 +517,29 @@ export class AntiCheatController {
         }
     };
 
+}
+
+/** Mutation guard for state-changing AntiCheat endpoints (settings update,
+ * punishment actions, timeout revoke, trust reset, cache clear).
+ * hasAccessToGuild alone only proves guild membership: OAuth sessions carry a
+ * permissions entry (level 0) for every shared guild, so any ordinary member
+ * could otherwise mutate. OAuth sessions must hold guild permission level >= 1,
+ * with a live Discord fallback (owner / Administrator / ManageGuild) for
+ * sessions whose stored level undercounts. Legacy token sessions without a
+ * permissions array stay bound to their single guild, as before. */
+async function hasGuildMutationAccess(botClient: BotClient, session: any, guildId: string): Promise<boolean> {
+    if (!session || !hasAccessToGuild(session, guildId)) return false;
+    if (!Array.isArray(session.permissions)) return true;
+    if (getSessionGuildPermissionLevel(session, guildId) >= 1) return true;
+    try {
+        const guild = botClient.client.guilds.cache.get(guildId)
+            ?? await botClient.client.guilds.fetch(guildId).catch(() => null);
+        if (!guild) return false;
+        if (guild.ownerId === session.userId) return true;
+        const member = await guild.members.fetch(session.userId).catch(() => null);
+        return Boolean(member?.permissions?.has(PermissionFlagsBits.Administrator)
+            || member?.permissions?.has(PermissionFlagsBits.ManageGuild));
+    } catch { return false; }
 }
 
 /**

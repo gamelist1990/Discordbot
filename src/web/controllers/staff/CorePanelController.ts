@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { ChannelType, TextChannel } from 'discord.js';
+import { ChannelType, PermissionFlagsBits, TextChannel } from 'discord.js';
 import { BotClient } from '../../../core/platform/BotClient.js';
 import { coreFeatureManager } from '../../../core/corepanel/CoreFeatureManager.js';
 import { buildRegisteredCorePanelEmbed } from '../../../core/corepanel/panelMessage.js';
@@ -11,7 +11,8 @@ type SessionLike = {
     guildId?: string;
     guildIds?: string[];
     guilds?: Array<{ id?: string; guildId?: string }>;
-    permissions?: Array<{ guildId?: string }>;
+    permissions?: Array<{ guildId?: string; level?: number }>;
+    permission?: number;
 };
 
 export class CorePanelController {
@@ -45,7 +46,7 @@ export class CorePanelController {
             const { guildId } = req.params;
             const panelKind = readPanelKind(req.body?.panelKind);
             const session = (req as any).session as SessionLike | undefined;
-            if (!session || !hasAccessToGuild(session, guildId)) {
+            if (!session || !(await hasGuildMutationAccess(this.botClient, session, guildId))) {
                 res.status(403).json({ error: 'Access denied to this guild' });
                 return;
             }
@@ -119,7 +120,7 @@ export class CorePanelController {
             const { guildId } = req.params;
             const panelKind = readPanelKind(req.body?.panelKind);
             const session = (req as any).session as SessionLike | undefined;
-            if (!session || !hasAccessToGuild(session, guildId)) {
+            if (!session || !(await hasGuildMutationAccess(this.botClient, session, guildId))) {
                 res.status(403).json({ error: 'Access denied to this guild' });
                 return;
             }
@@ -398,6 +399,28 @@ function buildPanelUrl(guildId: string, channelId: string | null, messageId: str
     }
 
     return `https://discord.com/channels/${guildId}/${channelId}/${messageId}`;
+}
+
+/** Mutation guard for saveConfig/postPanel. hasAccessToGuild only proves guild
+ * membership (OAuth sessions carry a level-0 permissions entry for every shared
+ * guild), so OAuth sessions must additionally hold guild permission level >= 1,
+ * with a live Discord fallback (owner / Administrator / ManageGuild). Legacy
+ * token sessions without a permissions array stay as before. */
+async function hasGuildMutationAccess(botClient: BotClient, session: SessionLike, guildId: string): Promise<boolean> {
+    if (!hasAccessToGuild(session, guildId)) return false;
+    if (!Array.isArray(session.permissions)) return true;
+    const level = session.permissions.find(entry => entry?.guildId === guildId)?.level
+        ?? (session.guildId === guildId ? session.permission : undefined);
+    if (typeof level === 'number' && level >= 1) return true;
+    try {
+        const guild = botClient.client.guilds.cache.get(guildId)
+            ?? await botClient.client.guilds.fetch(guildId).catch(() => null);
+        if (!guild) return false;
+        if (guild.ownerId === session.userId) return true;
+        const member = await guild.members.fetch(session.userId).catch(() => null);
+        return Boolean(member?.permissions?.has(PermissionFlagsBits.Administrator)
+            || member?.permissions?.has(PermissionFlagsBits.ManageGuild));
+    } catch { return false; }
 }
 
 function hasAccessToGuild(session: SessionLike, guildId: string): boolean {
