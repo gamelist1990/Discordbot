@@ -8,6 +8,12 @@ type TabType = "help" | "services";
 const services = [
   { title: "Staff AI", description: "トークン・速度統計と会話メモリーの閲覧、編集、削除。", path: "/staff/ai", icon: "psychology" },
   {
+    title: "AIサーバー構築",
+    description: "AIに依頼してチャンネル・カテゴリの作成や権限設定のプランを作り、確認してから適用します。",
+    path: "/staff/server-builder",
+    icon: "construction",
+  },
+  {
     title: "AntiCheat",
     description: "不正検知ルールと自動処罰の設定面へ移動します。",
     path: "/staff/anticheat",
@@ -55,6 +61,7 @@ const services = [
 
 const serviceCategories: Record<string, string> = {
   "/staff/ai": "community",
+  "/staff/server-builder": "manage",
   "/staff/anticheat": "safety",
   "/staff/privatechat": "safety",
   "/staff/join-log": "safety",

@@ -1,0 +1,86 @@
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 22px;
+  align-items: start;
+}
+@media (max-width: 1023px) {
+  .layout { grid-template-columns: minmax(0, 1fr); }
+}
+.budgetBar {
+  display: grid;
+  gap: 10px;
+  padding: 18px 24px 22px;
+}
+.budgetNumbers {
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+  align-items: baseline;
+}
+.budgetNumbers strong {
+  font-size: 1.5rem;
+  font-weight: 720;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -.02em;
+}
+.chatLog {
+  display: grid;
+  gap: 12px;
+  padding: 20px 24px;
+  max-height: 420px;
+  overflow-y: auto;
+}
+.chatEntry {
+  display: grid;
+  gap: 6px;
+  padding: 13px 15px;
+  border: 1px solid var(--app-border);
+  border-radius: var(--radius-xs);
+  background: var(--app-surface-soft);
+}
+.chatEntry p { font-size: .86rem; line-height: 1.75; white-space: pre-wrap; overflow-wrap: anywhere; }
+.chatEntry small { color: var(--app-ink-soft); font-size: .74rem; }
+.chatAi { border-color: color-mix(in srgb, var(--app-accent) 30%, var(--app-border)); }
+.formBody { display: grid; gap: 16px; padding: 22px 24px; }
+.formBody .select { width: 100%; max-width: none; }
+.opList { display: grid; gap: 10px; padding: 20px 24px; }
+.opCard {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  gap: 12px;
+  align-items: start;
+  padding: 14px 15px;
+  border: 1px solid var(--app-border);
+  border-radius: var(--radius-xs);
+  background: var(--app-surface-strong);
+}
+.opCardOff { opacity: .55; }
+.opCard input { width: 18px; height: 18px; margin-top: 2px; accent-color: var(--app-accent); }
+.opIcon {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: var(--app-accent-soft);
+  color: var(--app-accent);
+}
+.opCard strong { display: block; font-size: .9rem; line-height: 1.55; overflow-wrap: anywhere; }
+.opCard small { display: block; margin-top: 3px; color: var(--app-ink-soft); font-size: .76rem; line-height: 1.6; overflow-wrap: anywhere; }
+.resultList { display: grid; gap: 8px; padding: 0 24px 22px; }
+.resultItem {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 11px 13px;
+  border-radius: var(--radius-xs);
+  font-size: .83rem;
+  line-height: 1.65;
+  border: 1px solid var(--app-border);
+  background: var(--app-surface-soft);
+}
+.resultOk { color: var(--app-success); }
+.resultNg { color: var(--app-danger); }
+.structureList { padding: 6px 24px 20px; display: grid; gap: 4px; font-size: .8rem; color: var(--app-ink-soft); }
+.structureList b { color: var(--app-ink); }
