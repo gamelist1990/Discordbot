@@ -87,6 +87,9 @@ const ServerBuilderPage: React.FC = () => {
   const [editName, setEditName] = useState('');
   const [editTopic, setEditTopic] = useState('');
   const [editSlow, setEditSlow] = useState('0');
+  const [aiFocus, setAiFocus] = useState<{ kind: 'channel' | 'category'; id: string; name: string } | null>(null);
+  const requestSectionRef = useRef<HTMLElement | null>(null);
+  const requestTextareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -121,7 +124,7 @@ const ServerBuilderPage: React.FC = () => {
 
   useEffect(() => {
     setStructure(null); setBudget(null); setPreview(null); setResults(null); setChat([]); setRequest('');
-    setSelectedNodeId(''); setManualOps([]); setDetailOp(null);
+    setSelectedNodeId(''); setManualOps([]); setDetailOp(null); setAiFocus(null);
     if (guildId) void refreshState(guildId);
   }, [guildId, refreshState]);
 
@@ -200,6 +203,17 @@ const ServerBuilderPage: React.FC = () => {
 
   const selectedNode = useMemo(() => structure?.channels.find(c => c.id === selectedNodeId) ?? null, [structure, selectedNodeId]);
   const selectedCategory = useMemo(() => structure?.categories.find(c => c.id === selectedNodeId) ?? null, [structure, selectedNodeId]);
+
+  const askAiForSelected = useCallback(() => {
+    if (!selectedNode) return;
+    setAiFocus({
+      kind: selectedNode.kind === 'category' ? 'category' : 'channel',
+      id: selectedNode.id,
+      name: selectedNode.name,
+    });
+    requestSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    window.setTimeout(() => requestTextareaRef.current?.focus(), 400);
+  }, [selectedNode]);
   useEffect(() => { if (selectedNode) { setEditName(selectedNode.name); setEditTopic(selectedNode.topic ?? ''); setEditSlow(String(selectedNode.slowmodeSeconds ?? 0)); } }, [selectedNodeId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const addManualOp = (op: Operation) => { setManualOps(prev => [...prev, op]); addToast('手動操作を追加しました。プレビューで確認してから適用してください', 'success'); };
@@ -235,7 +249,7 @@ const ServerBuilderPage: React.FC = () => {
       const data = await readJson(`/api/staff/server-builder/${target}/plan`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ request: text, style }),
+        body: JSON.stringify({ request: text, style, ...(aiFocus ? { focus: { kind: aiFocus.kind, id: aiFocus.id } } : {}) }),
       });
       if (target !== guildRef.current) return;
       const plan = data.plan as Plan;
@@ -244,8 +258,8 @@ const ServerBuilderPage: React.FC = () => {
       setBudget(data.budget as Budget);
       setChat(prev => [
         ...prev,
-        { role: 'user', text, at: new Date().toLocaleTimeString('ja-JP') },
-        { role: 'ai', text: `${plan.summary || 'プランを作成しました'}（操作 ${plan.operations.length} 件 / 使用 ${fmt(data.usage?.tokens ?? 0)} トークン${data.usage?.estimated ? '・見積り' : ''}）`, at: new Date().toLocaleTimeString('ja-JP') },
+        { role: 'user', text: aiFocus ? `【対象: ${aiFocus.kind === 'category' ? 'カテゴリ' : 'チャンネル'}「${aiFocus.name}」】${text}` : text, at: new Date().toLocaleTimeString('ja-JP') },
+        { role: 'ai', text: `${plan.summary || 'プランを作成しました'}（操作 ${plan.operations.length} 件 / 使用 ${fmt(data.usage?.tokens ?? 0)} トークン${data.usage?.estimated ? '・見積り' : ''}${data.repaired ? ' / 検証エラーを自動修復しました' : ''}）`, at: new Date().toLocaleTimeString('ja-JP') },
       ]);
       setRequest('');
       addToast('プランを生成しました。内容を確認して適用してください', 'success');
@@ -389,7 +403,11 @@ const ServerBuilderPage: React.FC = () => {
                       {selectedNode.kind !== 'category' && selectedNode.parentId && selectedNode.permissionsSynced === false &&
                         <button type="button" className={ui.button} onClick={() => addManualOp({ type: 'syncPermissions', channelId: selectedNode.id })}>{icon('sync')} カテゴリに権限同期</button>}
                     </div>
-                    {selectedCategory && <p className={ui.muted}>カテゴリの権限は「プライベートにする/公開にする」で @everyone の ViewChannel を編集できます（配下の非同期チャンネルには自動では広がりません）。</p>}
+                    {selectedCategory && <p className={ui.muted}>カテゴリの権限は「プライベートにする/公開にする」で @everyone の ViewChannel を編集できます（配下の非同期チャンネルには自動では広がりません）。ロール別の細かい権限は、下の「AIに依頼」からこのカテゴリを対象に指定して頼めます。</p>}
+                    <div className={styles.quickRow}>
+                      <button type="button" className={ui.button} onClick={askAiForSelected}>{icon('smart_toy')} この{selectedNode.kind === 'category' ? 'カテゴリ' : 'チャンネル'}についてAIに依頼</button>
+                      <span className={ui.muted}>対象を固定して、権限の細かい編集などをAIに頼めます</span>
+                    </div>
                   </div>}
                   {manualOps.length > 0 && <div className={styles.manualList}>
                     <p><strong>手動操作（{manualOps.length}件）</strong> — プレビューを作成するとAI予算は消費されません</p>
@@ -404,7 +422,7 @@ const ServerBuilderPage: React.FC = () => {
             </div>
 
             <div className={styles.rightCol}>
-            <section className={ui.panel} aria-label="AIへの依頼">
+            <section className={ui.panel} aria-label="AIへの依頼" ref={requestSectionRef}>
               <div className={ui.sectionHeader}>
                 <div><h2>依頼する</h2><p>例: 「ゲーム募集用のカテゴリとテキストVCを作って」「スタッフだけ見える報告チャンネルが欲しい」</p></div>
               </div>
@@ -415,14 +433,19 @@ const ServerBuilderPage: React.FC = () => {
                 </div>)}
               </div>}
               <div className={styles.formBody}>
+                {aiFocus && <div className={styles.focusChip} role="status">
+                  {icon('gps_fixed')}
+                  <span>対象: {aiFocus.kind === 'category' ? 'カテゴリ' : 'チャンネル'}「{aiFocus.name}」について依頼します</span>
+                  <button type="button" onClick={() => setAiFocus(null)} aria-label="対象指定を解除">{icon('close')}</button>
+                </div>}
                 <label className={ui.label}>命名スタイル
                   <select className={ui.select} value={style} onChange={e => setStyle(e.target.value)}>
                     {presets.map(p => <option key={p.id} value={p.id}>{p.label} — {p.description}</option>)}
                   </select>
                 </label>
                 <label className={ui.label}>依頼文
-                  <textarea className={ui.textarea} rows={4} maxLength={1000} value={request}
-                    placeholder="作りたい構成や変更したいことを具体的に書いてください"
+                  <textarea className={ui.textarea} rows={4} maxLength={1000} value={request} ref={requestTextareaRef}
+                    placeholder={aiFocus ? `例: 「${aiFocus.name}」の権限をスタッフだけ見えるようにして` : '作りたい構成や変更したいことを具体的に書いてください'}
                     onChange={e => setRequest(e.target.value)} />
                   <span className={ui.muted}>{request.length} / 1000文字</span>
                 </label>

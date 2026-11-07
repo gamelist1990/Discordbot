@@ -131,5 +131,15 @@
 .quickGrid { display: grid; gap: 12px; }
 .quickRow { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 6px; }
 .quickRow .input { flex: 1; min-width: 140px; }
+.focusChip {
+  display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+  padding: 10px 13px; border-radius: var(--radius-xs); font-size: .83rem; line-height: 1.6;
+  border: 1px solid color-mix(in srgb, var(--app-accent) 45%, var(--app-border));
+  background: var(--app-accent-soft); color: var(--app-ink);
+}
+.focusChip button {
+  display: grid; place-items: center; margin-left: auto;
+  background: none; border: none; padding: 2px; cursor: pointer; color: inherit;
+}
 .manualList { display: grid; gap: 10px; border-top: 1px solid var(--app-border); padding-top: 14px; }
 .manualItem { display: flex; gap: 8px; justify-content: space-between; align-items: center; font-size: .82rem; flex-wrap: wrap; }

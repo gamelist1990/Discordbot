@@ -8,28 +8,28 @@ import { OpenAIChatManager } from '../../../core/ai/OpenAIChatManager.js';
 import { canGeneratePersona, isBotOwnerSession } from './personaGenerationGuard.js';
 import {
     SERVER_BUILDER_BUDGET_LIMIT,
+    SERVER_BUILDER_MIN_TOKENS_TO_GENERATE,
     ServerBuilderBudget,
     ServerBuilderLimiter,
     STYLE_PRESETS,
     buildGuildStructure,
-    buildPlanMessages,
     consumeServerBuilderPreview,
     createDiscordGuildAdapter,
     createServerBuilderPreview,
     estimateTokensFromText,
     executePlan,
-    extractPlanJson,
+    generatePlanWithRepair,
     getStylePreset,
     planContextFromStructure,
+    resolvePlanFocus,
     summarizePlan,
     validateManualPlan,
-    validatePlan,
 } from '../../../core/serverBuilder/ServerBuilder.js';
 
 const budget = new ServerBuilderBudget();
 const limiter = new ServerBuilderLimiter();
 const MAX_REQUEST_LENGTH = 1000;
-const PLAN_MAX_TOKENS = 3000;
+const PLAN_MAX_TOKENS = 6000;
 
 /**
  * AIサーバー構築コントロールパネルのルート。
@@ -156,64 +156,90 @@ export function createServerBuilderRoutes(sessions: Map<string, SettingsSession>
         limiter.begin(guildId, session.userId);
         try {
             const structure = buildGuildStructure(guild);
-            const messages = buildPlanMessages({ request: requestText, style, structure });
+            // 詳細画面で選択中の対象（任意）。構造に実在する対象だけを文脈として採用する。
+            const focus = resolvePlanFocus(structure, req.body?.focus);
 
             // usage の取得可否: ChatGPTClient の Responses ストリームは response.completed で
             // usage デルタ（type: 'usage'）を流すため、streamResponseText 経由で入力/出力トークンを
             // 取得できる。取得できた場合はそれを予算集計の正とし、取得できない場合のみ
             // 文字数見積り（estimateTokensFromText）にフォールバックして estimated として記録する。
-            let text = '';
-            const usageRef: { current: { inputTokens?: number; outputTokens?: number; totalTokens?: number } | null } = { current: null };
-            await new OpenAIChatManager().streamResponseText(
-                messages,
-                delta => {
-                    if (delta.type === 'text') text += delta.text;
-                    if (delta.type === 'usage') {
-                        usageRef.current = {
-                            inputTokens: delta.inputTokens,
-                            outputTokens: delta.outputTokens,
-                            totalTokens: delta.totalTokens,
-                        };
-                    }
-                },
-                {
-                    model: config.pexAi.channelModel || config.pexAi.model,
-                    strictModel: true,
-                    maxTokens: PLAN_MAX_TOKENS,
-                    priority: 'background',
-                    usageContext: { guildId, purpose: 'server-builder' },
-                },
-            );
+            // 検証失敗時の自動修復呼び出しも、ここを通るため同じ集計に含まれる。
+            const totals = { tokens: 0, inputTokens: 0, outputTokens: 0, hasInput: false, hasOutput: false, estimated: false };
+            const generate = async (messages: Array<{ role: 'system' | 'user'; content: string }>): Promise<string> => {
+                let text = '';
+                const usageRef: { current: { inputTokens?: number; outputTokens?: number; totalTokens?: number } | null } = { current: null };
+                await new OpenAIChatManager().streamResponseText(
+                    messages,
+                    delta => {
+                        if (delta.type === 'text') text += delta.text;
+                        if (delta.type === 'usage') {
+                            usageRef.current = {
+                                inputTokens: delta.inputTokens,
+                                outputTokens: delta.outputTokens,
+                                totalTokens: delta.totalTokens,
+                            };
+                        }
+                    },
+                    {
+                        model: config.pexAi.channelModel || config.pexAi.model,
+                        strictModel: true,
+                        maxTokens: PLAN_MAX_TOKENS,
+                        priority: 'background',
+                        usageContext: { guildId, purpose: 'server-builder' },
+                    },
+                );
 
-            const usage = usageRef.current;
-            const promptText = messages.map(m => m.content).join('\n');
-            let tokensUsed: number;
-            let estimated = false;
-            let inputTokens: number | undefined;
-            let outputTokens: number | undefined;
-            if (usage && (usage.totalTokens !== undefined || usage.inputTokens !== undefined || usage.outputTokens !== undefined)) {
-                inputTokens = usage.inputTokens;
-                outputTokens = usage.outputTokens;
-                tokensUsed = usage.totalTokens ?? (usage.inputTokens ?? 0) + (usage.outputTokens ?? 0);
-            } else {
-                estimated = true;
-                inputTokens = estimateTokensFromText(promptText);
-                outputTokens = estimateTokensFromText(text);
-                tokensUsed = inputTokens + outputTokens;
-            }
-            const nextBudget = await budget.record(guildId, {
-                tokens: tokensUsed, inputTokens, outputTokens, estimated,
+                const usage = usageRef.current;
+                const promptText = messages.map(m => m.content).join('\n');
+                let tokensUsed: number;
+                let estimated = false;
+                let inputTokens: number | undefined;
+                let outputTokens: number | undefined;
+                if (usage && (usage.totalTokens !== undefined || usage.inputTokens !== undefined || usage.outputTokens !== undefined)) {
+                    inputTokens = usage.inputTokens;
+                    outputTokens = usage.outputTokens;
+                    tokensUsed = usage.totalTokens ?? (usage.inputTokens ?? 0) + (usage.outputTokens ?? 0);
+                } else {
+                    estimated = true;
+                    inputTokens = estimateTokensFromText(promptText);
+                    outputTokens = estimateTokensFromText(text);
+                    tokensUsed = inputTokens + outputTokens;
+                }
+                if (tokensUsed <= 0) {
+                    // usage が 0 で返る経路があり、そのままだと生成したのに予算へ計上されないため見積りに切り替える。
+                    estimated = true;
+                    inputTokens = estimateTokensFromText(promptText);
+                    outputTokens = estimateTokensFromText(text);
+                    tokensUsed = inputTokens + outputTokens;
+                }
+                await budget.record(guildId, { tokens: tokensUsed, inputTokens, outputTokens, estimated });
+                totals.tokens += tokensUsed;
+                if (inputTokens !== undefined) { totals.inputTokens += inputTokens; totals.hasInput = true; }
+                if (outputTokens !== undefined) { totals.outputTokens += outputTokens; totals.hasOutput = true; }
+                totals.estimated = totals.estimated || estimated;
+                return text;
+            };
+
+            const outcome = await generatePlanWithRepair({
+                request: requestText,
+                style,
+                structure,
+                focus,
+                generate,
+                canRepair: async () => {
+                    const status = await budget.status(guildId);
+                    return status.remaining >= SERVER_BUILDER_MIN_TOKENS_TO_GENERATE;
+                },
             });
+            const nextBudget = await budget.status(guildId);
 
-            const rawPlan = extractPlanJson(text);
-            const validated = rawPlan === null
-                ? { ok: false as const, errors: ['AIの出力からプランJSONを読み取れませんでした'] }
-                : validatePlan(rawPlan, planContextFromStructure(structure));
-            if (!validated.ok) {
-                Logger.info(`[ServerBuilderAudit] action=plan-rejected guild=${guildId} user=${session.userId} tokens=${tokensUsed} estimated=${estimated} errors=${validated.errors.slice(0, 3).join(' | ')}`);
+            if (!outcome.ok) {
+                Logger.info(`[ServerBuilderAudit] action=plan-rejected guild=${guildId} user=${session.userId} attempts=${outcome.attempts} tokens=${totals.tokens} estimated=${totals.estimated} first-errors=${outcome.firstErrors.slice(0, 3).join(' | ')} errors=${outcome.errors.slice(0, 3).join(' | ')}`);
                 res.status(422).json({
-                    error: 'AIのプランが検証を通過しませんでした。依頼文を変えて再試行してください',
-                    details: validated.errors.slice(0, 5),
+                    error: outcome.attempts > 1
+                        ? 'AIのプランが検証を通過しませんでした（自動修復を試みましたが解消できませんでした）'
+                        : 'AIのプランが検証を通過しませんでした',
+                    details: outcome.errors.slice(0, 5),
                     budget: nextBudget,
                 });
                 return;
@@ -222,17 +248,23 @@ export function createServerBuilderRoutes(sessions: Map<string, SettingsSession>
             const previewId = createServerBuilderPreview({
                 guildId,
                 userId: session.userId,
-                plan: validated.plan,
+                plan: outcome.plan,
                 styleId: style.id,
                 request: requestText.slice(0, 200),
                 source: 'ai',
             });
-            Logger.info(`[ServerBuilderAudit] action=plan guild=${guildId} user=${session.userId} (${session.username ?? ''}) style=${style.id} ops=${validated.plan.operations.length} tokens=${tokensUsed} estimated=${estimated} ops-summary=${summarizePlan(validated.plan)}`);
+            Logger.info(`[ServerBuilderAudit] action=plan guild=${guildId} user=${session.userId} (${session.username ?? ''}) style=${style.id} focus=${focus ? `${focus.kind}:${focus.id}` : 'none'} repaired=${outcome.repaired} ops=${outcome.plan.operations.length} tokens=${totals.tokens} estimated=${totals.estimated} ops-summary=${summarizePlan(outcome.plan)}`);
             res.json({
                 previewId,
-                plan: validated.plan,
+                plan: outcome.plan,
                 budget: nextBudget,
-                usage: { tokens: tokensUsed, inputTokens, outputTokens, estimated },
+                usage: {
+                    tokens: totals.tokens,
+                    inputTokens: totals.hasInput ? totals.inputTokens : undefined,
+                    outputTokens: totals.hasOutput ? totals.outputTokens : undefined,
+                    estimated: totals.estimated,
+                },
+                repaired: outcome.repaired,
                 expiresInSeconds: 600,
             });
         } catch (error) {
