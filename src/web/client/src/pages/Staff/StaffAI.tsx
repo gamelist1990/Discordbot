@@ -16,7 +16,7 @@ const purposeLabels: Record<string, string> = {
   'dot-judge': 'dot判定', 'dot-generate': 'dot生成', 'dot-learn': 'dot学習',
   media: 'メディア説明', vision: '画像解析', episode: '出来事抽出', persona: '性格生成',
   'content-safety': 'コンテンツ安全判定', 'server-builder': 'サーバー構築', memory: '会話要約',
-  corepanel: '性格診断など', other: 'その他',
+  corepanel: '性格診断など', embedding: '埋め込み', other: 'その他',
 };
 type Memory = {
   id: string; kind: 'daily' | 'user'; guildId: string; userId?: string; day?: string;

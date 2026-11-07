@@ -36,7 +36,7 @@ import { database } from '../persistence/Database.js';
 export type AIUsagePurpose =
     | 'staff-ai' | 'staff-ai-scheduled' | 'chat-ai' | 'dot-judge' | 'dot-generate'
     | 'dot-learn' | 'media' | 'vision' | 'episode' | 'persona' | 'content-safety'
-    | 'server-builder' | 'memory' | 'corepanel' | 'other';
+    | 'server-builder' | 'memory' | 'corepanel' | 'embedding' | 'other';
 
 export interface AIUsageTotals {
     requests: number;

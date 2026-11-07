@@ -1,4 +1,5 @@
 import fs from 'fs';
+import { recordAIUsage } from './AIUsageMetrics.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import crypto from 'crypto';
@@ -58,6 +59,12 @@ export class PdfRAGManager {
     });
     if (!res.ok) throw new Error('Embedding request failed: ' + res.statusText);
     const body = await res.json();
+    // 利用統計: 埋め込みも AI リクエスト。ギルド文脈はこの層に無いため全体のみ。
+    void recordAIUsage({
+        purpose: 'embedding', model: 'text-embedding-3-small',
+        inputTokens: body?.usage?.prompt_tokens ?? body?.usage?.total_tokens,
+        outputTokens: 0, cachedTokens: null,
+    }).catch(() => undefined);
     return body.data.map((d: any) => d.embedding as number[]);
   }
 
