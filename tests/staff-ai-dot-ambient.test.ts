@@ -4,6 +4,7 @@ import {
     isHangingQuestion,
     isNameCalled,
     isAddressedCandidate,
+    addressedNominationBasis,
     parseParticipationDecision,
     shouldExecuteParticipation,
     shouldRespondToAddressed,
@@ -18,6 +19,8 @@ import {
     ambientSendDelayMs,
     startTypingKeepAlive,
     AMBIENT_SYSTEM_RULES,
+    PARTICIPATION_JUDGE_SYSTEM_PROMPT,
+    ADDRESSED_JUDGE_SYSTEM_PROMPT,
     type DotChannelSnapshot,
     type ParticipationDecision,
 } from '../src/core/ai/StaffAIDotAmbient.ts';
@@ -435,4 +438,70 @@ test('ambient system rules include the concrete prohibitions (no attribute nickn
     assert.ok(AMBIENT_SYSTEM_RULES.includes('星や夜空の話題・比喩は、相手が振ったときだけ'));
     // 既存の短さ指定は維持されている
     assert.ok(AMBIENT_SYSTEM_RULES.includes('基本1〜2文'));
+});
+
+test('nomination basis: message-internal signals vs recent-bot-only', () => {
+    const base = { names: ['リン'], isQuestion: false, botRecentlyActive: false };
+    // 発言自体の中に呼びかけ信号があるものは message-signal
+    assert.equal(addressedNominationBasis('リン、ちょっと聞きたいんだけど', base), 'message-signal');
+    assert.equal(addressedNominationBasis('AIさ、これ翻訳して', base), 'message-signal');
+    assert.equal(addressedNominationBasis('そのbotさ、昨日変なこと言ってた', base), 'message-signal');
+    // 「Botが直近に話した＋質問形」だけが根拠のものは recent-bot-only
+    // （2026-11-07 の実事故: 場への質問「どこかwick入れてる鯖ないかな」を自分宛てと誤認した）
+    assert.equal(addressedNominationBasis('どこかwick入れてる鯖ないかな', { names: ['リン'], isQuestion: true, botRecentlyActive: true }), 'recent-bot-only');
+    assert.equal(addressedNominationBasis('それどういうこと？', { names: ['リン'], isQuestion: true, botRecentlyActive: true }), 'recent-bot-only');
+    assert.equal(addressedNominationBasis('ねえ、聞いて', { names: ['リン'], isQuestion: false, botRecentlyActive: true }), 'recent-bot-only');
+    // Botが直近に話していなければ、その経路では候補にならない
+    assert.equal(addressedNominationBasis('どこかwick入れてる鯖ないかな', { names: ['リン'], isQuestion: true, botRecentlyActive: false }), null);
+    // そもそも候補でないもの（質問形でも呼びかけ口調でもない通常の発言）
+    assert.equal(addressedNominationBasis('普通の会話だよ', { names: ['リン'], isQuestion: false, botRecentlyActive: true }), null);
+    // isAddressedCandidate は basis の有無と一致する
+    assert.equal(isAddressedCandidate('どこかwick入れてる鯖ないかな', { names: ['リン'], isQuestion: true, botRecentlyActive: true }), true);
+    assert.equal(isAddressedCandidate('普通の会話だよ', base), false);
+});
+
+test('addressed threshold: recent-bot-only nominations require higher confidence', () => {
+    const reply = (confidence: number): ParticipationDecision => ({ action: 'reply', targetMessageId: null, emoji: null, confidence, reason: '' });
+    // 通常経路（発言内に信号あり）は従来どおり 0.65
+    assert.equal(shouldRespondToAddressed(reply(0.65)), true);
+    assert.equal(shouldRespondToAddressed(reply(0.8), 'message-signal'), true);
+    assert.equal(shouldRespondToAddressed(reply(0.64), 'message-signal'), false);
+    // recent-bot-only 経路は 0.85 未満を落とす
+    assert.equal(shouldRespondToAddressed(reply(0.7), 'recent-bot-only'), false);
+    assert.equal(shouldRespondToAddressed(reply(0.84), 'recent-bot-only'), false);
+    assert.equal(shouldRespondToAddressed(reply(0.85), 'recent-bot-only'), true);
+    // reply 以外・null はどちらの経路でも応答しない
+    assert.equal(shouldRespondToAddressed({ action: 'none', targetMessageId: null, emoji: null, confidence: 0.99, reason: '' }, 'recent-bot-only'), false);
+    assert.equal(shouldRespondToAddressed(null, 'recent-bot-only'), false);
+});
+
+test('participation judge prompt requires a concrete draft in reason and bans empty deflections', () => {
+    // reason に「具体的に何を言うのか」が必須であること
+    assert.ok(PARTICIPATION_JUDGE_SYSTEM_PROMPT.includes('具体的に何を言うのか'));
+    assert.ok(PARTICIPATION_JUDGE_SYSTEM_PROMPT.includes('言う内容が空の理由しか書けない場合は必ず none'));
+    // はぐらかし文の実例が NG として明記されていること
+    assert.ok(PARTICIPATION_JUDGE_SYSTEM_PROMPT.includes('なんか技術的な話は、結構複雑な仕組みで動いてるんだよねぇ。'));
+    assert.ok(PARTICIPATION_JUDGE_SYSTEM_PROMPT.includes('特定の技術的な実装については、なかなか情報掴みにくいんだよね。'));
+    // 知らない話題は参加理由にならないこと
+    assert.ok(PARTICIPATION_JUDGE_SYSTEM_PROMPT.includes('知らないことは参加の理由にならない'));
+});
+
+test('addressed judge prompt excludes open questions to the room', () => {
+    // 場への質問は、それだけでは呼びかけにならないこと
+    assert.ok(ADDRESSED_JUDGE_SYSTEM_PROMPT.includes('場への質問'));
+    assert.ok(ADDRESSED_JUDGE_SYSTEM_PROMPT.includes('あなたが直前に発言していたという事情だけを理由に reply にしない'));
+    // reply の根拠は発言自体の中の信号に限ること
+    assert.ok(ADDRESSED_JUDGE_SYSTEM_PROMPT.includes('発言自体の中にあなた宛ての信号がある場合だけ'));
+    // ノミネート経緯（recent-bot-only）の伝え方と対応していること
+    assert.ok(ADDRESSED_JUDGE_SYSTEM_PROMPT.includes('直近であなたが発言していたことと質問形であることだけが根拠'));
+});
+
+test('ambient system rules ban deflection with abstract words and require concrete words from the conversation', () => {
+    // はぐらかし文の NG 例が生成プロンプトにも明記されていること
+    assert.ok(AMBIENT_SYSTEM_RULES.includes('一般論ではぐらかさない'));
+    assert.ok(AMBIENT_SYSTEM_RULES.includes('なんか技術的な話は、結構複雑な仕組みで動いてるんだよねぇ。'));
+    assert.ok(AMBIENT_SYSTEM_RULES.includes('特定の技術的な実装については、なかなか情報掴みにくいんだよね。'));
+    // 会話に出てきた具体的な単語を使う推奨と、同じ文型の繰り返し回避
+    assert.ok(AMBIENT_SYSTEM_RULES.includes('具体的な単語（固有名詞や話題の語）を拾って使う'));
+    assert.ok(AMBIENT_SYSTEM_RULES.includes('同じ文型・言い回しを繰り返さない'));
 });

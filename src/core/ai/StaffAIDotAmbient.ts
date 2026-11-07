@@ -43,6 +43,7 @@ export const DOT_AMBIENT = {
     contextBufferSize: 25,
     addressedCooldownMs: 45_000,
     addressedJudgeMinConfidence: 0.65,
+    addressedContextOnlyMinConfidence: 0.85,
     addressedContextWindowMs: 10 * 60_000,
     contextMessages: 12,
     learningBatchSize: 20,
@@ -86,25 +87,47 @@ export interface AddressedCandidateOptions {
 }
 
 /**
+ * 呼びかけ候補のノミネート根拠。
+ * - 'message-signal': 発言自体の中に呼びかけ信号（名前呼び・AI/botへの言及）がある。
+ * - 'recent-bot-only': 発言内に信号はなく、「Botが直近に発言していた＋質問形／呼びかけ口調」だけが根拠。
+ *   場への質問（その場の全員に向けた問い）を「自分宛て」と取り違える事故が起きた経路なので、
+ *   判定プロンプトへの明示としきい値の引き上げで特に厳しく扱う。
+ */
+export type AddressedNominationBasis = 'message-signal' | 'recent-bot-only';
+
+/**
  * 「Botに話しかけているかも」しれない発言の緩いノミネート（純粋関数）。
  * ここは最終判断ではなく候補拾い。応答するかどうかはモデルの文脈判定が決める。
+ * 候補でない場合は null、候補の場合はノミネート根拠を返す。
  */
-export function isAddressedCandidate(content: string, options: AddressedCandidateOptions): boolean {
+export function addressedNominationBasis(content: string, options: AddressedCandidateOptions): AddressedNominationBasis | null {
     const text = content.trim();
-    if (text.length < 2) return false;
-    if (text.startsWith('/') || text.startsWith('!') || text.startsWith('！')) return false;
-    if (isNameCalled(text, options.names)) return true;
-    if (AI_CUE.test(text) || BOT_CUE.test(text)) return true;
+    if (text.length < 2) return null;
+    if (text.startsWith('/') || text.startsWith('!') || text.startsWith('！')) return null;
+    if (isNameCalled(text, options.names)) return 'message-signal';
+    if (AI_CUE.test(text) || BOT_CUE.test(text)) return 'message-signal';
     // Botが直近でそのチャンネルで話した流れの中での、宛先が書かれていない呼びかけ・質問。
-    if (options.botRecentlyActive && (options.isQuestion || VOCATIVE_HEAD.test(text))) return true;
-    return false;
+    // 発言内に宛ての信号は無いので、根拠としては最も弱い。
+    if (options.botRecentlyActive && (options.isQuestion || VOCATIVE_HEAD.test(text))) return 'recent-bot-only';
+    return null;
 }
 
-/** 呼びかけ判定（統合スキーマ）で応答してよいか。reply かつ、ambient参加より少し低めのしきい値以上で応答する。 */
-export function shouldRespondToAddressed(decision: ParticipationDecision | null): boolean {
-    return decision !== null
-        && decision.action === 'reply'
-        && decision.confidence >= DOT_AMBIENT.addressedJudgeMinConfidence;
+/** 「Botに話しかけているかも」しれない発言かどうか（ノミネートの有無のみ）。 */
+export function isAddressedCandidate(content: string, options: AddressedCandidateOptions): boolean {
+    return addressedNominationBasis(content, options) !== null;
+}
+
+/**
+ * 呼びかけ判定（統合スキーマ）で応答してよいか。reply かつ、しきい値以上で応答する。
+ * 基準値は ambient参加より少し低めだが、ノミネート根拠が 'recent-bot-only'
+ * （Botが直近に話した＋質問形だけ）の場合は場への質問の取り違えを防ぐため高いしきい値を要求する。
+ */
+export function shouldRespondToAddressed(decision: ParticipationDecision | null, basis: AddressedNominationBasis = 'message-signal'): boolean {
+    if (decision === null || decision.action !== 'reply') return false;
+    const minConfidence = basis === 'recent-bot-only'
+        ? DOT_AMBIENT.addressedContextOnlyMinConfidence
+        : DOT_AMBIENT.addressedJudgeMinConfidence;
+    return decision.confidence >= minConfidence;
 }
 
 /** 本文中の生メンション文字列（<@id> / <@!id>）で Bot がメンションされているか。mentions.users に載らないケースの補強。 */
@@ -521,7 +544,7 @@ export function ambientSendDelayMs(kind: 'addressed' | 'join' | 'react', rand: n
     }
 }
 
-const PARTICIPATION_JUDGE_SYSTEM_PROMPT = [
+export const PARTICIPATION_JUDGE_SYSTEM_PROMPT = [
     'あなたはDiscordサーバーに常駐するAIの「参加判断器」です。JSONだけを返してください。',
     '形式: {"action":"none"|"reply"|"comment"|"react"|"continue","targetMessageId":"対象のメッセージIDまたはnull","emoji":"絵文字またはnull","confidence":0.0から1.0,"reason":"短い理由"}',
     '会話ログの各行頭は [メッセージID] です。あなた自身は「(自分=このBot)」と表示されています。',
@@ -532,15 +555,22 @@ const PARTICIPATION_JUDGE_SYSTEM_PROMPT = [
     '- react: 言葉ではなく絵文字リアクションが一番自然な軽い反応（笑い・驚き・共感）。targetMessageId と emoji を必ず指定する。',
     '- continue: あなたが既に参加している会話の流れへの追随（あなたの状態が engaged の時だけ選べる）。',
     'しれっと混ざるのが理想で、出しゃばるのは失敗です。迷ったら none。confidence は「その参加が成功する確信度」。',
+    'comment / reply を選ぶ場合、reason には「具体的に何を言うのか」（直近の会話の具体的な単語・固有名詞を拾った、自分の発言内容の下書き）が必須です。下書きが書けない参加は価値がありません。',
+    '「会話の流れに軽く乗っかる」「意見に同意しつつ反応する」「雰囲気に合わせて一言」のような、言う内容が空の理由しか書けない場合は必ず none にしてください。',
+    '悪い参加の例（このような発言しかできないなら none）: 会話の固有名詞や中身に一切触れず「なんか技術的な話は、結構複雑な仕組みで動いてるんだよねぇ。」「特定の技術的な実装については、なかなか情報掴みにくいんだよね。」のような一般論ではぐらかす参加。',
+    '知らない固有名詞・知らない話題については、知ったかぶりの一般論で参加しない。知らないことは参加の理由にならないので none。',
 ].join('\n');
 
-const ADDRESSED_JUDGE_SYSTEM_PROMPT = [
+export const ADDRESSED_JUDGE_SYSTEM_PROMPT = [
     'あなたはDiscordサーバーに常駐するAIの「呼びかけ判定器」です。JSONだけを返してください。',
     '形式: {"action":"reply"または"none","targetMessageId":null,"emoji":null,"confidence":0.0から1.0,"reason":"短い理由"}',
     '判定するのは「対象メッセージ」が、常駐AIであるあなた自身に話しかけているかどうかです。会話ログの中であなたは「(自分=このBot)」と表示されています。直近の会話は文脈としてだけ使い、判定は対象メッセージについて行ってください。',
     'action=reply: 名前や「AI」などでの呼びかけ、あなたへの質問・依頼・相談、あなたの直前の発言への返答・ツッコミ・続きの質問、二人称であなたに向けられた発言。',
     'action=none: あなたを話題にしているだけの発言（感想・報告・他人への説明）、他の特定の人への発言・質問、独り言、あなたが入ると割り込みになる発言。他のユーザーをメンションしている発言は原則その人宛です。',
     '例外として、話題にしているだけでも、発言の形が明らかにあなたへの呼びかけ・ツッコミで、あなた本人が短く返すのが会話の流れとして自然な場合に限り、高い確信度で reply にしてよい。',
+    '場への質問（「〜ないかな」「〜知らない？」「〜ある？」など、その場にいる全員に広く向けた問いかけ）は、それだけではあなたへの呼びかけではありません。あなたが直前に発言していたという事情だけを理由に reply にしないこと。',
+    'reply にできるのは、発言自体の中にあなた宛ての信号がある場合だけです: 名前や「AI」などでの呼びかけ、あなたへの二人称、あなたの発言への返信・続き・ツッコミ、あなた自身（あなたの発言・機能・判断）に関する話題。',
+    '候補化の経緯として「直近であなたが発言していたことと質問形であることだけが根拠」と伝えられた発言は、場への質問である可能性が高い。発言内にあなた宛ての信号が見つからなければ none にすること。',
     '迷ったら action=none。confidence は「話しかけられた」確信度。',
 ].join('\n');
 
@@ -550,6 +580,8 @@ export const AMBIENT_SYSTEM_RULES = [
     '相手を呼ぶときは、その人の表示名を使うか、そもそも名前で呼ばない。「夜更かしさん」のような、相手の属性や様子から作ったラベル・あだ名では呼ばない（「夜更かしさん、いらっしゃい！」は禁止の典型例）。',
     '話題や相談を勧誘する文句で締めない（「何か話したいことある？」「夜空の話でもする？」「何か相談ある？」のような誘いで終わらない）。返事は、答えが終わったらそこで終わる。',
     '星や夜空の話題・比喩は、相手が振ったときだけ使う。それ以外では自分から持ち出さない。',
+    '知らない固有名詞・知らない話題について、抽象語（技術的・仕組み・情報・複雑など）を使った一般論ではぐらかさない（NG例: 「なんか技術的な話は、結構複雑な仕組みで動いてるんだよねぇ。」「特定の技術的な実装については、なかなか情報掴みにくいんだよね。」）。知らない話題には無理に参加しない。',
+    '返すときは、直近の会話に実際に出てきた具体的な単語（固有名詞や話題の語）を拾って使う。直近の自分の発言と同じ文型・言い回しを繰り返さない。',
     '馴れ馴れしすぎない、連投しない、場を独占しない。AIであることを聞かれたら隠さない。知らないことは知らないと言う。',
     'ツールは使わない。サーバーの話し方設定と学習した雰囲気に合わせる。',
 ].join('\n');
@@ -578,8 +610,8 @@ function rememberDotPost(state: ChannelState, message: Message): void {
     if (state.recentBotMessageIds.length > 60) state.recentBotMessageIds.shift();
 }
 
-/** ノミネートされた候補が「Botに話しかけている」かをモデルに文脈で判定させる。 */
-async function judgeAddressed(message: Message): Promise<ParticipationDecision | null> {
+/** ノミネートされた候補が「Botに話しかけている」かをモデルに文脈で判定させる。basis はノミネート根拠で、判定への伝え方に使う。 */
+async function judgeAddressed(message: Message, basis: AddressedNominationBasis = 'message-signal'): Promise<ParticipationDecision | null> {
     const channel = message.channel;
     if (!channel.isTextBased() || !('messages' in channel)) return null;
     const fetched = await channel.messages.fetch({ limit: DOT_AMBIENT.contextMessages }).catch(() => null);
@@ -593,7 +625,7 @@ async function judgeAddressed(message: Message): Promise<ParticipationDecision |
     const runJudge = (contextText: string) => parseDecisionWithRetry(
         () => chatManager.generateText([
             { role: 'system', content: ADDRESSED_JUDGE_SYSTEM_PROMPT },
-            { role: 'user', content: sanitizeAiText(`直近の会話:\n${contextText}\n\n対象メッセージ: ${authorName}: ${candidate}${mentionsOthers ? '\n（このメッセージは他のユーザーをメンションしています）' : ''}`) },
+            { role: 'user', content: sanitizeAiText(`直近の会話:\n${contextText}\n\n対象メッセージ: ${authorName}: ${candidate}${mentionsOthers ? '\n（このメッセージは他のユーザーをメンションしています）' : ''}${basis === 'recent-bot-only' ? '\n（候補化の経緯: この発言には名前・メンションなどの呼びかけ信号がありません。あなたが直近に発言していたことと、質問形であることだけが根拠です）' : ''}`) },
         ], { model: GEMMA_MODEL, strictModel: true, maxTokens: DOT_AMBIENT.judgeMaxTokens, priority: 'background', chatTemplateKwargs: { enable_thinking: false } }),
         (raw, attempt) => Logger.warn(`[DotAmbient] addressed judge parse failed guild=${message.guildId} channel=${message.channelId} attempt=${attempt}/2 raw=${JSON.stringify(raw.slice(0, 200))}`),
     );
@@ -705,19 +737,19 @@ function onMessageCreate(client: Client) {
                     const displayName = message.guild?.members.me?.displayName;
                     const botRecentlyActive = state.lastBotMessageAt > 0
                         && now - state.lastBotMessageAt <= DOT_AMBIENT.addressedContextWindowMs;
-                    const candidate = isAddressedCandidate(content, {
+                    const basis = addressedNominationBasis(content, {
                         names: displayName ? [...names, displayName] : names,
                         isQuestion: state.lastHumanMessageIsQuestion,
                         botRecentlyActive,
                     });
-                    if (candidate) {
-                        Logger.debug(`[DotAmbient] addressed judge guild=${message.guildId} channel=${message.channelId} self=${selfId ?? '?'} mentionUsers=[${mentionUserIds.join(',')}] rawMention=${rawMention}`);
-                        const decision = await judgeAddressed(message).catch(error => {
+                    if (basis) {
+                        Logger.debug(`[DotAmbient] addressed judge guild=${message.guildId} channel=${message.channelId} self=${selfId ?? '?'} mentionUsers=[${mentionUserIds.join(',')}] rawMention=${rawMention} basis=${basis}`);
+                        const decision = await judgeAddressed(message, basis).catch(error => {
                             Logger.debug('[DotAmbient] addressed judge failed:', error);
                             return null;
                         });
                         const callNames = displayName ? [...names, displayName] : names;
-                        if (shouldRespondToAddressed(decision)) {
+                        if (shouldRespondToAddressed(decision, basis)) {
                             state.lastAddressedResponseAt = Date.now();
                             await respondToAddressed(message, state, 'judged', decision?.confidence).catch(error => {
                                 Logger.warn('[DotAmbient] addressed response failed:', error);
@@ -730,7 +762,7 @@ function onMessageCreate(client: Client) {
                                 Logger.warn('[DotAmbient] addressed response failed:', error);
                             });
                         } else {
-                            Logger.debug(`[DotAmbient] addressed pass guild=${message.guildId} channel=${message.channelId} self=${selfId ?? '?'} mentionUsers=[${mentionUserIds.join(',')}] decision=${decision ? `action=${decision.action} conf=${decision.confidence}` : 'null'}`);
+                            Logger.debug(`[DotAmbient] addressed pass guild=${message.guildId} channel=${message.channelId} self=${selfId ?? '?'} mentionUsers=[${mentionUserIds.join(',')}] basis=${basis} decision=${decision ? `action=${decision.action} conf=${decision.confidence}` : 'null'}`);
                         }
                     }
                 }
