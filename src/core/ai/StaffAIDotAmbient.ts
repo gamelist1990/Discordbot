@@ -3,6 +3,13 @@ import { OpenAIChatManager } from './OpenAIChatManager.js';
 import { GEMMA_MODEL, config } from '../../config.js';
 import { Logger } from '../../utils/Logger.js';
 import { getEffectiveContent } from '../anticheat/ForwardedContent.js';
+import {
+    dotMediaStore,
+    extractDotMedia,
+    formatMediaNotes,
+    type DotMediaItem,
+    type DotMediaMessageLike,
+} from './DotAmbientMedia.js';
 import { extractGuildEpisodes } from './GuildEpisodeMemory.js';
 import { getStaffAIDotMode } from '../../commands/staff/subcommands/StaffAIDotMode.js';
 import {
@@ -60,6 +67,8 @@ export const DOT_AMBIENT = {
     judgeMaxTokens: 1024,
     generationMaxTokens: 1024,
     learningMaxTokens: 1600,
+    mediaDescribeMaxPerMessage: 2,
+    mediaEnsureMaxPerCall: 3,
     typingRefreshMs: 8_000,
 } as const;
 
@@ -520,13 +529,18 @@ interface BufferedMessage {
     content: string;
     at: number;
     isBot: boolean;
+    /** 添付メディア（説明は DotAmbientMedia 側で非同期に付く。無ければ空配列） */
+    media: DotMediaItem[];
 }
 
 function formatContext(messages: Message[], selfId: string | undefined): string {
     return messages
         .map(message => {
             const name = message.author.id === selfId ? '(自分=このBot)' : sanitizeAiText(message.author.username);
-            const body = sanitizeAiText((message.content ?? '').replace(/\s+/g, ' ').slice(0, 300)) || '(本文なし)';
+            const textBody = (message.content ?? '').replace(/\s+/g, ' ').slice(0, 300);
+            // 添付メディアは説明文（未確認なら存在プレースホルダ）を併記し、本文だけでの誤読を防ぐ。
+            // サニタイズは連結後の全体に適用する（単独サロゲート対策）。
+            const body = sanitizeAiText([textBody, formatMediaNotes(mediaItemsOf(message))].filter(Boolean).join(' ')) || '(本文なし)';
             return `[${message.id}] ${name}: ${body}`;
         })
         .join('\n');
@@ -537,7 +551,8 @@ function formatBuffered(messages: BufferedMessage[], selfId: string | undefined,
     return messages
         .map(entry => {
             const name = entry.authorId === selfId ? '(自分=このBot)' : sanitizeAiText(entry.authorName);
-            const body = sanitizeAiText(entry.content.replace(/\s+/g, ' ').slice(0, 300)) || '(本文なし)';
+            const textBody = entry.content.replace(/\s+/g, ' ').slice(0, 300);
+            const body = sanitizeAiText([textBody, formatMediaNotes(entry.media)].filter(Boolean).join(' ')) || '(本文なし)';
             const mins = Math.floor((now - entry.at) / 60_000);
             const when = mins >= 1 ? ` (${mins}分前)` : '';
             return `[${entry.id}] ${name}${when}: ${body}`;
@@ -548,6 +563,31 @@ function formatBuffered(messages: BufferedMessage[], selfId: string | undefined,
 function pushBuffered(state: ChannelState, entry: BufferedMessage): void {
     state.recentMessages.push(entry);
     if (state.recentMessages.length > DOT_AMBIENT.contextBufferSize) state.recentMessages.shift();
+}
+
+/** メッセージの添付メディアを抽出し、説明キャッシュの正規オブジェクトへ寄せて返す。 */
+function mediaItemsOf(message: Message): DotMediaItem[] {
+    const like: DotMediaMessageLike = {
+        id: message.id,
+        attachments: message.attachments.values(),
+        messageSnapshots: [...message.messageSnapshots.values()].map(snapshot => ({ attachments: snapshot.attachments.values() })),
+        embeds: message.embeds,
+    };
+    return dotMediaStore.register(extractDotMedia(like));
+}
+
+/** 履歴内のメディアを新しい順に最大 mediaEnsureMaxPerCall 件まで説明しておく（判定・応答生成の前に呼ぶ）。 */
+async function ensureHistoryMedia(history: Message[]): Promise<void> {
+    const items: DotMediaItem[] = [];
+    for (const message of [...history].reverse()) items.push(...mediaItemsOf(message));
+    if (items.length === 0) return;
+    await dotMediaStore.ensure(items, DOT_AMBIENT.mediaEnsureMaxPerCall).catch(() => undefined);
+}
+
+/** 観測メッセージの本文に、説明済みメディアの注記を付け足す（雰囲気学習・出来事抽出用）。 */
+function withMediaNotes(content: string, messageId: string): string {
+    const notes = dotMediaStore.notesForMessage(messageId);
+    return notes ? `${content} ${notes}` : content;
 }
 
 const sleepMs = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms));
@@ -591,6 +631,8 @@ export const PARTICIPATION_JUDGE_SYSTEM_PROMPT = [
     'あなたはDiscordサーバーに常駐するAIの「参加判断器」です。JSONだけを返してください。',
     '形式: {"action":"none"|"reply"|"comment"|"react"|"continue","targetMessageId":"対象のメッセージIDまたはnull","emoji":"絵文字またはnull","confidence":0.0から1.0,"reason":"短い理由"}',
     '会話ログの各行頭は [メッセージID] です。あなた自身は「(自分=このBot)」と表示されています。',
+    '会話ログには添付メディアの内容が [画像: …]、[動画: …]、[音声: …] の形で併記されることがあります。これは実際にメディアを見た説明なので、話題の判断に使ってください。「（内容未確認）」とあるメディアは、存在だけが分かっているものです。',
+    '「AIかと思った」のような発言は、投稿された写真そのものがAI生成画像に見えたという意味であることがあります。自分（Bot）のことだと決めつけず、メディアの内容と文脈から判断してください。',
     'action の意味:',
     '- none: 何もしない（既定）。開かれていない会話、二人だけのやり取り、他人宛の話、内輪で完結している流れ、深刻な相談や言い争いの最中、直近で自分が話したばかりの場では必ず none。',
     '- reply: 特定のメッセージへの返信が自然な場合。宙に浮いた質問への回答、あなたに向けられた発言への応答。targetMessageId を指定する。',
@@ -614,6 +656,7 @@ export const ADDRESSED_JUDGE_SYSTEM_PROMPT = [
     'あなたはDiscordサーバーに常駐するAIの「呼びかけ判定器」です。JSONだけを返してください。',
     '形式: {"action":"reply"または"none","targetMessageId":null,"emoji":null,"confidence":0.0から1.0,"reason":"短い理由"}',
     '判定するのは「対象メッセージ」が、常駐AIであるあなた自身に話しかけているかどうかです。会話ログの中であなたは「(自分=このBot)」と表示されています。直近の会話は文脈としてだけ使い、判定は対象メッセージについて行ってください。',
+    '会話ログには添付メディアの内容が [画像: …] の形で併記されることがあります。「AIかと思った」などは、その写真がAI生成に見えたという話題であることがあるので、メディアの内容と文脈から、あなた宛てかどうかを判断してください。',
     'action=reply: 名前や「AI」などでの呼びかけ、あなたへの質問・依頼・相談、あなたの直前の発言への返答・ツッコミ・続きの質問、二人称であなたに向けられた発言。',
     'action=none: あなたを話題にしているだけの発言（感想・報告・他人への説明）、他の特定の人への発言・質問、独り言、あなたが入ると割り込みになる発言。他のユーザーをメンションしている発言は原則その人宛です。',
     '例外として、話題にしているだけでも、発言の形が明らかにあなたへの呼びかけ・ツッコミで、あなた本人が短く返すのが会話の流れとして自然な場合に限り、高い確信度で reply にしてよい。',
@@ -633,6 +676,7 @@ export const AMBIENT_SYSTEM_RULES = [
     'サーバーの雰囲気そのものへの感想（「カオスな空間だよね」「この鯖の魅力だよね」のような一般論）に落とさない。それは中身のない発言になる。参加するときは、判定の下書きにあった具体（人名・物・出来事）をそのまま短く言う。',
     '返すときは、直近の会話に実際に出てきた具体的な単語（固有名詞や話題の語）を拾って使う。直近の自分の発言と同じ文型・言い回しを繰り返さない。',
     '馴れ馴れしすぎない、連投しない、場を独占しない。AIであることを聞かれたら隠さない。知らないことは知らないと言う。',
+    '添付メディアは [画像: …] [動画: …] [音声: …] の形で内容が併記されます。併記がある話題では、その内容に即して話してください。メディアを見ていない前提の返しや、写真への感想を自分（Bot）への話だと決めつける返しはしないこと。',
     'ツールは使わない。サーバーの話し方設定と学習した雰囲気に合わせる。',
 ].join('\n');
 
@@ -666,6 +710,7 @@ async function judgeAddressed(message: Message, basis: AddressedNominationBasis 
     if (!channel.isTextBased() || !('messages' in channel)) return null;
     const fetched = await channel.messages.fetch({ limit: DOT_AMBIENT.contextMessages }).catch(() => null);
     const history = fetched ? [...fetched.values()].reverse() : [message];
+    await ensureHistoryMedia(history);
     const context = formatContext(history, message.client.user?.id);
     const selfId = message.client.user?.id;
     const mentionsOthers = message.mentions.users.some(user => user.id !== selfId);
@@ -694,6 +739,7 @@ async function respondToAddressed(message: Message, state: ChannelState, via: 'd
     if (!channel.isTextBased() || !('messages' in channel)) return;
     const fetched = await channel.messages.fetch({ limit: 10 }).catch(() => null);
     const history = fetched ? [...fetched.values()].reverse() : [message];
+    await ensureHistoryMedia(history);
     const context = formatContext(history, message.client.user?.id);
     const situation = via === 'judged'
         ? 'あなたは今、文脈の流れから自分に話しかけられたと判断しました。その発言に短く自然に応えてください。質問や相談であれば簡潔に答えること。'
@@ -730,7 +776,7 @@ function onMessageCreate(client: Client) {
                 const state = stateFor(message);
                 if (message.author.id === client.user?.id) {
                     state.lastBotMessageAt = message.createdTimestamp;
-                    pushBuffered(state, { id: message.id, authorId: message.author.id, authorName: message.author.username, content: (message.content ?? '').replace(/\s+/g, ' ').slice(0, 300), at: message.createdTimestamp, isBot: true });
+                    pushBuffered(state, { id: message.id, authorId: message.author.id, authorName: message.author.username, content: (message.content ?? '').replace(/\s+/g, ' ').slice(0, 300), at: message.createdTimestamp, isBot: true, media: [] });
                     if (!state.dotPostIds.has(message.id)) {
                         state.lastOtherBotMessageAt = message.createdTimestamp;
                     }
@@ -750,7 +796,12 @@ function onMessageCreate(client: Client) {
                 state.lastHumanMessageAt = now;
                 state.lastHumanMessageId = message.id;
                 state.lastHumanMessageIsQuestion = isHangingQuestion(content);
-                pushBuffered(state, { id: message.id, authorId: message.author.id, authorName: message.author.username, content: content.slice(0, 300), at: now, isBot: false });
+                const media = mediaItemsOf(message);
+                pushBuffered(state, { id: message.id, authorId: message.author.id, authorName: message.author.username, content: content.slice(0, 300), at: now, isBot: false, media });
+                if (media.length > 0) {
+                    // 添付メディアは非同期で説明しておく（参加判定・応答が回る頃には説明が揃っている）。
+                    void dotMediaStore.ensure(media, DOT_AMBIENT.mediaDescribeMaxPerMessage).catch(() => undefined);
+                }
 
                 if (content.length >= 4) {
                     const observed: ObservedMessage = {
@@ -875,6 +926,7 @@ async function judgeAndParticipate(client: Client, channelId: string, state: Cha
     if (!fetched) return;
     const history = [...fetched.values()].reverse();
     if (history.length === 0) return;
+    await ensureHistoryMedia(history);
 
     if (trigger === 'question') {
         const targetIndex = history.findIndex(item => item.id === state.lastHumanMessageId);
@@ -996,7 +1048,7 @@ async function learnGuildAtmosphere(guildId: string): Promise<void> {
     const used = buffer.slice(0, DOT_AMBIENT.learningUseMessages);
     const summary = (await chatManager.generateText([
         { role: 'system', content: ATMOSPHERE_LEARNING_SYSTEM_PROMPT },
-        { role: 'user', content: sanitizeAiText(buildAtmosphereLearningUserPrompt(personality.learnedSummary, used.map(item => item.content))) },
+        { role: 'user', content: sanitizeAiText(buildAtmosphereLearningUserPrompt(personality.learnedSummary, used.map(item => withMediaNotes(item.content, item.id)))) },
     ], { model: config.pexAi.channelModel || config.pexAi.model, strictModel: true, maxTokens: DOT_AMBIENT.learningMaxTokens, priority: 'background' })).trim();
 
     guildObservations.set(guildId, buffer.slice(used.length));
@@ -1020,7 +1072,7 @@ async function extractObservedEpisodes(guildId: string): Promise<void> {
         channelName: item.channelName,
         authorId: item.authorId,
         authorName: item.authorName,
-        content: item.content,
+        content: withMediaNotes(item.content, item.id),
     })), 'observed', async messages => chatManager.generateText(
         messages.map(message => ({ role: message.role, content: sanitizeAiText(message.content) })),
         { model: config.pexAi.channelModel || config.pexAi.model, strictModel: true, maxTokens: DOT_AMBIENT.episodeMaxTokens, priority: 'background' },
