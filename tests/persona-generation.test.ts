@@ -4,6 +4,7 @@ import {
     PERSONA_ARCHETYPES,
     buildPersonaGenerationMessages,
     parseGeneratedPersona,
+    personaContentFingerprint,
     pickPersonaArchetype,
     type GuildAIPersona,
 } from '../src/core/ai/GuildAIPersonality.ts';
@@ -13,6 +14,7 @@ import {
     canGeneratePersona,
     consumePersonaPreview,
     createPersonaPreview,
+    peekPersonaPreview,
     isBotOwnerSession,
     validatePersonaDirection,
 } from '../src/web/routes/staff/personaGenerationGuard.ts';
@@ -88,9 +90,9 @@ test('方向プロンプトの検証: 上限と型', () => {
 
 test('プレビューはワンタイムで、ギルドとユーザーに束縛され、期限切れは無効', () => {
     const now = Date.parse('2026-11-07T00:00:00Z');
-    const id = createPersonaPreview({ guildId: 'g1', userId: 'u1', persona: basePersona, baseGeneratedAt: 't0' }, now);
+    const id = createPersonaPreview({ guildId: 'g1', userId: 'u1', persona: basePersona, basePersonaFingerprint: 'fp0' }, now);
     assert.equal(consumePersonaPreview(id, 'g1', 'u2', now), null);
-    const again = createPersonaPreview({ guildId: 'g1', userId: 'u1', persona: basePersona, baseGeneratedAt: 't0' }, now);
+    const again = createPersonaPreview({ guildId: 'g1', userId: 'u1', persona: basePersona, basePersonaFingerprint: 'fp0' }, now);
     const record = consumePersonaPreview(again, 'g1', 'u1', now);
     assert.equal(record?.persona.name, 'ロコ');
     // 消費済みは二度と使えない。
@@ -98,6 +100,36 @@ test('プレビューはワンタイムで、ギルドとユーザーに束縛�
     const expiring = createPersonaPreview({ guildId: 'g1', userId: 'u1', persona: basePersona }, now);
     assert.equal(consumePersonaPreview(expiring, 'g1', 'u1', now + 10 * 60_000 + 1), null);
     assert.equal(consumePersonaPreview('not-a-token', 'g1', 'u1', now), null);
+});
+
+test('peekはプレビューを消費しない（楽観チェックで弾いても再試行できる）', () => {
+    const now = Date.parse('2026-11-07T00:00:00Z');
+    const id = createPersonaPreview({ guildId: 'g1', userId: 'u1', persona: basePersona, basePersonaFingerprint: 'fp0' }, now);
+    // 束縛が違うユーザーからの peek は見えず、持ち主のプレビューも消えない。
+    assert.equal(peekPersonaPreview(id, 'g1', 'u2', now), null);
+    assert.equal(peekPersonaPreview(id, 'g2', 'u1', now), null);
+    // 持ち主は何度でも peek でき、その後の消費も1回だけ成功する。
+    assert.equal(peekPersonaPreview(id, 'g1', 'u1', now)?.persona.name, 'ロコ');
+    assert.equal(peekPersonaPreview(id, 'g1', 'u1', now)?.basePersonaFingerprint, 'fp0');
+    assert.equal(consumePersonaPreview(id, 'g1', 'u1', now)?.persona.name, 'ロコ');
+    assert.equal(peekPersonaPreview(id, 'g1', 'u1', now), null);
+    // 期限切れは peek でも無効。
+    const expiring = createPersonaPreview({ guildId: 'g1', userId: 'u1', persona: basePersona }, now);
+    assert.equal(peekPersonaPreview(expiring, 'g1', 'u1', now + 10 * 60_000 + 1), null);
+});
+
+test('性格本体の指紋は生成時刻に依存せず、内容の変化だけを検出する', () => {
+    const restamped: GuildAIPersona = { ...basePersona, generatedAt: '2026-11-07T12:34:56.000Z' };
+    assert.equal(personaContentFingerprint(restamped), personaContentFingerprint(basePersona));
+    assert.notEqual(
+        personaContentFingerprint({ ...basePersona, name: 'べつの名前' }),
+        personaContentFingerprint(basePersona),
+    );
+    assert.notEqual(
+        personaContentFingerprint({ ...basePersona, character: '全然違う性格' }),
+        personaContentFingerprint(basePersona),
+    );
+    assert.equal(personaContentFingerprint(undefined), undefined);
 });
 
 test('性格生成プロンプトは構造化スキーマと個性付け・資料扱いを明記する', () => {

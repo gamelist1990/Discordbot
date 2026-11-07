@@ -12,6 +12,7 @@ import {
     generateGuildAIPersonaDraft,
     regenerateGuildAIPersona,
     getGuildAIPersonality,
+    personaContentFingerprint,
     resetGuildAIPersonality,
     saveGuildAIPersonality,
     type GuildAIPersona,
@@ -22,6 +23,7 @@ import {
     canGeneratePersona,
     consumePersonaPreview,
     createPersonaPreview,
+    peekPersonaPreview,
     isBotOwnerSession,
     PersonaGenerationLimiter,
     validatePersonaDirection,
@@ -169,7 +171,7 @@ export function createStaffAIRoutes(sessions: Map<string, SettingsSession>, _bot
         try {
             const { draft, base } = await generateGuildAIPersonaDraft(guildId, validated.direction || undefined);
             const previewId = createPersonaPreview({
-                guildId, userId: session.userId, persona: draft, baseGeneratedAt: base?.generatedAt,
+                guildId, userId: session.userId, persona: draft, basePersonaFingerprint: personaContentFingerprint(base),
             });
             Logger.info(`[PersonaAudit] action=preview guild=${guildId} user=${session.userId} (${session.username ?? ''}) direction=${JSON.stringify(validated.direction.slice(0, 80))} persona=${draft.name}`);
             res.json({ previewId, persona: draft, expiresInSeconds: 600 });
@@ -183,20 +185,38 @@ export function createStaffAIRoutes(sessions: Map<string, SettingsSession>, _bot
         const guildId = String(req.params.guildId);
         // 適用時にも認可を再検証する（プレビューの発行時点の権限に頼らない）。
         const session = authorizePersonaGeneration(req, res, guildId);
-        if (!session) return;
-        const record = consumePersonaPreview(req.body?.previewId, guildId, session.userId);
-        if (!record) {
+        if (!session) {
+            Logger.warn(`[PersonaAudit] action=apply-rejected guild=${guildId} reason=forbidden`);
+            return;
+        }
+        // まず消費せずに確認する。楽観チェックで弾いたときにプレビューまで
+        // 消えてしまうと、ユーザーは理由も分からず再生成を強いられるため、
+        // 消費はチェックを通過した直前に確定させる（ワンタイム性は維持する）。
+        // 拒否理由は監査ログに残す（プレビューID自体は秘密情報なので出さない）。
+        const peeked = peekPersonaPreview(req.body?.previewId, guildId, session.userId);
+        if (!peeked) {
+            Logger.warn(`[PersonaAudit] action=apply-rejected guild=${guildId} user=${session.userId} (${session.username ?? ''}) reason=invalid-preview`);
             res.status(400).json({ error: 'プレビューが無効か期限切れです。生成し直してください' }); return;
         }
         try {
             const current = await getGuildAIPersonality(guildId);
-            if ((current.persona?.generatedAt ?? undefined) !== record.baseGeneratedAt) {
+            // 楽観チェックは生成時刻ではなく性格本体の指紋で見る。学習や設定保存で
+            // レコードが書き直されても、性格そのものが変わっていなければ適用できる。
+            if (personaContentFingerprint(current.persona) !== peeked.basePersonaFingerprint) {
+                Logger.warn(`[PersonaAudit] action=apply-rejected guild=${guildId} user=${session.userId} (${session.username ?? ''}) reason=persona-changed`);
                 res.status(409).json({ error: 'プレビュー後に性格が変更されています。プレビューを取り直してください' }); return;
+            }
+            const record = consumePersonaPreview(req.body?.previewId, guildId, session.userId);
+            if (!record) {
+                // peek の直後に消費された（連打・競合）場合だけここに来る。
+                Logger.warn(`[PersonaAudit] action=apply-rejected guild=${guildId} user=${session.userId} (${session.username ?? ''}) reason=preview-consumed`);
+                res.status(400).json({ error: 'プレビューが無効か期限切れです。生成し直してください' }); return;
             }
             const personality = await applyGuildAIPersona(guildId, record.persona as GuildAIPersona);
             Logger.info(`[PersonaAudit] action=apply guild=${guildId} user=${session.userId} (${session.username ?? ''}) persona=${record.persona.name}`);
             res.json({ personality });
         } catch {
+            Logger.warn(`[PersonaAudit] action=apply-rejected guild=${guildId} user=${session.userId} (${session.username ?? ''}) reason=apply-failed`);
             res.status(500).json({ error: 'AIの性格を適用できませんでした' });
         }
     });

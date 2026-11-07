@@ -112,7 +112,8 @@ export interface PersonaPreviewRecord {
     guildId: string;
     userId: string;
     persona: GuildAIPersona;
-    baseGeneratedAt?: string;
+    /** プレビュー時点の性格本体の指紋（personaContentFingerprint）。適用時の楽観チェックに使う。 */
+    basePersonaFingerprint?: string;
     expiresAt: number;
 }
 
@@ -133,6 +134,29 @@ export function createPersonaPreview(
     const previewId = randomBytes(32).toString('hex');
     personaPreviews.set(previewKey(previewId), { ...record, expiresAt: now + PERSONA_PREVIEW_TTL_MS });
     return previewId;
+}
+
+/**
+ * プレビューを消費せずに確認する。適用時の楽観チェック（性格が変わっていないか）を
+ * 行ってから消費を確定するため、チェックで弾かれてもプレビューは残り再試行できる。
+ * 期限切れのものだけはここで掃除する。束縛が一致しない場合は消費もしない。
+ */
+export function peekPersonaPreview(
+    previewId: unknown,
+    guildId: string,
+    userId: string,
+    now: number = Date.now(),
+): PersonaPreviewRecord | null {
+    if (typeof previewId !== 'string' || !previewId) return null;
+    const key = previewKey(previewId);
+    const record = personaPreviews.get(key);
+    if (!record) return null;
+    if (record.expiresAt <= now) {
+        personaPreviews.delete(key);
+        return null;
+    }
+    if (record.guildId !== guildId || record.userId !== userId) return null;
+    return record;
 }
 
 /** プレビューを取り出す。成否にかかわらず1回で消費される（使い回し不可）。 */

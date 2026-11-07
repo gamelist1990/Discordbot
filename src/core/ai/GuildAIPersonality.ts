@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { database } from '../persistence/Database.js';
 import { config } from '../../config.js';
 import { OpenAIChatManager } from './OpenAIChatManager.js';
@@ -205,6 +206,19 @@ function normalizePersonality(value: unknown): GuildAIPersonality {
         updatedAt: typeof input.updatedAt === 'string' ? input.updatedAt : new Date().toISOString(),
         ...(persona ? { persona } : {}),
     };
+}
+
+/**
+ * 性格の「本体」の指紋。生成時刻（generatedAt）を含めないため、学習や話し方設定の
+ * 保存でレコードが書き直されても、性格そのものが変わらない限り指紋は変わらない。
+ * プレビュー→適用の楽観チェックはこの指紋で「性格そのものが変わったか」だけを見る。
+ */
+export function personaContentFingerprint(persona: GuildAIPersona | undefined): string | undefined {
+    if (!persona) return undefined;
+    const normalized = normalizePersona(persona);
+    if (!normalized) return undefined;
+    const { generatedAt: _generatedAt, ...content } = normalized;
+    return createHash('sha256').update(JSON.stringify(content)).digest('hex');
 }
 
 export async function getGuildAIPersonality(guildId: string): Promise<GuildAIPersonality> {
