@@ -145,11 +145,11 @@ export const DEFAULT_ANTICHEAT_SETTINGS: GuildAntiCheatSettings = {
             deleteMessage: false,
             notifyChannel: true,
             config: {
-                action: 'spoiler', awardScore: 0, maxAiScore: 10,
+                action: 'spoiler', awardScore: 0, maxAiScore: 10, fallbackScore: 20,
                 similarCache: 1, similarityThreshold: 0.9, cacheTtlMinutes: 129600,
                 imageThreshold: 0.7, textThreshold: 0.8,
                 imageSuggestiveThreshold: 0.65, textSuggestiveThreshold: 0.7,
-                suggestive: 1, explicit: 1, harassment: 1, hate: 1, threat: 1, violence: 1,
+                suggestive: 1, explicit: 1, harassment: 1, hate: 1, threat: 1, violence: 1, spam: 1,
                 scanImages: 1, scanText: 1, scanUrls: 1,
                 maxSampleFrames: 6, maxFileSizeMb: 8, maxImages: 4, timeoutMs: 600000,
                 customRulesChannelId: '', customRulesMessageId: '1381971374947438703'

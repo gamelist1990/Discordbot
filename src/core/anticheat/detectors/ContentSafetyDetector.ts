@@ -28,6 +28,7 @@ export const CONTENT_CATEGORIES = [
 ] as const;
 export type ContentCategory = (typeof CONTENT_CATEGORIES)[number];
 export type ContentVerdict = Record<ContentCategory, number> & {
+  spam?: number;
   explanation?: string;
   suggestedPoints?: number;
   pointsReason?: string;
@@ -36,6 +37,29 @@ export type ContentVerdict = Record<ContentCategory, number> & {
 export interface ContentScoringPolicy {
   maxPoints: number;
   categories: ContentCategory[];
+  fallbackPoints?: number;
+}
+export const SPAM_LABEL = "荒らし・レイドスパム";
+/**
+ * Raid/spam is an optional verdict field (not a CONTENT_CATEGORIES member) so
+ * verdicts cached or produced before it existed stay valid. It is judged with
+ * the same 0-1 confidence scale and the text/image thresholds.
+ */
+export function spamMatches(
+  verdict: ContentVerdict,
+  image: boolean,
+  overrides: Record<string, any> = {},
+): boolean {
+  const options = { ...CONTENT_DEFAULT_CONFIG, ...overrides };
+  if (options.spam !== 1 || typeof verdict.spam !== "number")
+    return false;
+  const threshold = boundedNumber(
+    image ? options.imageThreshold : options.textThreshold,
+    image ? 0.7 : 0.8,
+    0.1,
+    1,
+  );
+  return verdict.spam >= threshold;
 }
 export const CONTENT_LABELS: Record<ContentCategory, string> = {
   suggestive: "軽度の性的表現・H系",
@@ -52,6 +76,7 @@ export const CONTENT_DEFAULT_CONFIG = {
   action: "spoiler",
   awardScore: 0,
   maxAiScore: 10,
+  fallbackScore: 20,
   imageThreshold: 0.7,
   textThreshold: 0.8,
   imageSuggestiveThreshold: 0.65,
@@ -62,6 +87,7 @@ export const CONTENT_DEFAULT_CONFIG = {
   hate: 1,
   threat: 1,
   violence: 1,
+  spam: 1,
   scanImages: 1,
   scanText: 1,
   scanUrls: 1,
@@ -121,7 +147,7 @@ export function parseContentVerdict(content: string): ContentVerdict {
   if (
     Object.keys(parsed).filter(
       (key) =>
-        !["explanation", "suggestedPoints", "pointsReason", "customRuleViolations"].includes(key),
+        !["spam", "explanation", "suggestedPoints", "pointsReason", "customRuleViolations"].includes(key),
     ).length !== CONTENT_CATEGORIES.length
   )
     throw new Error("Invalid moderation verdict");
@@ -138,26 +164,35 @@ export function parseContentVerdict(content: string): ContentVerdict {
   const explanation = parsed.explanation ?? result.explanation;
   if (explanation !== undefined && typeof explanation !== "string")
     throw new Error("Invalid moderation explanation");
-  const suggestedPoints = parsed.suggestedPoints ?? result.suggestedPoints;
-  const pointsReason = parsed.pointsReason ?? result.pointsReason;
+  const spam = parsed.spam ?? result.spam;
+  if (
+    spam !== undefined &&
+    (typeof spam !== "number" || !Number.isFinite(spam) || spam < 0 || spam > 1)
+  )
+    throw new Error("Invalid moderation verdict");
+  // Points are advisory: a malformed proposal is discarded (never awarded
+  // as-is) and the detector applies its configured fallback instead of
+  // failing the whole verdict.
+  const rawPoints = parsed.suggestedPoints ?? result.suggestedPoints;
+  const suggestedPoints =
+    rawPoints !== undefined &&
+    Number.isInteger(rawPoints) &&
+    rawPoints >= 0 &&
+    rawPoints <= 100
+      ? rawPoints
+      : undefined;
+  const rawPointsReason = parsed.pointsReason ?? result.pointsReason;
+  const pointsReason =
+    typeof rawPointsReason === "string" && rawPointsReason.trim()
+      ? rawPointsReason
+      : undefined;
   const customRuleViolations = parsed.customRuleViolations ?? result.customRuleViolations;
-  if (
-    suggestedPoints !== undefined &&
-    (!Number.isInteger(suggestedPoints) ||
-      suggestedPoints < 0 ||
-      suggestedPoints > 100)
-  )
-    throw new Error("Invalid moderation points");
-  if (
-    pointsReason !== undefined &&
-    (typeof pointsReason !== "string" || !pointsReason.trim())
-  )
-    throw new Error("Invalid moderation explanation");
   if (customRuleViolations !== undefined && (!Array.isArray(customRuleViolations) ||
       customRuleViolations.some((item: unknown) => typeof item !== "string" || !item.trim())))
     throw new Error("Invalid moderation verdict");
   return {
     ...Object.fromEntries(CONTENT_CATEGORIES.map((key) => [key, parsed[key]])),
+    ...(spam !== undefined ? { spam } : {}),
     ...(suggestedPoints !== undefined ? { suggestedPoints } : {}),
     ...(pointsReason
       ? { pointsReason: normalizeContentExplanation(pointsReason) }
@@ -286,6 +321,9 @@ export class ContentSafetyDetector implements Detector {
     const options = { ...CONTENT_DEFAULT_CONFIG, ...overrides };
     if (!CONTENT_CATEGORIES.some((category) => options[category] === 1))
       return { scoreDelta: 0, reasons: [] };
+    const fallbackPoints = Math.floor(
+      boundedNumber(options.fallbackScore, 20, 0, 100),
+    );
     const scoring: ContentScoringPolicy | undefined =
       options.awardScore === 1
         ? {
@@ -295,6 +333,7 @@ export class ContentSafetyDetector implements Detector {
             categories: CONTENT_CATEGORIES.filter(
               (category) => options[category] === 1,
             ),
+            fallbackPoints,
           }
         : undefined;
     const content = message.content;
@@ -340,6 +379,7 @@ export class ContentSafetyDetector implements Detector {
       attachmentIds: [...message.attachments.keys()].join(),
     };
     const hits = new Set<ContentCategory>();
+    let spamHit = false;
     const customRuleHits = new Set<string>();
     const analyses: Array<{
       source: string;
@@ -350,6 +390,7 @@ export class ContentSafetyDetector implements Detector {
       elapsedMs: number;
       requests: AiRequestMetrics[];
       matchedCategories: ContentCategory[];
+      spamMatched: boolean;
     }> = [];
     const files: Array<{ data: Buffer; name: string; sourceUrl: string }> = [];
     const errors: string[] = [];
@@ -400,6 +441,7 @@ export class ContentSafetyDetector implements Detector {
           : 2,
         (value) =>
           matchingContentCategories(value, frames.length > 0, options).length > 0 ||
+          spamMatches(value, frames.length > 0, options) ||
           Boolean(value.customRuleViolations?.length),
       );
       let verdict: ContentVerdict;
@@ -447,6 +489,7 @@ export class ContentSafetyDetector implements Detector {
       // text-only complaint; any image or substantive harmful language is scanned.
       if (!frames.length && isHarmlessMentionComplaint(text)) {
         for (const category of CONTENT_CATEGORIES) verdict[category] = 0;
+        verdict.spam = 0;
         verdict.customRuleViolations = [];
         verdict.explanation = "メンションに関する状況説明で、違反表現はありません。";
       }
@@ -458,6 +501,7 @@ export class ContentSafetyDetector implements Detector {
         elapsedMs: Date.now() - analysisStarted,
         requests,
         matchedCategories: matchingContentCategories(verdict, frames.length > 0, options),
+        spamMatched: spamMatches(verdict, frames.length > 0, options),
         similarity: cached?.similarity || 0,
       });
       trace(
@@ -472,6 +516,7 @@ export class ContentSafetyDetector implements Detector {
         options,
       ))
         hits.add(category);
+      if (spamMatches(verdict, frames.length > 0, options)) spamHit = true;
       for (const rule of verdict.customRuleViolations || []) customRuleHits.add(rule);
       return true;
     };
@@ -570,13 +615,14 @@ export class ContentSafetyDetector implements Detector {
     // text-only content, re-fetch follow-ups posted while the model was thinking.
     // If context changes, discard the old positive result and reassess once.
     if (!errors.length && analyses.length === 1 && analyses[0].source === "text" &&
-        (hits.size > 0 || customRuleHits.size > 0) && !isMessageDeleted?.()) {
+        (hits.size > 0 || customRuleHits.size > 0 || spamHit) && !isMessageDeleted?.()) {
       const freshContext = await loadContentConversationContext(message, replyContext, 0);
       if (freshContext && freshContext !== conversationContext) {
         trace("context-updated rechecking text before action");
         conversationContext = freshContext;
         analyses.length = 0;
         hits.clear();
+        spamHit = false;
         customRuleHits.clear();
         try {
           if (!(await check(content, [], "text"))) return stopped();
@@ -607,7 +653,7 @@ export class ContentSafetyDetector implements Detector {
             item.scores,
             item.source !== "text",
             options,
-          ).length > 0 || Boolean(item.scores.customRuleViolations?.length)),
+          ).length > 0 || item.spamMatched || Boolean(item.scores.customRuleViolations?.length)),
       )
       .sort(
         (a, b) => {
@@ -616,49 +662,62 @@ export class ContentSafetyDetector implements Detector {
               item.scores, item.source !== "text", options,
             );
             return Math.max(item.scores.customRuleViolations?.length ? 1 : 0,
+              ...(item.spamMatched ? [item.scores.spam ?? 0] : []),
               ...categories.map((key) => item.scores[key]));
           };
           return strength(b) - strength(a);
         },
       )[0];
-    let aiExplanation = hits.size || customRuleHits.size
+    let aiExplanation = hits.size || customRuleHits.size || spamHit
       ? explained
         ? `${explained.cache === "similar" ? "類似投稿の判定理由：" : ""}${explained.scores.explanation}`
         : "AIから短い説明が返されませんでした。"
       : undefined;
-    const scored = scoring
-      ? analyses
-          .filter(
-            (item) =>
-              matchingContentCategories(
-                item.scores,
-                item.source !== "text",
-                options,
-              ).length,
-          )
-          .sort(
-            (a, b) =>
-              (b.scores.suggestedPoints ?? 0) - (a.scores.suggestedPoints ?? 0),
-          )[0]
+    // Points come from the model itself. An analysis whose verdict carries no
+    // usable proposal falls back to the configured fixed points, so a hit is
+    // still scored when the model forgets or garbles the points field.
+    let scored: (typeof analyses)[number] | undefined;
+    let scoreDelta = 0;
+    let pointsSource: "ai" | "fallback" | undefined;
+    if (scoring) {
+      const effectivePoints = (item: (typeof analyses)[number]) =>
+        item.scores.suggestedPoints ?? scoring.fallbackPoints ?? fallbackPoints;
+      scored = analyses
+        .filter(
+          (item) =>
+            matchingContentCategories(
+              item.scores,
+              item.source !== "text",
+              options,
+            ).length || item.spamMatched,
+        )
+        .sort((a, b) => effectivePoints(b) - effectivePoints(a))[0];
+      if (scored) {
+        scoreDelta = Math.min(
+          scoring.maxPoints,
+          Math.max(0, effectivePoints(scored)),
+        );
+        pointsSource =
+          scored.scores.suggestedPoints !== undefined ? "ai" : "fallback";
+      }
+    }
+    const appliedPointsReason = scored
+      ? scored.scores.pointsReason ??
+        (pointsSource === "fallback"
+          ? "AIが点数を提示しなかったため固定値を適用しました。"
+          : "AIの重大度提案に基づきます。")
       : undefined;
-    const scoreDelta =
-      scoring && scored
-        ? Math.min(
-            scoring.maxPoints,
-            Math.max(0, scored.scores.suggestedPoints ?? 0),
-          )
-        : 0;
     if (aiExplanation && scored)
-      aiExplanation += ` 加算${scoreDelta}点：${scored.scores.pointsReason}`;
+      aiExplanation += ` 加算${scoreDelta}点：${appliedPointsReason}`;
     trace(
-      `scan-score appliedPoints=${scoreDelta} pointsReason=${JSON.stringify(scored?.scores.pointsReason ?? (scoring ? "検知閾値に達した対象カテゴリなし" : "スコア加算OFF"))}`,
+      `scan-score appliedPoints=${scoreDelta} pointsSource=${pointsSource ?? "none"} pointsReason=${JSON.stringify(appliedPointsReason ?? (scoring ? "検知閾値に達した対象カテゴリなし" : "スコア加算OFF"))}`,
     );
     return {
       ...(aiExplanation ? { aiExplanation } : {}),
       scoreDelta,
-      reasons: [...hits].map((category) => CONTENT_LABELS[category]).concat([...customRuleHits].map(rule => `独自ルール: ${rule}`)),
-      ...(hits.size || customRuleHits.size
-        ? options.action === "delete"
+      reasons: [...hits].map((category) => CONTENT_LABELS[category]).concat(spamHit ? [SPAM_LABEL] : []).concat([...customRuleHits].map(rule => `独自ルール: ${rule}`)),
+      ...(hits.size || customRuleHits.size || spamHit
+        ? options.action === "delete" || spamHit
           ? { contentDeletion: expected }
           : {
               spoilerRepost: {
@@ -683,8 +742,10 @@ export class ContentSafetyDetector implements Detector {
         errors,
         scoring,
         appliedPoints: scoreDelta,
-        pointsReason: scored?.scores.pointsReason,
-        stoppedAfterMatch: hits.size > 0,
+        pointsReason: appliedPointsReason,
+        pointsSource: pointsSource ?? null,
+        spamMatched: spamHit,
+        stoppedAfterMatch: hits.size > 0 || spamHit,
         customRulesEnabled: Boolean(customRules),
         customRuleViolations: [...customRuleHits],
       },

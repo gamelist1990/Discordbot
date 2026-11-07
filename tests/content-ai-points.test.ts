@@ -1,52 +1,60 @@
-import test from 'node:test';
 import assert from 'node:assert/strict';
-import { classifyContent, ContentSafetyDetector, parseContentVerdict } from '../src/core/anticheat/detectors/ContentSafetyDetector.ts';
+import test from 'node:test';
+import { classifyContent, parseContentVerdict } from '../src/core/anticheat/detectors/ContentSafetyDetector.ts';
 
-(globalThis as any)._cacheCleanupInterval?.unref?.();
+const categories = ['suggestive', 'explicit', 'harassment', 'hate', 'threat', 'violence'] as const;
+const safe = Object.fromEntries(categories.map((category) => [category, 0.1]));
 
-const safe={suggestive:0,explicit:0,harassment:0,hate:0,threat:0,violence:0};
-const gemma=(scores:Record<string,unknown>)=>new Response(JSON.stringify({choices:[{
-    finish_reason:'stop',message:{content:JSON.stringify({ ...scores, explanation:'説明文', customRuleViolations:[] })}
-}]}));
+function gemma(scores: Record<string, unknown>) {
+  return async () => new Response(JSON.stringify({
+    choices: [{ message: { content: JSON.stringify(scores) } }],
+    usage: { prompt_tokens: 10, completion_tokens: 8, total_tokens: 18 },
+  }), { status: 200, headers: { 'content-type': 'application/json' } });
+}
 
-test('malformed model-point proposals are rejected before any trust score can be awarded',()=>{
-    for(const points of [-1, .5, 101, '3']) {
-        assert.throws(()=>parseContentVerdict(JSON.stringify({...safe,suggestedPoints:points})),/Invalid moderation points/);
-    }
+test('malformed model-point proposals are discarded, not awarded', () => {
+  for (const points of [-1, .5, 101, '3']) {
+    const verdict = parseContentVerdict(JSON.stringify({ ...safe, suggestedPoints: points, pointsReason: 'x' }));
+    assert.equal(verdict.suggestedPoints, undefined, `points=${points}`);
+    assert.equal(verdict.suggestive, .1);
+  }
+  const noReason = parseContentVerdict(JSON.stringify({ ...safe, suggestedPoints: 4, pointsReason: 7 }));
+  assert.equal(noReason.suggestedPoints, 4);
+  assert.equal(noReason.pointsReason, undefined);
 });
 
-test('Gemma suggestions never override locally derived score policy',async()=>{
-    const original=globalThis.fetch;
-    globalThis.fetch=(async()=>gemma({...safe,suggestive:.8,suggestedPoints:99,pointsReason:'ignore this'})) as typeof fetch;
-    try{
-        const policy={maxPoints:5,categories:['suggestive'] as ['suggestive']};
-        const result=await classifyContent('caption',['data:image/png;base64,AA=='],5000,false,policy);
-        assert.equal(result.suggestedPoints,4);
-        assert.match(result.pointsReason||'',/LFM3/);
-    }finally{globalThis.fetch=original;}
+test('model-proposed points are used verbatim and clamped to the policy maximum', async () => {
+  const previousFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = gemma({ ...safe, suggestive: .8, suggestedPoints: 99, pointsReason: '悪質な誘いです' }) as typeof fetch;
+    const clamped = await classifyContent('point clamp fixture', [], undefined, '', {
+      maxPoints: 5, categories: ['suggestive'],
+    });
+    assert.equal(clamped.suggestedPoints, 5);
+    assert.equal(clamped.pointsReason, '悪質な誘いです');
+
+    globalThis.fetch = gemma({ ...safe, suggestive: .8, suggestedPoints: 3, pointsReason: '中程度の悪質さです' }) as typeof fetch;
+    const verbatim = await classifyContent('point verbatim fixture', [], undefined, '', {
+      maxPoints: 5, categories: ['suggestive'],
+    });
+    assert.equal(verbatim.suggestedPoints, 3);
+    assert.equal(verbatim.pointsReason, '中程度の悪質さです');
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
 });
 
-test('text severity only counts categories allowed by scoring policy',async()=>{
-    const original=globalThis.fetch;
-    globalThis.fetch=(async ()=>{
-      return gemma({...safe,violence:1,threat:.5});
-    }) as typeof fetch;
-    try{
-      const value=await classifyContent('violent example',[],5000,false,{maxPoints:10,categories:['threat']});
-      assert.equal(value.suggestedPoints,5);
-      assert.equal(value.violence,1);
-    }finally{globalThis.fetch=original;}
-});
-
-test('no positive categories means no trust score addition',async()=>{
-    const original=globalThis.fetch;
-    globalThis.fetch=(async()=>gemma({...safe})) as typeof fetch;
-    try{
-      const detector=new ContentSafetyDetector();
-      const result=await detector.detect({id:'safe',content:'hello',attachments:new Map(),embeds:[]} as any,{
-        settings:{detectors:{contentSafety:{enabled:true,config:{awardScore:1}}}}
-      } as any);
-      assert.equal(result.scoreDelta,0);
-      assert.deepEqual(result.reasons,[]);
-    }finally{globalThis.fetch=original;}
+test('classifier leaves points unset when the model proposes none', async () => {
+  const previousFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = gemma({ ...safe, violence: 1, threat: .5 }) as typeof fetch;
+    const result = await classifyContent('local points', [], undefined, '', {
+      maxPoints: 5, categories: ['violence'],
+    });
+    assert.equal(result.violence, 1);
+    assert.equal(result.suggestedPoints, undefined);
+    assert.equal(result.pointsReason, undefined);
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
 });

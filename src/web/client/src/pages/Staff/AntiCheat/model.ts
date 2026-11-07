@@ -12,6 +12,7 @@ export const DETECTORS: DetectorDefinition[] = [
   { key: 'contentSafety', title: 'AIコンテンツフィルター', description: '画像・GIF・MP4・URL・本文のH系/R18、暴言などを検査します。検知後はネタバレ代理投稿または削除を選べます。全体の自動削除設定とは独立し、スコア加算は初期OFFで、有効時はAIが設定上限以内で妥当な加算点（0点を含む）と理由を提案します。誤検知・見逃しがあり、障害時は元投稿を残し、違反の検知通知は送りません。', icon: 'shield', fields: [
     { kind: 'toggle', key: 'awardScore', label: 'AI判定に応じてスコア加算（既存の自動処罰にも反映）', defaultValue: 0 },
     { kind: 'number', key: 'maxAiScore', label: 'AIが提案する加算点の上限', defaultValue: 10, min: 1, max: 100 },
+    { kind: 'number', key: 'fallbackScore', label: 'AIが点数を返せなかった場合の固定点', defaultValue: 20, min: 0, max: 100 },
     { kind: 'toggle', key: 'scanImages', label: '画像・GIF・MP4を検査', defaultValue: 1 },
     { kind: 'toggle', key: 'similarCache', label: '類似投稿の検知済み結果を再利用（ネタバレ・加算OFF時）', defaultValue: 1 },
     { kind: 'number', key: 'similarityThreshold', label: '類似度しきい値（0.9＝90%）', defaultValue: 0.9, min: 0.9, max: 1, step: 0.01 },
@@ -24,6 +25,7 @@ export const DETECTORS: DetectorDefinition[] = [
     { kind: 'toggle', key: 'hate', label: '差別・憎悪', defaultValue: 1 },
     { kind: 'toggle', key: 'threat', label: '脅迫', defaultValue: 1 },
     { kind: 'toggle', key: 'violence', label: '残虐・暴力表現', defaultValue: 1 },
+    { kind: 'toggle', key: 'spam', label: '荒らし・レイドスパム', defaultValue: 1 },
     { kind: 'number', key: 'imageThreshold', label: '画像の表現強度しきい値（低いほど厳格）', defaultValue: 0.7, min: 0.1, max: 1, step: 0.05 },
     { kind: 'number', key: 'textThreshold', label: '文章の表現強度しきい値（低いほど厳格）', defaultValue: 0.8, min: 0.1, max: 1, step: 0.05 },
     { kind: 'number', key: 'imageSuggestiveThreshold', label: '軽度H画像の強度しきい値', defaultValue: 0.65, min: 0.1, max: 1, step: 0.05 },
