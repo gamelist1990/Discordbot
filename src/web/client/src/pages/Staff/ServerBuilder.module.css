@@ -1,9 +1,10 @@
 .layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: minmax(300px, 430px) minmax(0, 1fr);
   gap: 22px;
   align-items: start;
 }
+.leftCol, .rightCol { display: grid; gap: 22px; min-width: 0; }
 @media (max-width: 1023px) {
   .layout { grid-template-columns: minmax(0, 1fr); }
 }
@@ -47,7 +48,7 @@
 .opList { display: grid; gap: 10px; padding: 20px 24px; }
 .opCard {
   display: grid;
-  grid-template-columns: auto auto 1fr;
+  grid-template-columns: auto 1fr;
   gap: 12px;
   align-items: start;
   padding: 14px 15px;
@@ -55,6 +56,9 @@
   border-radius: var(--radius-xs);
   background: var(--app-surface-strong);
 }
+.opCardSel { border-color: var(--app-accent); }
+.opMain { display: grid; grid-template-columns: auto 1fr; gap: 12px; align-items: start; background: none; border: none; padding: 0; text-align: left; color: inherit; cursor: pointer; font: inherit; min-width: 0; }
+.opDetail { word-break: break-all; opacity: .85; }
 .opCardOff { opacity: .55; }
 .opCard input { width: 18px; height: 18px; margin-top: 2px; accent-color: var(--app-accent); }
 .opIcon {
@@ -84,3 +88,48 @@
 .resultNg { color: var(--app-danger); }
 .structureList { padding: 6px 24px 20px; display: grid; gap: 4px; font-size: .8rem; color: var(--app-ink-soft); }
 .structureList b { color: var(--app-ink); }
+
+/* --- Discord-like tree (v2) --- */
+.tree {
+  padding: 10px 8px 14px;
+  display: grid;
+  gap: 1px;
+  background: color-mix(in srgb, var(--app-surface-soft) 72%, #1e1f22);
+  border-radius: 0 0 var(--radius-xs) var(--radius-xs);
+  max-height: 640px;
+  overflow-y: auto;
+}
+.treeEmpty { padding: 12px; color: var(--app-ink-soft); font-size: .82rem; }
+.treeCat { margin-top: 10px; }
+.treeCatRowWrap { display: flex; align-items: center; gap: 1px; }
+.treeCollapse { background: none; border: none; color: var(--app-ink-soft); cursor: pointer; padding: 2px; display: grid; place-items: center; }
+.treeCatRow {
+  flex: 1; display: flex; align-items: center; gap: 6px; min-width: 0;
+  background: none; border: none; padding: 4px 6px; cursor: pointer; text-align: left;
+  color: var(--app-ink-soft); border-radius: 6px; font: inherit;
+}
+.treeCatRow:hover { color: var(--app-ink); }
+.treeCatName { font-size: .72rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; overflow-wrap: anywhere; }
+.treeChildren { display: grid; gap: 1px; margin-left: 14px; }
+.treeCh {
+  display: flex; align-items: center; gap: 6px; width: 100%; min-width: 0;
+  background: none; border: none; padding: 5px 8px; cursor: pointer; text-align: left;
+  color: var(--app-ink-soft); border-radius: 6px; font: inherit; font-size: .86rem;
+}
+.treeCh:hover { background: color-mix(in srgb, var(--app-surface-strong) 65%, transparent); color: var(--app-ink); }
+.treeChSel { background: var(--app-accent-soft) !important; color: var(--app-ink) !important; }
+.treeChIcon { display: grid; place-items: center; width: 20px; flex: none; color: var(--app-ink-soft); }
+.hashIcon { font-size: 1.05rem; font-weight: 600; line-height: 1; }
+.treeChName { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lockBadge { font-size: 13px !important; color: var(--app-ink-soft); flex: none; }
+.changeBadge {
+  flex: none; font-size: .64rem; font-weight: 700; padding: 1px 6px; border-radius: 999px;
+  background: var(--app-accent); color: #fff; letter-spacing: .02em;
+}
+.detailBox { display: grid; gap: 12px; padding: 18px 24px 22px; font-size: .85rem; line-height: 1.65; }
+.detailBox p { overflow-wrap: anywhere; }
+.quickGrid { display: grid; gap: 12px; }
+.quickRow { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 6px; }
+.quickRow .input { flex: 1; min-width: 140px; }
+.manualList { display: grid; gap: 10px; border-top: 1px solid var(--app-border); padding-top: 14px; }
+.manualItem { display: flex; gap: 8px; justify-content: space-between; align-items: center; font-size: .82rem; flex-wrap: wrap; }

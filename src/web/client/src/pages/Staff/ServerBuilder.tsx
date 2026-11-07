@@ -3,16 +3,11 @@ import { Link } from 'react-router-dom';
 import { useAppToast } from '../../AppToastProvider';
 import ui from '../ManagementDashboard.module.css';
 import styles from './ServerBuilder.module.css';
+import { ServerBuilderTree, applyPlanToStructure, type TreeStructure } from './ServerBuilderTree';
 
 type Guild = { id: string; name: string };
-type StructureChannel = { id: string; name: string; kind: string; parentId?: string };
-type Structure = {
-  guildId: string; guildName: string;
-  categories: { id: string; name: string }[];
-  channels: StructureChannel[];
-  roles: { id: string; name: string }[];
-  channelCount: number;
-};
+type StructureChannel = { id: string; name: string; kind: string; parentId?: string; topic?: string; position: number; permissionOverwrites?: { targetKind: string; targetId: string; targetName?: string; allow: string[]; deny: string[] }[]; permissionsSynced?: boolean | null; isPrivate?: boolean; slowmodeSeconds?: number };
+type Structure = TreeStructure & { channels: StructureChannel[] };
 type Budget = {
   used: number; limit: number; remaining: number; windowMs: number;
   nextRecoveryAt: number | null; fullRecoveryAt: number | null;
@@ -48,6 +43,8 @@ const OP_ICONS: Record<string, string> = {
   setTopic: 'description',
   setSlowmode: 'slow_motion_video',
   setPermissions: 'lock',
+  setPosition: 'swap_vert',
+  syncPermissions: 'sync',
 };
 const OP_LABELS: Record<string, string> = {
   createCategory: 'カテゴリ作成',
@@ -58,6 +55,8 @@ const OP_LABELS: Record<string, string> = {
   setTopic: 'トピック設定',
   setSlowmode: '低速モード設定',
   setPermissions: '権限設定',
+  setPosition: '並び替え',
+  syncPermissions: '権限同期',
 };
 const CHANNEL_TYPE_LABELS: Record<string, string> = { text: 'テキスト', voice: 'ボイス', announcement: 'アナウンス' };
 
@@ -81,6 +80,13 @@ const ServerBuilderPage: React.FC = () => {
   const [loadingState, setLoadingState] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [applying, setApplying] = useState(false);
+  const [selectedNodeId, setSelectedNodeId] = useState('');
+  const [manualOps, setManualOps] = useState<Operation[]>([]);
+  const [manualBusy, setManualBusy] = useState(false);
+  const [detailOp, setDetailOp] = useState<number | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editTopic, setEditTopic] = useState('');
+  const [editSlow, setEditSlow] = useState('0');
 
   useEffect(() => {
     let active = true;
@@ -115,6 +121,7 @@ const ServerBuilderPage: React.FC = () => {
 
   useEffect(() => {
     setStructure(null); setBudget(null); setPreview(null); setResults(null); setChat([]); setRequest('');
+    setSelectedNodeId(''); setManualOps([]); setDetailOp(null);
     if (guildId) void refreshState(guildId);
   }, [guildId, refreshState]);
 
@@ -176,10 +183,47 @@ const ServerBuilderPage: React.FC = () => {
         });
         return { title: `「${targetName}」の権限設定`, detail: lines.join('、') };
       }
+      case 'setPosition':
+        return { title: `「${nameById.get(String(op.targetId)) ?? String(op.targetId)}」の並び替え`, detail: `position を ${String(op.position)} に変更` };
+      case 'syncPermissions':
+        return { title: `「${nameById.get(String(op.channelId)) ?? String(op.channelId)}」の権限同期`, detail: '所属カテゴリの権限に同期します' };
       default:
         return { title: op.type, detail: '' };
     }
   }, [nameById]);
+
+  const previewModel = useMemo(() => {
+    if (!structure) return null;
+    if (!preview) return { structure: structure as TreeStructure, changes: new Map<string, string[]>() };
+    return applyPlanToStructure(structure as TreeStructure, preview.plan.operations as { type: string; [k: string]: unknown }[], selected);
+  }, [structure, preview, selected]);
+
+  const selectedNode = useMemo(() => structure?.channels.find(c => c.id === selectedNodeId) ?? null, [structure, selectedNodeId]);
+  const selectedCategory = useMemo(() => structure?.categories.find(c => c.id === selectedNodeId) ?? null, [structure, selectedNodeId]);
+  useEffect(() => { if (selectedNode) { setEditName(selectedNode.name); setEditTopic(selectedNode.topic ?? ''); setEditSlow(String(selectedNode.slowmodeSeconds ?? 0)); } }, [selectedNodeId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const addManualOp = (op: Operation) => { setManualOps(prev => [...prev, op]); addToast('手動操作を追加しました。プレビューで確認してから適用してください', 'success'); };
+  const submitManual = async () => {
+    const target = guildId; if (!target || manualOps.length === 0 || manualBusy) return;
+    setManualBusy(true); setResults(null);
+    try {
+      const data = await readJson(`/api/staff/server-builder/${target}/plan`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ operations: manualOps, summary: '手動編集プラン' }),
+      });
+      if (target !== guildRef.current) return;
+      const plan = data.plan as Plan;
+      setPreview({ previewId: data.previewId as string, plan });
+      setSelected(new Set(plan.operations.map((_, i) => i)));
+      setManualOps([]);
+      if (data.budget) setBudget(data.budget as Budget);
+      addToast('手動プランを作成しました。ツリーで確認して適用してください', 'success');
+    } catch (e) {
+      const err = e as Error & { details?: string[] };
+      setError(err.details?.length ? `${err.message}（${err.details.join(' / ')}）` : err.message);
+      addToast('手動プランの作成に失敗しました', 'error');
+    } finally { setManualBusy(false); }
+  };
 
   const generate = async () => {
     const target = guildId;
@@ -294,6 +338,72 @@ const ServerBuilderPage: React.FC = () => {
           </section>
 
           <div className={styles.layout}>
+            <div className={styles.leftCol}>
+              <section className={ui.panel} aria-label="サーバー構造">
+                <div className={ui.sectionHeader}>
+                  <div><h2>{preview ? 'プレビュー（適用後の見え方）' : 'サーバー構造'}</h2>
+                    <p>{preview ? '変更にはバッジが付きます。Discordのサイドバーと同じ並び順です。' : 'Discordのサイドバーと同じ並び順です。選択すると詳細とクイック編集が表示されます。'}</p></div>
+                  {preview && <span className={ui.badge}>{icon('visibility')} プレビュー中</span>}
+                </div>
+                {previewModel && structure ? <ServerBuilderTree structure={previewModel.structure} changes={previewModel.changes} selectedId={selectedNodeId} onSelect={setSelectedNodeId} />
+                  : <div className={ui.panelBody}><div className={ui.skeleton} /></div>}
+              </section>
+
+              {selectedNode && structure && <section className={ui.panel} aria-label="選択中の詳細とクイック編集">
+                <div className={ui.sectionHeader}><div><h2>詳細・クイック編集</h2><p>編集は手動操作として積まれ、必ずプレビュー→適用を通ります（即時適用はしません）。</p></div></div>
+                <div className={styles.detailBox}>
+                  <p><strong>{selectedNode.name}</strong></p>
+                  <p className={ui.muted}>種別: {CHANNEL_TYPE_LABELS[selectedNode.kind] ?? selectedNode.kind} / position: {selectedNode.position}
+                    {selectedNode.parentId ? ` / 所属: ${nameById.get(selectedNode.parentId) ?? selectedNode.parentId}` : ' / カテゴリなし'}
+                    {selectedNode.kind !== 'category' ? ` / 権限同期: ${selectedNode.permissionsSynced === null || selectedNode.permissionsSynced === undefined ? '—' : selectedNode.permissionsSynced ? '同期中' : '非同期'}` : ''}
+                    {` / 公開状態: ${selectedNode.isPrivate ? 'プライベート' : '公開'}`}</p>
+                  {selectedNode.topic && <p className={ui.muted}>トピック: {selectedNode.topic}</p>}
+                  {(selectedNode.permissionOverwrites ?? []).length > 0 && <div>
+                    <p className={ui.muted}>権限上書き:</p>
+                    {(selectedNode.permissionOverwrites ?? []).map((o, i) => <p key={i} className={ui.muted}>{o.targetKind === 'everyone' ? '@everyone' : (o.targetName ?? o.targetId)} — 許可: {o.allow.join(', ') || 'なし'} / 拒否: {o.deny.join(', ') || 'なし'}</p>)}
+                  </div>}
+                  {!selectedNodeId.startsWith('new:') && <div className={styles.quickGrid}>
+                    <label className={ui.label}>名前
+                      <span className={styles.quickRow}><input className={ui.input} value={editName} onChange={e => setEditName(e.target.value)} aria-label="新しい名前" />
+                        <button type="button" className={ui.button} disabled={!editName.trim() || editName.trim() === selectedNode.name}
+                          onClick={() => addManualOp(selectedNode.kind === 'category'
+                            ? { type: 'renameCategory', categoryId: selectedNode.id, name: editName.trim() }
+                            : { type: 'renameChannel', channelId: selectedNode.id, name: editName.trim() })}>{icon('edit')} リネーム追加</button></span>
+                    </label>
+                    {selectedNode.kind !== 'category' && <>
+                      <label className={ui.label}>トピック
+                        <span className={styles.quickRow}><input className={ui.input} value={editTopic} onChange={e => setEditTopic(e.target.value)} aria-label="トピック" />
+                          <button type="button" className={ui.button} onClick={() => addManualOp({ type: 'setTopic', channelId: selectedNode.id, topic: editTopic })}>{icon('description')} 追加</button></span>
+                      </label>
+                      <label className={ui.label}>低速モード（秒）
+                        <span className={styles.quickRow}><input className={ui.input} type="number" min={0} max={21600} value={editSlow} onChange={e => setEditSlow(e.target.value)} aria-label="低速モード秒数" />
+                          <button type="button" className={ui.button} onClick={() => addManualOp({ type: 'setSlowmode', channelId: selectedNode.id, seconds: Math.max(0, Math.min(21600, Number(editSlow) || 0)) })}>{icon('slow_motion_video')} 追加</button></span>
+                      </label>
+                    </>}
+                    <div className={styles.quickRow}>
+                      <button type="button" className={ui.button} onClick={() => addManualOp({ type: 'setPosition', targetKind: selectedNode.kind === 'category' ? 'category' : 'channel', targetId: selectedNode.id, position: Math.max(0, selectedNode.position - 1) })}>{icon('arrow_upward')} 上へ</button>
+                      <button type="button" className={ui.button} onClick={() => addManualOp({ type: 'setPosition', targetKind: selectedNode.kind === 'category' ? 'category' : 'channel', targetId: selectedNode.id, position: selectedNode.position + 1 })}>{icon('arrow_downward')} 下へ</button>
+                      {selectedNode.isPrivate
+                        ? <button type="button" className={ui.button} onClick={() => addManualOp({ type: 'setPermissions', targetKind: selectedNode.kind === 'category' ? 'category' : 'channel', targetId: selectedNode.id, overwrites: [{ targetKind: 'everyone', allow: ['ViewChannel'], deny: [] }] })}>{icon('lock_open')} 公開にする</button>
+                        : <button type="button" className={ui.button} onClick={() => addManualOp({ type: 'setPermissions', targetKind: selectedNode.kind === 'category' ? 'category' : 'channel', targetId: selectedNode.id, overwrites: [{ targetKind: 'everyone', allow: [], deny: ['ViewChannel'] }] })}>{icon('lock')} プライベートにする</button>}
+                      {selectedNode.kind !== 'category' && selectedNode.parentId && selectedNode.permissionsSynced === false &&
+                        <button type="button" className={ui.button} onClick={() => addManualOp({ type: 'syncPermissions', channelId: selectedNode.id })}>{icon('sync')} カテゴリに権限同期</button>}
+                    </div>
+                    {selectedCategory && <p className={ui.muted}>カテゴリの権限は「プライベートにする/公開にする」で @everyone の ViewChannel を編集できます（配下の非同期チャンネルには自動では広がりません）。</p>}
+                  </div>}
+                  {manualOps.length > 0 && <div className={styles.manualList}>
+                    <p><strong>手動操作（{manualOps.length}件）</strong> — プレビューを作成するとAI予算は消費されません</p>
+                    {manualOps.map((op, i) => <div key={i} className={styles.manualItem}>
+                      <span>{OP_LABELS[op.type] ?? op.type}: {describeOp(op, { version: 1, summary: '', operations: manualOps }).title}</span>
+                      <button type="button" className={ui.button} onClick={() => setManualOps(prev => prev.filter((_, x) => x !== i))}>{icon('close')} 除外</button>
+                    </div>)}
+                    <button type="button" className={ui.buttonPrimary} disabled={manualBusy} onClick={() => void submitManual()}>{icon('visibility')} {manualBusy ? '作成中…' : '手動プランをプレビュー'}</button>
+                  </div>}
+                </div>
+              </section>}
+            </div>
+
+            <div className={styles.rightCol}>
             <section className={ui.panel} aria-label="AIへの依頼">
               <div className={ui.sectionHeader}>
                 <div><h2>依頼する</h2><p>例: 「ゲーム募集用のカテゴリとテキストVCを作って」「スタッフだけ見える報告チャンネルが欲しい」</p></div>
@@ -319,20 +429,12 @@ const ServerBuilderPage: React.FC = () => {
                 <button type="button" className={ui.buttonPrimary} disabled={generating || !request.trim()} onClick={() => void generate()}>
                   {icon('auto_awesome')} {generating ? 'プラン生成中…' : 'プランを生成'}
                 </button>
-                {structure && <div>
-                  <p className={ui.muted} style={{ marginBottom: 8 }}>現在の構成（{structure.channelCount} チャンネル）</p>
-                  <div className={styles.structureList}>
-                    {structure.categories.map(c => <span key={c.id}><b>{c.name}</b>（カテゴリ）</span>)}
-                    {structure.channels.filter(c => c.kind !== 'category').slice(0, 30).map(c => <span key={c.id}># {c.name}（{CHANNEL_TYPE_LABELS[c.kind] ?? c.kind}）</span>)}
-                    {structure.channels.filter(c => c.kind !== 'category').length > 30 && <span>…ほか {structure.channels.filter(c => c.kind !== 'category').length - 30} 件</span>}
-                  </div>
-                </div>}
               </div>
             </section>
 
             <section className={ui.panel} aria-label="プランプレビュー">
               <div className={ui.sectionHeader}>
-                <div><h2>プランプレビュー</h2><p>チェックした操作だけが適用されます。プレビューは10分間有効です。</p></div>
+                <div><h2>プラン操作一覧</h2><p>左のツリーが適用後の見え方です。操作を選ぶと詳細が表示され、チェックした操作だけが適用されます。プレビューは10分間有効です。</p></div>
                 {preview && <span className={ui.badge}>{selected.size} / {preview.plan.operations.length} 件を選択中</span>}
               </div>
               {results ? <>
@@ -348,12 +450,15 @@ const ServerBuilderPage: React.FC = () => {
                 <div className={styles.opList}>
                   {preview.plan.operations.map((op, i) => {
                     const described = describeOp(op, preview.plan);
-                    return <label key={i} className={`${styles.opCard} ${selected.has(i) ? '' : styles.opCardOff}`}>
+                    return <div key={i} className={`${styles.opCard} ${selected.has(i) ? '' : styles.opCardOff} ${detailOp === i ? styles.opCardSel : ''}`}>
                       <input type="checkbox" checked={selected.has(i)} onChange={() => toggleOp(i)} aria-label={`操作${i + 1}を適用する`} />
-                      <span className={styles.opIcon}>{icon(OP_ICONS[op.type] ?? 'extension')}</span>
-                      <span><strong>{described.title}</strong>
-                        <small>{OP_LABELS[op.type] ?? op.type}{described.detail ? ` — ${described.detail}` : ''}</small></span>
-                    </label>;
+                      <button type="button" className={styles.opMain} onClick={() => setDetailOp(detailOp === i ? null : i)}>
+                        <span className={styles.opIcon}>{icon(OP_ICONS[op.type] ?? 'extension')}</span>
+                        <span><strong>{described.title}</strong>
+                          <small>{OP_LABELS[op.type] ?? op.type}{described.detail ? ` — ${described.detail}` : ''}</small>
+                          {detailOp === i && <small className={styles.opDetail}>{JSON.stringify(op)}</small>}</span>
+                      </button>
+                    </div>;
                   })}
                 </div>
                 <div className={styles.formBody}>
@@ -367,9 +472,10 @@ const ServerBuilderPage: React.FC = () => {
               </> : <div className={ui.emptyInner}>
                 <div className={ui.emptyIcon}>{icon('fact_check')}</div>
                 <h3>まだプランがありません</h3>
-                <p>左のフォームから依頼すると、ここに変更内容の一覧が表示されます。適用するまでサーバーは変更されません。</p>
+                <p>依頼フォームか、ツリーで選択した対象のクイック編集からプランを作れます。適用するまでサーバーは変更されません。</p>
               </div>}
             </section>
+            </div>
           </div>
 
           <div className={ui.notice}>{icon('verified_user')} <div><strong style={{ color: 'var(--app-ink)' }}>安全設計</strong>
