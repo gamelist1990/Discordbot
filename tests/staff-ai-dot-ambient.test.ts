@@ -484,6 +484,12 @@ test('participation judge prompt requires a concrete draft in reason and bans em
     assert.ok(PARTICIPATION_JUDGE_SYSTEM_PROMPT.includes('特定の技術的な実装については、なかなか情報掴みにくいんだよね。'));
     // 知らない話題は参加理由にならないこと
     assert.ok(PARTICIPATION_JUDGE_SYSTEM_PROMPT.includes('知らないことは参加の理由にならない'));
+    // 雰囲気そのものへの感想は参加内容として認めないこと（2026-11-07 の「カオスな空間」実例）
+    assert.ok(PARTICIPATION_JUDGE_SYSTEM_PROMPT.includes('雰囲気そのものへの感想は参加内容として認めない'));
+    assert.ok(PARTICIPATION_JUDGE_SYSTEM_PROMPT.includes('いろんな話が飛び交う、まじでカオスな空間だよね。'));
+    // 下書きは対象発言の話題そのものの具体でなければならないこと
+    assert.ok(PARTICIPATION_JUDGE_SYSTEM_PROMPT.includes('話題そのもの（人名・物・出来事などの具体）について言える内容でなければならない'));
+    assert.ok(PARTICIPATION_JUDGE_SYSTEM_PROMPT.includes('その話題について具体的に言えることがなければ none'));
 });
 
 test('addressed judge prompt excludes open questions to the room', () => {
@@ -504,4 +510,8 @@ test('ambient system rules ban deflection with abstract words and require concre
     // 会話に出てきた具体的な単語を使う推奨と、同じ文型の繰り返し回避
     assert.ok(AMBIENT_SYSTEM_RULES.includes('具体的な単語（固有名詞や話題の語）を拾って使う'));
     assert.ok(AMBIENT_SYSTEM_RULES.includes('同じ文型・言い回しを繰り返さない'));
+    // 雰囲気の一般論に落とさず、下書きの具体をそのまま言うこと
+    assert.ok(AMBIENT_SYSTEM_RULES.includes('サーバーの雰囲気そのものへの感想'));
+    assert.ok(AMBIENT_SYSTEM_RULES.includes('この鯖の魅力だよね'));
+    assert.ok(AMBIENT_SYSTEM_RULES.includes('判定の下書きにあった具体（人名・物・出来事）をそのまま短く言う'));
 });
