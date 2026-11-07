@@ -1,4 +1,5 @@
 import type { Message } from 'discord.js';
+import { getEffectiveContent } from './ForwardedContent.js';
 
 /** Bounded, same-channel conversation context. Never score neighboring posts. */
 const WINDOW_MS = 30 * 60_000;
@@ -24,14 +25,14 @@ export async function loadContentConversationContext(message: Message, replyCont
     }
     // Give immediately-following comments a brief opportunity to arrive.
     // Future posts not yet sent are necessarily unavailable.
-    if (graceMs > 0 && message.content?.length <= 240) {
+    if (graceMs > 0 && getEffectiveContent(message).length <= 240) {
         await new Promise<void>(resolve => setTimeout(resolve, graceMs));
     }
     try {
         const fetched = await channel.messages.fetch({ around: message.id, limit: FETCH_LIMIT });
         const created = Number(message.createdTimestamp) || Date.now();
         const nearby = Array.from(fetched.values()).filter((item: any) => {
-            if (!item || item.id === message.id || item.author?.bot || item.webhookId || !item.content?.trim()) return false;
+            if (!item || item.id === message.id || item.author?.bot || item.webhookId || !getEffectiveContent(item).trim()) return false;
             if (item.channelId && message.channelId && item.channelId !== message.channelId) return false;
             const timestamp = Number(item.createdTimestamp);
             return Number.isFinite(timestamp) && Math.abs(timestamp - created) <= WINDOW_MS;
@@ -39,7 +40,7 @@ export async function loadContentConversationContext(message: Message, replyCont
             id: String(item.id),
             author: String(item.author?.id || 'unknown').slice(0, 22),
             timestamp: Number(item.createdTimestamp),
-            text: String(item.content).replace(/\s+/g, ' ').slice(0, PREVIEW_LENGTH),
+            text: getEffectiveContent(item).replace(/\s+/g, ' ').slice(0, PREVIEW_LENGTH),
         })).sort((a, b) => a.timestamp - b.timestamp || a.id.localeCompare(b.id));
         const before = nearby.filter(item => item.timestamp <= created).slice(-PER_SIDE);
         const after = nearby.filter(item => item.timestamp > created).slice(0, PER_SIDE);

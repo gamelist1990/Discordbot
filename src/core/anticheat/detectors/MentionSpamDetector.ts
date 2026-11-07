@@ -1,7 +1,7 @@
 import type { Message } from 'discord.js';
 import { CacheManager } from '../../../utils/CacheManager.js';
 import type { Detector, DetectionContext, DetectionResult } from '../types.js';
-import { getDetectorConfig } from '../utils.js';
+import { getDetectorConfig, getEffectiveContent } from '../utils.js';
 import { extractMentions, MentionWindow, positiveSetting } from '../MentionWindow.js';
 
 export class MentionSpamDetector implements Detector {
@@ -15,7 +15,7 @@ export class MentionSpamDetector implements Detector {
         const roleMentionThreshold = positiveSetting(config.roleMentionThreshold, 5);
         const totalMentionThreshold = positiveSetting(config.totalMentionThreshold, 10);
         const uniqueUserMentionThreshold = positiveSetting(config.uniqueUserMentionThreshold, 8);
-        const mentions = extractMentions(message.content || '');
+        const mentions = extractMentions(getEffectiveContent(message));
         const key = `anticheat:mention-window:v2:${context.guildId}:${context.userId}`;
         const window = CacheManager.get<MentionWindow>(key) || new MentionWindow();
         const changed = window.update(message.id, mentions, context.receivedAt ?? Date.now(), windowSeconds * 1000);

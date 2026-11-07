@@ -1,7 +1,7 @@
 import { Message } from 'discord.js';
 import { CacheManager } from '../../../utils/CacheManager.js';
 import { Detector, DetectionContext, DetectionResult } from '../types.js';
-import { createSimilaritySignature, getDetectorConfig, normalizeContent } from '../utils.js';
+import { createSimilaritySignature, getDetectorConfig, getEffectiveContent, normalizeContent } from '../utils.js';
 
 interface DuplicateRecord {
     content: string;
@@ -20,7 +20,7 @@ export class DuplicateMessageDetector implements Detector {
         const deleteFrom = Number(config.deleteFrom) || 2;
         const scoreFrom = Number(config.scoreFrom) || 4;
         const cacheKey = `anticheat:duplicate:${context.guildId}:${context.channelId}:${context.userId}`;
-        const normalized = normalizeContent(message.content);
+        const normalized = normalizeContent(getEffectiveContent(message));
         const signature = createSimilaritySignature(normalized);
         const now = context.receivedAt ?? Date.now();
         const existing = (CacheManager.get<DuplicateRecord[]>(cacheKey) || [])

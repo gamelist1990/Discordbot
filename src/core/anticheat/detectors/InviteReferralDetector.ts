@@ -1,6 +1,6 @@
 import { Message } from 'discord.js';
 import { Detector, DetectionContext, DetectionResult } from '../types.js';
-import { ensureAbsoluteUrl, extractUrls, getDetectorConfig, hostMatches, isDiscordInvite } from '../utils.js';
+import { ensureAbsoluteUrl, extractUrls, getDetectorConfig, getEffectiveContent, hostMatches, isDiscordInvite } from '../utils.js';
 
 function isBlockedPattern(pattern: string, content: string): boolean {
     try {
@@ -16,7 +16,8 @@ export class InviteReferralDetector implements Detector {
     async detect(message: Message, context: DetectionContext): Promise<DetectionResult> {
         const detectorConfig = getDetectorConfig(context, this.name);
         const config = detectorConfig.config || {};
-        const urls = extractUrls(message.content);
+        const content = getEffectiveContent(message);
+        const urls = extractUrls(content);
         const blockedDomains = Array.isArray(config.blockedDomains) ? config.blockedDomains : [];
         const blockedPatterns = Array.isArray(config.blockedPatterns) ? config.blockedPatterns : [];
 
@@ -33,7 +34,7 @@ export class InviteReferralDetector implements Detector {
             }
         });
 
-        const matchedPatterns = blockedPatterns.filter((pattern: string) => isBlockedPattern(pattern, message.content));
+        const matchedPatterns = blockedPatterns.filter((pattern: string) => isBlockedPattern(pattern, content));
 
         if (matchedUrls.length === 0 && matchedPatterns.length === 0) {
             return { scoreDelta: 0, reasons: [] };

@@ -2,6 +2,7 @@ import { PermissionFlagsBits, type Client, type Message } from 'discord.js';
 import { OpenAIChatManager } from './OpenAIChatManager.js';
 import { GEMMA_MODEL, config } from '../../config.js';
 import { Logger } from '../../utils/Logger.js';
+import { getEffectiveContent } from '../anticheat/ForwardedContent.js';
 import { getStaffAIDotMode } from '../../commands/staff/subcommands/StaffAIDotMode.js';
 import {
     applyGuildAIPersonalityLearning,
@@ -659,7 +660,7 @@ function onMessageCreate(client: Client) {
                 if (!(await refreshDotEnabled())) return;
                 if (excludedChannels.has(message.channelId)) return;
 
-                const content = (message.content ?? '').trim();
+                const content = getEffectiveContent(message).trim();
                 const now = message.createdTimestamp;
                 state.recentHuman = state.recentHuman.filter(item => now - item.at <= DOT_AMBIENT.activeWindowMs);
                 state.recentHuman.push({ authorId: message.author.id, at: now });

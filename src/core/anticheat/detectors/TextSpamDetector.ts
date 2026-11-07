@@ -1,7 +1,7 @@
 import { Message } from 'discord.js';
 import { Detector, DetectionContext, DetectionResult } from '../types.js';
 import { CacheManager } from '../../../utils/CacheManager.js';
-import { createSimilaritySignature, getDetectorConfig, normalizeContent, signatureContainsInvite } from '../utils.js';
+import { createSimilaritySignature, getDetectorConfig, getEffectiveContent, normalizeContent, signatureContainsInvite } from '../utils.js';
 
 interface MessageRecord {
     content: string;
@@ -36,7 +36,8 @@ export class TextSpamDetector implements Detector {
         const rapidThreshold = Number(config.rapidMessageCount) || 6;
         const rapidWindowMs = (Number(config.windowSeconds) || 5) * 1000;
         const cacheKey = `anticheat:messages:${context.guildId}:${context.channelId}:${context.userId}`;
-        const normalizedContent = normalizeContent(message.content);
+        const effectiveContent = getEffectiveContent(message);
+        const normalizedContent = normalizeContent(effectiveContent);
         const signature = createSimilaritySignature(normalizedContent);
         const hasInvite = signatureContainsInvite(signature);
         const now = context.receivedAt ?? Date.now();
@@ -71,7 +72,7 @@ export class TextSpamDetector implements Detector {
         // by signature, so rotating mentions or random tails per line still
         // count as repeats; mention runs collapse to one placeholder.
         const lineCounts = new Map<string, number>();
-        for (const rawLine of message.content.split(/\r?\n/)) {
+        for (const rawLine of effectiveContent.split(/\r?\n/)) {
             const lineSignature = createSimilaritySignature(normalizeContent(rawLine))
                 .replace(/(<@>)(?: \1)+/g, '$1');
             if (lineSignature.length < 6) continue;

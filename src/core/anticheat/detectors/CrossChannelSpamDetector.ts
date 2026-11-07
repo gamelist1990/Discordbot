@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import type { Message } from 'discord.js';
 import { CacheManager } from '../../../utils/CacheManager.js';
 import type { Detector, DetectionContext, DetectionResult } from '../types.js';
-import { createSimilaritySignature, getDetectorConfig, normalizeContent } from '../utils.js';
+import { createSimilaritySignature, getDetectorConfig, getEffectiveContent, normalizeContent } from '../utils.js';
 
 interface PostRecord {
     id: string;
@@ -29,7 +29,7 @@ export class CrossChannelSpamDetector implements Detector {
         const now = context.receivedAt ?? Date.now();
         const retentionMs = Math.max(windowSeconds, rapidWindowSeconds) * 1000;
         const key = `anticheat:cross-channel:${context.guildId}:${context.userId}`;
-        const normalized = normalizeContent(message.content.normalize('NFKC').replace(/[\u200b-\u200d\u2060\ufeff]/g, ''));
+        const normalized = normalizeContent(getEffectiveContent(message).normalize('NFKC').replace(/[\u200b-\u200d\u2060\ufeff]/g, ''));
         // Empty attachment-only posts count toward the burst limit, not as identical text.
         const fingerprint = normalized ? createHash('sha256').update(createSimilaritySignature(normalized)).digest('hex') : '';
         const exactFingerprint = normalized ? createHash('sha256').update(normalized).digest('hex') : '';

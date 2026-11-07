@@ -17,6 +17,7 @@ import { contentFailureReason } from "../ContentScanFailure.js";
 import { Logger } from "../../../utils/Logger.js";
 import { loadContentConversationContext } from "../ContentConversationContext.js";
 import { classifyWithLfm, buildLfmInstructions, LFM3_MODEL } from "../LfmContentClassifier.js";
+import { getEffectiveContent, getForwardedSnapshots } from "../ForwardedContent.js";
 
 export const CONTENT_CATEGORIES = [
   "suggestive",
@@ -337,6 +338,10 @@ export class ContentSafetyDetector implements Detector {
           }
         : undefined;
     const content = message.content;
+    // Forwarded bodies live on messageSnapshots, not content; the scored
+    // post is the effective text. `expected` below keeps the raw content
+    // because deletion verification compares against the live message.
+    const effectiveContent = getEffectiveContent(message);
     let replyContext = "";
     if (options.scanText === 1 && message.reference?.messageId) {
       try {
@@ -350,7 +355,7 @@ export class ContentSafetyDetector implements Detector {
       }
     }
     // Surrounding conversation is context data and must not be scored as this post.
-    const contextualContent = content;
+    const contextualContent = effectiveContent;
     let conversationContext = options.scanText === 1
       ? await loadContentConversationContext(message, replyContext)
       : "";
@@ -521,14 +526,14 @@ export class ContentSafetyDetector implements Detector {
       return true;
     };
     const urlOnly =
-      /https?:\/\//i.test(content) &&
-      !content.replace(/https?:\/\/[^\s<>|]+/gi, "").replace(/[\s<>|]/g, "");
+      /https?:\/\//i.test(effectiveContent) &&
+      !effectiveContent.replace(/https?:\/\/[^\s<>|]+/gi, "").replace(/[\s<>|]/g, "");
     if (
       options.scanText === 1 &&
-      content.trim() &&
+      effectiveContent.trim() &&
       // A ping-only text is not abuse or a custom-rule breach by itself.
       // Other attachments and embeds are still checked below.
-      !(isOnlyDiscordUserMentions(content) && !customRulesBanUserMentions(customRules)) &&
+      !(isOnlyDiscordUserMentions(effectiveContent) && !customRulesBanUserMentions(customRules)) &&
       !(urlOnly && options.scanImages === 1 && options.scanUrls === 1)
     ) {
       try {
@@ -545,8 +550,22 @@ export class ContentSafetyDetector implements Detector {
         isVisualAttachment,
       ))
         urls.add(attachment.url);
+      // Forwarded snapshots carry their own attachments; scan them too.
+      for (const snapshot of getForwardedSnapshots(message)) {
+        for (const attachment of getMediaAttachments(snapshot).filter(
+          isVisualAttachment,
+        ))
+          urls.add(attachment.url);
+      }
       if (options.scanUrls === 1) {
-        for (const url of extractContentUrls(content)) urls.add(url);
+        for (const url of extractContentUrls(effectiveContent)) urls.add(url);
+        for (const snapshot of getForwardedSnapshots(message)) {
+          for (const embed of (snapshot.embeds as any[]) || []) {
+            if (embed.image?.url) urls.add(embed.image.url);
+            if (embed.thumbnail?.url) urls.add(embed.thumbnail.url);
+            if (embed.video?.url) urls.add(embed.video.url);
+          }
+        }
         for (const embed of message.embeds || []) {
           if (embed.image?.url) urls.add(embed.image.url);
           if (embed.thumbnail?.url) urls.add(embed.thumbnail.url);
@@ -625,7 +644,7 @@ export class ContentSafetyDetector implements Detector {
         spamHit = false;
         customRuleHits.clear();
         try {
-          if (!(await check(content, [], "text"))) return stopped();
+          if (!(await check(contextualContent, [], "text"))) return stopped();
         } catch (error) {
           errors.push("text-recheck-failed stage=" + stage + ": " + contentFailureReason(error));
         }
