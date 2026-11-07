@@ -35,6 +35,11 @@ export const DOT_AMBIENT = {
     evaluationIntervalMs: 90_000,
     evaluationMinNewMessages: 2,
     judgeMinConfidence: 0.7,
+    reactMinConfidence: 0.6,
+    continueMinConfidence: 0.55,
+    engagedWindowMs: 5 * 60_000,
+    reactChannelCooldownMs: 10 * 60_000,
+    contextBufferSize: 25,
     addressedCooldownMs: 45_000,
     addressedJudgeMinConfidence: 0.65,
     addressedContextWindowMs: 10 * 60_000,
@@ -91,55 +96,72 @@ export function isAddressedCandidate(content: string, options: AddressedCandidat
     return false;
 }
 
-export interface AddressedJudgeDecision {
-    addressed: boolean;
-    confidence: number;
-}
-
-/** 呼びかけ判定モデルのJSON出力を解釈する。解釈できない場合は応答しない。 */
-export function parseAddressedJudgeResponse(text: string): AddressedJudgeDecision | null {
-    const match = text.match(/\{[\s\S]*\}/);
-    if (!match) return null;
-    try {
-        const value = JSON.parse(match[0]) as Record<string, unknown>;
-        if (typeof value.addressed !== 'boolean') return null;
-        const confidence = typeof value.confidence === 'number'
-            ? Math.min(1, Math.max(0, value.confidence))
-            : 0;
-        return { addressed: value.addressed, confidence };
-    } catch {
-        return null;
-    }
-}
-
-/** モデル判定で応答してよいか。解釈不能・低確信度なら応答しない。 */
-export function shouldRespondToAddressed(decision: AddressedJudgeDecision | null): boolean {
+/** 呼びかけ判定（統合スキーマ）で応答してよいか。reply かつ、ambient参加より少し低めのしきい値以上で応答する。 */
+export function shouldRespondToAddressed(decision: ParticipationDecision | null): boolean {
     return decision !== null
-        && decision.addressed
+        && decision.action === 'reply'
         && decision.confidence >= DOT_AMBIENT.addressedJudgeMinConfidence;
 }
 
-export interface DotJudgeDecision {
-    join: boolean;
+export type ParticipationAction = 'none' | 'reply' | 'comment' | 'react' | 'continue';
+
+export interface ParticipationDecision {
+    action: ParticipationAction;
+    targetMessageId: string | null;
+    emoji: string | null;
     confidence: number;
-    kind: 'answer' | 'comment' | 'empathize';
+    reason: string;
 }
 
-/** 判定モデルのJSON出力を解釈する。解釈できない場合は参加しない。 */
-export function parseDotJudgeResponse(text: string): DotJudgeDecision | null {
+/**
+ * 参加判断モデルのJSON出力を解釈する。解釈できない場合は参加しない。
+ * emoji は通常のUnicode絵文字だけを採用する（カスタム絵文字・英数字は落とす）。
+ */
+export function parseParticipationDecision(text: string): ParticipationDecision | null {
     const match = text.match(/\{[\s\S]*\}/);
     if (!match) return null;
     try {
         const value = JSON.parse(match[0]) as Record<string, unknown>;
-        if (typeof value.join !== 'boolean') return null;
+        const action = value.action;
+        if (action !== 'none' && action !== 'reply' && action !== 'comment' && action !== 'react' && action !== 'continue') return null;
         const confidence = typeof value.confidence === 'number'
             ? Math.min(1, Math.max(0, value.confidence))
             : 0;
-        const kind = value.kind === 'answer' || value.kind === 'empathize' ? value.kind : 'comment';
-        return { join: value.join, confidence, kind };
+        const targetMessageId = typeof value.targetMessageId === 'string' && /^\d{5,25}$/.test(value.targetMessageId)
+            ? value.targetMessageId
+            : null;
+        const emoji = typeof value.emoji === 'string'
+            && value.emoji.length >= 1 && value.emoji.length <= 8
+            && !/[\x00-\x7F]/.test(value.emoji)
+            ? value.emoji
+            : null;
+        const reason = typeof value.reason === 'string' ? value.reason.slice(0, 120) : '';
+        return { action, targetMessageId, emoji, confidence, reason };
     } catch {
         return null;
     }
+}
+
+/** アクションごとの実行しきい値。冷たい新規参加（reply/comment）は高く、軽い参加（react）と参加中の追随（continue）は低め。 */
+export function participationThreshold(action: ParticipationAction): number {
+    switch (action) {
+        case 'reply':
+        case 'comment':
+            return DOT_AMBIENT.judgeMinConfidence;
+        case 'react':
+            return DOT_AMBIENT.reactMinConfidence;
+        case 'continue':
+            return DOT_AMBIENT.continueMinConfidence;
+        default:
+            return Number.POSITIVE_INFINITY;
+    }
+}
+
+/** モデルの構造化判断を実行してよいか。continue は engaged の時だけ意味を持つ。 */
+export function shouldExecuteParticipation(decision: ParticipationDecision | null, presence: DotPresence): boolean {
+    if (!decision || decision.action === 'none') return false;
+    if (decision.action === 'continue' && presence !== 'engaged') return false;
+    return decision.confidence >= participationThreshold(decision.action);
 }
 
 export interface DotChannelSnapshot {
@@ -149,6 +171,9 @@ export interface DotChannelSnapshot {
     lastJudgedQuestionId: string;
     lastAmbientJoinAt: number;
     lastOtherBotMessageAt: number;
+    lastBotParticipationAt: number;
+    engagedUntil: number;
+    lastReactAt: number;
     humanMessagesInWindow: number;
     distinctHumansInWindow: number;
     humanMessagesTotal: number;
@@ -156,21 +181,42 @@ export interface DotChannelSnapshot {
     lastEvaluationAt: number;
 }
 
-export type DotOpportunity = 'active' | 'question' | null;
+/** チャンネルに対するBotのプレゼンス。engaged=会話に参加中、cooldown=参加後の静止期間、lurking=様子見。 */
+export type DotPresence = 'lurking' | 'engaged' | 'cooldown';
+
+export function presenceOf(s: DotChannelSnapshot, now: number): DotPresence {
+    if (s.engagedUntil > now) return 'engaged';
+    if (s.lastAmbientJoinAt > 0 && now - s.lastAmbientJoinAt < DOT_AMBIENT.channelCooldownMs) return 'cooldown';
+    return 'lurking';
+}
+
+export type DotEvaluationTrigger = 'engaged' | 'question' | 'open';
 
 /**
- * 「モデルに判断させる機会」があるかを決める純粋関数。
- * 実際に混ざるかどうかはモデルの判定（judge）が決める。
+ * 「モデルに判断させる機会」があるかを決める純粋関数（候補化のみ）。
+ * 実際に何をするかはモデルの構造化判断（parseParticipationDecision）が決める。
+ * 件数カウンタはここでの候補化と上限ガードにだけ使い、参加可否の主役ではない。
  */
-export function evaluateDotOpportunity(s: DotChannelSnapshot, now: number): DotOpportunity {
+export function evaluateEvaluationTrigger(s: DotChannelSnapshot, now: number): DotEvaluationTrigger | null {
     if (s.lastHumanMessageAt === 0) return null;
-    // 最後に混ざって以降、人間の新しい発言がないなら何もしない。
-    if (s.lastHumanMessageAt <= s.lastAmbientJoinAt) return null;
-    if (s.lastAmbientJoinAt > 0 && now - s.lastAmbientJoinAt < DOT_AMBIENT.channelCooldownMs) return null;
     // Bot本体（他の機能）が最近そのチャンネルで話していたら譲る。
     if (s.lastOtherBotMessageAt > 0 && now - s.lastOtherBotMessageAt < DOT_AMBIENT.selfBotRecentMs) return null;
 
     const age = now - s.lastHumanMessageAt;
+    const presence = presenceOf(s, now);
+    if (presence === 'engaged') {
+        // 参加中: 自分の最後の参加より後に来た人間の発言で、まだ流れが生きている間だけ追随判定する。
+        if (s.lastHumanMessageAt > s.lastBotParticipationAt
+            && s.lastHumanMessageAt > s.lastEvaluationAt
+            && age <= DOT_AMBIENT.activeMaxAgeMs) {
+            return 'engaged';
+        }
+        return null;
+    }
+    if (presence === 'cooldown') return null;
+
+    // lurking: 最後に混ざって以降、人間の新しい発言がないなら何もしない。
+    if (s.lastHumanMessageAt <= s.lastAmbientJoinAt) return null;
     // 静かなチャンネルで質問が宙に浮いている場合は、単発でも判定機会を作る。
     if (s.lastHumanMessageIsQuestion
         && s.lastHumanMessageId !== s.lastJudgedQuestionId
@@ -185,7 +231,7 @@ export function evaluateDotOpportunity(s: DotChannelSnapshot, now: number): DotO
         && age <= DOT_AMBIENT.activeMaxAgeMs
         && now - s.lastEvaluationAt >= DOT_AMBIENT.evaluationIntervalMs
         && s.humanMessagesTotal - s.humanCountAtLastEvaluation >= DOT_AMBIENT.evaluationMinNewMessages) {
-        return 'active';
+        return 'open';
     }
     return null;
 }
@@ -200,6 +246,10 @@ interface ChannelState {
     lastOtherBotMessageAt: number;
     lastAddressedResponseAt: number;
     lastBotMessageAt: number;
+    lastBotParticipationAt: number;
+    engagedUntil: number;
+    lastReactAt: number;
+    recentMessages: BufferedMessage[];
     dotPostIds: Set<string>;
     recentBotMessageIds: string[];
     recentHuman: Array<{ authorId: string; at: number }>;
@@ -252,6 +302,10 @@ function stateFor(message: Message): ChannelState {
             lastOtherBotMessageAt: 0,
             lastAddressedResponseAt: 0,
             lastBotMessageAt: 0,
+            lastBotParticipationAt: 0,
+            engagedUntil: 0,
+            lastReactAt: 0,
+            recentMessages: [],
             dotPostIds: new Set(),
             recentBotMessageIds: [],
             recentHuman: [],
@@ -278,32 +332,76 @@ async function guildCallNames(client: Client, guildId: string): Promise<string[]
     return list;
 }
 
+interface BufferedMessage {
+    id: string;
+    authorId: string;
+    authorName: string;
+    content: string;
+    at: number;
+    isBot: boolean;
+}
+
 function formatContext(messages: Message[], selfId: string | undefined): string {
     return messages
         .map(message => {
             const name = message.author.id === selfId ? '(自分=このBot)' : message.author.username;
             const body = (message.content ?? '').replace(/\s+/g, ' ').slice(0, 300) || '(本文なし)';
-            return `${name}: ${body}`;
+            return `[${message.id}] ${name}: ${body}`;
         })
         .join('\n');
 }
 
-const JUDGE_SYSTEM_PROMPT = [
-    'あなたはDiscordサーバーに常駐するAIの「今、発言すべきか」の判定器です。JSONだけを返してください。',
-    '形式: {"join":trueまたはfalse,"confidence":0.0から1.0,"kind":"answer"|"comment"|"empathize"}',
-    'join=true は「会話の流れの中に短く混ざると場が良くなる」場合。盛り上がっている会話への軽い相づち・コメント、答えられていない質問への回答（answer）、困っていそうな人へのさりげない共感（empathize）が該当します。',
-    'join=false は、人間同士の話が完結している、流れが速すぎる、内輪すぎて入りにくい、深刻な相談や言い争いの最中、Botが直近で話した、混ざると水を差す場合。',
-    'しれっと混ざるのが理想で、出しゃばるのは失敗です。迷ったら join=false。confidence は「混ざって成功する確信度」。',
+/** チャンネルごとに保持している直近の会話（誰が・いつ・何を）を判定入力の「会話の絵」に整形する。 */
+function formatBuffered(messages: BufferedMessage[], selfId: string | undefined, now: number): string {
+    return messages
+        .map(entry => {
+            const name = entry.authorId === selfId ? '(自分=このBot)' : entry.authorName;
+            const body = entry.content.replace(/\s+/g, ' ').slice(0, 300) || '(本文なし)';
+            const mins = Math.floor((now - entry.at) / 60_000);
+            const when = mins >= 1 ? ` (${mins}分前)` : '';
+            return `[${entry.id}] ${name}${when}: ${body}`;
+        })
+        .join('\n');
+}
+
+function pushBuffered(state: ChannelState, entry: BufferedMessage): void {
+    state.recentMessages.push(entry);
+    if (state.recentMessages.length > DOT_AMBIENT.contextBufferSize) state.recentMessages.shift();
+}
+
+const sleepMs = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms));
+
+/** 投稿前の人間らしい間（ミリ秒）。rand は 0..1。呼びかけ応答は速め、通常参加は少し置く、リアクションは軽く。 */
+export function ambientSendDelayMs(kind: 'addressed' | 'join' | 'react', rand: number): number {
+    const r = Math.min(1, Math.max(0, rand));
+    switch (kind) {
+        case 'addressed': return 400 + Math.floor(r * 800);
+        case 'join': return 1500 + Math.floor(r * 2500);
+        case 'react': return 300 + Math.floor(r * 600);
+    }
+}
+
+const PARTICIPATION_JUDGE_SYSTEM_PROMPT = [
+    'あなたはDiscordサーバーに常駐するAIの「参加判断器」です。JSONだけを返してください。',
+    '形式: {"action":"none"|"reply"|"comment"|"react"|"continue","targetMessageId":"対象のメッセージIDまたはnull","emoji":"絵文字またはnull","confidence":0.0から1.0,"reason":"短い理由"}',
+    '会話ログの各行頭は [メッセージID] です。あなた自身は「(自分=このBot)」と表示されています。',
+    'action の意味:',
+    '- none: 何もしない（既定）。開かれていない会話、二人だけのやり取り、他人宛の話、内輪で完結している流れ、深刻な相談や言い争いの最中、直近で自分が話したばかりの場では必ず none。',
+    '- reply: 特定のメッセージへの返信が自然な場合。宙に浮いた質問への回答、あなたに向けられた発言への応答。targetMessageId を指定する。',
+    '- comment: 会話全体に短く口を挟む余地が本当にある場合だけ（ネタへの乗っかり、困っている人へのさりげない助け）。ハードルは高い。',
+    '- react: 言葉ではなく絵文字リアクションが一番自然な軽い反応（笑い・驚き・共感）。targetMessageId と emoji を必ず指定する。',
+    '- continue: あなたが既に参加している会話の流れへの追随（あなたの状態が engaged の時だけ選べる）。',
+    'しれっと混ざるのが理想で、出しゃばるのは失敗です。迷ったら none。confidence は「その参加が成功する確信度」。',
 ].join('\n');
 
 const ADDRESSED_JUDGE_SYSTEM_PROMPT = [
     'あなたはDiscordサーバーに常駐するAIの「呼びかけ判定器」です。JSONだけを返してください。',
-    '形式: {"addressed":trueまたはfalse,"confidence":0.0から1.0}',
+    '形式: {"action":"reply"または"none","targetMessageId":null,"emoji":null,"confidence":0.0から1.0,"reason":"短い理由"}',
     '判定するのは「対象メッセージ」が、常駐AIであるあなた自身に話しかけているかどうかです。会話ログの中であなたは「(自分=このBot)」と表示されています。直近の会話は文脈としてだけ使い、判定は対象メッセージについて行ってください。',
-    'addressed=true: 名前や「AI」などでの呼びかけ、あなたへの質問・依頼・相談、あなたの直前の発言への返答・ツッコミ・続きの質問、二人称であなたに向けられた発言。',
-    'addressed=false: あなたを話題にしているだけの発言（感想・報告・他人への説明）、他の特定の人への発言・質問、独り言、あなたが入ると割り込みになる発言。他のユーザーをメンションしている発言は原則その人宛です。',
-    '例外として、話題にしているだけでも、発言の形が明らかにあなたへの呼びかけ・ツッコミで、あなた本人が短く返すのが会話の流れとして自然な場合に限り、高い確信度でtrueにしてよい。',
-    '迷ったら addressed=false。confidence は「話しかけられた」確信度。',
+    'action=reply: 名前や「AI」などでの呼びかけ、あなたへの質問・依頼・相談、あなたの直前の発言への返答・ツッコミ・続きの質問、二人称であなたに向けられた発言。',
+    'action=none: あなたを話題にしているだけの発言（感想・報告・他人への説明）、他の特定の人への発言・質問、独り言、あなたが入ると割り込みになる発言。他のユーザーをメンションしている発言は原則その人宛です。',
+    '例外として、話題にしているだけでも、発言の形が明らかにあなたへの呼びかけ・ツッコミで、あなた本人が短く返すのが会話の流れとして自然な場合に限り、高い確信度で reply にしてよい。',
+    '迷ったら action=none。confidence は「話しかけられた」確信度。',
 ].join('\n');
 
 const AMBIENT_SYSTEM_RULES = [
@@ -338,7 +436,7 @@ function rememberDotPost(state: ChannelState, message: Message): void {
 }
 
 /** ノミネートされた候補が「Botに話しかけている」かをモデルに文脈で判定させる。 */
-async function judgeAddressed(message: Message): Promise<AddressedJudgeDecision | null> {
+async function judgeAddressed(message: Message): Promise<ParticipationDecision | null> {
     const channel = message.channel;
     if (!channel.isTextBased() || !('messages' in channel)) return null;
     const fetched = await channel.messages.fetch({ limit: DOT_AMBIENT.contextMessages }).catch(() => null);
@@ -351,7 +449,7 @@ async function judgeAddressed(message: Message): Promise<AddressedJudgeDecision 
         { role: 'system', content: ADDRESSED_JUDGE_SYSTEM_PROMPT },
         { role: 'user', content: `直近の会話:\n${context}\n\n対象メッセージ: ${message.author.username}: ${candidate}${mentionsOthers ? '\n（このメッセージは他のユーザーをメンションしています）' : ''}` },
     ], { model: GEMMA_MODEL, strictModel: true, maxTokens: 120, priority: 'background' });
-    return parseAddressedJudgeResponse(judgeText);
+    return parseParticipationDecision(judgeText);
 }
 
 /** 呼びかけへの応答。direct=メンション/返信の確定信号、judged=モデルが文脈で話しかけられたと判定。 */
@@ -369,9 +467,13 @@ async function respondToAddressed(message: Message, state: ChannelState, via: 'd
             : 'あなたは今、名前を呼ばれました。その呼びかけに短く自然に応えてください。質問や相談であれば簡潔に答えること。',
     );
     if (!replyText) return;
+    if ('sendTyping' in channel) await channel.sendTyping().catch(() => undefined);
+    await sleepMs(ambientSendDelayMs('addressed', Math.random()));
     const sent = await message.reply({ content: replyText.slice(0, 1900) }).catch(() => null);
     if (sent) {
         rememberDotPost(state, sent);
+        state.lastBotParticipationAt = sent.createdTimestamp;
+        state.engagedUntil = Date.now() + DOT_AMBIENT.engagedWindowMs;
         Logger.info(`[DotAmbient] addressed guild=${message.guildId} channel=${message.channelId} via=${via}${via === 'judged' ? ` conf=${confidence ?? '?'}` : ''}`);
     }
 }
@@ -384,6 +486,7 @@ function onMessageCreate(client: Client) {
                 const state = stateFor(message);
                 if (message.author.id === client.user?.id) {
                     state.lastBotMessageAt = message.createdTimestamp;
+                    pushBuffered(state, { id: message.id, authorId: message.author.id, authorName: message.author.username, content: (message.content ?? '').replace(/\s+/g, ' ').slice(0, 300), at: message.createdTimestamp, isBot: true });
                     if (!state.dotPostIds.has(message.id)) {
                         state.lastOtherBotMessageAt = message.createdTimestamp;
                     }
@@ -403,6 +506,7 @@ function onMessageCreate(client: Client) {
                 state.lastHumanMessageAt = now;
                 state.lastHumanMessageId = message.id;
                 state.lastHumanMessageIsQuestion = isHangingQuestion(content);
+                pushBuffered(state, { id: message.id, authorId: message.author.id, authorName: message.author.username, content: content.slice(0, 300), at: now, isBot: false });
 
                 if (content.length >= 4) {
                     const buffer = guildObservations.get(message.guildId) ?? [];
@@ -470,6 +574,9 @@ function snapshotOf(state: ChannelState, now: number): DotChannelSnapshot {
         lastJudgedQuestionId: state.lastJudgedQuestionId,
         lastAmbientJoinAt: state.lastAmbientJoinAt,
         lastOtherBotMessageAt: state.lastOtherBotMessageAt,
+        lastBotParticipationAt: state.lastBotParticipationAt,
+        engagedUntil: state.engagedUntil,
+        lastReactAt: state.lastReactAt,
         humanMessagesInWindow: recent.length,
         distinctHumansInWindow: new Set(recent.map(item => item.authorId)).size,
         humanMessagesTotal: state.humanMessagesTotal,
@@ -484,7 +591,7 @@ function guildCapReached(guildId: string, now: number): boolean {
     return times.length >= DOT_AMBIENT.guildHourlyCap;
 }
 
-async function judgeAndJoin(client: Client, channelId: string, state: ChannelState, opportunity: NonNullable<DotOpportunity>): Promise<void> {
+async function judgeAndParticipate(client: Client, channelId: string, state: ChannelState, trigger: NonNullable<DotEvaluationTrigger>): Promise<void> {
     const channel = await client.channels.fetch(channelId).catch(() => null);
     if (!channel || !channel.isTextBased() || !('messages' in channel)) return;
     const guild = client.guilds.cache.get(state.guildId);
@@ -498,7 +605,7 @@ async function judgeAndJoin(client: Client, channelId: string, state: ChannelSta
     const history = [...fetched.values()].reverse();
     if (history.length === 0) return;
 
-    if (opportunity === 'question') {
+    if (trigger === 'question') {
         const targetIndex = history.findIndex(item => item.id === state.lastHumanMessageId);
         if (targetIndex === -1) return;
         // 質問の後に人間の発言があれば、もう宙には浮いていない。
@@ -511,31 +618,65 @@ async function judgeAndJoin(client: Client, channelId: string, state: ChannelSta
 
     const personality = await ensureGuildAIPersona(state.guildId, false);
     const personalityPrompt = buildGuildAIPersonalityPrompt(personality);
-    const context = formatContext(history, client.user?.id);
+    const presence = presenceOf(snapshotOf(state, Date.now()), Date.now());
+    // 会話の絵: バッファの方が厚ければそちらを、そうでなければ取得した履歴を使う。
+    const context = state.recentMessages.length > history.length
+        ? formatBuffered(state.recentMessages, client.user?.id, Date.now())
+        : formatContext(history, client.user?.id);
 
     const judgeText = await chatManager.generateText([
-        { role: 'system', content: JUDGE_SYSTEM_PROMPT },
-        { role: 'user', content: `${personalityPrompt ? personalityPrompt.slice(0, 700) + '\n' : ''}直近の会話:\n${context}` },
-    ], { model: GEMMA_MODEL, strictModel: true, maxTokens: 200, priority: 'background' });
-    const decision = parseDotJudgeResponse(judgeText);
-    if (!decision || !decision.join || decision.confidence < DOT_AMBIENT.judgeMinConfidence) {
-        Logger.debug(`[DotAmbient] pass guild=${state.guildId} channel=${channelId} opportunity=${opportunity} decision=${judgeText.slice(0, 120)}`);
+        { role: 'system', content: PARTICIPATION_JUDGE_SYSTEM_PROMPT },
+        { role: 'user', content: `${personalityPrompt ? personalityPrompt.slice(0, 700) + '\n' : ''}あなたの状態: ${presence === 'engaged' ? 'このチャンネルでは会話に参加中（engaged）' : 'このチャンネルでは様子見中（lurking）'}\nきっかけ: ${trigger}\n直近の会話:\n${context}` },
+    ], { model: GEMMA_MODEL, strictModel: true, maxTokens: 220, priority: 'background' });
+    const decision = parseParticipationDecision(judgeText);
+    if (!shouldExecuteParticipation(decision, presence)) {
+        Logger.debug(`[DotAmbient] pass guild=${state.guildId} channel=${channelId} trigger=${trigger} decision=${judgeText.slice(0, 140)}`);
+        return;
+    }
+    if (!decision) return;
+
+    const resolveTarget = async (): Promise<Message | null> => {
+        if (!decision.targetMessageId) return null;
+        const inHistory = history.find(item => item.id === decision.targetMessageId);
+        if (inHistory) return inHistory;
+        return await channel.messages.fetch(decision.targetMessageId).catch(() => null);
+    };
+    const lastHumanMessage = [...history].reverse().find(item => !item.author.bot) ?? null;
+
+    if (decision.action === 'react') {
+        if (Date.now() - state.lastReactAt < DOT_AMBIENT.reactChannelCooldownMs) return;
+        if (!permissions.has(PermissionFlagsBits.AddReactions)) return;
+        const target = (await resolveTarget()) ?? lastHumanMessage;
+        if (!target) return;
+        await sleepMs(ambientSendDelayMs('react', Math.random()));
+        const reacted = await target.react(decision.emoji ?? '👍').then(() => true).catch(() => false);
+        if (!reacted) return;
+        state.lastReactAt = Date.now();
+        Logger.info(`[DotAmbient] reacted guild=${state.guildId} channel=${channelId} emoji=${decision.emoji ?? '👍'} conf=${decision.confidence} reason=${decision.reason}`);
         return;
     }
 
-    const replyText = await generateAmbientReply(
-        state.guildId,
-        context,
-        opportunity === 'question'
+    const situation = decision.action === 'continue'
+        ? 'あなたは今、このチャンネルの会話に参加中です。流れへの追随として、短く自然に続けてください。'
+        : trigger === 'question'
             ? '上記の会話で答えられていない質問に、常駐AIとして短く自然に答えてください。'
-            : '上記の盛り上がっている会話の流れに、常駐AIとして短く自然に混ざってください。',
-    );
+            : decision.action === 'reply'
+                ? '上記の会話の中の対象メッセージに、常駐AIとして短く自然に返信してください。'
+                : '上記の会話の流れに、常駐AIとして短く自然に混ざってください。';
+    const replyText = await generateAmbientReply(state.guildId, context, situation);
     if (!replyText) return;
 
+    if ('sendTyping' in channel) await channel.sendTyping().catch(() => undefined);
+    await sleepMs(ambientSendDelayMs('join', Math.random()));
+
     let sent: Message | null = null;
-    if (opportunity === 'question') {
-        const target = history.find(item => item.id === state.lastHumanMessageId);
-        if (target) sent = await target.reply({ content: replyText.slice(0, 1900) }).catch(() => null);
+    const target = await resolveTarget();
+    if (decision.action === 'reply' || decision.action === 'continue') {
+        const replyTarget = target
+            ?? (trigger === 'question' ? history.find(item => item.id === state.lastHumanMessageId) ?? null : lastHumanMessage);
+        if (replyTarget) sent = await replyTarget.reply({ content: replyText.slice(0, 1900) }).catch(() => null);
+    } else if (target) {
+        sent = await target.reply({ content: replyText.slice(0, 1900) }).catch(() => null);
     }
     if (!sent) sent = await channel.send({ content: replyText.slice(0, 1900) }).catch(() => null);
     if (!sent) return;
@@ -543,10 +684,12 @@ async function judgeAndJoin(client: Client, channelId: string, state: ChannelSta
     rememberDotPost(state, sent);
     const now = Date.now();
     state.lastAmbientJoinAt = now;
+    state.lastBotParticipationAt = now;
+    state.engagedUntil = now + DOT_AMBIENT.engagedWindowMs;
     const times = guildReplyTimes.get(state.guildId) ?? [];
     times.push(now);
     guildReplyTimes.set(state.guildId, times);
-    Logger.info(`[DotAmbient] joined(${opportunity}) guild=${state.guildId} channel=${channelId} conf=${decision.confidence} kind=${decision.kind}`);
+    Logger.info(`[DotAmbient] joined(${decision.action}) guild=${state.guildId} channel=${channelId} trigger=${trigger} conf=${decision.confidence} reason=${decision.reason}`);
 }
 
 /** 観測した会話からサーバーの空気を学習し、既存の GuildAIPersonality へ反映する。 */
@@ -586,20 +729,20 @@ async function sweep(client: Client): Promise<void> {
                 continue;
             }
             if (evaluations >= 2) break;
-            const opportunity = evaluateDotOpportunity(snapshotOf(state, now), now);
-            if (!opportunity) continue;
+            const trigger = evaluateEvaluationTrigger(snapshotOf(state, now), now);
+            if (!trigger) continue;
             if (evaluatedGuilds.has(state.guildId)) continue;
             if (guildCapReached(state.guildId, now)) continue;
             evaluations += 1;
             evaluatedGuilds.add(state.guildId);
-            await judgeAndJoin(client, channelId, state, opportunity).catch(error => {
-                Logger.warn('[DotAmbient] judge/join failed:', error);
+            await judgeAndParticipate(client, channelId, state, trigger).catch(error => {
+                Logger.warn('[DotAmbient] judge/participate failed:', error);
             });
-            if (opportunity === 'active') {
+            if (trigger === 'question') {
+                state.lastJudgedQuestionId = state.lastHumanMessageId;
+            } else {
                 state.lastEvaluationAt = Date.now();
                 state.humanCountAtLastEvaluation = state.humanMessagesTotal;
-            } else {
-                state.lastJudgedQuestionId = state.lastHumanMessageId;
             }
         }
         for (const guildId of guildObservations.keys()) {
