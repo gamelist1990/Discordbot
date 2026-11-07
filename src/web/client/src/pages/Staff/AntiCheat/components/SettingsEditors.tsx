@@ -240,6 +240,7 @@ export function DetectorBody({
                 "hate",
                 "threat",
                 "violence",
+                "spam",
               ],
             },
             {
@@ -247,6 +248,7 @@ export function DetectorBody({
               keys: [
                 "awardScore",
                 "maxAiScore",
+                "fallbackScore",
                 "customRulesChannelId",
                 "customRulesMessageId",
               ],
@@ -287,8 +289,10 @@ export function DetectorBody({
                       "hate",
                       "threat",
                       "violence",
+                      "spam",
                       "awardScore",
                       "maxAiScore",
+                      "fallbackScore",
                       "customRulesChannelId",
                       "customRulesMessageId",
                     ].includes(field.key),
