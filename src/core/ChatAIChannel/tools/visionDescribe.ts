@@ -1,8 +1,10 @@
 import { config, GEMMA_MODEL } from '../../../config.js';
+import { recordAIUsage } from '../../ai/AIUsageMetrics.js';
 import type { OpenAITool, ToolHandler } from '../../../types/openai.js';
 import type { ChatAIToolRegistrar } from './types.js';
 
 type VisionToolContext = {
+    guildId?: string;
     images?: Array<{
         index: number;
         author: string;
@@ -65,6 +67,12 @@ const visionDescribeHandler: ToolHandler = async (args, context?: VisionToolCont
         }
 
         const data = await response.json() as any;
+        void recordAIUsage({
+            purpose: 'vision', model: GEMMA_MODEL, guildId: context?.guildId,
+            inputTokens: data?.usage?.prompt_tokens, outputTokens: data?.usage?.completion_tokens,
+            cachedTokens: data?.usage?.prompt_tokens_details?.cached_tokens ?? null,
+            generatedSeconds: data?.timings?.predicted_ms ? data.timings.predicted_ms / 1000 : undefined,
+        }).catch(() => undefined);
         const choice = data?.choices?.[0];
         const text = choice?.message?.content;
         if ((!text || !String(text).trim()) && choice?.finish_reason === 'length') {

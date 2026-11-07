@@ -5,6 +5,7 @@ import { join as joinPath } from 'node:path';
 import { promisify as promisifyFn } from 'node:util';
 import { config, GEMMA_MODEL } from '../../config.js';
 import { Logger } from '../../utils/Logger.js';
+import { recordAIUsage } from './AIUsageMetrics.js';
 
 const execFileAsync = promisifyFn(execFileCallback);
 
@@ -319,7 +320,19 @@ export async function describeDotMediaWithGemma(item: DotMediaItem): Promise<str
             Logger.debug(`[DotAmbient] media describe failed kind=${item.kind} status=${response.status}`);
             return null;
         }
-        const json = await response.json() as { choices?: Array<{ message?: { content?: unknown } }> };
+        const json = await response.json() as {
+            choices?: Array<{ message?: { content?: unknown } }>;
+            usage?: { prompt_tokens?: number; completion_tokens?: number; prompt_tokens_details?: { cached_tokens?: number } | null };
+            timings?: { predicted_ms?: number };
+        };
+        // 利用統計: この経路はギルド文脈を持たない（メディア説明はメッセージ単位で
+        // キャッシュされ、複数ギルド経路から共有され得る）ため全体統計にだけ記録する。
+        void recordAIUsage({
+            purpose: 'media', model: GEMMA_MODEL,
+            inputTokens: json?.usage?.prompt_tokens, outputTokens: json?.usage?.completion_tokens,
+            cachedTokens: json?.usage?.prompt_tokens_details?.cached_tokens ?? null,
+            generatedSeconds: json?.timings?.predicted_ms ? json.timings.predicted_ms / 1000 : undefined,
+        }).catch(() => undefined);
         const text = json?.choices?.[0]?.message?.content;
         return typeof text === 'string' && text.trim() ? text.trim() : null;
     } catch (error) {

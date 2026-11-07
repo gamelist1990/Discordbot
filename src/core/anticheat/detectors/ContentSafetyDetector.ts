@@ -251,11 +251,11 @@ export interface AiRequestMetrics {
 export async function classifyContent(
   text: string, frames: string[] = [], timeoutMs = 300000, formatRetry = false,
   scoring?: ContentScoringPolicy, _model = CONTENT_SAFETY_MODEL,
-  requests: AiRequestMetrics[] = [], customRules = "", conversationContext = "",
+  requests: AiRequestMetrics[] = [], customRules = "", conversationContext = "", guildId?: string,
 ): Promise<ContentVerdict> {
   const uniqueFrames = [...new Set(frames)];
   // LFM3 on HomePC handles every moderation request, text and media alike.
-  return classifyWithLfm(text, uniqueFrames, timeoutMs, formatRetry, scoring, requests, customRules, 0, conversationContext);
+  return classifyWithLfm(text, uniqueFrames, timeoutMs, formatRetry, scoring, requests, customRules, 0, conversationContext, guildId);
 }
 
 export class ContentSafetyDetector implements Detector {
@@ -459,7 +459,7 @@ export class ContentSafetyDetector implements Detector {
           const aiDeadline = Date.now() + boundedNumber(options.timeoutMs, 600000, 5000, 600000);
           const requestVerdict = (retry: boolean) => classifyContent(
             text, frames, Math.max(1, aiDeadline - Date.now()), retry, scoring,
-            CONTENT_SAFETY_MODEL, requests, customRules, conversationContext,
+            CONTENT_SAFETY_MODEL, requests, customRules, conversationContext, guildId,
           );
           pending = requestVerdict(false).catch((error) => {
             const reason = contentFailureReason(error);

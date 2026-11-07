@@ -163,7 +163,10 @@ export class StaffAIStreamState {
             this.cacheTokens += delta.cachedInputTokens;
             this.cacheAvailable = true;
         }
-        if (delta.predictedPerSecond && delta.predictedPerSecond > 0) {
+        if (delta.generatedSeconds && delta.generatedSeconds > 0 && (delta.outputTokens || 0) > 0) {
+            this.timedOutputTokens += delta.outputTokens!;
+            this.timedOutputSeconds += delta.generatedSeconds;
+        } else if (delta.predictedPerSecond && delta.predictedPerSecond > 0) {
             const count = delta.predictedTokens && delta.predictedTokens > 0 ? delta.predictedTokens : 1;
             this.timedOutputTokens += count;
             this.timedOutputSeconds += count / delta.predictedPerSecond;

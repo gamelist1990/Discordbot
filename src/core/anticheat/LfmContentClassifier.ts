@@ -1,4 +1,5 @@
 import { config } from '../../config.js';
+import { recordAIUsage } from '../ai/AIUsageMetrics.js';
 import { composeFrameSheet } from './ContentMedia.js';
 import { parseContentVerdict } from './detectors/ContentSafetyDetector.js';
 import type { AiRequestMetrics, ContentCategory, ContentScoringPolicy, ContentVerdict } from './detectors/ContentSafetyDetector.js';
@@ -107,7 +108,7 @@ export function buildLfmModerationRequest(text: string, images: string[], custom
 
 export async function classifyWithLfm(text: string, frames: string[], timeoutMs: number,
     retry: boolean, scoring: ContentScoringPolicy | undefined, requests: AiRequestMetrics[],
-    customRules: string, transportRetry = 0, conversationContext = ''): Promise<ContentVerdict> {
+    customRules: string, transportRetry = 0, conversationContext = '', guildId?: string): Promise<ContentVerdict> {
     const start = Date.now();
     const metrics: AiRequestMetrics = { model: LFM3_MODEL, frames: frames.length, retry };
     requests.push(metrics);
@@ -127,7 +128,7 @@ export async function classifyWithLfm(text: string, frames: string[], timeoutMs:
                 await response.body?.cancel();
                 await new Promise(resolve => setTimeout(resolve, 400));
                 const remaining = timeoutMs - (Date.now() - start);
-                if (remaining > 1000) return classifyWithLfm(text, frames, remaining, true, scoring, requests, customRules, 1, conversationContext);
+                if (remaining > 1000) return classifyWithLfm(text, frames, remaining, true, scoring, requests, customRules, 1, conversationContext, guildId);
             }
             throw new Error(`Moderation API HTTP ${response.status}`);
         }
@@ -135,6 +136,12 @@ export async function classifyWithLfm(text: string, frames: string[], timeoutMs:
         metrics.inputTokens = data.usage?.prompt_tokens;
         metrics.outputTokens = data.usage?.completion_tokens;
         metrics.totalTokens = data.usage?.total_tokens;
+        void recordAIUsage({
+            purpose: 'content-safety', model: LFM3_MODEL, guildId,
+            inputTokens: data.usage?.prompt_tokens, outputTokens: data.usage?.completion_tokens,
+            cachedTokens: data.usage?.prompt_tokens_details?.cached_tokens ?? null,
+            generatedSeconds: data.timings?.predicted_ms ? data.timings.predicted_ms / 1000 : undefined,
+        }).catch(() => undefined);
         if (data.choices?.[0]?.finish_reason === 'length') throw new Error('Truncated moderation response');
         const content = data.choices?.[0]?.message?.content;
         if (typeof content !== 'string') throw new Error('Invalid moderation verdict');

@@ -11,6 +11,7 @@ import { ChatGPTModel } from './ChatGPTModels.js';
 import { Logger } from '../../utils/Logger.js';
 import { normalizeProxyError } from './normalizeProxyError.js';
 import { runAIRequestWithPriority, type AIRequestPriority } from './AIBackgroundWork.js';
+import { recordAIUsage } from './AIUsageMetrics.js';
 import {
     OpenAIChatCompletionChunk,
     OpenAIChatCompletionMessage,
@@ -47,6 +48,11 @@ export interface ChatOptions {
     completeAfterTools?: (results: Array<{ name: string; output: string }>) => string | undefined;
     signal?: AbortSignal;
     priority?: AIRequestPriority;
+    /**
+     * 利用統計（AIUsageMetrics）用の文脈。共通層がレスポンス単位で記録する。
+     * guildId が無い呼び出しは全体統計にだけ入る。
+     */
+    usageContext?: { guildId?: string | null; purpose?: string };
 }
 
 export interface ToolExecutionStep {
@@ -125,6 +131,8 @@ export type ResponseApiStreamDelta = {
     predictedTokens?: number;
     predictedPerSecond?: number;
     cachedInputTokens?: number;
+    /** timings.predicted_ms 由来の生成時間（秒、prefill を含まない）。 */
+    generatedSeconds?: number;
 };
 
 interface ResponseFunctionCallItem {
@@ -133,6 +141,27 @@ interface ResponseFunctionCallItem {
     callId: string;
     name: string;
     arguments: string;
+}
+
+/** Chat Completions レスポンスから利用統計を取り出す（実測: cached は prompt_tokens_details、生成時間は timings.predicted_ms）。 */
+export function chatUsageOf(response: {
+    usage?: { prompt_tokens?: number; completion_tokens?: number; prompt_tokens_details?: { cached_tokens?: number } | null } | null;
+    timings?: { predicted_ms?: number; predicted_n?: number; predicted_per_second?: number } | null;
+}): { inputTokens?: number; outputTokens?: number; cachedTokens?: number | null; generatedSeconds?: number } {
+    const usage = response.usage ?? undefined;
+    const timings = response.timings ?? undefined;
+    const generatedSeconds = typeof timings?.predicted_ms === 'number' && timings.predicted_ms > 0
+        ? timings.predicted_ms / 1000
+        : typeof timings?.predicted_n === 'number' && typeof timings?.predicted_per_second === 'number' && timings.predicted_per_second > 0
+            ? timings.predicted_n / timings.predicted_per_second
+            : undefined;
+    return {
+        inputTokens: usage?.prompt_tokens,
+        outputTokens: usage?.completion_tokens,
+        cachedTokens: typeof usage?.prompt_tokens_details?.cached_tokens === 'number'
+            ? usage.prompt_tokens_details.cached_tokens : null,
+        generatedSeconds,
+    };
 }
 
 export class ChatGPTClient {
@@ -320,6 +349,20 @@ export class ChatGPTClient {
         });
     }
 
+    /** 利用統計への記録（共通層の一元計数）。失敗してもリクエスト処理は壊さない。 */
+    private recordUsage(options: ChatOptions | undefined, model: string,
+        usage: { inputTokens?: number; outputTokens?: number; cachedTokens?: number | null; generatedSeconds?: number }): void {
+        void recordAIUsage({
+            guildId: options?.usageContext?.guildId ?? undefined,
+            purpose: options?.usageContext?.purpose || 'other',
+            model,
+            inputTokens: usage.inputTokens,
+            outputTokens: usage.outputTokens,
+            cachedTokens: usage.cachedTokens ?? null,
+            generatedSeconds: usage.generatedSeconds,
+        }).catch(() => undefined);
+    }
+
     private async invokeTool(name: string, args: unknown, handler: ToolHandler): Promise<string | object> {
         const result = await handler(args, this.toolContext);
         this.progress.getStore()?.record(name, args, result);
@@ -358,6 +401,7 @@ export class ChatGPTClient {
                     );
                     this.throwIfAborted(options?.signal);
                     const typedResponse = response as unknown as OpenAIChatCompletionResponse;
+                    this.recordUsage(options, model, chatUsageOf(typedResponse));
 
                     const toolCalls = typedResponse.choices[0]?.message?.tool_calls ?? [];
                     if (toolCalls.length > 0) {
@@ -435,9 +479,20 @@ export class ChatGPTClient {
                 let lastChunk: OpenAIChatCompletionChunk | undefined;
                 let emittedChunk = false;
                 let emittedText = false;
+                // 利用統計: 最終チャンクの usage / timings を捕捉し、成功時に1回だけ記録する。
+                let capturedUsage: OpenAIChatCompletionChunk['usage'];
+                let capturedTimings: OpenAIChatCompletionChunk['timings'];
+                let usageRecorded = false;
+                const flushUsage = (): void => {
+                    if (usageRecorded || !capturedUsage) return;
+                    usageRecorded = true;
+                    this.recordUsage(options, model, chatUsageOf({ usage: capturedUsage, timings: capturedTimings }));
+                };
 
                 try {
-                    const payload = this.buildRequestPayload(messages, options, model, true, toolDefinitions, toolRound);
+                    const payload = this.buildRequestPayload(messages,
+                        options ? { ...options, includeUsage: true } : { includeUsage: true },
+                        model, true, toolDefinitions, toolRound);
                     const stream = await client.chat.completions.create(
                         payload as OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming,
                         { signal: options?.signal },
@@ -449,6 +504,8 @@ export class ChatGPTClient {
 
                         const typedChunk = chunk as OpenAIChatCompletionChunk;
                         lastChunk = typedChunk;
+                        if (typedChunk.usage) capturedUsage = typedChunk.usage;
+                        if (typedChunk.timings) capturedTimings = typedChunk.timings;
                         const deltaToolCalls = typedChunk.choices[0]?.delta?.tool_calls;
 
                         if (deltaToolCalls) {
@@ -488,6 +545,7 @@ export class ChatGPTClient {
                         if (completed !== undefined) {
                             onChunkReceive({ id: lastChunk?.id || 'tool-completed', object: 'chat.completion.chunk', created: lastChunk?.created || 0, model,
                                 choices: [{ index: 0, delta: { content: completed }, finish_reason: 'stop' }] });
+                            flushUsage();
                             return;
                         }
                         await this.streamMessageInternal(nextMessages, onChunkReceive, options, toolRound + 1, 0);
@@ -497,6 +555,7 @@ export class ChatGPTClient {
                         throw new Error(`Required tool was not called: ${this.forcedToolForRound(options, toolDefinitions, toolRound)}`);
                     }
 
+                    flushUsage();
                     return;
                 } catch (error) {
                     this.throwIfAborted(options?.signal);
@@ -588,6 +647,13 @@ export class ChatGPTClient {
                         }
                         if (delta.type === 'text' && delta.text.trim()) emittedText = true;
                         if (delta.type !== 'usage') this.progress.getStore()?.observe(delta.text, delta.type);
+                        if (delta.type === 'usage') {
+                            this.recordUsage(options, model, {
+                                inputTokens: delta.inputTokens, outputTokens: delta.outputTokens,
+                                cachedTokens: delta.cachedInputTokens ?? null,
+                                generatedSeconds: delta.generatedSeconds,
+                            });
+                        }
                         emittedDelta = true;
                         onDeltaReceive(delta);
                     }, options?.signal, (call, complete) => this.notifyToolCallDelta(options, call, toolRound + 1, complete));
@@ -895,10 +961,15 @@ export class ChatGPTClient {
                 if (inputTokens !== undefined || outputTokens !== undefined || totalTokens !== undefined) {
                     const speed = tokenCount(data?.timings?.predicted_per_second);
                     const generated = tokenCount(data?.timings?.predicted_n);
+                    const predictedMs = tokenCount(data?.timings?.predicted_ms);
                     onDeltaReceive({
                         type: 'usage', inputTokens, outputTokens, totalTokens,
                         predictedTokens: generated, predictedPerSecond: speed,
                         cachedInputTokens: tokenCount(usage?.input_tokens_details?.cached_tokens),
+                        generatedSeconds: predictedMs !== undefined && predictedMs > 0
+                            ? predictedMs / 1000
+                            : generated !== undefined && speed !== undefined && speed > 0
+                                ? generated / speed : undefined,
                     });
                 }
                 if (Array.isArray(data?.response?.output)) {
