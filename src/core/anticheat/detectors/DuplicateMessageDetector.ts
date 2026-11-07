@@ -1,10 +1,11 @@
 import { Message } from 'discord.js';
 import { CacheManager } from '../../../utils/CacheManager.js';
 import { Detector, DetectionContext, DetectionResult } from '../types.js';
-import { getDetectorConfig, normalizeContent } from '../utils.js';
+import { createSimilaritySignature, getDetectorConfig, normalizeContent } from '../utils.js';
 
 interface DuplicateRecord {
     content: string;
+    signature: string;
     timestamp: number;
     messageId: string;
 }
@@ -20,6 +21,7 @@ export class DuplicateMessageDetector implements Detector {
         const scoreFrom = Number(config.scoreFrom) || 4;
         const cacheKey = `anticheat:duplicate:${context.guildId}:${context.channelId}:${context.userId}`;
         const normalized = normalizeContent(message.content);
+        const signature = createSimilaritySignature(normalized);
         const now = context.receivedAt ?? Date.now();
         const existing = (CacheManager.get<DuplicateRecord[]>(cacheKey) || [])
             .filter((entry) => now - entry.timestamp <= windowSeconds * 1000);
@@ -37,11 +39,16 @@ export class DuplicateMessageDetector implements Detector {
 
         const next = [
             ...withoutCurrent,
-            { content: normalized, timestamp: previous?.timestamp ?? now, messageId: message.id }
+            { content: normalized, signature, timestamp: previous?.timestamp ?? now, messageId: message.id }
         ];
         CacheManager.set(cacheKey, next, (windowSeconds + 30) * 1000);
 
-        const duplicateCount = next.filter((entry) => entry.content === normalized).length;
+        const exactCount = next.filter((entry) => entry.content === normalized).length;
+        // Similar duplicates only differ in random filler (random trailing
+        // tokens or invite-code tails), which the signature strips away.
+        const duplicateCount = next.filter(
+            (entry) => (entry.signature ?? createSimilaritySignature(entry.content)) === signature
+        ).length;
         if (duplicateCount < deleteFrom) {
             return { scoreDelta: 0, reasons: [] };
         }
@@ -49,12 +56,16 @@ export class DuplicateMessageDetector implements Detector {
         const scoreMultiplier = duplicateCount >= scoreFrom
             ? duplicateCount - scoreFrom + 1
             : 0;
+        const allExact = exactCount === duplicateCount;
 
         return {
             scoreDelta: detectorConfig.score * scoreMultiplier,
-            reasons: [`重複メッセージを ${duplicateCount} 回送信しました`],
+            reasons: [allExact
+                ? `重複メッセージを ${duplicateCount} 回送信しました`
+                : `類似した重複メッセージを ${duplicateCount} 回送信しました`],
             metadata: {
                 duplicateCount,
+                exactDuplicateCount: exactCount,
                 deleteFrom,
                 scoreFrom
             },

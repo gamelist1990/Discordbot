@@ -163,7 +163,8 @@ export const DEFAULT_ANTICHEAT_SETTINGS: GuildAntiCheatSettings = {
             config: {
                 windowSeconds: 5,
                 rapidMessageCount: 6,
-                duplicateThreshold: 3
+                duplicateThreshold: 3,
+                repeatedLineThreshold: 3
             }
         },
         inviteReferral: {
@@ -263,7 +264,8 @@ export const DEFAULT_ANTICHEAT_SETTINGS: GuildAntiCheatSettings = {
                 windowSeconds: 30,
                 sameUserMentionThreshold: 5,
                 roleMentionThreshold: 5,
-                totalMentionThreshold: 10
+                totalMentionThreshold: 10,
+                uniqueUserMentionThreshold: 8
             }
         },
         mentionLimit: {

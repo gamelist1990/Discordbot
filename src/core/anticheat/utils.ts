@@ -384,3 +384,53 @@ export async function resolveRedirectChain(
     CacheManager.set(cacheKey, result, 30 * 60 * 1000);
     return result;
 }
+
+const INVITE_URL_PATTERN = /(?:https?:\/\/)?(?:www\.)?(dsc\.gg|discord\.gg|discord(?:app)?\.com\/invite)\/([a-z0-9][a-z0-9-]*)/g;
+const INVITE_CODE_SIGNATURE_PREFIX = 4;
+const MIN_SIMILARITY_SIGNATURE_LENGTH = 10;
+
+function isRandomFillerToken(token: string): boolean {
+    if (!/^[a-z0-9]+$/.test(token)) {
+        return false;
+    }
+    if (token.length < 7) {
+        return false;
+    }
+    // Digits inside a long alphanumeric token are a strong random-string signal.
+    // A long letters-only token is treated the same way (random tails are often
+    // appended as plain letter strings).
+    return /\d/.test(token) || token.length >= 8;
+}
+
+/**
+ * Builds a comparison signature from already-normalized content so that spam
+ * which only varies random filler is still recognized as a duplicate:
+ * - Invite URLs collapse to domain + the first characters of the invite code,
+ *   so `dsc.gg/inmu<random>` variants share one signature.
+ * - Mentions collapse to a placeholder, so rotating mention targets does
+ *   not change the signature either.
+ * - Random-looking filler tokens (long alphanumeric strings) are removed.
+ * - If what remains is too short to be distinctive, the normalized content is
+ *   returned unchanged, which degrades to the previous exact-match behaviour
+ *   and keeps short everyday chat (greetings, backchannels) out of scope.
+ */
+export function createSimilaritySignature(normalizedContent: string): string {
+    if (!normalizedContent) {
+        return '';
+    }
+
+    const withNormalizedInvites = normalizedContent.replace(
+        INVITE_URL_PATTERN,
+        (_match: string, host: string, code: string) => `${host}/${code.slice(0, INVITE_CODE_SIGNATURE_PREFIX)}`
+    );
+    const masked = withNormalizedInvites.replace(/<@[!&]?\d+>/g, '<@>');
+    const tokens = masked.split(' ').filter((token) => token.length > 0);
+    const keptTokens = tokens.filter((token) => !isRandomFillerToken(token));
+    const signature = keptTokens.join(' ');
+
+    if (keptTokens.length < 2 || signature.length < MIN_SIMILARITY_SIGNATURE_LENGTH) {
+        return normalizedContent;
+    }
+
+    return signature;
+}

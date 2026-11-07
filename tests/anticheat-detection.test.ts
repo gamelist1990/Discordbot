@@ -9,7 +9,7 @@ import { MentionSpamDetector } from '../src/core/anticheat/detectors/MentionSpam
 import { DuplicateMessageDetector } from '../src/core/anticheat/detectors/DuplicateMessageDetector.ts';
 import { DuplicateImageDetector } from '../src/core/anticheat/detectors/DuplicateImageDetector.ts';
 import { WordFilterDetector } from '../src/core/anticheat/detectors/WordFilterDetector.ts';
-import { hasMeaningfulDetection, normalizeContent } from '../src/core/anticheat/utils.ts';
+import { createSimilaritySignature, hasMeaningfulDetection, normalizeContent } from '../src/core/anticheat/utils.ts';
 import { CacheManager } from '../src/utils/CacheManager.ts';
 import sharp from 'sharp';
 import GIFEncoder from 'gif-encoder-2';
@@ -828,4 +828,163 @@ test('image fingerprints identify exact and recompressed duplicate images', asyn
             recompressedFingerprint.perceptualHash
         ) <= 5
     );
+});
+
+test('similarity signature unifies raid spam variants with random tails and rotating mentions', () => {
+    const signatureOf = (content: string) => createSimilaritySignature(normalizeContent(content));
+    const expected = signatureOf('Raid by INMU dsc.gg/inmu0iqajg89qahgaq9hgagai0');
+    for (const sample of [
+        'Raid by INMU dsc.gg/inmu gfaoghag',
+        'Raid by INMU dsc.gg/inmu inaipgnau9hq7t',
+        'Raid by INMU dsc.gg/inmuoaiga9ugai0g',
+        'Raid by INMU dsc.gg/inmu 9ugabaan'
+    ]) {
+        assert.equal(signatureOf(sample), expected);
+    }
+    // Rotating mention targets (user or role) do not change the signature.
+    assert.equal(
+        signatureOf('Raid by INMU dsc.gg/inmu <@111111>'),
+        signatureOf('Raid by INMU dsc.gg/inmu <@222222>')
+    );
+    assert.equal(
+        signatureOf('Raid by INMU dsc.gg/inmu <@&333333>'),
+        signatureOf('Raid by INMU dsc.gg/inmu <@444444>')
+    );
+    // Different invite codes stay different, and short chat falls back to exact text.
+    assert.notEqual(
+        signatureOf('join us discord.gg/alpha12345 please'),
+        signatureOf('join us discord.gg/bravo67890 please')
+    );
+    assert.equal(signatureOf('おはよう'), 'おはよう');
+});
+
+function createSimilarTextSpamContext(guildId: string) {
+    return {
+        guildId, userId: `user-${guildId}`, channelId: `channel-${guildId}`,
+        settings: { detectors: { textSpam: {
+            enabled: true, score: 2, deleteMessage: true, notifyChannel: false,
+            config: { windowSeconds: 5, rapidMessageCount: 100, duplicateThreshold: 3 }
+        } } }
+    } as any;
+}
+
+test('textSpam detects similar duplicates that vary random tails', async (t) => {
+    CacheManager.clear();
+    t.after(() => CacheManager.clear());
+
+    const detector = new TextSpamDetector();
+    const context = createSimilarTextSpamContext('guild-similar');
+    const samples = [
+        'Raid by INMU dsc.gg/inmu0iqajg89qahgaq9hgagai0',
+        'Raid by INMU dsc.gg/inmu gfaoghag',
+        'Raid by INMU dsc.gg/inmu inaipgnau9hq7t'
+    ];
+    assert.deepEqual((await detector.detect({ id: 'sim-1', content: samples[0] } as any, context)).reasons, []);
+    assert.deepEqual((await detector.detect({ id: 'sim-2', content: samples[1] } as any, context)).reasons, []);
+    const third = await detector.detect({ id: 'sim-3', content: samples[2] } as any, context);
+    assert.equal(third.scoreDelta, 2);
+    assert.match(third.reasons[0], /類似した重複投稿を検知しました \(3回\)/);
+    assert.equal(third.metadata?.similarDuplicateCount, 3);
+});
+
+test('textSpam does not flag varied short chat or different invite links', async (t) => {
+    CacheManager.clear();
+    t.after(() => CacheManager.clear());
+
+    const detector = new TextSpamDetector();
+    const context = createSimilarTextSpamContext('guild-similar-ng');
+    const messages = [
+        'おはよう',
+        'おはようございます',
+        '今日もよろしくね',
+        'みんな来て discord.gg/alpha12345 詳細はあとで',
+        'みんな来て discord.gg/bravo67890 詳細はあとで',
+        'みんな来て discord.gg/charlie123 詳細はあとで'
+    ];
+    for (const [index, content] of messages.entries()) {
+        const result = await detector.detect({ id: `ng-${index}`, content } as any, context);
+        assert.deepEqual(result.reasons, []);
+        assert.equal(result.scoreDelta, 0);
+    }
+});
+
+test('textSpam detects repeated identical lines inside one message despite rotating mentions', async (t) => {
+    CacheManager.clear();
+    t.after(() => CacheManager.clear());
+
+    const detector = new TextSpamDetector();
+    const context = createSimilarTextSpamContext('guild-lines');
+    const composite = [
+        'Raid by INMU dsc.gg/inmu <@111111>',
+        'Raid by INMU dsc.gg/inmu <@222222>',
+        'Raid by INMU dsc.gg/inmu <@333333>',
+        'Raid by INMU dsc.gg/inmu <@444444> <@555555> <@666666>',
+        'Raid by INMU dsc.gg/inmu <@777777> <@888888>'
+    ].join('\n');
+    const result = await detector.detect({ id: 'lines-1', content: composite } as any, context);
+    assert.equal(result.scoreDelta, 2);
+    assert.match(result.reasons[0], /同一行の繰り返しを検知しました \(5行\)/);
+    assert.equal(result.metadata?.repeatedLineCount, 5);
+});
+
+test('textSpam does not flag ordinary multi-line messages or short repeated lines', async (t) => {
+    CacheManager.clear();
+    t.after(() => CacheManager.clear());
+
+    const detector = new TextSpamDetector();
+    const context = createSimilarTextSpamContext('guild-lines-ng');
+    const normal = ['今日の予定です', '・買い物に行く', '・レポートを出す', 'よろしくお願いします'].join('\n');
+    assert.deepEqual((await detector.detect({ id: 'lines-ng-1', content: normal } as any, context)).reasons, []);
+    const shortRepeat = ['草', '草', '草', '草'].join('\n');
+    assert.deepEqual((await detector.detect({ id: 'lines-ng-2', content: shortRepeat } as any, context)).reasons, []);
+});
+
+test('duplicateMessage detects similar duplicates with random tails', async (t) => {
+    CacheManager.clear();
+    t.after(() => CacheManager.clear());
+
+    const detector = new DuplicateMessageDetector();
+    const context = {
+        guildId: 'guild-dup-similar', userId: 'user-dup-similar', channelId: 'channel-dup-similar',
+        settings: { detectors: { duplicateMessage: {
+            enabled: true, score: 1, deleteMessage: true, notifyChannel: false,
+            config: { windowSeconds: 180, deleteFrom: 2, scoreFrom: 4 }
+        } } }
+    } as any;
+    assert.deepEqual((await detector.detect({ id: 'dup-sim-1', content: 'Raid by INMU dsc.gg/inmu0iqajg89qahgaq9hgagai0' } as any, context)).reasons, []);
+    const second = await detector.detect({ id: 'dup-sim-2', content: 'Raid by INMU dsc.gg/inmu gfaoghag' } as any, context);
+    assert.equal(second.deleteMessage, true);
+    assert.equal(second.scoreDelta, 0);
+    assert.match(second.reasons[0], /類似した重複メッセージを 2 回送信しました/);
+    await detector.detect({ id: 'dup-sim-3', content: 'Raid by INMU dsc.gg/inmu inaipgnau9hq7t' } as any, context);
+    const fourth = await detector.detect({ id: 'dup-sim-4', content: 'Raid by INMU dsc.gg/inmu 9ugabaan' } as any, context);
+    assert.equal(fourth.scoreDelta, 1);
+    assert.deepEqual((await detector.detect({ id: 'dup-sim-5', content: '全然違うメッセージです' } as any, context)).reasons, []);
+});
+
+test('mentionSpam detects rotating mentions across many distinct users', async (t) => {
+    CacheManager.clear();
+    t.after(() => CacheManager.clear());
+
+    const detector = new MentionSpamDetector();
+    const context = createMentionSpamContext({
+        sameUserMentionThreshold: 100, roleMentionThreshold: 100, totalMentionThreshold: 100
+    });
+    const first = await detector.detect({ id: 'rotate-1', content: '<@1> <@2> <@3> <@4> <@5>' } as any, context);
+    assert.deepEqual(first.reasons, []);
+    const second = await detector.detect({ id: 'rotate-2', content: '<@6> <@7> <@8>' } as any, context);
+    assert.equal(second.scoreDelta, 2);
+    assert.match(second.reasons[0], /異なるユーザーへのメンションを検知しました \(8人\/30秒\)/);
+    assert.equal(second.metadata?.uniqueUserMentions, 8);
+});
+
+test('mentionSpam does not flag mentioning a few friends once', async (t) => {
+    CacheManager.clear();
+    t.after(() => CacheManager.clear());
+
+    const detector = new MentionSpamDetector();
+    const context = createMentionSpamContext();
+    const result = await detector.detect({ id: 'friends-1', content: '<@1> <@2> <@3> あとでゲームしよう' } as any, context);
+    assert.deepEqual(result.reasons, []);
+    assert.equal(result.scoreDelta, 0);
 });

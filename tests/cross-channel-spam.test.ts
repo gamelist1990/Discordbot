@@ -100,3 +100,13 @@ test('large flashing GIF is scanned even when legacy MB limit is configured', as
         assert.equal(result.metadata?.frameCount, 6);
     } finally { globalThis.fetch = original; }
 });
+
+test('similar messages with random tails spread across channels are detected', async () => {
+    CacheManager.clear();
+    const first = await detector.detect(message('s1', 'Raid by INMU dsc.gg/inmu0iqajg89qahgaq9hgagai0'), context('a'));
+    assert.equal(first.deleteMessage, undefined);
+    const second = await detector.detect(message('s2', 'Raid by INMU dsc.gg/inmu gfaoghag'), context('b'));
+    assert.equal(second.deleteMessage, true);
+    assert.equal(second.metadata?.duplicateCount, 2);
+    assert.match(second.reasons[0], /類似したメッセージを2チャンネルに拡散/);
+});

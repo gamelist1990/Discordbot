@@ -14,6 +14,7 @@ export class MentionSpamDetector implements Detector {
         const sameUserMentionThreshold = positiveSetting(config.sameUserMentionThreshold, 5);
         const roleMentionThreshold = positiveSetting(config.roleMentionThreshold, 5);
         const totalMentionThreshold = positiveSetting(config.totalMentionThreshold, 10);
+        const uniqueUserMentionThreshold = positiveSetting(config.uniqueUserMentionThreshold, 8);
         const mentions = extractMentions(message.content || '');
         const key = `anticheat:mention-window:v2:${context.guildId}:${context.userId}`;
         const window = CacheManager.get<MentionWindow>(key) || new MentionWindow();
@@ -26,6 +27,7 @@ export class MentionSpamDetector implements Detector {
         for (const id of mentions.userIds) repeatedUserMentions = Math.max(repeatedUserMentions, window.users.get(id) || 0);
         for (const id of mentions.roleIds) repeatedRoleMentions = Math.max(repeatedRoleMentions, window.roles.get(id) || 0);
         const windowRoleMentions = window.roleCount;
+        const uniqueUserMentions = window.users.size;
         const windowTotalMentions = window.userCount + window.roleCount;
         const reasons: string[] = [];
         let multiplier = 0;
@@ -35,6 +37,12 @@ export class MentionSpamDetector implements Detector {
             multiplier += Math.max(1, Math.ceil(count / threshold) - 1);
         };
         check(repeatedUserMentions, sameUserMentionThreshold, '同一ユーザーへのメンションスパム');
+        // Rotation spam: many distinct targets, each mentioned only once or twice,
+        // stays under the per-target and total thresholds but is still a burst.
+        if (mentions.userIds.length && uniqueUserMentions >= uniqueUserMentionThreshold) {
+            reasons.push(`多数の異なるユーザーへのメンションを検知しました (${uniqueUserMentions}人/${windowSeconds}秒)`);
+            multiplier += Math.max(1, Math.ceil(uniqueUserMentions / uniqueUserMentionThreshold) - 1);
+        }
         if (mentions.roleIds.length) check(windowRoleMentions, roleMentionThreshold, 'ロールメンションスパム');
         check(windowTotalMentions, totalMentionThreshold, '大量メンション');
         return {
@@ -43,8 +51,8 @@ export class MentionSpamDetector implements Detector {
             ...(reasons.length ? { deleteMessage: detector.deleteMessage !== false } : {}),
             metadata: {
                 userMentionCount: mentions.userIds.length, roleMentionCount: mentions.roleIds.length,
-                repeatedUserMentions, repeatedRoleMentions, windowRoleMentions, windowTotalMentions,
-                windowSeconds, sameUserMentionThreshold, roleMentionThreshold, totalMentionThreshold
+                repeatedUserMentions, repeatedRoleMentions, windowRoleMentions, windowTotalMentions, uniqueUserMentions,
+                windowSeconds, sameUserMentionThreshold, roleMentionThreshold, totalMentionThreshold, uniqueUserMentionThreshold
             }
         };
     }
