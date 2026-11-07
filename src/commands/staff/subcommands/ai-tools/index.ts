@@ -12,3 +12,12 @@ export { userInfoToolDefinition, userInfoToolHandler } from './user_info';
 export { antiCheatUserProfileDefinition, antiCheatUserProfileHandler } from './anticheat';
 export { collectHistoryDefinition, collectHistoryHandler, fetchMessageLinkDefinition, fetchMessageLinkHandler } from './history';
 
+export {
+    deleteMessageToolDefinition, deleteMessageToolHandler,
+    timeoutMemberToolDefinition, timeoutMemberToolHandler,
+    punishmentScoreToolDefinition, punishmentScoreToolHandler,
+    resetPunishmentScoreToolDefinition, resetPunishmentScoreToolHandler,
+    resolveStaffModerationPermissions, clampTimeoutDuration, checkModerationTargetGuard,
+    parseMessageReference, TIMEOUT_MIN_MS, TIMEOUT_MAX_MS,
+} from "./moderation";
+export type { StaffModerationPermissions } from "./moderation";

@@ -25,6 +25,7 @@ import { selectStaffEmojis, getStaffEmojiImageParts } from './StaffAIEmojiContex
 import { PdfRAGManager } from '../../../core/ai/PdfRAGManager.js';
 import { staffMemoryContext } from '../../../core/ai/StaffAIMemory.js';
 import { registerStaffAITools } from './ai-tools/catalog.js';
+import { resolveStaffModerationPermissions } from './ai-tools/moderation.js';
 import { staffMemoryToolScope } from './ai-tools/staff_memory.js';
 import { database } from '../../../core/persistence/Database.js';
 import { staffFileOutputResponse, isStaffFileOutputRequest, isSingleStaffFileRequest, completeStaffFileTools } from './ai-tools/fileOutput.js';
@@ -362,7 +363,8 @@ ${reason}` });
 
         const chatManager = new OpenAIChatManager();
 
-        registerStaffAITools(chatManager);
+        // モデレーションツールは実行者の実権限がある場合のみ提示する（権限が無ければ登録自体しない）。
+        registerStaffAITools(chatManager, resolveStaffModerationPermissions(interaction));
         const forceTextFileTools = isStaffFileOutputRequest(prompt ?? '');
         const forceChannelSearchTool = !forceTextFileTools
             && /チャンネル|メッセージ|会話|発言|履歴|ログ/.test(prompt ?? '')

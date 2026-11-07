@@ -1,4 +1,5 @@
 import type { OpenAIChatManager } from '../../../../core/ai/OpenAIChatManager.js';
+import type { OpenAITool, ToolHandler } from '../../../../types/openai.js';
 import { statusToolDefinition, statusToolHandler, weatherToolDefinition, weatherToolHandler,
     timeToolDefinition, timeToolHandler, countPhraseToolDefinition, countPhraseToolHandler,
     userInfoToolDefinition, userInfoToolHandler, antiCheatUserProfileDefinition, antiCheatUserProfileHandler,
@@ -11,6 +12,13 @@ import { searchChannelMessagesDefinition, searchChannelMessagesHandler, fetchDis
 import { searchServerEpisodesDefinition, searchServerEpisodesHandler } from './episodeSearch.js';
 import { fetchPublicUrlDefinition, fetchPublicUrlHandler } from './fetchPublicUrl.js';
 import { bashCalculationDefinition, bashCalculationHandler } from './calculate.js';
+import {
+    deleteMessageToolDefinition, deleteMessageToolHandler,
+    timeoutMemberToolDefinition, timeoutMemberToolHandler,
+    punishmentScoreToolDefinition, punishmentScoreToolHandler,
+    resetPunishmentScoreToolDefinition, resetPunishmentScoreToolHandler,
+} from './moderation.js';
+import type { StaffModerationPermissions } from './moderation.js';
 
 /** Keep schema constraints, but avoid repeating long examples and system rules on every turn. */
 const COMPACT_DESCRIPTIONS: Record<string, string> = {
@@ -22,9 +30,23 @@ const COMPACT_DESCRIPTIONS: Record<string, string> = {
     search_server_episodes: '出来事検索: サーバーで起きた出来事の長期記録をキーワード（部分一致）・主体・日付範囲で検索。過去の出来事の確認に使い、生の発言は発言検索で裏を取る。0件は「起きなかった」証拠ではない。',
 };
 
-/** Staff AI always receives the complete catalog, including on short follow-up requests. */
-export function registerStaffAITools(manager: Pick<OpenAIChatManager, 'registerTool'>): Set<string> {
-    const tools = [
+/**
+ * Staff AI receives the complete catalog, including on short follow-up requests.
+ * Moderation tools are the exception: they are registered ONLY when the caller
+ * passes the executor's resolved moderation permissions, and only the tools the
+ * executor is actually allowed to use. Callers without an executor context
+ * (tests, non-interaction paths) get no moderation tools at all.
+ */
+export function registerStaffAITools(
+    manager: Pick<OpenAIChatManager, 'registerTool'>,
+    moderation?: StaffModerationPermissions,
+): Set<string> {
+    const moderationTools: Array<[OpenAITool, ToolHandler]> = [];
+    if (moderation?.deleteMessage) moderationTools.push([deleteMessageToolDefinition, deleteMessageToolHandler]);
+    if (moderation?.timeoutMember) moderationTools.push([timeoutMemberToolDefinition, timeoutMemberToolHandler]);
+    if (moderation?.viewPunishmentScore) moderationTools.push([punishmentScoreToolDefinition, punishmentScoreToolHandler]);
+    if (moderation?.resetPunishmentScore) moderationTools.push([resetPunishmentScoreToolDefinition, resetPunishmentScoreToolHandler]);
+    const tools: Array<[OpenAITool, ToolHandler]> = [
         [statusToolDefinition, statusToolHandler],
         [webSearchDefinition, webSearchHandler],
         [weatherToolDefinition, weatherToolHandler],
@@ -42,7 +64,8 @@ export function registerStaffAITools(manager: Pick<OpenAIChatManager, 'registerT
         [fetchPublicUrlDefinition, fetchPublicUrlHandler],
         [staffOutputFileDefinition, staffOutputFileHandler],
         [bashCalculationDefinition, bashCalculationHandler],
-    ] as const;
+        ...moderationTools,
+    ];
     for (const [definition, handler] of tools) manager.registerTool({
         ...definition,
         function: {...definition.function, description: COMPACT_DESCRIPTIONS[definition.function.name] ?? definition.function.description},
