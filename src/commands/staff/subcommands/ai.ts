@@ -683,7 +683,7 @@ ${reason}` });
                             }
                         }
 
-                        // 再試行時も同じ Qwopus Coder を使う。
+                        // 再試行時も同じ Gemma を使う。
                         try {
                             const firstAttemptUsage = streamState.usageMetrics();
                             streamState = new StaffAIStreamState(false, nativeCards);

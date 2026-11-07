@@ -14,7 +14,7 @@ const visionDescribeDefinition: OpenAITool = {
     type: 'function',
     function: {
         name: 'vision_describe_image',
-        description: '画像認識が必要な場合だけ、指定された直近添付画像をHomePCのLFMとA8のNemotronで解析します。',
+        description: '画像認識が必要な場合だけ、指定された直近添付画像をA8のGemma 4で解析します。',
         parameters: {
             type: 'object',
             properties: {

@@ -180,6 +180,7 @@ function normalizePersona(value: unknown): GuildAIPersona | undefined {
 
 function normalizePersonality(value: unknown): GuildAIPersonality {
     const input = value && typeof value === 'object' ? value as Partial<GuildAIPersonality> : {};
+    const persona = normalizePersona(input.persona);
     return {
         learningEnabled: typeof input.learningEnabled === 'boolean'
             ? input.learningEnabled
@@ -202,7 +203,7 @@ function normalizePersonality(value: unknown): GuildAIPersonality {
             ? Math.max(0, Math.floor(Number(input.learningRevision)))
             : 0,
         updatedAt: typeof input.updatedAt === 'string' ? input.updatedAt : new Date().toISOString(),
-        ...(normalizePersona(input.persona) ? { persona: normalizePersona(input.persona)! } : {}),
+        ...(persona ? { persona } : {}),
     };
 }
 
@@ -455,12 +456,23 @@ const PERSONA_GENERATION_SYSTEM_PROMPT = [
 ].join('\n');
 
 function describePersonaForPrompt(persona: GuildAIPersona): string {
+    // Include the extended facets (added in f526768) in the material given to the generator;
+    // without them, base/previous-based regeneration silently drops firstPerson,
+    // exampleLines, catchphrases and the other extended fields.
     return [
         `名前: ${persona.name}`,
+        persona.firstPerson ? `一人称: ${persona.firstPerson}` : '',
         `性格: ${persona.character}`,
         `話し方: ${persona.speakingStyle}`,
+        persona.exampleLines?.length ? `口調の実例: ${persona.exampleLines.map(line => `「${line}」`).join(' ')}` : '',
+        persona.catchphrases?.length ? `口癖: ${persona.catchphrases.join('、')}` : '',
+        persona.likes ? `好きなもの・話題: ${persona.likes}` : '',
+        persona.dislikes ? `苦手なもの・話題: ${persona.dislikes}` : '',
+        persona.interactionStrengths ? `得意な絡み方: ${persona.interactionStrengths}` : '',
+        persona.weakTopicReaction ? `苦手な話題への反応: ${persona.weakTopicReaction}` : '',
         `振る舞い: ${persona.behavior}`,
-    ].join('\n');
+        persona.avoidBehaviors?.length ? `避けるべき振る舞い: ${persona.avoidBehaviors.join('、')}` : '',
+    ].filter(Boolean).join('\n');
 }
 
 /** 性格生成のメッセージを組み立てる。方向メモ等はすべて資料としてラベル付けする。 */

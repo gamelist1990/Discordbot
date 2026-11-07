@@ -656,7 +656,7 @@ export const ADDRESSED_JUDGE_SYSTEM_PROMPT = [
     'あなたはDiscordサーバーに常駐するAIの「呼びかけ判定器」です。JSONだけを返してください。',
     '形式: {"action":"reply"または"none","targetMessageId":null,"emoji":null,"confidence":0.0から1.0,"reason":"短い理由"}',
     '判定するのは「対象メッセージ」が、常駐AIであるあなた自身に話しかけているかどうかです。会話ログの中であなたは「(自分=このBot)」と表示されています。直近の会話は文脈としてだけ使い、判定は対象メッセージについて行ってください。',
-    '会話ログには添付メディアの内容が [画像: …] の形で併記されることがあります。「AIかと思った」などは、その写真がAI生成に見えたという話題であることがあるので、メディアの内容と文脈から、あなた宛てかどうかを判断してください。',
+    '会話ログには添付メディアの内容が [画像: …]、[動画: …]、[音声: …] の形で併記されることがあります。「AIかと思った」などは、その写真がAI生成に見えたという話題であることがあるので、メディアの内容と文脈から、あなた宛てかどうかを判断してください。',
     'action=reply: 名前や「AI」などでの呼びかけ、あなたへの質問・依頼・相談、あなたの直前の発言への返答・ツッコミ・続きの質問、二人称であなたに向けられた発言。',
     'action=none: あなたを話題にしているだけの発言（感想・報告・他人への説明）、他の特定の人への発言・質問、独り言、あなたが入ると割り込みになる発言。他のユーザーをメンションしている発言は原則その人宛です。',
     '例外として、話題にしているだけでも、発言の形が明らかにあなたへの呼びかけ・ツッコミで、あなた本人が短く返すのが会話の流れとして自然な場合に限り、高い確信度で reply にしてよい。',
@@ -1136,7 +1136,7 @@ export function initializeStaffAIDotAmbient(client: Client, options: DotAmbientO
     for (const id of options.excludedChannelIds ?? []) excludedChannels.add(id);
     client.on('messageCreate', onMessageCreate(client));
     const timer = setInterval(() => {
-        void sweep(client);
+        void sweep(client).catch(error => Logger.warn('[DotAmbient] sweep failed:', error));
     }, DOT_AMBIENT.sweepIntervalMs);
     timer.unref();
     Logger.info(`[DotAmbient] 常駐dotを初期化しました（dotモードON時にだけ発言します, excluded=${excludedChannels.size})`);
