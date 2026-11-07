@@ -21,9 +21,10 @@ test('A single oversized history message cannot bypass the total budget, includi
 });
 
 test('Compact style omits unused defaults but preserves actual server style and user instructions', () => {
-    // The roleplay definition is always present; unused style defaults are still omitted from the compact prompt.
+    // The light character definition is always present; unused style defaults are still omitted from the compact prompt.
     const defaults = buildGuildAIPersonalityPrompt(DEFAULT_GUILD_AI_PERSONALITY, true);
-    assert.match(defaults, /ロールプレイ定義/);
+    assert.match(defaults, /キャラクター（軽い個性）/);
+    assert.match(defaults, /演技の台本ではない/);
     assert.doesNotMatch(defaults, /口調:|ユーモア:|絵文字:|詳しさ:/);
     assert.ok(buildGuildAIPersonalityPrompt(DEFAULT_GUILD_AI_PERSONALITY).length > 0);
     const configured = buildGuildAIPersonalityPrompt({...DEFAULT_GUILD_AI_PERSONALITY,

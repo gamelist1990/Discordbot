@@ -25,8 +25,11 @@ function fakeGuild(count = 30) {
 test('通常の雑談では絵文字カタログを送らず、systemも短い', () => {
     const context = selectStaffEmojis(fakeGuild(200), '暇なんや〜w');
     assert.deepEqual(context, { catalog: '', images: [] });
-    assert.ok(STAFF_AI_SYSTEM_PROMPT.length < 800);
+    // 事実確認・レポート形式禁止・発言検索での裏取りなど意図的に追加された規範を含むため上限は1200。それでも短さは保証する。
+    assert.ok(STAFF_AI_SYSTEM_PROMPT.length < 1200);
     assert.match(STAFF_AI_SYSTEM_PROMPT, /日本語.*自然な会話/);
+    assert.match(STAFF_AI_SYSTEM_PROMPT, /レポート形式にしない/);
+    assert.match(STAFF_AI_SYSTEM_PROMPT, /発言検索（search_channel_messages）/);
 });
 
 test('Discordカスタム絵文字のIDを正確に認識しアニメーション表記を保つ', () => {

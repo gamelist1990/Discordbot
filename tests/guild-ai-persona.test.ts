@@ -8,10 +8,12 @@ import {
 const persona = { name: 'ミナト', character: '好奇心旺盛で面倒見がよい', speakingStyle: '明るい口調', behavior: 'まず受け止める',
     generatedAt: '2026-10-30T00:00:00.000Z', source: 'generated' as const };
 
-test('roleplay definition is always applied, even before the AI has chosen its character', () => {
+test('character definition is always applied, even before the AI has chosen its character', () => {
     const prompt = buildGuildAIPersonalityPrompt(DEFAULT_GUILD_AI_PERSONALITY);
-    assert.match(prompt, /ロールプレイ定義/);
-    assert.match(prompt, /友好的でフレンドリー/);
+    // 84175be: roleplay monologue was replaced by a light character definition.
+    assert.doesNotMatch(prompt, /ロールプレイ定義/);
+    assert.match(prompt, /演技の台本ではない/);
+    assert.match(prompt, /明るく親切/);
     assert.match(prompt, /AIであることは隠さず/);
 });
 
