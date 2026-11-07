@@ -59,24 +59,90 @@ export function getStylePreset(styleId: unknown): StylePreset | null {
 // ギルド構造サマリ（プラン生成の材料・検証の参照集合）
 // ---------------------------------------------------------------------------
 
+export interface PermissionOverwriteSummary {
+    targetKind: 'everyone' | 'role' | 'member';
+    targetId: string;
+    targetName?: string;
+    allow: string[];
+    deny: string[];
+}
+
 export interface GuildStructureChannel {
     id: string;
     name: string;
-    /** text | voice | announcement | category など discord.js の種別を文字列化したもの。 */
-    kind: 'text' | 'voice' | 'announcement' | 'category' | 'other';
+    /** text | voice | announcement | category | forum | stage | media | other */
+    kind: 'text' | 'voice' | 'announcement' | 'category' | 'forum' | 'stage' | 'media' | 'other';
     parentId?: string;
     topic?: string;
+    position: number;
+    rawPosition?: number;
+    permissionOverwrites: PermissionOverwriteSummary[];
+    /** カテゴリと権限同期しているか。親なし/不明は null。 */
+    permissionsSynced?: boolean | null;
+    isPrivate: boolean;
+    slowmodeSeconds?: number;
 }
 
 export interface GuildStructure {
     guildId: string;
     guildName: string;
-    categories: Array<{ id: string; name: string }>;
+    categories: Array<{ id: string; name: string; position: number; permissionOverwrites: PermissionOverwriteSummary[]; isPrivate: boolean }>;
     channels: GuildStructureChannel[];
     roles: Array<{ id: string; name: string }>;
     /** カテゴリを含む全チャンネル数（500上限の概算チェック用）。 */
     channelCount: number;
 }
+
+// --- permission helpers (pure, testable) ---
+const PERM_NAME_BY_BIT = new Map<bigint, string>(
+    Object.entries(PermissionFlagsBits).map(([name, bit]) => [BigInt(bit as unknown as bigint), name]),
+);
+export function bitfieldToPermissionNames(value: unknown): string[] {
+    if (value == null) return [];
+    if (Array.isArray(value)) return value.map(String).filter(n => VALID_PERMISSION_NAMES_SET.has(n));
+    if (typeof value === 'object') {
+        const v: any = value as any;
+        if (typeof v.toArray === 'function') { try { return v.toArray().map(String); } catch { return []; } }
+        if ('bitfield' in v) return bitfieldToPermissionNames(v.bitfield);
+    }
+    let bits: bigint;
+    try { bits = BigInt(value as any); } catch { return []; }
+    const out: string[] = [];
+    for (const [bit, name] of PERM_NAME_BY_BIT) if ((bits & bit) === bit && bit !== 0n) out.push(name);
+    return out;
+}
+const VALID_PERMISSION_NAMES_SET = new Set(Object.keys(PermissionFlagsBits));
+
+export function summarizePermissionOverwrites(raw: unknown, guildId: string, roleNames?: Map<string, string>): PermissionOverwriteSummary[] {
+    const list: any[] = [];
+    if (!raw) return [];
+    const cache: any = (raw as any).cache ?? raw;
+    if (cache && typeof cache.values === 'function') list.push(...cache.values());
+    else if (Array.isArray(cache)) list.push(...cache);
+    else if (typeof cache === 'object') list.push(...Object.values(cache));
+    return list.map((ow: any) => {
+        const targetId = String(ow.id ?? ow.targetId ?? '');
+        const targetKind: PermissionOverwriteSummary['targetKind'] = targetId === String(guildId) ? 'everyone' : (ow.type === 1 ? 'member' : 'role');
+        const allowRaw = ow.allow !== undefined ? ow.allow : ow.allowNames;
+        const denyRaw = ow.deny !== undefined ? ow.deny : ow.denyNames;
+        const allow = Array.isArray(allowRaw) && allowRaw.every((x: unknown) => typeof x === 'string') ? [...allowRaw] : bitfieldToPermissionNames(allowRaw);
+        const deny = Array.isArray(denyRaw) && denyRaw.every((x: unknown) => typeof x === 'string') ? [...denyRaw] : bitfieldToPermissionNames(denyRaw);
+        return { targetKind, targetId, ...(roleNames?.get(targetId) ? { targetName: roleNames.get(targetId) } : {}), allow, deny };
+    }).filter(o => o.targetId);
+}
+export function overwritesEqual(a: PermissionOverwriteSummary[], b: PermissionOverwriteSummary[]): boolean {
+    const norm = (xs: PermissionOverwriteSummary[]) => xs.map(x => `${x.targetId}:${[...x.allow].sort().join(',')}|${[...x.deny].sort().join(',')}`).sort().join(';');
+    return norm(a) === norm(b);
+}
+export function isPrivateFromOverwrites(overwrites: PermissionOverwriteSummary[]): boolean {
+    return overwrites.some(o => o.targetKind === 'everyone' && o.deny.includes('ViewChannel'));
+}
+export function computePermissionsSynced(channelOverwrites: PermissionOverwriteSummary[], parentOverwrites: PermissionOverwriteSummary[] | null | undefined, explicit?: unknown): boolean | null {
+    if (typeof explicit === 'boolean') return explicit;
+    if (!parentOverwrites) return null;
+    return overwritesEqual(channelOverwrites, parentOverwrites);
+}
+
 
 // ---------------------------------------------------------------------------
 // プラン操作スキーマ（v1）
@@ -113,7 +179,9 @@ export type ServerBuilderOperation =
         targetId?: string;
         targetRef?: { index: number };
         overwrites: PermissionOverwriteSpec[];
-    };
+    }
+    | { type: 'setPosition'; targetKind: 'channel' | 'category'; targetId: string; position: number }
+    | { type: 'syncPermissions'; channelId: string };
 
 export interface ServerBuilderPlan {
     version: 1;
@@ -129,8 +197,9 @@ export const MAX_SLOWMODE_SECONDS = 21600;
 
 const OPERATION_TYPES = new Set([
     'createCategory', 'createChannel', 'renameChannel', 'renameCategory',
-    'moveChannel', 'setTopic', 'setSlowmode', 'setPermissions',
+    'moveChannel', 'setTopic', 'setSlowmode', 'setPermissions', 'setPosition', 'syncPermissions',
 ]);
+export const MAX_POSITION = 500;
 
 const ALLOWED_FIELDS: Record<string, Set<string>> = {
     createCategory: new Set(['type', 'name']),
@@ -141,6 +210,8 @@ const ALLOWED_FIELDS: Record<string, Set<string>> = {
     setTopic: new Set(['type', 'channelId', 'topic']),
     setSlowmode: new Set(['type', 'channelId', 'seconds']),
     setPermissions: new Set(['type', 'targetKind', 'targetId', 'targetRef', 'overwrites']),
+    setPosition: new Set(['type', 'targetKind', 'targetId', 'position']),
+    syncPermissions: new Set(['type', 'channelId']),
 };
 
 const VALID_PERMISSION_NAMES = new Set(Object.keys(PermissionFlagsBits));
@@ -150,6 +221,7 @@ export interface PlanValidationContext {
     categoryIds: Set<string>;
     roleIds: Set<string>;
     currentChannelCount: number;
+    parentByChannelId?: Map<string, string | null>;
 }
 
 export function planContextFromStructure(structure: GuildStructure): PlanValidationContext {
@@ -158,7 +230,17 @@ export function planContextFromStructure(structure: GuildStructure): PlanValidat
         categoryIds: new Set(structure.categories.map(c => c.id)),
         roleIds: new Set(structure.roles.map(r => r.id)),
         currentChannelCount: structure.channelCount,
+        parentByChannelId: new Map(structure.channels.filter(c => c.kind !== 'category').map(c => [c.id, c.parentId ?? null])),
     };
+}
+
+/** 手動プラン入力をAIプランと同じ検証に通す純関数。AI予算には一切触れない。 */
+export function validateManualPlan(
+    operations: unknown,
+    ctx: PlanValidationContext,
+    summary = '手動プラン',
+): { ok: true; plan: ServerBuilderPlan } | { ok: false; errors: string[] } {
+    return validatePlan({ version: 1, summary, operations }, ctx);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -428,6 +510,20 @@ export function validatePlan(
                 });
                 break;
             }
+            case 'setPosition': {
+                if (op.targetKind !== 'channel' && op.targetKind !== 'category') { errors.push(`${label}: targetKind は channel か category です`); break; }
+                const pool = op.targetKind === 'channel' ? ctx.channelIds : ctx.categoryIds;
+                if (typeof op.targetId !== 'string' || !pool.has(op.targetId)) { errors.push(`${label}: 存在しない対象IDが指定されています`); break; }
+                if (!Number.isInteger(op.position) || (op.position as number) < 0 || (op.position as number) > MAX_POSITION) { errors.push(`${label}: position は0〜${MAX_POSITION}の整数です`); break; }
+                operations.push({ type: 'setPosition', targetKind: op.targetKind, targetId: op.targetId, position: op.position as number });
+                break;
+            }
+            case 'syncPermissions': {
+                if (typeof op.channelId !== 'string' || !ctx.channelIds.has(op.channelId)) { errors.push(`${label}: 存在しないチャンネルIDが指定されています`); break; }
+                if (ctx.parentByChannelId && !ctx.parentByChannelId.get(op.channelId)) { errors.push(`${label}: カテゴリに所属していないチャンネルは権限同期できません`); break; }
+                operations.push({ type: 'syncPermissions', channelId: op.channelId });
+                break;
+            }
             default:
                 errors.push(`${label}: 未知の操作です`);
         }
@@ -467,7 +563,12 @@ export function buildPlanMessages(input: {
     const structureJson = JSON.stringify({
         categories: input.structure.categories,
         channels: input.structure.channels.map(c => ({
-            id: c.id, name: c.name, kind: c.kind, ...(c.parentId ? { parentId: c.parentId } : {}),
+            id: c.id, name: c.name, kind: c.kind, position: c.position,
+            ...(c.parentId ? { parentId: c.parentId } : {}),
+            ...(c.topic ? { topic: c.topic } : {}),
+            permissionOverwrites: c.permissionOverwrites ?? [],
+            permissionsSynced: c.permissionsSynced ?? null,
+            isPrivate: c.isPrivate ?? false,
         })),
         roles: input.structure.roles,
         channelCount: input.structure.channelCount,
@@ -488,6 +589,11 @@ export function buildPlanMessages(input: {
         '- {"type":"setTopic","channelId":"既存ID","topic":"トピック"}',
         '- {"type":"setSlowmode","channelId":"既存ID","seconds":0〜21600}',
         '- {"type":"setPermissions","targetKind":"channel|category","targetId":"既存ID" または "targetRef":{"index":先行する作成操作のindex},"overwrites":[{"targetKind":"everyone|role","roleId":"roleのとき必須","allow":["権限名"],"deny":["権限名"]}]}',
+        '- {"type":"setPosition","targetKind":"channel|category","targetId":"既存ID","position":0〜500の整数} （並び替え。positionはDiscord表示順の実態値）',
+        '- {"type":"syncPermissions","channelId":"既存ID"} （チャンネルの権限を所属カテゴリに同期する。カテゴリに所属するチャンネルのみ）',
+        'カテゴリ側の権限調整は setPermissions の targetKind:"category" で行うこと。チャンネルの同期を外したい場合は、そのチャンネルへの setPermissions で個別の上書きを設定すること（同期解除専用操作はない）。',
+        '構造データには position・所属カテゴリ・permissionsSynced・isPrivate・権限上書き要約・名前そのもの（絵文字プレフィックスや装飾の有無が分かる）が含まれる。これら実態を見て、並び順の乱れや権限の不整合も必要なら提案してよい。',
+        '様式の統一: 命名スタイルや既存の大半の様式と比べて様式が揃っていないチャンネル（例: 他は「絵文字｜名前」なのに絵文字なし、カテゴリ装飾の有無が混在）を検出したら、依頼の範囲内で renameChannel/renameCategory による統一プランを提案してよい。',
         '権限名はDiscordの権限名（ViewChannel, SendMessages, ReadMessageHistory, Connect, Speak, ManageMessagesなど、PermissionFlagsBitsのキー）だけを使うこと。',
         '「スタッフだけ見える」は overwrites で everyone に ViewChannel を deny し、対象ロールに ViewChannel を allow する形に変換すること。「読み取り専用」は everyone（または対象ロール）に SendMessages を deny する形に変換すること。',
         '参照するIDは、与えられたサーバー構造に実在するものだけを使うこと。存在しないIDを創作しないこと。',
@@ -721,6 +827,7 @@ export interface ServerBuilderPreviewRecord {
     plan: ServerBuilderPlan;
     styleId: string;
     request: string;
+    source?: 'ai' | 'manual';
     expiresAt: number;
 }
 
@@ -770,6 +877,8 @@ export interface BuilderChannelLike {
     setParent(categoryId: string): Promise<unknown>;
     setTopic(topic: string): Promise<unknown>;
     setRateLimitPerUser(seconds: number): Promise<unknown>;
+    setPosition?(position: number): Promise<unknown>;
+    lockPermissions?(): Promise<unknown>;
     permissionOverwrites: {
         edit(targetId: string, permissions: Record<string, boolean>): Promise<unknown>;
     };
@@ -893,6 +1002,22 @@ export async function executePlan(
                     results.push({ index, type: op.type, ok: true, detail: `権限を ${op.overwrites.length} 件設定しました` });
                     break;
                 }
+                case 'setPosition': {
+                    const channel = await adapter.getChannel(op.targetId);
+                    if (!channel) throw new Error('対象が見つかりません');
+                    if (!channel.setPosition) throw new Error('並び替えに対応していません');
+                    await channel.setPosition(op.position);
+                    results.push({ index, type: op.type, ok: true, detail: `表示順を ${op.position} に変更しました` });
+                    break;
+                }
+                case 'syncPermissions': {
+                    const channel = await adapter.getChannel(op.channelId);
+                    if (!channel) throw new Error('対象チャンネルが見つかりません');
+                    if (!channel.lockPermissions) throw new Error('権限同期に対応していません');
+                    await channel.lockPermissions();
+                    results.push({ index, type: op.type, ok: true, detail: '権限をカテゴリに同期しました' });
+                    break;
+                }
                 default:
                     results.push({ index, type: (op as { type: string }).type, ok: false, detail: '未知の操作のため実行しませんでした' });
             }
@@ -918,6 +1043,8 @@ export function summarizePlan(plan: ServerBuilderPlan): string {
             case 'setTopic': return `setTopic:${op.channelId}`;
             case 'setSlowmode': return `setSlowmode:${op.channelId}=${op.seconds}s`;
             case 'setPermissions': return `setPermissions:${op.targetKind}:${op.targetId ?? `new:${op.targetRef?.index}`}`;
+            case 'setPosition': return `setPosition:${op.targetKind}:${op.targetId}=${op.position}`;
+            case 'syncPermissions': return `syncPermissions:${op.channelId}`;
             default: return 'unknown';
         }
     }).join(', ').slice(0, 500);
@@ -935,6 +1062,8 @@ export function createDiscordGuildAdapter(guild: any): ServerBuilderGuildAdapter
         setParent: (categoryId: string) => channel.setParent(categoryId),
         setTopic: (topic: string) => channel.setTopic(topic),
         setRateLimitPerUser: (seconds: number) => channel.setRateLimitPerUser(seconds),
+        setPosition: (position: number) => channel.setPosition(position),
+        lockPermissions: () => channel.lockPermissions(),
         permissionOverwrites: {
             edit: (targetId: string, permissions: Record<string, boolean>) =>
                 channel.permissionOverwrites.edit(targetId, permissions),
@@ -973,36 +1102,41 @@ export function createDiscordGuildAdapter(guild: any): ServerBuilderGuildAdapter
 
 /** discord.js の Guild から構造サマリを作る（state エンドポイントとプラン生成の材料）。 */
 export function buildGuildStructure(guild: any): GuildStructure {
+    const roleNames = new Map<string, string>();
+    const rolesRaw = [...(guild.roles?.cache?.values() ?? [])] as any[];
+    for (const r of rolesRaw) roleNames.set(String(r.id), String(r.name ?? ''));
+    const all = [...(guild.channels?.cache?.values() ?? [])] as any[];
+    all.sort((a, b) => (a.rawPosition ?? a.position ?? 0) - (b.rawPosition ?? b.position ?? 0));
+    // まずカテゴリの上書きを集める（同期判定用）
+    const catOverwrites = new Map<string, PermissionOverwriteSummary[]>();
+    for (const ch of all) if (ch.type === ChannelType.GuildCategory) catOverwrites.set(String(ch.id), summarizePermissionOverwrites(ch.permissionOverwrites, String(guild.id), roleNames));
+    const kindOf = (t: number): GuildStructureChannel['kind'] => t === ChannelType.GuildCategory ? 'category' : t === ChannelType.GuildVoice ? 'voice' : t === ChannelType.GuildAnnouncement ? 'announcement' : t === ChannelType.GuildForum ? 'forum' : t === ChannelType.GuildStageVoice ? 'stage' : (ChannelType as any).GuildMedia !== undefined && t === (ChannelType as any).GuildMedia ? 'media' : t === ChannelType.GuildText ? 'text' : 'other';
     const categories: GuildStructure['categories'] = [];
     const channels: GuildStructureChannel[] = [];
-    const all = [...(guild.channels?.cache?.values() ?? [])] as any[];
-    all.sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
     for (const channel of all) {
-        if (channel.type === ChannelType.GuildCategory) {
-            categories.push({ id: String(channel.id), name: String(channel.name ?? '') });
-            channels.push({ id: String(channel.id), name: String(channel.name ?? ''), kind: 'category' });
-        } else if (channel.type === ChannelType.GuildText || channel.type === ChannelType.GuildAnnouncement
-            || channel.type === ChannelType.GuildVoice) {
-            const kind = channel.type === ChannelType.GuildVoice ? 'voice'
-                : channel.type === ChannelType.GuildAnnouncement ? 'announcement' : 'text';
+        if (typeof channel.isThread === 'function' && channel.isThread()) continue;
+        if (channel.type === 10 || channel.type === 11 || channel.type === 12) continue;
+        const kind = kindOf(channel.type);
+        const overwrites = summarizePermissionOverwrites(channel.permissionOverwrites, String(guild.id), roleNames);
+        const position = typeof channel.rawPosition === 'number' ? channel.rawPosition : (channel.position ?? 0);
+        if (kind === 'category') {
+            categories.push({ id: String(channel.id), name: String(channel.name ?? ''), position, permissionOverwrites: overwrites, isPrivate: isPrivateFromOverwrites(overwrites) });
+            channels.push({ id: String(channel.id), name: String(channel.name ?? ''), kind, position, rawPosition: position, permissionOverwrites: overwrites, permissionsSynced: null, isPrivate: isPrivateFromOverwrites(overwrites) });
+        } else {
+            const parentId = channel.parentId ? String(channel.parentId) : undefined;
+            const parentOw = parentId ? catOverwrites.get(parentId) : undefined;
+            const synced = parentId ? computePermissionsSynced(overwrites, parentOw, typeof channel.permissionsLocked === 'boolean' ? channel.permissionsLocked : undefined) : null;
             channels.push({
-                id: String(channel.id),
-                name: String(channel.name ?? ''),
-                kind,
-                ...(channel.parentId ? { parentId: String(channel.parentId) } : {}),
+                id: String(channel.id), name: String(channel.name ?? ''), kind,
+                ...(parentId ? { parentId } : {}),
                 ...(typeof channel.topic === 'string' && channel.topic ? { topic: channel.topic } : {}),
+                position, rawPosition: position, permissionOverwrites: overwrites,
+                permissionsSynced: synced, isPrivate: isPrivateFromOverwrites(overwrites),
+                ...(typeof channel.rateLimitPerUser === 'number' ? { slowmodeSeconds: channel.rateLimitPerUser } : {}),
             });
         }
     }
-    const roles = [...(guild.roles?.cache?.values() ?? [])]
-        .filter((role: any) => String(role.id) !== String(guild.id))
-        .map((role: any) => ({ id: String(role.id), name: String(role.name ?? '') }));
-    return {
-        guildId: String(guild.id),
-        guildName: String(guild.name ?? ''),
-        categories,
-        channels,
-        roles,
-        channelCount: all.length,
-    };
+    categories.sort((a, b) => a.position - b.position);
+    const roles = rolesRaw.filter((role: any) => String(role.id) !== String(guild.id)).map((role: any) => ({ id: String(role.id), name: String(role.name ?? '') }));
+    return { guildId: String(guild.id), guildName: String(guild.name ?? ''), categories, channels, roles, channelCount: all.length };
 }
