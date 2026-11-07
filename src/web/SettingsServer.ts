@@ -1,5 +1,6 @@
 import { createSystemManagementRoutes } from './routes/system-management.js';
 import { createStaffAIRoutes } from './routes/staff/ai.js';
+import { createServerBuilderRoutes } from './routes/staff/serverBuilder.js';
 // MaxListenersExceededWarning を非表示にする
 process.on('warning', (warning) => {
     if (warning.name === 'MaxListenersExceededWarning') return;
@@ -145,6 +146,7 @@ export class SettingsServer {
         this.app.use('/api', createSettingsRoutes(sessions, this.botClient));
         this.app.use('/api/staff', createStaffRoutes(sessions, this.botClient));
         this.app.use('/api/staff/ai', createStaffAIRoutes(sessions, this.botClient));
+        this.app.use('/api/staff/server-builder', createServerBuilderRoutes(sessions, this.botClient));
         this.app.use('/api/system-management', createSystemManagementRoutes(sessions));
         this.app.use('/api/staff', createRolePresetRoutes(sessions, this.botClient));
         this.app.use('/api/staff/rankmanager', createRankRoutes(sessions, this.botClient));
