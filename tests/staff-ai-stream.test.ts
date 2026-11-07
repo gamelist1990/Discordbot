@@ -19,7 +19,7 @@ test('通常のDiscord本文にツール進捗をMarkdown表示する（Embedな
     assert.equal(result.embeds.length, 0);
     assert.match(result.content, /こんにちは！晴れだよ！/);
     assert.match(result.content, /✅ 天気/);
-    assert.match(result.content, /43\.8 toks\/s · toks: 922 \(in 880 \/ out 42\)/);
+    assert.match(result.content, /43\.8 toks\/s · 合計 922 toks \(in 880 \/ out 42\)/);
     assert.equal(result.content.includes('▌'), false);
 });
 
@@ -28,7 +28,7 @@ test('Discord2000字制限とtoken欄を守る', () => {
     stream.consume({ choices: [{ delta: { content: 'あ'.repeat(8000) } }] } as any);
     const text = stream.render(true);
     assert.ok(text.length <= 2000);
-    assert.ok(text.endsWith('— toks/s · toks: 未取得 (API未提供)'));
+    assert.ok(text.endsWith('— toks/s · 合計 未取得 (API未提供)'));
 });
 
 test('ツールの秘密引数・生JSON・コードブロック注入を出さない', () => {
@@ -54,7 +54,7 @@ test('同じindexで別ラウンドのツールは区別する', () => {
 test('生成速度はprefill時間を含まない値を出す', () => {
     const stream = new StaffAIStreamState();
     stream.consume({ choices: [], usage: { prompt_tokens: 2000, completion_tokens: 2, total_tokens: 2002 }, timings: { predicted_n: 2, predicted_ms: 100, predicted_per_second: 9.8157582 } } as any);
-    assert.match(stream.render(true), /9\.8 toks\/s · toks: 2002/);
+    assert.match(stream.render(true), /9\.8 toks\/s · 合計 2002 toks/);
 });
 
 test('Thinking中は短い内容プレビューを出し、完了時は本文を隠す', () => {
@@ -92,13 +92,15 @@ test('Responses SSE のThinkingと本文は別に描画し、usage/timingsを合
     assert.match(stream.render(), /8文字/);
     assert.equal((stream.render().match(/Thinking/g) || []).length, 1);
     stream.consumeResponse({ type: 'text', text: '画像は赤だよ。' });
-    assert.doesNotMatch(stream.render(), /Thinking/);
+    // 3681eef: 本文のストリーミング中もThinkingプレビューは表示したままにするのが現仕様。
+    assert.match(stream.render(), /Thinking/);
+    assert.equal((stream.render().match(/Thinking/g) || []).length, 1);
     stream.consumeResponse({ type: 'usage', inputTokens: 100, outputTokens: 50, totalTokens: 150,
         predictedTokens: 50, predictedPerSecond: 25 });
     const final = stream.renderDiscord(true);
     assert.equal(final.embeds.length, 0);
     assert.match(final.content, /画像は赤だよ/);
-    assert.match(final.content, /25\.0 toks\/s · toks: 150 \(in 100 \/ out 50\)/);
+    assert.match(final.content, /25\.0 toks\/s · 合計 150 toks \(in 100 \/ out 50\)/);
     assert.match(final.content, /💭 Thinking · 完了/);
     assert.doesNotMatch(final.content, /abcdefgh/);
 });

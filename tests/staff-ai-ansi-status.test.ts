@@ -71,7 +71,7 @@ test('2000-character Discord limit includes ANSI escape sequences', () => {
     const result = s.renderDiscord(true).content;
     assert.ok(result.length <= 2000);
     assert.match(result, /\`\`\`ansi/);
-    assert.ok(result.endsWith('toks: 未取得 (API未提供)'));
+    assert.ok(result.endsWith('合計 未取得 (API未提供)'));
 });
 
 test('non-ANSI special characters in tool args are shown as text', () => {
