@@ -411,6 +411,8 @@ export function pickPersonaArchetype(random: () => number = Math.random): Person
 export const PERSONA_DIRECTION_MAX_LENGTH = 300;
 
 export interface PersonaGenerationRequest {
+    /** 利用統計用のギルド（全体統計のみなら未指定）。 */
+    guildId?: string;
     /** 調整のベースにする現在の性格（あれば）。 */
     base?: GuildAIPersona;
     /** 似た方向を避けるための前回性格（ベースが無い再生成時）。 */
@@ -520,7 +522,8 @@ async function requestPersona(request: PersonaGenerationRequest = {}): Promise<G
             buildPersonaGenerationMessages(request),
             delta => {
                 if (delta.type === 'text') text += delta.text;
-            }, { model: config.pexAi.channelModel || config.pexAi.model, strictModel: true, maxTokens: 1400, priority: 'background' });
+            }, { model: config.pexAi.channelModel || config.pexAi.model, strictModel: true, maxTokens: 1400, priority: 'background',
+                usageContext: { guildId: request.guildId, purpose: 'persona' } });
         const parsed = parseGeneratedPersona(text);
         if (parsed) return { ...parsed, generatedAt: new Date().toISOString(), source: 'generated' };
     } catch (error) {
@@ -541,7 +544,7 @@ export function regenerateGuildAIPersona(guildId: string, force = true): Promise
     const task = (async () => {
         const before = await getGuildAIPersonality(guildId);
         if (!force && before.persona) return before;
-        const persona = await requestPersona({ previous: before.persona, learnedSummary: before.learnedSummary });
+        const persona = await requestPersona({ guildId, previous: before.persona, learnedSummary: before.learnedSummary });
         return withGuildPersonalityLock(guildId, async () => {
             const current = await getGuildAIPersonality(guildId);
             if (!force && current.persona) return current;
@@ -561,6 +564,7 @@ export async function generateGuildAIPersonaDraft(
 ): Promise<{ draft: GuildAIPersona; base: GuildAIPersona | undefined }> {
     const current = await getGuildAIPersonality(guildId);
     const draft = await requestPersona({
+        guildId,
         base: current.persona,
         direction,
         learnedSummary: current.learnedSummary,

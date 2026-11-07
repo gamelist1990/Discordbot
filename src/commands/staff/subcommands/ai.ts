@@ -23,7 +23,7 @@ import {
 } from '../../../core/ai/GuildAIPersonality.js';
 import { selectStaffEmojis, getStaffEmojiImageParts } from './StaffAIEmojiContext.js';
 import { PdfRAGManager } from '../../../core/ai/PdfRAGManager.js';
-import { recordStaffUsage, staffMemoryContext } from '../../../core/ai/StaffAIMemory.js';
+import { staffMemoryContext } from '../../../core/ai/StaffAIMemory.js';
 import { registerStaffAITools } from './ai-tools/catalog.js';
 import { staffMemoryToolScope } from './ai-tools/staff_memory.js';
 import { database } from '../../../core/persistence/Database.js';
@@ -552,6 +552,7 @@ ${reason}` });
             ...(forceTextFileTools ? { forceToolSequence: ['output_file'] }
                 : forceChannelSearchTool ? { forceToolSequence: ['search_channel_messages'] } : {}),
             includeUsage: true,
+            usageContext: { guildId: interaction.guildId ?? undefined, purpose: 'staff-ai' },
             ...(isSingleStaffFileRequest(prompt ?? '') ? { completeAfterTools: (results: Array<{name: string; output: string}>) => completeStaffFileTools(interaction, results) } : {}),
             onToolCallDelta: (call: Parameters<StaffAIStreamState['recordToolCall']>[0]) => {
                 const first = streamState.recordToolCall(call);
@@ -644,11 +645,8 @@ ${reason}` });
                 }
             }
 
-            // Persist cumulative statistics only after a successful response;
-            // summarization is queued in the background, outside the interaction.
-            const usage = streamState.usageMetrics();
-            void recordStaffUsage(interaction.guildId || 'global', usage.input, usage.output, usage.generatedSeconds, usage.cached)
-                .catch(error => console.warn('[StaffAI] metrics error', error));
+            // 利用統計は共通層（ChatGPTClient）がレスポンス単位で AIUsageMetrics へ記録する。
+            // 旧 recordStaffUsage（/staff ai 成功時のみ・手動集計）は二重計数になるため廃止した。
 
             // 会話をデータセットに保存（最新100件に切り詰め）
             try {
@@ -707,9 +705,7 @@ ${reason}` });
                             await safeRespond(await completedStaffAIReply(streamState, interaction));
                             isCompleted = true;
                             const retryResponse = stripDiscordStreamMetadata(responseContent);
-                            const retryUsage = streamState.usageMetrics();
-                            void recordStaffUsage(interaction.guildId || 'global', retryUsage.input, retryUsage.output, retryUsage.generatedSeconds, retryUsage.cached)
-                                .catch(usageError => console.warn('[StaffAI] retry metrics error', usageError));
+                            // 再試行分の利用統計も共通層が記録済み（streamMessage の usage チャンク）。
                             try {
                                 await saveConversationDatasetEntry(interaction, sanitized, retryResponse, false);
                             } catch (dbErr) {

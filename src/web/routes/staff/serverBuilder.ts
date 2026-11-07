@@ -181,6 +181,7 @@ export function createServerBuilderRoutes(sessions: Map<string, SettingsSession>
                     strictModel: true,
                     maxTokens: PLAN_MAX_TOKENS,
                     priority: 'background',
+                    usageContext: { guildId, purpose: 'server-builder' },
                 },
             );
 

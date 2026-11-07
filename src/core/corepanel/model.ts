@@ -17,6 +17,7 @@ export async function requestCoreFeatureModelText(
 ): Promise<string> {
     const client = new ChatGPTClient();
     const response = await client.sendMessage(messages, {
+        usageContext: { purpose: 'corepanel' },
         apiEndpoint: CORE_FEATURE_API_ENDPOINT,
         model: hooks?.model || [...CORE_FEATURE_MODEL_FALLBACKS],
         strictModel: Boolean(hooks?.model),

@@ -847,7 +847,8 @@ async function generateAmbientReply(guildId: string, context: string, situation:
     const text = await chatManager.generateText([
         { role: 'system', content: AMBIENT_SYSTEM_RULES },
         { role: 'user', content: sanitizeAiText(`直近の会話:\n${context}\n\n${situation}${personaBlock || personalityPrompt ? `\n\n${[personaBlock, personalityPrompt].filter(Boolean).join('\n')}` : ''}`) },
-    ], { model: GEMMA_MODEL, strictModel: true, maxTokens: DOT_AMBIENT.generationMaxTokens, priority: 'background' });
+    ], { model: GEMMA_MODEL, strictModel: true, maxTokens: DOT_AMBIENT.generationMaxTokens, priority: 'background',
+        usageContext: { guildId, purpose: 'dot-generate' } });
     return text.trim();
 }
 
@@ -914,7 +915,8 @@ async function judgeAddressed(message: Message, state: ChannelState, basis: Addr
     // 欲しいのは短いJSONだけなので思考を切り、トークン予算も確保する。解釈不能なら1回だけ再試行する。
     const runJudge = (messages: OpenAIChatCompletionMessage[]) => parseDecisionWithRetry(
         () => chatManager.generateText(messages,
-            { model: GEMMA_MODEL, strictModel: true, maxTokens: DOT_AMBIENT.judgeMaxTokens, priority: 'background', chatTemplateKwargs: { enable_thinking: false } }),
+            { model: GEMMA_MODEL, strictModel: true, maxTokens: DOT_AMBIENT.judgeMaxTokens, priority: 'background', chatTemplateKwargs: { enable_thinking: false },
+                usageContext: { guildId: message.guildId ?? undefined, purpose: 'dot-judge' } }),
         (raw, attempt) => Logger.warn(`[DotAmbient] addressed judge parse failed guild=${message.guildId} channel=${message.channelId} attempt=${attempt}/2 raw=${JSON.stringify(raw.slice(0, 200))}`),
     );
     // 生成リクエスト自体が落ちた場合は、履歴なし（対象メッセージのみの文脈）で組み立て直して再試行する。
@@ -1166,7 +1168,8 @@ async function judgeAndParticipate(client: Client, channelId: string, state: Cha
 
     const runJudge = (messages: OpenAIChatCompletionMessage[]) => parseDecisionWithRetry(
         () => chatManager.generateText(messages,
-            { model: GEMMA_MODEL, strictModel: true, maxTokens: DOT_AMBIENT.judgeMaxTokens, priority: 'background', chatTemplateKwargs: { enable_thinking: false } }),
+            { model: GEMMA_MODEL, strictModel: true, maxTokens: DOT_AMBIENT.judgeMaxTokens, priority: 'background', chatTemplateKwargs: { enable_thinking: false },
+                usageContext: { guildId: state.guildId, purpose: 'dot-judge' } }),
         (raw, attempt) => Logger.warn(`[DotAmbient] participation judge parse failed guild=${state.guildId} channel=${channelId} trigger=${trigger} attempt=${attempt}/2 raw=${JSON.stringify(raw.slice(0, 200))}`),
     );
     const latestHumanMessage = [...history].reverse().find(item => !item.author.bot) ?? history[history.length - 1];
@@ -1267,7 +1270,8 @@ async function learnGuildAtmosphere(guildId: string): Promise<void> {
     const summary = (await chatManager.generateText([
         { role: 'system', content: ATMOSPHERE_LEARNING_SYSTEM_PROMPT },
         { role: 'user', content: sanitizeAiText(buildAtmosphereLearningUserPrompt(personality.learnedSummary, used.map(item => withMediaNotes(item.content, item.id)))) },
-    ], { model: config.pexAi.channelModel || config.pexAi.model, strictModel: true, maxTokens: DOT_AMBIENT.learningMaxTokens, priority: 'background' })).trim();
+    ], { model: config.pexAi.channelModel || config.pexAi.model, strictModel: true, maxTokens: DOT_AMBIENT.learningMaxTokens, priority: 'background',
+        usageContext: { guildId, purpose: 'dot-learn' } })).trim();
 
     guildObservations.set(guildId, buffer.slice(used.length));
     guildLastLearnAt.set(guildId, now);
@@ -1293,7 +1297,8 @@ async function extractObservedEpisodes(guildId: string): Promise<void> {
         content: withMediaNotes(item.content, item.id),
     })), 'observed', async messages => chatManager.generateText(
         messages.map(message => ({ role: message.role, content: sanitizeAiText(message.content) })),
-        { model: config.pexAi.channelModel || config.pexAi.model, strictModel: true, maxTokens: DOT_AMBIENT.episodeMaxTokens, priority: 'background' },
+        { model: config.pexAi.channelModel || config.pexAi.model, strictModel: true, maxTokens: DOT_AMBIENT.episodeMaxTokens, priority: 'background',
+            usageContext: { guildId, purpose: 'episode' } },
     ));
     // 抽出に成功した分だけ消費する（失敗時は次回 sweep で再挑戦）。
     guildEpisodePending.set(guildId, buffer.slice(used.length));

@@ -456,6 +456,7 @@ export class ChatAIChannelManager {
                     maxTokens: 650,
                     ...(forceTextFileTools ? { forceToolSequence: ['create_text_file', 'upload_files'] } : {}),
                     requestLabel: 'chat-ai-channel',
+                    usageContext: { guildId: this.options.guildId, purpose: 'chat-ai' },
                     onToolStep: (step) => {
                         // 内部メモリ管理は会話体験の裏側で行い、Discordには
                         // ツール名・実行中・完了・失敗ステータスを表示しない。

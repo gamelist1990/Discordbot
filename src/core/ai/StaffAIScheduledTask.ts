@@ -53,6 +53,7 @@ export async function executeStaffScheduledTask(schedule: StaffAISchedule, now =
         { role: 'system', content: `${buildStaffAITimeContext(now)}\n予約時刻: ${schedule.runAt}。今日・最新などは実行日時を基準にする。` },
         { role: 'user', content: schedule.task },
     ], { model: GEMMA_MODEL, strictModel: true, maxTokens: 3072, signal,
+        usageContext: { guildId: schedule.guildId, purpose: 'staff-ai-scheduled' },
         requestLabel: `staff-ai-schedule:${schedule.id}`,
         ...(firstTool ? { forceToolSequence: [firstTool] } : {}),
     });

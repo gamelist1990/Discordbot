@@ -51,6 +51,7 @@ function buildGenerator() {
                 strictModel: true,
                 maxTokens: 1600,
                 priority: 'background',
+                usageContext: { guildId: EPISODE_BACKFILL_GUILD_ID, purpose: 'episode' },
             },
         );
         return text ?? '';
