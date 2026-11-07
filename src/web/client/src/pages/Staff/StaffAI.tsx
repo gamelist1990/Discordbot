@@ -61,7 +61,15 @@ const icon = (value: string, className = '') =>
   <span className={`material-icons ${className || ui.icon}`} aria-hidden="true">{value}</span>;
 
 async function readJson(url: string, options?: RequestInit) {
-  const r = await fetch(url, { credentials: 'include', cache: 'no-store', ...options });
+  // body があるのに Content-Type が無いと、fetch の文字列 body は text/plain になり
+  // サーバーの express.json() が body を読まないため、送信したはずの値
+  // （性格プレビューの direction や適用の previewId）がサーバーへ届かなくなる。
+  // services/api.ts の apiRequest と同じく、body がある場合は JSON を既定にする。
+  const headers = new Headers(options?.headers);
+  if (options?.body != null && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json');
+  }
+  const r = await fetch(url, { credentials: 'include', cache: 'no-store', ...options, headers });
   const body = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(body.error || `HTTP ${r.status}`);
   return body;
