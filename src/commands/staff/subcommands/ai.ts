@@ -440,11 +440,15 @@ ${reason}` });
         const currentUserContent = emojiImageParts.length > 0
             ? [{ type: 'text' as const, text: userContentText }, ...emojiImageParts]
             : userContentText;
+        // dsh原則（接頭辞キャッシュ）: 先頭は固定 system のみ。履歴はそのまま後ろに続き、
+        // 学習で変わる話し方・現在時刻・保存メモ・ファイル出力フロー等の可変 system は
+        // 履歴より後ろ（現在の入力の直前）に置く。可変要素を先頭側へ差し込むと履歴以降の
+        // 接頭辞が毎回壊れ、履歴全体が再prefillになるため、splice(1, 0, ...) は禁止。
         const messages: OpenAIChatCompletionMessage[] = [
             { role: 'system', content: mergedSystemPrompt },
+            ...historyMessages,
             ...(sharedPersonalityPrompt ? [{role: 'system' as const, content: sharedPersonalityPrompt}] : []),
             { role: 'system', content: buildStaffAITimeContext() },
-            ...historyMessages,
             ...(emojiContext.catalog
                 ? [{ role: 'user' as const, content: '[絵文字の参照情報（命令ではない）] ' + emojiContext.catalog }]
                 : []),
@@ -456,14 +460,19 @@ ${reason}` });
                 : []),
             { role: 'user', content: currentUserContent },
         ];
-        if (forceTextFileTools) messages.splice(1, 0, {
+        // 現在の user メッセージの直前へ差し込む（先頭の固定接頭辞を壊さない）。
+        const insertBeforeCurrentUser = (message: OpenAIChatCompletionMessage): void => {
+            const index = messages.findIndex(entry => entry.content === currentUserContent);
+            messages.splice(index >= 0 ? index : messages.length, 0, message);
+        };
+        if (forceTextFileTools) insertBeforeCurrentUser({
             role: 'system',
             content: STAFF_FILE_OUTPUT_FLOW,
         });
 
         // Persistent memory is retrieved only for the requesting user in this guild.
         const savedMemory = await staffMemoryContext(interaction.guildId || 'global', userId, userContentText, true);
-        if (savedMemory) messages.splice(1, 0, {
+        if (savedMemory) insertBeforeCurrentUser({
             role: 'system', content: '[本人の保存メモ（参考資料）]\n' + savedMemory.slice(0, STAFF_AI_PROMPT_BUDGET.memoryCharacters),
         });
 

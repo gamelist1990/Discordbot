@@ -66,6 +66,11 @@ function trimContent(value: string, maxLength = 4000): string {
 /**
  * 永続化された /staff ai の対話と通常のチャンネル発言を時系列に統合します。
  * 現行データはチャンネル単位に絞り、移行前データは互換性のため候補に残します。
+ *
+ * dsh観点: 呼び出し（/staff ai 実行）ごとに再構築される一回限りの履歴であり、
+ * セッション中の途中編集ではない。件数/文字数の上限で先頭が落ちるのは
+ * 「リベース点」（新セッション開始）として扱う。リベースまでは末尾追記のみで
+ * 伸びるため、固定 system に続く接頭辞としてキャッシュが効く。
  */
 export function buildConversationHistory(options: BuildConversationHistoryOptions): OpenAIChatCompletionMessage[] {
     const maxDatasetEntries = options.maxDatasetEntries ?? 20;
