@@ -1,8 +1,10 @@
 import { PermissionsBitField, type ChatInputCommandInteraction, type Message } from 'discord.js';
 import type { OpenAITool, ToolHandler } from '../../../../types/openai.js';
+import { buildSearchQuery, scoreSearchMatch } from '../../../../core/ai/SearchText.js';
 
 const SNOWFLAKE = /^\d{17,20}$/;
-const MAX_SCANNED = 1000;
+const MAX_SCANNED = 5000;
+const DEFAULT_SCANNED = 2000;
 const MAX_CONTEXT_PER_SIDE = 20;
 const DEFAULT_CONTEXT_PER_SIDE = 10;
 const MAX_SEARCH_RESPONSE_CHARS = 40_000;
@@ -54,14 +56,14 @@ export const searchChannelMessagesDefinition: OpenAITool = {
     type: 'function',
     function: {
         name: 'search_channel_messages',
-        description: 'Discordの古い会話をキーワードで検索。ヒットした投稿だけでなく前後各10件（調整可、各最大20件）をDiscord APIで自動fetchし、時系列の会話文脈とともに返す。最大1000件まで遡れる。文脈のない断片から話題・発言者を推測しない。',
+        description: 'Discordの古い会話をキーワードで検索。クエリは単語に分割され、フレーズ一致（スペースを除いた連結形でも一致）＞全単語の部分一致（順不同）＞一部単語一致の順に一致度が高いものから返すため、言い回しやスペース・助詞の違いで取りこぼしにくい。ヒットした投稿だけでなく前後各10件（調整可、各最大20件）をDiscord APIで自動fetchし、時系列の会話文脈とともに返す。最大5000件まで遡れる。0件のときは試した単語と条件が返るので、言い換えてもう一度探すこと。文脈のない断片から話題・発言者を推測しない。',
         parameters: {
             type: 'object',
             properties: {
-                query: { type: 'string', description: '検索語句（本文の部分一致、大文字小文字を区別しない）。' },
+                query: { type: 'string', description: '検索語句（単語に分割して部分一致でも探す。大文字小文字・全角半角は区別しない）。' },
                 channel_id: { type: 'string', description: '省略時は現在のチャンネル。別チャンネルは同一サーバーで閲覧権限必須。' },
                 limit: { type: 'integer', minimum: 1, maximum: 15, description: '返すヒット数（初期値8）。' },
-                scan_limit: { type: 'integer', minimum: 1, maximum: 1000, description: '過去に調べるメッセージ数（初期値500、最大1000）。' },
+                scan_limit: { type: 'integer', minimum: 1, maximum: 5000, description: '過去に調べるメッセージ数（初期値2000、最大5000）。' },
                 before: { type: 'string', description: 'さらに古く検索するときのnext_before。' },
                 context_before: { type: 'integer', minimum: 0, maximum: 20, description: '各ヒットより前（古い）のメッセージ取得数。初期値10。' },
                 context_after: { type: 'integer', minimum: 0, maximum: 20, description: '各ヒットより後（新しい）のメッセージ取得数。初期値10。' },
@@ -153,17 +155,24 @@ export const searchChannelMessagesHandler: ToolHandler = async (args, context) =
     const access = await staffReadableChannel(context, args?.channel_id);
     if ('error' in access) return access.error;
     const channel = access.channel;
-    const scanLimit = positive(args?.scan_limit, 500, MAX_SCANNED);
+    const scanLimit = positive(args?.scan_limit, DEFAULT_SCANNED, MAX_SCANNED);
     const resultLimit = positive(args?.limit, 8, 15);
     const includeContext = args?.include_context !== false;
     const beforeCount = includeContext ? contextSize(args?.context_before) : 0;
     const afterCount = includeContext ? contextSize(args?.context_after) : 0;
-    const matches: Message[] = [];
+    const built = buildSearchQuery(query);
+    interface RankedMatch { message: Message; level: 1 | 2 | 3; matchedTerms: string[] }
+    // 一致度の高い順に返すため、階層ごとに候補を集める（各階層内はスキャン順＝新しい順）。
+    // フレーズ一致が上限に達したら即終了し、それ以外はスキャン範囲を最後まで見てから下位階層で埋める。
+    const phraseMatches: RankedMatch[] = [];
+    const wordMatches: RankedMatch[] = [];
+    const partialMatches: RankedMatch[] = [];
+    const tierCounts = { phrase: 0, allWords: 0, partial: 0 };
     let scanned = 0;
     let before = startBefore ?? undefined;
     let exhausted = false;
 
-    while (scanned < scanLimit && matches.length < resultLimit) {
+    while (scanned < scanLimit && phraseMatches.length < resultLimit) {
         const size = Math.min(100, scanLimit - scanned);
         let page: Awaited<ReturnType<typeof channel.messages.fetch>>;
         try { page = await channel.messages.fetch({ limit: size, ...(before ? { before } : {}) }); }
@@ -174,9 +183,17 @@ export const searchChannelMessagesHandler: ToolHandler = async (args, context) =
         let processed = 0;
         for (const message of messages) {
             processed += 1;
-            if ((message.content ?? '').toLocaleLowerCase().includes(query.toLocaleLowerCase())) {
-                matches.push(message);
-                if (matches.length >= resultLimit) break;
+            const match = scoreSearchMatch(message.content ?? '', built);
+            if (match.level === 3) {
+                tierCounts.phrase += 1;
+                phraseMatches.push({ message, level: 3, matchedTerms: match.matchedTerms });
+                if (phraseMatches.length >= resultLimit) break;
+            } else if (match.level === 2) {
+                tierCounts.allWords += 1;
+                if (wordMatches.length < resultLimit) wordMatches.push({ message, level: 2, matchedTerms: match.matchedTerms });
+            } else if (match.level === 1) {
+                tierCounts.partial += 1;
+                if (partialMatches.length < resultLimit) partialMatches.push({ message, level: 1, matchedTerms: match.matchedTerms });
             }
         }
         scanned += processed;
@@ -187,11 +204,12 @@ export const searchChannelMessagesHandler: ToolHandler = async (args, context) =
         before = next;
         if (processed === messages.length && messages.length < size) { exhausted = true; break; }
     }
+    const matches = [...phraseMatches, ...wordMatches, ...partialMatches].slice(0, resultLimit);
 
-    const results: Array<ReturnType<typeof data> & { context?: NearbyContext }> = [];
+    const results: Array<ReturnType<typeof data> & { match_level: number; matched_terms: string[]; context?: NearbyContext }> = [];
     for (const hit of matches) {
-        const result: ReturnType<typeof data> & { context?: NearbyContext } =
-            data(hit, access.guildId!, channel.id, 850);
+        const result: ReturnType<typeof data> & { match_level: number; matched_terms: string[]; context?: NearbyContext } =
+            { ...data(hit.message, access.guildId!, channel.id, 850), match_level: hit.level, matched_terms: hit.matchedTerms };
         if (includeContext) {
             const nearby: NearbyContext = {
                 before: [], after: [],
@@ -202,17 +220,17 @@ export const searchChannelMessagesHandler: ToolHandler = async (args, context) =
                 // around also fetches messages just outside the scanned window.
                 try {
                     const collection = await channel.messages.fetch({
-                        around: hit.id,
+                        around: hit.message.id,
                         limit: Math.min(100, beforeCount + afterCount + 1),
                     });
                     const timeline = Array.from(collection.values());
                     const older = timeline
-                        .filter(item => compareSnowflakes(item.id, hit.id) < 0)
+                        .filter(item => compareSnowflakes(item.id, hit.message.id) < 0)
                         .sort((a, b) => compareSnowflakes(b.id, a.id))
                         .slice(0, beforeCount)
                         .reverse();
                     const newer = timeline
-                        .filter(item => compareSnowflakes(item.id, hit.id) > 0)
+                        .filter(item => compareSnowflakes(item.id, hit.message.id) > 0)
                         .sort((a, b) => compareSnowflakes(a.id, b.id))
                         .slice(0, afterCount);
                     nearby.before = older.map(contextMessage);
@@ -232,8 +250,17 @@ export const searchChannelMessagesHandler: ToolHandler = async (args, context) =
 
     const payload = {
         query, channel_id: channel.id, scanned, results,
+        terms: built.terms,
+        match_summary: { phrase: tierCounts.phrase, all_words: tierCounts.allWords, partial: tierCounts.partial },
         next_before: exhausted ? null : before ?? null,
-        note: 'ヒットと周辺発言はいずれもDiscordから取得した実データ。各結果のcontext.beforeは古い順、context.afterは新しい順。contextがunavailableの場合は会話の流れを推測しない。返信関係は自動確定しない。',
+        note: 'ヒットと周辺発言はいずれもDiscordから取得した実データ。結果は一致度順（match_level 3=フレーズ一致、2=全単語一致、1=一部単語一致）で、各一致度内は新しい順。各結果のcontext.beforeは古い順、context.afterは新しい順。contextがunavailableの場合は会話の流れを推測しない。返信関係は自動確定しない。',
+        ...(results.length === 0 ? {
+            tried: {
+                query, terms: built.terms, phrase: built.phrase, concatenated: built.concatenated,
+                scanned, scan_limit: scanLimit, channel_id: channel.id,
+            },
+            retry_hint: '0件だった。試した条件はtriedの通り。この結果だけで「なかった」と結論せず、単語を減らす・言い換える・scan_limitを増やす・別のチャンネルを見るなど、条件を変えてもう一度探すこと。',
+        } : {}),
     };
     trimSearchResponse(payload);
     return JSON.stringify(payload);

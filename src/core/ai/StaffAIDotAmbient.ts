@@ -3,6 +3,7 @@ import { OpenAIChatManager } from './OpenAIChatManager.js';
 import { GEMMA_MODEL, config } from '../../config.js';
 import { Logger } from '../../utils/Logger.js';
 import { getEffectiveContent } from '../anticheat/ForwardedContent.js';
+import { extractGuildEpisodes } from './GuildEpisodeMemory.js';
 import { getStaffAIDotMode } from '../../commands/staff/subcommands/StaffAIDotMode.js';
 import {
     applyGuildAIPersonalityLearning,
@@ -51,6 +52,11 @@ export const DOT_AMBIENT = {
     learningBatchSize: 20,
     learningIntervalMs: 20 * 60_000,
     learningUseMessages: 40,
+    episodeMinPending: 15,
+    episodeIntervalMs: 10 * 60_000,
+    episodeUseMessages: 40,
+    episodeMaxTokens: 1600,
+    episodePendingCap: 300,
     judgeMaxTokens: 1024,
     generationMaxTokens: 1024,
     learningMaxTokens: 1600,
@@ -402,6 +408,11 @@ interface ChannelState {
 interface ObservedMessage {
     id: string;
     content: string;
+    channelId: string;
+    channelName: string;
+    authorId: string;
+    authorName: string;
+    at: number;
 }
 
 export interface DotAmbientOptions {
@@ -414,6 +425,8 @@ const channelStates = new Map<string, ChannelState>();
 const guildReplyTimes = new Map<string, number[]>();
 const guildObservations = new Map<string, ObservedMessage[]>();
 const guildLastLearnAt = new Map<string, number>();
+const guildEpisodePending = new Map<string, ObservedMessage[]>();
+const guildLastEpisodeAt = new Map<string, number>();
 const guildNamesCache = new Map<string, { names: string[]; at: number }>();
 const excludedChannels = new Set<string>();
 
@@ -706,10 +719,24 @@ function onMessageCreate(client: Client) {
                 pushBuffered(state, { id: message.id, authorId: message.author.id, authorName: message.author.username, content: content.slice(0, 300), at: now, isBot: false });
 
                 if (content.length >= 4) {
+                    const observed: ObservedMessage = {
+                        id: message.id,
+                        content: content.slice(0, 300),
+                        channelId: message.channelId,
+                        channelName: (message.channel as { name?: string }).name ?? '',
+                        authorId: message.author.id,
+                        authorName: message.member?.displayName || message.author.globalName || message.author.username,
+                        at: now,
+                    };
                     const buffer = guildObservations.get(message.guildId) ?? [];
-                    buffer.push({ id: message.id, content: content.slice(0, 300) });
+                    buffer.push(observed);
                     while (buffer.length > 60) buffer.shift();
                     guildObservations.set(message.guildId, buffer);
+                    // 出来事の長期記憶用にも同じ観測を貯める（抽出は sweep 側でまとめて行う）。
+                    const pending = guildEpisodePending.get(message.guildId) ?? [];
+                    pending.push(observed);
+                    while (pending.length > DOT_AMBIENT.episodePendingCap) pending.shift();
+                    guildEpisodePending.set(message.guildId, pending);
                 }
 
                 // 呼びかけ判定: Discordメンション / Botの発言への直接返信は「呼ばれた」確定信号として即応答。
@@ -940,6 +967,31 @@ async function learnGuildAtmosphere(guildId: string): Promise<void> {
     if (applied) Logger.info(`[DotAmbient] learned atmosphere guild=${guildId} messages=${used.length} total=${applied.learnedMessageCount}`);
 }
 
+/** 観測した会話から「出来事」だけを抽出し、長期記憶（GuildEpisodeMemory）へ追記する。雰囲気学習とは別枠。 */
+async function extractObservedEpisodes(guildId: string): Promise<void> {
+    const buffer = guildEpisodePending.get(guildId) ?? [];
+    if (buffer.length < DOT_AMBIENT.episodeMinPending) return;
+    const now = Date.now();
+    if (now - (guildLastEpisodeAt.get(guildId) ?? 0) < DOT_AMBIENT.episodeIntervalMs) return;
+    const used = buffer.slice(0, DOT_AMBIENT.episodeUseMessages);
+    const result = await extractGuildEpisodes(guildId, used.map(item => ({
+        id: item.id,
+        at: item.at,
+        channelId: item.channelId,
+        channelName: item.channelName,
+        authorId: item.authorId,
+        authorName: item.authorName,
+        content: item.content,
+    })), 'observed', async messages => chatManager.generateText(
+        messages.map(message => ({ role: message.role, content: sanitizeAiText(message.content) })),
+        { model: config.pexAi.channelModel || config.pexAi.model, strictModel: true, maxTokens: DOT_AMBIENT.episodeMaxTokens, priority: 'background' },
+    ));
+    // 抽出に成功した分だけ消費する（失敗時は次回 sweep で再挑戦）。
+    guildEpisodePending.set(guildId, buffer.slice(used.length));
+    guildLastEpisodeAt.set(guildId, now);
+    if (result.added > 0) Logger.info(`[DotAmbient] recorded episodes guild=${guildId} added=${result.added} parsed=${result.parsed}`);
+}
+
 async function sweep(client: Client): Promise<void> {
     if (sweeping) return;
     sweeping = true;
@@ -974,6 +1026,11 @@ async function sweep(client: Client): Promise<void> {
         for (const guildId of guildObservations.keys()) {
             await learnGuildAtmosphere(guildId).catch(error => {
                 Logger.warn('[DotAmbient] learning failed:', error);
+            });
+        }
+        for (const guildId of guildEpisodePending.keys()) {
+            await extractObservedEpisodes(guildId).catch(error => {
+                Logger.warn('[DotAmbient] episode extraction failed:', error);
             });
         }
     } finally {

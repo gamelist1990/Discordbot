@@ -8,6 +8,7 @@ import { staffMemoryDefinition, staffMemoryHandler } from './staff_memory.js';
 import { staffScheduleDefinition, staffScheduleHandler } from './schedule.js';
 import { staffOutputFileDefinition, staffOutputFileHandler } from './fileOutput.js';
 import { searchChannelMessagesDefinition, searchChannelMessagesHandler, fetchDiscordMessageDefinition, fetchDiscordMessageHandler } from './channelSearch.js';
+import { searchServerEpisodesDefinition, searchServerEpisodesHandler } from './episodeSearch.js';
 import { fetchPublicUrlDefinition, fetchPublicUrlHandler } from './fetchPublicUrl.js';
 import { bashCalculationDefinition, bashCalculationHandler } from './calculate.js';
 
@@ -18,6 +19,7 @@ const COMPACT_DESCRIPTIONS: Record<string, string> = {
     manage_schedule: '本人の一回限りの予約をcreate/list/cancel。reminderは通知、taskは指定時刻に公開情報の調査・計算・文章生成を実行し本人にメンション。先に調査せず自己完結したtaskを保存。channel_idで別チャンネル可。日時は現在時計と日本時間を基準に、曖昧・過去は確認。保存成功後だけ完了と伝える。',
     calculate_bash: '計算専用Bash。小数・巨大整数はbc -lでscaleを指定（角度はラジアン）。許可形式はechoによる整数演算、printfからbc -lへのパイプ、引用付きbcヒアドキュメント。任意コマンド・ファイル・ネット・Python不可。5秒・128MiBまで。',
     fetch_url: '公開URLをNode fetchで取得しHTML本文をMarkdown化。Chrome不要。rawはソース、browserはJS描画が必要な場合だけの任意機能。ローカルIPは禁止。URLは正確に転記。',
+    search_server_episodes: '出来事検索: サーバーで起きた出来事の長期記録をキーワード（部分一致）・主体・日付範囲で検索。過去の出来事の確認に使い、生の発言は発言検索で裏を取る。0件は「起きなかった」証拠ではない。',
 };
 
 /** Staff AI always receives the complete catalog, including on short follow-up requests. */
@@ -35,6 +37,7 @@ export function registerStaffAITools(manager: Pick<OpenAIChatManager, 'registerT
         [staffMemoryDefinition, staffMemoryHandler],
         [staffScheduleDefinition, staffScheduleHandler],
         [searchChannelMessagesDefinition, searchChannelMessagesHandler],
+        [searchServerEpisodesDefinition, searchServerEpisodesHandler],
         [fetchDiscordMessageDefinition, fetchDiscordMessageHandler],
         [fetchPublicUrlDefinition, fetchPublicUrlHandler],
         [staffOutputFileDefinition, staffOutputFileHandler],

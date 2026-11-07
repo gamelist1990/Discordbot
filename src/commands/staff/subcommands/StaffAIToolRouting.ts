@@ -51,15 +51,22 @@ export function selectStaffToolNames(prompt: string, recentMessages: string[] = 
     }
     if (/チャンネル.*(履歴|発言|ログ)|発言履歴|過去の会話|以前の発言|チャット履歴|ログを調べ/i.test(text)) {
         chosen.add('search_channel_messages');
+        chosen.add('search_server_episodes');
         if (/直近|最新の.{0,6}(履歴|発言|ログ)/.test(text)) chosen.add('collect_channel_history');
         chosen.add('fetch_discord_message');
     }
     if (/メモ|memo|覚えて|記録して|保存して|忘れて|思い出し|メモリー|備忘録|昨日|一昨日|先週|過去の出来事|以前の会話|好きなもの|好きな物|趣味|得意|どんな人/i.test(text)) {
         chosen.add('manage_memory');
+        chosen.add('search_server_episodes');
     }
     if (/昔|古い|過去|前の|前に|以前|さっき|誰が言っ|いつ言っ|メッセージ.*(検索|探し|調べ)|会話.*(検索|探し|調べ)|発言.*(検索|探し|調べ)/i.test(text)) {
         chosen.add('search_channel_messages');
+        chosen.add('search_server_episodes');
         chosen.add('fetch_discord_message');
+    }
+    if (/出来事|エピソード|事件|騒動|何があった|何が起き|あったっけ|言ったっけ/i.test(text)) {
+        chosen.add('search_server_episodes');
+        chosen.add('search_channel_messages');
     }
     if (/https?:\/\/|URL|url|ページ|サイト|記事|リンク先|中身を見|本文を見|直接.*(取得|読|フェッチ|fetch)|fetch|フェッチ/i.test(text)) {
         chosen.add('fetch_url');

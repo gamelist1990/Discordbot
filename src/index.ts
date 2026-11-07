@@ -164,6 +164,14 @@ async function main() {
             Logger.warn('[DotAmbient] 初期化に失敗しました（Botは継続します）:', error);
         }
 
+        // 出来事の長期記憶の初期構築（メインギルドの過去履歴から抽出。通常運用はブロックしない）
+        try {
+            const episodeBackfill = await import('./core/ai/GuildEpisodeBackfill.js');
+            episodeBackfill.startGuildEpisodeBackfill(botClient.client);
+        } catch (error) {
+            Logger.warn('[EpisodeBackfill] 初期化に失敗しました（Botは継続します）:', error);
+        }
+
         // 設定サーバーを起動
         Logger.info('🌐 設定サーバーを起動します...');
         settingsServer = new SettingsServer(botClient, 3000);
