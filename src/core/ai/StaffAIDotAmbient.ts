@@ -49,6 +49,7 @@ export const DOT_AMBIENT = {
     learningUseMessages: 25,
     judgeMaxTokens: 1024,
     generationMaxTokens: 1024,
+    typingRefreshMs: 8_000,
 } as const;
 
 const QUESTION_TAIL = /(かな|かしら|だっけ|っけ|どう|なぜ|なんで|いつ|どこ|だれ|誰|なに|何|教えて|知ってる|知らない|わかる|分かる|ありますか|いますか|ませんか|でしょうか|ですか|ますか)$/;
@@ -484,6 +485,31 @@ function pushBuffered(state: ChannelState, entry: BufferedMessage): void {
 
 const sleepMs = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms));
 
+/** typing 表示の維持に必要な最小のチャンネル形（テストしやすいよう構造で受ける）。 */
+export interface TypingChannelLike {
+    sendTyping: () => Promise<unknown>;
+}
+
+/**
+ * 「入力中…」表示を維持する。Discord の typing は約10秒で切れるため、開始直後に1回送り、
+ * 以後は intervalMs 間隔で再送する。戻り値の stop は送信完了・失敗のどちらでも必ず呼ぶこと
+ * （try/finally で囲う）。stop の二重呼び出しは安全で、stop 後にタイマーが残ることはない。
+ */
+export function startTypingKeepAlive(channel: TypingChannelLike, intervalMs: number = DOT_AMBIENT.typingRefreshMs): () => void {
+    let stopped = false;
+    const send = () => {
+        if (!stopped) void channel.sendTyping().catch(() => undefined);
+    };
+    send();
+    const timer = setInterval(send, intervalMs);
+    timer.unref?.();
+    return () => {
+        if (stopped) return;
+        stopped = true;
+        clearInterval(timer);
+    };
+}
+
 /** 投稿前の人間らしい間（ミリ秒）。rand は 0..1。呼びかけ応答は速め、通常参加は少し置く、リアクションは軽く。 */
 export function ambientSendDelayMs(kind: 'addressed' | 'join' | 'react', rand: number): number {
     const r = Math.min(1, Math.max(0, rand));
@@ -517,9 +543,12 @@ const ADDRESSED_JUDGE_SYSTEM_PROMPT = [
     '迷ったら action=none。confidence は「話しかけられた」確信度。',
 ].join('\n');
 
-const AMBIENT_SYSTEM_RULES = [
+export const AMBIENT_SYSTEM_RULES = [
     'あなたはこのDiscordサーバーに常駐するAIです。会話の空気を読んで、混ざる価値がある場面で短く自然に発言しています。',
     '発言は短く（基本1〜2文）。混ざるときは相槌や短いリアクション（「まじ〜」「それな」程度）も普通に使い、盛り上がっている場では熱量に合わせた軽い一言でしれっと混ざる。詩的な飾りや相談の勧誘はしない。見出し・箇条書きのレポート形式にもしない。質問が宙に浮いていたら簡潔に助ける。',
+    '相手を呼ぶときは、その人の表示名を使うか、そもそも名前で呼ばない。「夜更かしさん」のような、相手の属性や様子から作ったラベル・あだ名では呼ばない（「夜更かしさん、いらっしゃい！」は禁止の典型例）。',
+    '話題や相談を勧誘する文句で締めない（「何か話したいことある？」「夜空の話でもする？」「何か相談ある？」のような誘いで終わらない）。返事は、答えが終わったらそこで終わる。',
+    '星や夜空の話題・比喩は、相手が振ったときだけ使う。それ以外では自分から持ち出さない。',
     '馴れ馴れしすぎない、連投しない、場を独占しない。AIであることを聞かれたら隠さない。知らないことは知らないと言う。',
     'ツールは使わない。サーバーの話し方設定と学習した雰囲気に合わせる。',
 ].join('\n');
@@ -586,22 +615,27 @@ async function respondToAddressed(message: Message, state: ChannelState, via: 'd
     const situation = via === 'judged'
         ? 'あなたは今、文脈の流れから自分に話しかけられたと判断しました。その発言に短く自然に応えてください。質問や相談であれば簡潔に答えること。'
         : 'あなたは今、名前を呼ばれました。その呼びかけに短く自然に応えてください。質問や相談であれば簡潔に答えること。';
-    // 生成が文脈側の事情で落ちたら、履歴なし（対象メッセージ＋状況文だけの最小文脈）で1回だけ組み立て直す。
-    // 再試行も落ちた場合に初めて、呼び出し側が「addressed response failed」として記録する。
-    const replyText = await generateWithContextFallback(
-        () => generateAmbientReply(message.guildId ?? '', context, situation),
-        () => generateAmbientReply(message.guildId ?? '', formatContext([message], message.client.user?.id), situation),
-        error => Logger.warn(`[DotAmbient] addressed reply generation failed guild=${message.guildId} channel=${message.channelId}; retrying with minimal context:`, error),
-    );
-    if (!replyText) return;
-    if ('sendTyping' in channel) await channel.sendTyping().catch(() => undefined);
-    await sleepMs(ambientSendDelayMs('addressed', Math.random()));
-    const sent = await message.reply({ content: replyText.slice(0, 1900) }).catch(() => null);
-    if (sent) {
-        rememberDotPost(state, sent);
-        state.lastBotParticipationAt = sent.createdTimestamp;
-        state.engagedUntil = Date.now() + DOT_AMBIENT.engagedWindowMs;
-        Logger.info(`[DotAmbient] addressed guild=${message.guildId} channel=${message.channelId} via=${via}${via === 'judged' ? ` conf=${confidence ?? '?'}` : ''}`);
+    // 生成中ずっと「入力中…」が見えるよう、生成開始から送信完了（または失敗）まで typing を維持する。
+    const stopTyping = 'sendTyping' in channel ? startTypingKeepAlive(channel) : () => undefined;
+    try {
+        // 生成が文脈側の事情で落ちたら、履歴なし（対象メッセージ＋状況文だけの最小文脈）で1回だけ組み立て直す。
+        // 再試行も落ちた場合に初めて、呼び出し側が「addressed response failed」として記録する。
+        const replyText = await generateWithContextFallback(
+            () => generateAmbientReply(message.guildId ?? '', context, situation),
+            () => generateAmbientReply(message.guildId ?? '', formatContext([message], message.client.user?.id), situation),
+            error => Logger.warn(`[DotAmbient] addressed reply generation failed guild=${message.guildId} channel=${message.channelId}; retrying with minimal context:`, error),
+        );
+        if (!replyText) return;
+        await sleepMs(ambientSendDelayMs('addressed', Math.random()));
+        const sent = await message.reply({ content: replyText.slice(0, 1900) }).catch(() => null);
+        if (sent) {
+            rememberDotPost(state, sent);
+            state.lastBotParticipationAt = sent.createdTimestamp;
+            state.engagedUntil = Date.now() + DOT_AMBIENT.engagedWindowMs;
+            Logger.info(`[DotAmbient] addressed guild=${message.guildId} channel=${message.channelId} via=${via}${via === 'judged' ? ` conf=${confidence ?? '?'}` : ''}`);
+        }
+    } finally {
+        stopTyping();
     }
 }
 
@@ -814,33 +848,38 @@ async function judgeAndParticipate(client: Client, channelId: string, state: Cha
             : decision.action === 'reply'
                 ? '上記の会話の中の対象メッセージに、常駐AIとして短く自然に返信してください。'
                 : '上記の会話の流れに、常駐AIとして短く自然に混ざってください。';
-    const replyText = await generateAmbientReply(state.guildId, context, situation);
-    if (!replyText) return;
+    // 生成中ずっと「入力中…」が見えるよう、生成開始から送信完了（または失敗）まで typing を維持する。
+    const stopTyping = 'sendTyping' in channel ? startTypingKeepAlive(channel) : () => undefined;
+    try {
+        const replyText = await generateAmbientReply(state.guildId, context, situation);
+        if (!replyText) return;
 
-    if ('sendTyping' in channel) await channel.sendTyping().catch(() => undefined);
-    await sleepMs(ambientSendDelayMs('join', Math.random()));
+        await sleepMs(ambientSendDelayMs('join', Math.random()));
 
-    let sent: Message | null = null;
-    const target = await resolveTarget();
-    if (decision.action === 'reply' || decision.action === 'continue') {
-        const replyTarget = target
-            ?? (trigger === 'question' ? history.find(item => item.id === state.lastHumanMessageId) ?? null : lastHumanMessage);
-        if (replyTarget) sent = await replyTarget.reply({ content: replyText.slice(0, 1900) }).catch(() => null);
-    } else if (target) {
-        sent = await target.reply({ content: replyText.slice(0, 1900) }).catch(() => null);
+        let sent: Message | null = null;
+        const target = await resolveTarget();
+        if (decision.action === 'reply' || decision.action === 'continue') {
+            const replyTarget = target
+                ?? (trigger === 'question' ? history.find(item => item.id === state.lastHumanMessageId) ?? null : lastHumanMessage);
+            if (replyTarget) sent = await replyTarget.reply({ content: replyText.slice(0, 1900) }).catch(() => null);
+        } else if (target) {
+            sent = await target.reply({ content: replyText.slice(0, 1900) }).catch(() => null);
+        }
+        if (!sent) sent = await channel.send({ content: replyText.slice(0, 1900) }).catch(() => null);
+        if (!sent) return;
+
+        rememberDotPost(state, sent);
+        const now = Date.now();
+        state.lastAmbientJoinAt = now;
+        state.lastBotParticipationAt = now;
+        state.engagedUntil = now + DOT_AMBIENT.engagedWindowMs;
+        const times = guildReplyTimes.get(state.guildId) ?? [];
+        times.push(now);
+        guildReplyTimes.set(state.guildId, times);
+        Logger.info(`[DotAmbient] joined(${decision.action}) guild=${state.guildId} channel=${channelId} trigger=${trigger} conf=${decision.confidence} reason=${decision.reason}`);
+    } finally {
+        stopTyping();
     }
-    if (!sent) sent = await channel.send({ content: replyText.slice(0, 1900) }).catch(() => null);
-    if (!sent) return;
-
-    rememberDotPost(state, sent);
-    const now = Date.now();
-    state.lastAmbientJoinAt = now;
-    state.lastBotParticipationAt = now;
-    state.engagedUntil = now + DOT_AMBIENT.engagedWindowMs;
-    const times = guildReplyTimes.get(state.guildId) ?? [];
-    times.push(now);
-    guildReplyTimes.set(state.guildId, times);
-    Logger.info(`[DotAmbient] joined(${decision.action}) guild=${state.guildId} channel=${channelId} trigger=${trigger} conf=${decision.confidence} reason=${decision.reason}`);
 }
 
 /** 観測した会話からサーバーの空気を学習し、既存の GuildAIPersonality へ反映する。 */

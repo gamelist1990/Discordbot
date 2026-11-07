@@ -1,4 +1,4 @@
-import test from 'node:test';
+import test, { mock } from 'node:test';
 import assert from 'node:assert/strict';
 import {
     isHangingQuestion,
@@ -16,6 +16,8 @@ import {
     presenceOf,
     evaluateEvaluationTrigger,
     ambientSendDelayMs,
+    startTypingKeepAlive,
+    AMBIENT_SYSTEM_RULES,
     type DotChannelSnapshot,
     type ParticipationDecision,
 } from '../src/core/ai/StaffAIDotAmbient.ts';
@@ -384,4 +386,53 @@ test('generation fallback: judge request errors retry with minimal context befor
         () => parseDecisionWithRetry(async () => { throw new Error('400 again'); }),
     ).catch(() => null);
     assert.equal(failed, null);
+});
+
+test('typing keep-alive resends on interval until stopped, and stopping is idempotent', () => {
+    mock.timers.enable({ apis: ['setInterval'] });
+    try {
+        let count = 0;
+        const stop = startTypingKeepAlive({ sendTyping: async () => { count += 1; } }, 1_000);
+        // 開始直後に1回送る
+        assert.equal(count, 1);
+        mock.timers.tick(1_000);
+        assert.equal(count, 2);
+        mock.timers.tick(2_500);
+        assert.equal(count, 4);
+        stop();
+        mock.timers.tick(10_000);
+        assert.equal(count, 4);
+        // 二重 stop でも送られない
+        stop();
+        mock.timers.tick(3_000);
+        assert.equal(count, 4);
+    } finally {
+        mock.timers.reset();
+    }
+});
+
+test('typing keep-alive swallows sendTyping failures', async () => {
+    let count = 0;
+    const stop = startTypingKeepAlive({
+        sendTyping: async () => { count += 1; throw new Error('no permission'); },
+    }, 60_000);
+    // 失敗しても例外にならず、呼び出し自体は行われている
+    assert.equal(count, 1);
+    stop();
+    await new Promise(resolve => setTimeout(resolve, 0));
+});
+
+test('ambient system rules include the concrete prohibitions (no attribute nicknames, no soliciting closers, no unprompted star talk)', () => {
+    // 属性ラベルのあだ名禁止（具体例つき）
+    assert.ok(AMBIENT_SYSTEM_RULES.includes('夜更かしさん'));
+    assert.ok(AMBIENT_SYSTEM_RULES.includes('表示名を使うか'));
+    assert.ok(AMBIENT_SYSTEM_RULES.includes('ラベル・あだ名では呼ばない'));
+    // 締めの誘い文句の禁止（具体例つき）
+    assert.ok(AMBIENT_SYSTEM_RULES.includes('勧誘する文句で締めない'));
+    assert.ok(AMBIENT_SYSTEM_RULES.includes('何か話したいことある？'));
+    assert.ok(AMBIENT_SYSTEM_RULES.includes('返事は、答えが終わったらそこで終わる'));
+    // 星・夜空は相手が振ったときだけ
+    assert.ok(AMBIENT_SYSTEM_RULES.includes('星や夜空の話題・比喩は、相手が振ったときだけ'));
+    // 既存の短さ指定は維持されている
+    assert.ok(AMBIENT_SYSTEM_RULES.includes('基本1〜2文'));
 });
