@@ -42,7 +42,7 @@ export const DOT_AMBIENT = {
     reactMinConfidence: 0.6,
     continueMinConfidence: 0.55,
     engagedWindowMs: 5 * 60_000,
-    reactChannelCooldownMs: 10 * 60_000,
+    recentReactionKeep: 5,
     contextBufferSize: 25,
     addressedCooldownMs: 45_000,
     addressedJudgeMinConfidence: 0.65,
@@ -311,6 +311,34 @@ export function shouldExecuteParticipation(decision: ParticipationDecision | nul
     return decision.confidence >= participationThreshold(decision.action);
 }
 
+/** Bot自身が付けたリアクションの記録。リアクションは通常のメッセージ履歴に残らないため、判定材料として明示的に保持する。 */
+export interface RecentReaction {
+    at: number;
+    authorName: string;
+    excerpt: string;
+    emoji: string;
+}
+
+/**
+ * リアクション履歴へ新しい順で記録する（保持件数を超えたら古いものから落とす）。
+ * 間隔の判断はモデルに委ねるため、ここでは時間による間引き・ブロックは一切しない。
+ */
+export function recordRecentReaction(history: RecentReaction[], entry: RecentReaction): RecentReaction[] {
+    return [entry, ...history].slice(0, DOT_AMBIENT.recentReactionKeep);
+}
+
+/** 判定入力用に、Bot自身の直近のリアクション履歴を整形する（新しい順）。 */
+export function formatRecentReactions(history: RecentReaction[], now: number): string {
+    if (history.length === 0) return '（このチャンネルではまだリアクションしていません）';
+    return history.map(entry => {
+        const mins = Math.floor((now - entry.at) / 60_000);
+        const when = mins < 1 ? 'たった今' : mins < 60 ? `${mins}分前` : `${Math.floor(mins / 60)}時間前`;
+        const name = sanitizeAiText(entry.authorName) || '(不明)';
+        const body = sanitizeAiText(entry.excerpt.replace(/\s+/g, ' ').slice(0, 80)) || '(本文なし)';
+        return `- ${when}: ${name}の「${body}」に ${entry.emoji}`;
+    }).join('\n');
+}
+
 export interface DotChannelSnapshot {
     lastHumanMessageAt: number;
     lastHumanMessageIsQuestion: boolean;
@@ -320,7 +348,6 @@ export interface DotChannelSnapshot {
     lastOtherBotMessageAt: number;
     lastBotParticipationAt: number;
     engagedUntil: number;
-    lastReactAt: number;
     humanMessagesInWindow: number;
     distinctHumansInWindow: number;
     humanMessagesTotal: number;
@@ -395,7 +422,7 @@ interface ChannelState {
     lastBotMessageAt: number;
     lastBotParticipationAt: number;
     engagedUntil: number;
-    lastReactAt: number;
+    recentReactions: RecentReaction[];
     recentMessages: BufferedMessage[];
     dotPostIds: Set<string>;
     recentBotMessageIds: string[];
@@ -458,7 +485,7 @@ function stateFor(message: Message): ChannelState {
             lastBotMessageAt: 0,
             lastBotParticipationAt: 0,
             engagedUntil: 0,
-            lastReactAt: 0,
+            recentReactions: [],
             recentMessages: [],
             dotPostIds: new Set(),
             recentBotMessageIds: [],
@@ -569,6 +596,10 @@ export const PARTICIPATION_JUDGE_SYSTEM_PROMPT = [
     '- reply: 特定のメッセージへの返信が自然な場合。宙に浮いた質問への回答、あなたに向けられた発言への応答。targetMessageId を指定する。',
     '- comment: 会話全体に短く口を挟む余地が本当にある場合だけ（ネタへの乗っかり、困っている人へのさりげない助け）。ハードルは高い。',
     '- react: 言葉ではなく絵文字リアクションが一番自然な軽い反応（笑い・驚き・共感）。targetMessageId と emoji を必ず指定する。',
+    'react の間隔は固定ルールでは決めない。ユーザー文には「あなたの直近のリアクション」（いつ・誰の・どんな発言に・どの絵文字を付けたか）が渡されるので、それと会話の進み具合を見て、人間らしい間隔を自分で判断すること。秒数の決まりは無い。',
+    '直前に自分がリアクションしたばかりで、会話があまり進んでいない・話題も変わっていないなら、react は none に寄せる。うるさく感じられる連打はしない。',
+    '全部の発言に付けるのは不自然で、付けすぎは空気を壊す。付けるのは笑いどころ・強い同意・祝福など、反応が自然な一点だけにする。',
+    '逆に、前回から話題が変わった、新しい盛り上がりや別の人の光る発言があるなら、間隔が短くても react してよい。時間が経っていても付ける価値のない発言には付けない。間隔は時計ではなく文脈で判断する。',
     '- continue: あなたが既に参加している会話の流れへの追随（あなたの状態が engaged の時だけ選べる）。',
     'しれっと混ざるのが理想で、出しゃばるのは失敗です。迷ったら none。confidence は「その参加が成功する確信度」。',
     'comment / reply を選ぶ場合、reason には「具体的に何を言うのか」（直近の会話の具体的な単語・固有名詞を拾った、自分の発言内容の下書き）が必須です。下書きが書けない参加は価値がありません。',
@@ -817,7 +848,6 @@ function snapshotOf(state: ChannelState, now: number): DotChannelSnapshot {
         lastOtherBotMessageAt: state.lastOtherBotMessageAt,
         lastBotParticipationAt: state.lastBotParticipationAt,
         engagedUntil: state.engagedUntil,
-        lastReactAt: state.lastReactAt,
         humanMessagesInWindow: recent.length,
         distinctHumansInWindow: new Set(recent.map(item => item.authorId)).size,
         humanMessagesTotal: state.humanMessagesTotal,
@@ -865,7 +895,7 @@ async function judgeAndParticipate(client: Client, channelId: string, state: Cha
         ? formatBuffered(state.recentMessages, client.user?.id, Date.now())
         : formatContext(history, client.user?.id);
 
-    const judgeUserContent = (contextText: string) => sanitizeAiText(`${personalityPrompt ? personalityPrompt.slice(0, 700) + '\n' : ''}あなたの状態: ${presence === 'engaged' ? 'このチャンネルでは会話に参加中（engaged）' : 'このチャンネルでは様子見中（lurking）'}\nきっかけ: ${trigger}\n直近の会話:\n${contextText}`);
+    const judgeUserContent = (contextText: string) => sanitizeAiText(`${personalityPrompt ? personalityPrompt.slice(0, 700) + '\n' : ''}あなたの状態: ${presence === 'engaged' ? 'このチャンネルでは会話に参加中（engaged）' : 'このチャンネルでは様子見中（lurking）'}\nきっかけ: ${trigger}\nあなたの直近のリアクション（このチャンネル）:\n${formatRecentReactions(state.recentReactions, Date.now())}\n直近の会話:\n${contextText}`);
     const runJudge = (contextText: string) => parseDecisionWithRetry(
         () => chatManager.generateText([
             { role: 'system', content: PARTICIPATION_JUDGE_SYSTEM_PROMPT },
@@ -895,14 +925,20 @@ async function judgeAndParticipate(client: Client, channelId: string, state: Cha
     const lastHumanMessage = [...history].reverse().find(item => !item.author.bot) ?? null;
 
     if (decision.action === 'react') {
-        if (Date.now() - state.lastReactAt < DOT_AMBIENT.reactChannelCooldownMs) return;
+        // 間隔の固定クールダウンは無い。付けるかどうか・どの間隔が自然かは、直近のリアクション履歴を
+        // 材料にモデル自身が判定している（PARTICIPATION_JUDGE 参照）。ここでは実行だけを行う。
         if (!permissions.has(PermissionFlagsBits.AddReactions)) return;
         const target = (await resolveTarget()) ?? lastHumanMessage;
         if (!target) return;
         await sleepMs(ambientSendDelayMs('react', Math.random()));
         const reacted = await target.react(decision.emoji ?? '👍').then(() => true).catch(() => false);
         if (!reacted) return;
-        state.lastReactAt = Date.now();
+        state.recentReactions = recordRecentReaction(state.recentReactions, {
+            at: Date.now(),
+            authorName: target.author.username,
+            excerpt: getEffectiveContent(target).replace(/\s+/g, ' ').slice(0, 120),
+            emoji: decision.emoji ?? '👍',
+        });
         Logger.info(`[DotAmbient] reacted guild=${state.guildId} channel=${channelId} emoji=${decision.emoji ?? '👍'} conf=${decision.confidence} reason=${decision.reason}`);
         return;
     }

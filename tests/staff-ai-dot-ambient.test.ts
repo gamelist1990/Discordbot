@@ -17,6 +17,10 @@ import {
     presenceOf,
     evaluateEvaluationTrigger,
     ambientSendDelayMs,
+    DOT_AMBIENT,
+    recordRecentReaction,
+    formatRecentReactions,
+    type RecentReaction,
     startTypingKeepAlive,
     AMBIENT_SYSTEM_RULES,
     PARTICIPATION_JUDGE_SYSTEM_PROMPT,
@@ -116,7 +120,6 @@ const base: DotChannelSnapshot = {
     lastOtherBotMessageAt: 0,
     lastBotParticipationAt: 0,
     engagedUntil: 0,
-    lastReactAt: 0,
     humanMessagesInWindow: 0,
     distinctHumansInWindow: 0,
     humanMessagesTotal: 10,
@@ -500,6 +503,66 @@ test('addressed judge prompt excludes open questions to the room', () => {
     assert.ok(ADDRESSED_JUDGE_SYSTEM_PROMPT.includes('発言自体の中にあなた宛ての信号がある場合だけ'));
     // ノミネート経緯（recent-bot-only）の伝え方と対応していること
     assert.ok(ADDRESSED_JUDGE_SYSTEM_PROMPT.includes('直近であなたが発言していたことと質問形であることだけが根拠'));
+});
+
+test('reactions have no fixed-time cooldown anymore (interval is model-judged)', () => {
+    // 固定時間クールダウンの定数自体が廃止されていること
+    assert.equal('reactChannelCooldownMs' in DOT_AMBIENT, false);
+});
+
+test('reaction history records back-to-back reactions without time-based blocking', () => {
+    const t0 = 2_000_000;
+    const first: RecentReaction = { at: t0, authorName: 'koukun_', excerpt: '鯖', emoji: '😂' };
+    // わずか1分後の2回目でも、仕組み上はブロックされず履歴に残る（付けるかどうかの判断はモデル側）
+    const second: RecentReaction = { at: t0 + 60_000, authorName: 'someone', excerpt: 'それな', emoji: '👍' };
+    let history = recordRecentReaction([], first);
+    history = recordRecentReaction(history, second);
+    assert.equal(history.length, 2);
+    // 新しい順に並ぶ（先頭が最新）
+    assert.equal(history[0].emoji, '👍');
+    assert.equal(history[1].emoji, '😂');
+});
+
+test('reaction history is capped at the keep count, dropping the oldest', () => {
+    const t0 = 3_000_000;
+    let history: RecentReaction[] = [];
+    for (let i = 0; i < DOT_AMBIENT.recentReactionKeep + 3; i++) {
+        history = recordRecentReaction(history, { at: t0 + i * 1000, authorName: 'u', excerpt: `m${i}`, emoji: '🔥' });
+    }
+    assert.equal(history.length, DOT_AMBIENT.recentReactionKeep);
+    // 最新が先頭、最も古いものは落ちている
+    assert.equal(history[0].excerpt, `m${DOT_AMBIENT.recentReactionKeep + 2}`);
+    assert.ok(!history.some(entry => entry.excerpt === 'm0'));
+});
+
+test('formatRecentReactions renders history for the judge and handles the empty case', () => {
+    const now = 10_000_000;
+    assert.equal(formatRecentReactions([], now), '（このチャンネルではまだリアクションしていません）');
+    const history: RecentReaction[] = [
+        { at: now - 2 * 60_000, authorName: 'koukun_', excerpt: 'その鯖やばい', emoji: '😂' },
+        { at: now - 3 * 60 * 60_000, authorName: 'someone', excerpt: 'おめでとう！', emoji: '🎉' },
+    ];
+    const text = formatRecentReactions(history, now);
+    assert.ok(text.includes('2分前'));
+    assert.ok(text.includes('koukun_'));
+    assert.ok(text.includes('その鯖やばい'));
+    assert.ok(text.includes('😂'));
+    assert.ok(text.includes('3時間前'));
+    assert.ok(text.includes('🎉'));
+});
+
+test('participation judge prompt delegates reaction pacing to the model with concrete guidance', () => {
+    // 履歴が材料として渡されること
+    assert.ok(PARTICIPATION_JUDGE_SYSTEM_PROMPT.includes('あなたの直近のリアクション'));
+    // 間隔は固定ルールでなくモデルが文脈で判断すること
+    assert.ok(PARTICIPATION_JUDGE_SYSTEM_PROMPT.includes('人間らしい間隔を自分で判断'));
+    assert.ok(PARTICIPATION_JUDGE_SYSTEM_PROMPT.includes('秒数の決まりは無い'));
+    // 直後の連打を避ける指針
+    assert.ok(PARTICIPATION_JUDGE_SYSTEM_PROMPT.includes('直前に自分がリアクションしたばかり'));
+    assert.ok(PARTICIPATION_JUDGE_SYSTEM_PROMPT.includes('全部の発言に付けるのは不自然'));
+    // 話題が変われば短い間隔でもよい、という人間らしい緩和
+    assert.ok(PARTICIPATION_JUDGE_SYSTEM_PROMPT.includes('前回から話題が変わった'));
+    assert.ok(PARTICIPATION_JUDGE_SYSTEM_PROMPT.includes('間隔は時計ではなく文脈で判断'));
 });
 
 test('ambient system rules ban deflection with abstract words and require concrete words from the conversation', () => {
