@@ -152,7 +152,7 @@ test('user_memory_editのツール実行状況はDiscord表示へ出さない', 
         botName: 'ぺぺちゃん',
     });
 
-    const hidden = (manager as any).formatStreamingResponse('', '', false, {
+    const hidden = (manager as any).formatStreamingResponse('', false, {
         phase: 'started',
         name: 'user_memory_edit',
         round: 1,
@@ -160,7 +160,7 @@ test('user_memory_editのツール実行状況はDiscord表示へ出さない', 
     assert.equal(hidden, '…');
     assert.doesNotMatch(hidden, /user_memory_edit|Step|実行中/);
 
-    const visible = (manager as any).formatStreamingResponse('', '', false, {
+    const visible = (manager as any).formatStreamingResponse('', false, {
         phase: 'started',
         name: 'weather_lookup',
         round: 1,

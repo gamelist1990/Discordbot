@@ -177,16 +177,19 @@ test('Chat Completionsの同一ターンにある複数ツールを並列実行�
         await new Promise(resolve => setTimeout(resolve, 80));
         return `result-${index}`;
     };
+    // ec85579: 並列化されるのは読み取り専用ツールだけ（書き込み・未知ツールは順序バリア）。
+    // そのため実在の読み取り専用ツール名で検証する。
+    const readTools = ['get_time', 'get_weather'];
     for (const index of [0, 1]) {
         client.registerTool({
             type: 'function',
-            function: { name: `parallel_${index}`, description: '並列実行テスト', parameters: { type: 'object', properties: {} } },
+            function: { name: readTools[index], description: '並列実行テスト', parameters: { type: 'object', properties: {} } },
         }, makeHandler(index));
     }
 
     const result = await (client as any).appendToolResults([], [
-        { id: 'call-0', type: 'function', function: { name: 'parallel_0', arguments: '{}' } },
-        { id: 'call-1', type: 'function', function: { name: 'parallel_1', arguments: '{}' } },
+        { id: 'call-0', type: 'function', function: { name: 'get_time', arguments: '{}' } },
+        { id: 'call-1', type: 'function', function: { name: 'get_weather', arguments: '{}' } },
     ], undefined, 1);
 
     assert.equal(result.length, 2);
