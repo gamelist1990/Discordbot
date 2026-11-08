@@ -1,0 +1,63 @@
+/* 出来事ライブラリ専用: 月セクションの中身（週見出しと出来事の行）。
+   月の折りたたみ自体は StaffAI の CollapsibleSection と共有の
+   ManagementDashboard.module.css を使う。モバイルの流儀は StaffAI / ServerBuilder に合わせる。 */
+
+.monthBody { padding: 6px 24px 18px; display: grid; gap: 22px; }
+
+/* --- 週 --- */
+.weekHeader {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0 8px;
+  border-bottom: 2px solid var(--app-border);
+}
+.weekTitle { font-size: 1rem; font-weight: 700; letter-spacing: -.01em; }
+
+/* --- 出来事 --- */
+.episodeList { display: grid; }
+.episodeItem { padding: 13px 0 11px; border-bottom: 1px solid var(--app-border); }
+.episodeItem:last-child { border-bottom: none; }
+.episodeMeta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  font-size: .78rem;
+  color: var(--app-ink-soft);
+}
+.episodeDate { font-weight: 650; color: inherit; white-space: nowrap; }
+.episodeActor { font-weight: 700; font-size: .88rem; color: var(--app-ink); overflow-wrap: anywhere; }
+.episodeChannel { overflow-wrap: anywhere; }
+.jumpLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: auto;
+  color: var(--app-accent-strong);
+  font-weight: 650;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.jumpLink:hover { text-decoration: underline; }
+.jumpIcon { font-size: .95rem; }
+.episodeSummary {
+  font-size: .9rem;
+  line-height: 1.8;
+  margin-top: 5px;
+  overflow-wrap: anywhere;
+}
+
+/* --- モバイル（幅640px以下）: StaffAI と同じ流儀 --- */
+@media (max-width: 640px) {
+  /* iOS Safari は16px未満の入力欄にフォーカスすると自動ズームするため、実寸16pxにする */
+  .pageRoot select, .pageRoot textarea, .pageRoot input { font-size: 16px; }
+  .pageRoot button { min-height: 44px; }
+  /* ジャンプリンクも指で押しやすい高さにする */
+  .jumpLink { min-height: 44px; align-items: center; }
+  .monthBody { padding: 4px 18px 14px; gap: 18px; }
+  .weekTitle { font-size: .95rem; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .jumpLink { transition: none; }
+}

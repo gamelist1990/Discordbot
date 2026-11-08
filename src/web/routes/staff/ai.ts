@@ -23,6 +23,8 @@ import {
     removeGuildMemberMemo,
     toMemberMemoAdminItem,
 } from '../../../core/ai/GuildMemberMemory.js';
+import { loadGuildEpisodeStore } from '../../../core/ai/GuildEpisodeMemory.js';
+import { buildEpisodeLibrary } from '../../../core/ai/EpisodeLibrary.js';
 import { Logger } from '../../../utils/Logger.js';
 import {
     canGeneratePersona,
@@ -273,6 +275,17 @@ export function createStaffAIRoutes(sessions: Map<string, SettingsSession>, _bot
             res.json({ removed: removed !== null });
         } catch {
             res.status(500).json({ error: 'メンバーメモの削除に失敗しました' });
+        }
+    });
+    router.get('/:guildId/episodes', async (req, res) => {
+        const guildId = String(req.params.guildId);
+        // 検索語は長すぎる入力でストア全件の照合が重くならないよう上限を付ける。
+        const query = typeof req.query.q === 'string' ? req.query.q.slice(0, 100) : '';
+        try {
+            const store = await loadGuildEpisodeStore(guildId);
+            res.json(buildEpisodeLibrary(store.episodes, { guildId, query }));
+        } catch {
+            res.status(500).json({ error: '出来事ライブラリの取得に失敗しました' });
         }
     });
     router.put('/:guildId/memories/:id', async (req, res) => {

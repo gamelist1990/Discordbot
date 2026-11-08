@@ -82,7 +82,7 @@ type MemberMemoItem = {
 };
 
 /** 長文を数行に畳んで表示し、必要なときだけ全文に広げる（ライブラリが増えても縦に伸び続けないため）。 */
-const ClampText: React.FC<{ text: string; className?: string; style?: React.CSSProperties }> = ({ text, className, style }) => {
+export const ClampText: React.FC<{ text: string; className?: string; style?: React.CSSProperties }> = ({ text, className, style }) => {
   const [open, setOpen] = useState(false);
   const long = text.length > 240;
   return <div style={style}>
@@ -97,7 +97,7 @@ const ClampText: React.FC<{ text: string; className?: string; style?: React.CSSP
  * セクションの折りたたみ。詳細系は初期状態で閉じ、見出しだけでも内容が分かるように
  * 説明文とバッジは閉じた状態でも見せる。開いたときだけ中身を描画する。
  */
-const CollapsibleSection: React.FC<{
+export const CollapsibleSection: React.FC<{
   eyebrow: React.ReactNode;
   title: string;
   description?: string;
@@ -429,6 +429,7 @@ const StaffAIPage: React.FC = () => {
         <button type="button" className={`${ui.button} ${ui.serverRefreshButton}`} onClick={() => void refresh(guildId, true)} disabled={loading || !guildId}>
           {icon('refresh')} {loading ? '更新中…' : '更新'}
         </button>
+        <Link to="/staff/episodes" className={ui.button}>{icon('menu_book')} 出来事ライブラリ</Link>
       </div>
     </header>
 

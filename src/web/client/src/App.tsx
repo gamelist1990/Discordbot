@@ -16,6 +16,7 @@ import UserProfile from "./pages/Profile";
 
 import AntiCheatPage from "./pages/Staff/AntiCheat";
 import StaffAIPage from "./pages/Staff/StaffAI";
+import EpisodeLibraryPage from "./pages/Staff/EpisodeLibrary";
 import ServerBuilderPage from "./pages/Staff/ServerBuilder";
 import AntiCheatSelector from "./pages/Staff/AntiCheatSelector";
 import CorePanelPage from "./pages/Staff/CorePanel";
@@ -145,6 +146,10 @@ const App: React.FC = () => {
           <Route
             path="/staff/ai"
             element={<StaffGuard><StaffAIPage /></StaffGuard>}
+          />
+          <Route
+            path="/staff/episodes"
+            element={<StaffGuard><EpisodeLibraryPage /></StaffGuard>}
           />
           <Route
             path="/staff/server-builder"
