@@ -45,6 +45,25 @@
 .chatAi { border-color: color-mix(in srgb, var(--app-accent) 30%, var(--app-border)); }
 .formBody { display: grid; gap: 16px; padding: 22px 24px; }
 .formBody .select { width: 100%; max-width: none; }
+.styleProposal {
+  display: grid;
+  gap: 8px;
+  padding: 13px 15px;
+  border: 1px solid color-mix(in srgb, var(--app-accent) 30%, var(--app-border));
+  border-radius: var(--radius-xs);
+  background: var(--app-surface-soft);
+}
+.styleProposalTitle { display: flex; align-items: center; gap: 6px; font-weight: 700; font-size: .9rem; }
+.styleProposalFormats { margin: 0; padding-left: 1.1em; font-size: .84rem; line-height: 1.7; overflow-wrap: anywhere; }
+.styleProposalExamples { display: flex; flex-wrap: wrap; gap: 6px; }
+.styleProposalExample {
+  padding: 3px 10px;
+  border: 1px solid var(--app-border);
+  border-radius: 999px;
+  background: var(--app-surface-strong);
+  font-size: .8rem;
+  overflow-wrap: anywhere;
+}
 .opList { display: grid; gap: 10px; padding: 20px 24px; }
 .opCard {
   display: grid;

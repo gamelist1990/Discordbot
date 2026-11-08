@@ -14,7 +14,8 @@ type Budget = {
 };
 type Preset = { id: string; label: string; description: string; example?: string };
 type Operation = { type: string; [key: string]: unknown };
-type Plan = { version: number; summary: string; operations: Operation[] };
+type StyleProposal = { name: string; channelFormat: string; categoryFormat: string; description: string; examples: string[] };
+type Plan = { version: number; summary: string; operations: Operation[]; styleProposal?: StyleProposal };
 type ApplyResult = { index: number; type: string; ok: boolean; detail: string; createdId?: string };
 type ChatEntry = { role: 'user' | 'ai'; text: string; at: string };
 
@@ -278,7 +279,7 @@ const ServerBuilderPage: React.FC = () => {
       setChat(prev => [
         ...prev,
         userEntry,
-        { role: 'ai', text: `${plan.summary || 'プランを作成しました'}（操作 ${plan.operations.length} 件 / ${usageNote}${data.repaired ? ' / 検証エラーを自動修復しました' : ''}${data.droppedNoops ? ` / 既に条件を満たしていた ${String(data.droppedNoops)} 件は除外しました` : ''}）`, at: new Date().toLocaleTimeString('ja-JP') },
+        { role: 'ai', text: `${plan.summary || 'プランを作成しました'}（操作 ${plan.operations.length} 件 / ${usageNote}${data.repaired ? ' / 検証エラーを自動修復しました' : ''}${data.droppedNoops ? ` / 既に条件を満たしていた ${String(data.droppedNoops)} 件は除外しました` : ''}${plan.styleProposal ? ` / スタイル提案「${plan.styleProposal.name}」` : ''}）`, at: new Date().toLocaleTimeString('ja-JP') },
       ]);
       setRequest('');
       addToast('プランを生成しました。内容を確認して適用してください', 'success');
@@ -490,9 +491,20 @@ const ServerBuilderPage: React.FC = () => {
                   </div>)}
                 </div>
               </> : preview ? <>
-                {(preview.plan.summary || preview.droppedNoops) ? <div className={styles.formBody}>
+                {(preview.plan.summary || preview.droppedNoops || preview.plan.styleProposal) ? <div className={styles.formBody}>
                   {preview.plan.summary && <p>{preview.plan.summary}</p>}
                   {!!preview.droppedNoops && <p className={ui.muted}>既に現在の名前と同じだった操作 {preview.droppedNoops} 件は除外しました{preview.droppedNames?.length ? `（${preview.droppedNames.join('、')}）` : ''}。</p>}
+                  {preview.plan.styleProposal && <div className={styles.styleProposal}>
+                    <p className={styles.styleProposalTitle}>{icon('palette')} スタイル提案: {preview.plan.styleProposal.name}</p>
+                    {preview.plan.styleProposal.description && <p className={ui.muted}>{preview.plan.styleProposal.description}</p>}
+                    <ul className={styles.styleProposalFormats}>
+                      <li>チャンネル: {preview.plan.styleProposal.channelFormat}</li>
+                      <li>カテゴリ: {preview.plan.styleProposal.categoryFormat}</li>
+                    </ul>
+                    {preview.plan.styleProposal.examples.length > 0 && <div className={styles.styleProposalExamples}>
+                      {preview.plan.styleProposal.examples.map((ex, ei) => <span key={ei} className={styles.styleProposalExample}>{ex}</span>)}
+                    </div>}
+                  </div>}
                 </div> : null}
                 <div className={styles.opList}>
                   {preview.plan.operations.map((op, i) => {
