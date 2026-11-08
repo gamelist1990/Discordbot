@@ -17,7 +17,8 @@ import { createCanvas } from 'canvas';
 import {
     analyzeGifFlash,
     calculateHashDistance,
-    createImageFingerprint
+    createImageFingerprint,
+    hasPerceptualDetail
 } from '../src/core/anticheat/detectors/MediaSafetyUtils.ts';
 
 (globalThis as any)._cacheCleanupInterval?.unref?.();
@@ -222,6 +223,132 @@ test('duplicateImage does not count the same Discord message twice', async (t) =
 
     assert.equal((await detector.detect(message, context)).reasons.length, 0);
     assert.equal((await detector.detect(message, context)).reasons.length, 0);
+});
+
+function createDuplicateImageContext(guildId: string, userId: string, channelId: string) {
+    return {
+        guildId, userId, channelId,
+        settings: { detectors: { duplicateImage: {
+            enabled: true, score: 2, deleteMessage: true, notifyChannel: false,
+            config: { windowSeconds: 300, deleteFrom: 2, scoreFrom: 3, perceptualDistance: 5 }
+        } } }
+    } as any;
+}
+
+function stubNamedImageFetch(t: any, images: Record<string, Buffer>) {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (url: any) => {
+        const name = decodeURIComponent(new URL(String(url)).pathname.split('/').pop() || '');
+        const image = images[name];
+        if (!image) {
+            return new Response(null, { status: 404 });
+        }
+        return new Response(new Uint8Array(image), {
+            headers: { 'content-type': 'image/png', 'content-length': String(image.length) }
+        });
+    }) as typeof fetch;
+    t.after(() => {
+        globalThis.fetch = originalFetch;
+        CacheManager.clear();
+    });
+}
+
+function imageMessage(id: string, entries: Array<{ name: string; size: number }>) {
+    return {
+        id,
+        attachments: new Map(entries.map((entry, index) => [`${id}-${index}`, {
+            id: `${id}-${index}`, name: entry.name, contentType: 'image/png', size: entry.size,
+            url: `https://cdn.discordapp.com/attachments/test/${entry.name}`
+        }]))
+    } as any;
+}
+
+async function solidPng(background: string): Promise<Buffer> {
+    return sharp({ create: { width: 120, height: 120, channels: 3, background } }).png().toBuffer();
+}
+
+async function texturedPng(): Promise<Buffer> {
+    const cells: string[] = [];
+    let state = 1234567;
+    const next = () => {
+        state = (state * 1103515245 + 12345) & 0x7fffffff;
+        return state / 0x7fffffff;
+    };
+    for (let row = 0; row < 8; row += 1) {
+        for (let column = 0; column < 8; column += 1) {
+            const red = Math.floor(next() * 256);
+            const green = Math.floor(next() * 256);
+            const blue = Math.floor(next() * 256);
+            cells.push(`<rect x="${column * 60}" y="${row * 45}" width="60" height="45" fill="rgb(${red},${green},${blue})"/>`);
+        }
+    }
+    return sharp(Buffer.from(`<svg width="480" height="360">${cells.join('')}</svg>`)).png().toBuffer();
+}
+
+test('duplicateImage does not treat different flat images as duplicates', async (t) => {
+    CacheManager.clear();
+    const images = {
+        'black.png': await solidPng('#000000'),
+        'white.png': await solidPng('#ffffff'),
+        'red.png': await solidPng('#ff0000')
+    };
+    stubNamedImageFetch(t, images);
+    const detector = new DuplicateImageDetector();
+    const context = createDuplicateImageContext('guild-flat', 'user-flat', 'channel-flat');
+
+    // 単色画像は内容と無関係に知覚ハッシュが潰れるため、別画像を同一視しない。
+    assert.equal((await detector.detect(imageMessage('flat-1', [{ name: 'black.png', size: images['black.png'].length }]), context)).reasons.length, 0);
+    assert.equal((await detector.detect(imageMessage('flat-2', [{ name: 'white.png', size: images['white.png'].length }]), context)).reasons.length, 0);
+    assert.equal((await detector.detect(imageMessage('flat-3', [{ name: 'red.png', size: images['red.png'].length }]), context)).reasons.length, 0);
+
+    // ただしバイト単位で同一の再送は sha256 で従来どおり検知する。
+    const exact = await detector.detect(imageMessage('flat-4', [{ name: 'black.png', size: images['black.png'].length }]), context);
+    assert.equal(exact.reasons.length, 1);
+    assert.equal(exact.metadata?.duplicateCount, 2);
+    assert.equal(exact.metadata?.exactDuplicate, true);
+});
+
+test('duplicateImage counts duplicates per message, not per attachment', async (t) => {
+    CacheManager.clear();
+    const photo = await texturedPng();
+    const images = { 'photo.png': photo };
+    stubNamedImageFetch(t, images);
+    const detector = new DuplicateImageDetector();
+    const context = createDuplicateImageContext('guild-per-message', 'user-per-message', 'channel-per-message');
+    const entry = { name: 'photo.png', size: photo.length };
+
+    // 1メッセージに同じ画像を2枚添付しても「2回投稿」にはならない。
+    assert.equal((await detector.detect(imageMessage('multi-1', [entry, entry]), context)).reasons.length, 0);
+    // 別メッセージでの再送は従来どおり2回目として検知する。
+    const second = await detector.detect(imageMessage('multi-2', [entry]), context);
+    assert.equal(second.reasons.length, 1);
+    assert.equal(second.metadata?.duplicateCount, 2);
+    // 同一メッセージ内に過去の異なる2メッセージ分の記録があっても数え直さない。
+    const third = await detector.detect(imageMessage('multi-3', [entry, entry]), context);
+    assert.equal(third.metadata?.duplicateCount, 3);
+});
+
+test('duplicateImage still catches recompressed textured images perceptually', async (t) => {
+    CacheManager.clear();
+    const photo = await texturedPng();
+    const recompressed = await sharp(photo).jpeg({ quality: 40 }).toBuffer();
+    const images = { 'photo.png': photo, 'photo.jpg': recompressed };
+    stubNamedImageFetch(t, images);
+    const detector = new DuplicateImageDetector();
+    const context = createDuplicateImageContext('guild-recompress', 'user-recompress', 'channel-recompress');
+
+    assert.equal((await detector.detect(imageMessage('re-1', [{ name: 'photo.png', size: photo.length }]), context)).reasons.length, 0);
+    const hit = await detector.detect(imageMessage('re-2', [{ name: 'photo.jpg', size: recompressed.length }]), context);
+    assert.equal(hit.reasons.length, 1);
+    assert.equal(hit.metadata?.exactDuplicate, false);
+    assert.equal(hit.metadata?.duplicateCount, 2);
+});
+
+test('hasPerceptualDetail rejects degenerate hashes only', async () => {
+    assert.equal(hasPerceptualDetail('0000000000000000'), false);
+    assert.equal(hasPerceptualDetail('ffffffffffffffff'), false);
+    assert.equal(hasPerceptualDetail((await createImageFingerprint(await solidPng('#123456'))).perceptualHash), false);
+    assert.equal(hasPerceptualDetail((await createImageFingerprint(await texturedPng())).perceptualHash), true);
 });
 
 test('manager safety guard ignores delete-only results with no detection signal', () => {

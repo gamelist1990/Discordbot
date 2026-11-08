@@ -352,6 +352,33 @@ export async function createImageFingerprint(imageBuffer: Buffer): Promise<{
     return { sha256, perceptualHash };
 }
 
+export function countPerceptualHashBits(hash: string): number {
+    let count = 0;
+    for (const digit of hash) {
+        const value = Number.parseInt(digit, 16);
+        if (Number.isFinite(value)) {
+            count += value.toString(2).replace(/0/g, '').length;
+        }
+    }
+    return count;
+}
+
+/**
+ * dHash は水平方向の輝度勾配だけを符号化するため、単色・滑らかな
+ * グラデーションのように「勾配情報がほぼ無い」画像は、内容と無関係に
+ * 0x0000... や 0xffff... のような偏ったハッシュへ潰れてしまう。
+ * そういうハッシュ同士は距離が近くても類似の証拠にならないので、
+ * 知覚マッチの対象から外すために十分な情報量があるかを判定する。
+ */
+export function hasPerceptualDetail(hash: string): boolean {
+    if (!/^[0-9a-f]+$/i.test(hash)) {
+        return false;
+    }
+    const totalBits = hash.length * 4;
+    const bits = countPerceptualHashBits(hash);
+    return Math.min(bits, totalBits - bits) >= 8;
+}
+
 export function calculateHashDistance(left: string, right: string): number {
     if (left.length !== right.length) {
         return Number.POSITIVE_INFINITY;
