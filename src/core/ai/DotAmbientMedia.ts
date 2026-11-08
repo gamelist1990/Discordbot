@@ -25,6 +25,13 @@ const execFileAsync = promisifyFn(execFileCallback);
  * の3形式とも現行スタック（EndPoint→A8ゲートウェイのカスタムビルド+mmproj）で処理できる。
  * 音声は OGG/Opus 等のデコード可否がランタイム依存のため、ffmpeg で 16kHz mono WAV に
  * 正規化してから送る（ffmpeg は ContentSafety の動画フレーム抽出でも本番使用中）。
+ *
+ * 動画の注意（2026-11-08 の実インシデントで判明）: video_url は動画をフレーム列の
+ * トークンに展開するため、長さ×解像度に比例してプロンプトが膨らむ。27秒・1918x1078 の
+ * 画面録画は 96,237 トークンになり、ゲートウェイの 32,768 トークン枠を超えて 400 になった。
+ * そのため動画は原則として「ffmpeg で等間隔フレームを切り出して画像として説明する」経路を
+ * 使い（実測: 同動画6フレームで 2,234 トークン・内容も正確）、ネイティブ video_url は
+ * 小さく短い動画のときだけ先に試す。どちらか一方が失敗したらもう一方へフォールバックする。
  */
 
 export type DotMediaKind = 'image' | 'video' | 'audio';
@@ -51,10 +58,46 @@ export const DOT_MEDIA_LIMITS = {
     audioMaxBytes: 10 * 1024 * 1024,
     downloadTimeoutMs: 20_000,
     describeTimeoutMs: 45_000,
+    nativeVideoTimeoutMs: 30_000,
     describeMaxTokens: 400,
     descriptionMaxLength: 300,
     cacheMaxKeys: 160,
+    /** 動画をフレーム列で説明するときの切り出し枚数（ContentSafety と同じ流儀）。 */
+    videoFrameCount: 6,
 } as const;
+
+/**
+ * video_url が展開するプロンプトトークン数の経験係数（トークン / (秒 × ピクセル)）。
+ * 実測（2026-11-08）: 27.27秒・1918x1078 の mp4 が 96,237 トークンだったことから算出。
+ */
+export const VIDEO_TOKENS_PER_PIXEL_SECOND = 0.0017;
+/** ネイティブ video_url を先に試してよい推定トークン数の上限（枠 32,768 に対して十分な余裕）。 */
+export const NATIVE_VIDEO_MAX_ESTIMATED_TOKENS = 10_000;
+export const NATIVE_VIDEO_MAX_DURATION_SEC = 8;
+export const NATIVE_VIDEO_MAX_BYTES = 4 * 1024 * 1024;
+
+export interface VideoProbeInfo {
+    durationSec: number;
+    width: number;
+    height: number;
+}
+
+/** 動画が video_url で何トークンに展開されるかの見積もり。寸法・長さが不明なら無限大（安全側）。 */
+export function estimateVideoPromptTokens(info: VideoProbeInfo): number {
+    if (!(info.durationSec > 0) || !(info.width > 0) || !(info.height > 0)) return Number.POSITIVE_INFINITY;
+    return Math.round(info.durationSec * info.width * info.height * VIDEO_TOKENS_PER_PIXEL_SECOND);
+}
+
+/**
+ * ネイティブ video_url を先に試してよいのは、小さく短い動画だけ。
+ * それ以外（実世界の画面録画など）はフレーム説明経路を使う（純粋関数）。
+ */
+export function shouldTryNativeVideoFirst(info: VideoProbeInfo | null, sizeBytes: number): boolean {
+    if (!info) return false;
+    if (info.durationSec > NATIVE_VIDEO_MAX_DURATION_SEC) return false;
+    if (sizeBytes > NATIVE_VIDEO_MAX_BYTES) return false;
+    return estimateVideoPromptTokens(info) <= NATIVE_VIDEO_MAX_ESTIMATED_TOKENS;
+}
 
 const IMAGE_EXT = /\.(png|jpe?g|gif|webp|avif|bmp)(?:\?|$)/i;
 const VIDEO_EXT = /\.(mp4|mov|webm|mkv)(?:\?|$)/i;
@@ -239,9 +282,12 @@ export class DotMediaDescriptionStore {
 
 const DESCRIBE_PROMPTS: Record<DotMediaKind, string> = {
     image: 'この画像の内容を日本語で簡潔に説明してください（2文以内）。写っている物・人・場面を具体的に書き、読み取れる文字があれば含めてください。',
-    video: 'この動画の内容を日本語で簡潔に説明してください（2文以内）。何が起きているか、途中の変化があれば含めてください。',
+    video: 'この動画の内容を日本語で具体的に説明してください（3文以内）。何が映っているか、何が起きているか（途中の変化も含む）を書き、画面に読み取れる文字や数値（通知の件数など）があれば含めてください。見た人がツッコミたくなるポイントがあれば一言添えてください。',
     audio: 'この音声の内容を日本語で簡潔に説明してください（2文以内）。話し声なら内容の要点を書き、音楽や効果音ならその特徴を書いてください。無音やノイズだけの場合はその旨を書いてください。',
 };
+
+/** フレーム列（画像群）として動画を説明するときのプロンプト。 */
+const VIDEO_FRAMES_PROMPT = '次の画像は、1本の動画から等間隔に切り出したフレームです（時系列順）。この動画の内容を日本語で具体的に説明してください（3文以内）。何が映っているか、時間とともに何が起きているかを書き、画面に読み取れる文字や数値（通知の件数など）があれば含めてください。見た人がツッコミたくなるポイントがあれば一言添えてください。';
 
 async function downloadMedia(url: string, maxBytes: number): Promise<Buffer | null> {
     try {
@@ -277,29 +323,59 @@ async function convertAudioToWav(data: Buffer): Promise<Buffer | null> {
     }
 }
 
-/** Gemma（EndPoint 経由）でメディア1件を説明する。失敗時は null（呼び出し側で failed 扱い）。 */
-export async function describeDotMediaWithGemma(item: DotMediaItem): Promise<string | null> {
-    const maxBytes = item.kind === 'image'
-        ? DOT_MEDIA_LIMITS.imageMaxBytes
-        : item.kind === 'video'
-            ? DOT_MEDIA_LIMITS.videoMaxBytes
-            : DOT_MEDIA_LIMITS.audioMaxBytes;
-    const data = await downloadMedia(item.url, maxBytes);
-    if (!data) return null;
-
-    let part: Record<string, unknown>;
-    if (item.kind === 'image') {
-        const mime = item.contentType.startsWith('image/') && item.contentType !== 'image/*' ? item.contentType : 'image/jpeg';
-        part = { type: 'image_url', image_url: { url: `data:${mime};base64,${data.toString('base64')}` } };
-    } else if (item.kind === 'video') {
-        const mime = item.contentType.startsWith('video/') ? item.contentType : 'video/mp4';
-        part = { type: 'video_url', video_url: { url: `data:${mime};base64,${data.toString('base64')}` } };
-    } else {
-        const wav = await convertAudioToWav(data);
-        if (!wav) return null;
-        part = { type: 'input_audio', input_audio: { data: wav.toString('base64'), format: 'wav' } };
+/** 動画の長さと寸法を ffprobe で取得する（フレーム切り出し位置と経路判断に使う）。 */
+async function probeVideo(data: Buffer): Promise<VideoProbeInfo | null> {
+    const folder = await makeTempDir(joinPath(osTmpdir(), 'dot-video-probe-'));
+    try {
+        const source = joinPath(folder, 'input.bin');
+        await writeTempFile(source, data);
+        const { stdout } = await execFileAsync('ffprobe', ['-v', 'error', '-select_streams', 'v:0',
+            '-show_entries', 'stream=width,height', '-show_entries', 'format=duration', '-of', 'json', source], { timeout: 15_000 });
+        const parsed = JSON.parse(String(stdout)) as {
+            streams?: Array<{ width?: number; height?: number }>;
+            format?: { duration?: string };
+        };
+        const durationSec = Number(parsed.format?.duration ?? 0);
+        const width = Number(parsed.streams?.[0]?.width ?? 0);
+        const height = Number(parsed.streams?.[0]?.height ?? 0);
+        if (!(durationSec > 0) || !(width > 0) || !(height > 0)) return null;
+        return { durationSec, width, height };
+    } catch {
+        return null;
+    } finally {
+        await removeTempDir(folder, { recursive: true, force: true }).catch(() => undefined);
     }
+}
 
+/** 動画から等間隔のフレーム（JPEG・最大768px）を切り出す。ContentSafety の抽出と同じ流儀。 */
+async function extractVideoFramesForDescribe(data: Buffer, durationSec: number): Promise<Buffer[]> {
+    const folder = await makeTempDir(joinPath(osTmpdir(), 'dot-video-frames-'));
+    try {
+        const source = joinPath(folder, 'input.bin');
+        await writeTempFile(source, data);
+        const total: number = DOT_MEDIA_LIMITS.videoFrameCount;
+        const frames: Buffer[] = [];
+        for (let i = 0; i < total; i++) {
+            const target = joinPath(folder, `frame-${i}.jpg`);
+            try {
+                await execFileAsync('ffmpeg', ['-v', 'error', '-ss', String(total === 1 ? 0 : durationSec * i / total), '-i', source, '-frames:v', '1',
+                    '-vf', 'scale=768:768:force_original_aspect_ratio=decrease', '-q:v', '3', '-y', target], { timeout: 20_000 });
+                const frame = await readTempFile(target);
+                if (frame.byteLength > 0) frames.push(frame);
+            } catch {
+                // 1フレーム取れなくても残りで続行する
+            }
+        }
+        return frames;
+    } catch {
+        return [];
+    } finally {
+        await removeTempDir(folder, { recursive: true, force: true }).catch(() => undefined);
+    }
+}
+
+/** 説明リクエストを EndPoint 経由で Gemma に投げる共通処理。失敗時は理由をログに残して null。 */
+async function requestMediaDescription(parts: Array<Record<string, unknown>>, timeoutMs: number, kind: DotMediaKind): Promise<string | null> {
     try {
         const response = await fetch(`${config.pexAi.endpoint.replace(/\/+$/, '')}/chat/completions`, {
             method: 'POST',
@@ -309,15 +385,17 @@ export async function describeDotMediaWithGemma(item: DotMediaItem): Promise<str
             },
             body: JSON.stringify({
                 model: GEMMA_MODEL,
-                messages: [{ role: 'user', content: [{ type: 'text', text: DESCRIBE_PROMPTS[item.kind] }, part] }],
+                messages: [{ role: 'user', content: parts }],
                 temperature: 0.2,
                 max_tokens: DOT_MEDIA_LIMITS.describeMaxTokens,
                 chat_template_kwargs: { enable_thinking: false },
             }),
-            signal: AbortSignal.timeout(DOT_MEDIA_LIMITS.describeTimeoutMs),
+            signal: AbortSignal.timeout(timeoutMs),
         });
         if (!response.ok) {
-            Logger.debug(`[DotAmbient] media describe failed kind=${item.kind} status=${response.status}`);
+            // ゲートウェイ側の理由（例: exceed_context_size_error）は本文にしか出ないため、切り分け用に残す。
+            const bodyText = await response.text().catch(() => '');
+            Logger.debug(`[DotAmbient] media describe failed kind=${kind} status=${response.status} body=${bodyText.slice(0, 300)}`);
             return null;
         }
         const json = await response.json() as {
@@ -339,6 +417,73 @@ export async function describeDotMediaWithGemma(item: DotMediaItem): Promise<str
         Logger.debug('[DotAmbient] media describe error:', error);
         return null;
     }
+}
+
+/**
+ * 動画1件を説明する。小さく短い動画はネイティブ video_url を先に試し、それ以外は
+ * フレーム列（画像）として説明する。一方が失敗したらもう一方へフォールバックする。
+ * （video_url は長さ×解像度でトークンが膨らみ、枠を超えると 400 になるため。）
+ */
+async function describeVideoWithGemma(item: DotMediaItem, data: Buffer): Promise<string | null> {
+    const probe = await probeVideo(data);
+    const mime = item.contentType.startsWith('video/') ? item.contentType : 'video/mp4';
+    let nativeTried = false;
+    const tryNative = async (): Promise<string | null> => {
+        nativeTried = true;
+        return requestMediaDescription([
+            { type: 'text', text: DESCRIBE_PROMPTS.video },
+            { type: 'video_url', video_url: { url: `data:${mime};base64,${data.toString('base64')}` } },
+        ], DOT_MEDIA_LIMITS.nativeVideoTimeoutMs, 'video');
+    };
+    const tryFrames = async (): Promise<string | null> => {
+        // 長さ不明のときはフレーム位置が決められないため、プローブ無しでは抽出できない
+        if (!probe) return null;
+        const frames = await extractVideoFramesForDescribe(data, probe.durationSec);
+        if (frames.length === 0) return null;
+        Logger.debug(`[DotAmbient] media describe via frames kind=video frames=${frames.length}`);
+        return requestMediaDescription([
+            { type: 'text', text: VIDEO_FRAMES_PROMPT },
+            ...frames.map(frame => ({ type: 'image_url', image_url: { url: `data:image/jpeg;base64,${frame.toString('base64')}` } })),
+        ], DOT_MEDIA_LIMITS.describeTimeoutMs, 'video');
+    };
+
+    if (shouldTryNativeVideoFirst(probe, data.byteLength)) {
+        const native = await tryNative();
+        if (native) return native;
+        return tryFrames();
+    }
+    const framed = await tryFrames();
+    if (framed) return framed;
+    if (!nativeTried) return tryNative();
+    return null;
+}
+
+/** Gemma（EndPoint 経由）でメディア1件を説明する。失敗時は null（呼び出し側で failed 扱い）。 */
+export async function describeDotMediaWithGemma(item: DotMediaItem): Promise<string | null> {
+    const maxBytes = item.kind === 'image'
+        ? DOT_MEDIA_LIMITS.imageMaxBytes
+        : item.kind === 'video'
+            ? DOT_MEDIA_LIMITS.videoMaxBytes
+            : DOT_MEDIA_LIMITS.audioMaxBytes;
+    const data = await downloadMedia(item.url, maxBytes);
+    if (!data) return null;
+
+    if (item.kind === 'video') return describeVideoWithGemma(item, data);
+
+    let part: Record<string, unknown>;
+    if (item.kind === 'image') {
+        const mime = item.contentType.startsWith('image/') && item.contentType !== 'image/*' ? item.contentType : 'image/jpeg';
+        part = { type: 'image_url', image_url: { url: `data:${mime};base64,${data.toString('base64')}` } };
+    } else {
+        const wav = await convertAudioToWav(data);
+        if (!wav) return null;
+        part = { type: 'input_audio', input_audio: { data: wav.toString('base64'), format: 'wav' } };
+    }
+    return requestMediaDescription(
+        [{ type: 'text', text: DESCRIBE_PROMPTS[item.kind] }, part],
+        DOT_MEDIA_LIMITS.describeTimeoutMs,
+        item.kind,
+    );
 }
 
 /** 本番用ストア（説明は Gemma で行う）。 */

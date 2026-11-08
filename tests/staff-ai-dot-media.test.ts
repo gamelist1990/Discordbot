@@ -7,6 +7,9 @@ import {
     formatMediaNotes,
     DotMediaDescriptionStore,
     DOT_MEDIA_LIMITS,
+    estimateVideoPromptTokens,
+    shouldTryNativeVideoFirst,
+    NATIVE_VIDEO_MAX_ESTIMATED_TOKENS,
     type DotMediaItem,
     type DotMediaMessageLike,
 } from '../src/core/ai/DotAmbientMedia.ts';
@@ -134,4 +137,30 @@ test('judge and generation prompts carry the media-reading guidance', () => {
     assert.match(PARTICIPATION_JUDGE_SYSTEM_PROMPT, /AIかと思った/);
     assert.match(ADDRESSED_JUDGE_SYSTEM_PROMPT, /AIかと思った/);
     assert.match(AMBIENT_SYSTEM_RULES, /添付メディアは \[画像: …\]/);
+});
+
+test('video routing: incident-size screen recordings go to the frames path, small clips may go native', () => {
+    // 2026-11-08 の実インシデント: 27.3秒・1918x1078・7.5MB の画面録画。
+    // video_url では 96,237 トークンに展開され枠（32,768）超過で 400 になった実測がある。
+    const incident = { durationSec: 27.266, width: 1918, height: 1078 };
+    assert.ok(estimateVideoPromptTokens(incident) > 90_000);
+    assert.equal(shouldTryNativeVideoFirst(incident, 7_482_973), false);
+
+    // 小さく短いクリップはネイティブを先に試してよい
+    const small = { durationSec: 5, width: 1280, height: 720 };
+    assert.ok(estimateVideoPromptTokens(small) <= NATIVE_VIDEO_MAX_ESTIMATED_TOKENS);
+    assert.equal(shouldTryNativeVideoFirst(small, 2_000_000), true);
+    // ファイルが大きい・長い・寸法不明のものはフレーム経路（安全側）
+    assert.equal(shouldTryNativeVideoFirst(small, 9_000_000), false);
+    assert.equal(shouldTryNativeVideoFirst({ durationSec: 30, width: 640, height: 360 }, 1_000_000), false);
+    assert.equal(shouldTryNativeVideoFirst(null, 1_000), false);
+    assert.equal(estimateVideoPromptTokens({ durationSec: 0, width: 640, height: 360 }), Number.POSITIVE_INFINITY);
+});
+
+test('media rules forbid parroting the poster and content-free filler over described media', () => {
+    // 2026-11-08 の実インシデントの返信が NG 例として両プロンプトに入っていること
+    assert.match(AMBIENT_SYSTEM_RULES, /オウム返し/);
+    assert.match(AMBIENT_SYSTEM_RULES, /相当な仕組みで組まれたんやな/);
+    assert.match(PARTICIPATION_JUDGE_SYSTEM_PROMPT, /メディアの中身の具体/);
+    assert.match(PARTICIPATION_JUDGE_SYSTEM_PROMPT, /なぞっただけの下書き/);
 });
