@@ -69,7 +69,10 @@ export const DOT_AMBIENT = {
     judgeSessionMaxChars: 24_000,
     judgeSessionMaxTurns: 40,
     judgeSessionMaxLoggedMessages: 150,
-    generationMaxTokens: 1024,
+    // 生成は思考ONのままなので、1024だと推論で予算を使い切って本文が空になることがある
+    // （2026-11-08 A/B検証で敵対的な呼びかけ文脈で3回中2回が空応答）。空応答は無言になるだけ
+    // なので、予算を広げて本文が返る側に倒す（ユーザーの「予算は十分に大きく」方針にも沿う）。
+    generationMaxTokens: 2048,
     learningMaxTokens: 1600,
     mediaDescribeMaxPerMessage: 2,
     mediaEnsureMaxPerCall: 3,
@@ -201,6 +204,8 @@ export interface ParticipationDecision {
     emoji: string | null;
     confidence: number;
     reason: string;
+    /** reply/comment/continue の場合に実際に投稿する文の下書き（参加判定が分離して返す。具体性の機械チェック対象）。 */
+    draft?: string;
 }
 
 /**
@@ -261,7 +266,10 @@ function parseDecisionCandidate(candidate: string): ParticipationDecision | null
             ? value.emoji
             : null;
         const reason = typeof value.reason === 'string' ? value.reason.slice(0, 120) : '';
-        return { action, targetMessageId, emoji, confidence, reason };
+        const decision: ParticipationDecision = { action, targetMessageId, emoji, confidence, reason };
+        // draft は下書きがある場合だけ載せる（旧形式の出力・addressed判定の出力には無い）。
+        if (typeof value.draft === 'string' && value.draft.trim()) decision.draft = value.draft.slice(0, 200);
+        return decision;
     } catch {
         return null;
     }
@@ -322,6 +330,70 @@ export function shouldExecuteParticipation(decision: ParticipationDecision | nul
     if (!decision || decision.action === 'none') return false;
     if (decision.action === 'continue' && presence !== 'engaged') return false;
     return decision.confidence >= participationThreshold(decision.action);
+}
+
+/**
+ * 下書きの具体性チェックで「具体」とみなさない一般語。
+ * 会話と下書きの重なりがこれらだけなら、内容が空（濁した下書き）とみなす。
+ */
+export const DRAFT_ANCHOR_STOPWORDS: ReadonlySet<string> = new Set([
+    '仕組み', '技術', '情報', '複雑', '雰囲気', '空気', '魅力', '空間', '感じ', '一般', '話題', '会話',
+    '発言', '反応', '自分', '相手', '対象', '内容', '具体', '今回', '場合', '必要', '以上', '以下',
+    'もの', 'こと', 'ため', 'ところ', 'サーバー', 'カオス', 'そういう', 'みたいな', 'みたい',
+    'かもしれ', 'じゃない', 'について', 'として', 'なんだか', 'なんか',
+]);
+
+/** 一般語のグラム（2〜3文字の断片）も具体とみなさないための除外集合。 */
+const DRAFT_ANCHOR_STOPGRAMS: ReadonlySet<string> = (() => {
+    const grams = new Set<string>();
+    for (const word of DRAFT_ANCHOR_STOPWORDS) {
+        grams.add(word);
+        for (let n = 2; n <= 4; n++) {
+            for (let i = 0; i + n <= word.length; i++) grams.add(word.slice(i, i + n));
+        }
+    }
+    return grams;
+})();
+
+/**
+ * テキストから「具体」の候補トークンを抜き出す（純粋関数）。
+ * 日本語は単語境界が無いため、漢字・カタカナの連続（例: 「二次試験終わった」の「二次試験終」）から
+ * 2〜4文字の断片（グラム）と短い連続そのものを候補にする。英字は3文字以上の単語、数字は2桁以上。
+ * 一般語とその断片（DRAFT_ANCHOR_STOPWORDS 由来）は具体とみなさない。
+ */
+export function extractContentTokens(text: string): string[] {
+    const tokens = new Set<string>();
+    for (const run of text.match(/[一-龥々ァ-ヶー]{2,}/g) ?? []) {
+        if (run.length <= 5 && !DRAFT_ANCHOR_STOPGRAMS.has(run)) tokens.add(run);
+        for (let n = 2; n <= 4; n++) {
+            for (let i = 0; i + n <= run.length; i++) {
+                const gram = run.slice(i, i + n);
+                if (!DRAFT_ANCHOR_STOPGRAMS.has(gram)) tokens.add(gram);
+            }
+        }
+    }
+    for (const word of text.match(/[A-Za-z]{3,}/g) ?? []) tokens.add(word);
+    for (const num of text.match(/[0-9]{2,}/g) ?? []) tokens.add(num);
+    return [...tokens];
+}
+
+/** 判定の下書き本文を取り出す。draft フィールド優先、無ければ reason 内の「」引用、最後は reason 全体。 */
+export function draftAnchorText(decision: ParticipationDecision): string {
+    if (decision.draft && decision.draft.trim()) return decision.draft;
+    const quoted = [...decision.reason.matchAll(/「([^」]{2,})」/g)].map(m => m[1]).join(' ');
+    return quoted || decision.reason;
+}
+
+/**
+ * 下書きが直近の会話の具体（固有名詞・物・出来事・数字）に触れているかの機械チェック（純粋関数）。
+ * 判定プロンプトの規律だけでは、はぐらかし下書き（相槌のみ・「具体的な言葉は不要」等）が
+ * 高い confidence で通ってしまう実績が続いたため（2026-11-07〜08）、実行直前にコード側でも担保する。
+ * react には適用しない（呼び出し側で分岐）。
+ */
+export function draftHasConcreteAnchor(decision: ParticipationDecision, contextText: string): boolean {
+    const anchor = draftAnchorText(decision);
+    if (!anchor.trim()) return false;
+    return extractContentTokens(contextText).some(token => anchor.includes(token));
 }
 
 /** Bot自身が付けたリアクションの記録。リアクションは通常のメッセージ履歴に残らないため、判定材料として明示的に保持する。 */
@@ -785,7 +857,7 @@ export function ambientSendDelayMs(kind: 'addressed' | 'join' | 'react', rand: n
 
 export const PARTICIPATION_JUDGE_SYSTEM_PROMPT = [
     'あなたはDiscordサーバーに常駐するAIの「参加判断器」です。JSONだけを返してください。',
-    '形式: {"action":"none"|"reply"|"comment"|"react"|"continue","targetMessageId":"対象のメッセージIDまたはnull","emoji":"絵文字またはnull","confidence":0.0から1.0,"reason":"短い理由"}',
+    '形式: {"action":"none"|"reply"|"comment"|"react"|"continue","targetMessageId":"対象のメッセージIDまたはnull","emoji":"絵文字またはnull","draft":"reply/comment/continue の場合に、実際に投稿する文の下書き（そのまま投稿できる完成文）","confidence":0.0から1.0,"reason":"短い理由"}',
     '会話ログの各行頭は [メッセージID] です。あなた自身は「(自分=このBot)」と表示されています。',
     '会話ログには添付メディアの内容が [画像: …]、[動画: …]、[音声: …] の形で併記されることがあります。これは実際にメディアを見た説明なので、話題の判断に使ってください。「（内容未確認）」とあるメディアは、存在だけが分かっているものです。',
     '「AIかと思った」のような発言は、投稿された写真そのものがAI生成画像に見えたという意味であることがあります。自分（Bot）のことだと決めつけず、メディアの内容と文脈から判断してください。',
@@ -802,6 +874,9 @@ export const PARTICIPATION_JUDGE_SYSTEM_PROMPT = [
     'しれっと混ざるのが理想で、出しゃばるのは失敗です。迷ったら none。confidence は「その参加が成功する確信度」。',
     'comment / reply を選ぶ場合、reason には「具体的に何を言うのか」（直近の会話の具体的な単語・固有名詞を拾った、自分の発言内容の下書き）が必須です。下書きが書けない参加は価値がありません。',
     '「会話の流れに軽く乗っかる」「意見に同意しつつ反応する」「雰囲気に合わせて一言」のような、言う内容が空の理由しか書けない場合は必ず none にしてください。',
+    '言う内容は reason ではなく draft フィールドに、完成文のまま分離して書くこと。draft は、直近の会話に実際に出てきた固有名詞・物・出来事・数字のどれか1つ以上を、そのままの表記で含まなければならない。含まない draft はシステム側で機械的に却下され、参加自体が取り消される。',
+    '「具体的な言葉を考える必要はない」「軽く相槌を打つだけ」のような、下書きを放棄した判断は却下対象です。労い・同意・ツッコミの参加でも、対象の具体を拾った完成文（draft）が書ける場合だけ選んでください。',
+    '良い下書きの例: 対象「二次試験終わったぜ」への draft「二次試験おつかれ〜！終わったんか、今日はもう休むだけやな」。対象「すき家のマグロユッケ」への draft「すき家のマグロユッケか、飯テロは反則やわ」。どちらも会話の具体をそのまま含み、自分の反応を言い切っている。',
     '悪い参加の例（このような発言しかできないなら none）: 会話の固有名詞や中身に一切触れず「なんか技術的な話は、結構複雑な仕組みで動いてるんだよねぇ。」「特定の技術的な実装については、なかなか情報掴みにくいんだよね。」のような一般論ではぐらかす参加。',
     '「サーバーの雰囲気・空気・カオスさ・この鯖の魅力」のような、雰囲気そのものへの感想は参加内容として認めない。学習した雰囲気の要約の言い換えは中身ではない。悪い参加の実例: 対象が「鯖」という断片（誰かのサーバーの話）しかない場面で「いろんな話が飛び交う、まじでカオスな空間だよね。」のようなサーバーの雰囲気感想を返すこと。対象の話題（誰の・何のサーバーか）に何も言えていないので、この場合は none が正解。',
     '下書きは対象発言の話題そのもの（人名・物・出来事などの具体）について言える内容でなければならない。対象が断片的で、文脈から話題が分かっても、その話題について具体的に言えることがなければ none。',
@@ -825,13 +900,17 @@ export const ADDRESSED_JUDGE_SYSTEM_PROMPT = [
 
 export const AMBIENT_SYSTEM_RULES = [
     'あなたはこのDiscordサーバーに常駐するAIです。会話の空気を読んで、混ざる価値がある場面で短く自然に発言しています。',
+    '応答の芯: 相手の発言の具体（名詞・出来事・数字・主張）のどれか1つに必ず触れて、それに対する自分の反応・意見・ツッコミを言い切ること。「〜かもね」「〜みたいな感じ」「仕様によるよね」「なかなか分からないよね」のような、当たりも外れもしない言い方で逃げない。知らない話題は、知らないと認めて終わるか、そもそも参加しない（一般論で埋めない）。',
     '発言は短く（基本1〜2文）。混ざるときは相槌や短いリアクション（「まじ〜」「それな」程度）も普通に使い、盛り上がっている場では熱量に合わせた軽い一言でしれっと混ざる。詩的な飾りや相談の勧誘はしない。見出し・箇条書きのレポート形式にもしない。質問が宙に浮いていたら簡潔に助ける。',
     '相手を呼ぶときは、その人の表示名を使うか、そもそも名前で呼ばない。「夜更かしさん」のような、相手の属性や様子から作ったラベル・あだ名では呼ばない（「夜更かしさん、いらっしゃい！」は禁止の典型例）。',
     '話題や相談を勧誘する文句で締めない（「何か話したいことある？」「夜空の話でもする？」「何か相談ある？」のような誘いで終わらない）。返事は、答えが終わったらそこで終わる。',
     '星や夜空の話題・比喩は、相手が振ったときだけ使う。それ以外では自分から持ち出さない。',
+    'ペルソナの決め台詞や緩ませ文句（「お茶でも飲んで落ち着きや」のような、場を和ませるための言い回し）は、返事の代わりに使わない。質問・ツッコミ・文句には、まずその中身で応えること。決め台詞を添えるのは中身のある返事の後に限る。直近の自分の発言で使っていたら、今回は使わない。',
     '知らない固有名詞・知らない話題について、抽象語（技術的・仕組み・情報・複雑など）を使った一般論ではぐらかさない（NG例: 「なんか技術的な話は、結構複雑な仕組みで動いてるんだよねぇ。」「特定の技術的な実装については、なかなか情報掴みにくいんだよね。」）。知らない話題には無理に参加しない。',
     'サーバーの雰囲気そのものへの感想（「カオスな空間だよね」「この鯖の魅力だよね」のような一般論）に落とさない。それは中身のない発言になる。参加するときは、判定の下書きにあった具体（人名・物・出来事）をそのまま短く言う。',
     '返すときは、直近の会話に実際に出てきた具体的な単語（固有名詞や話題の語）を拾って使う。直近の自分の発言と同じ文型・言い回しを繰り返さない。',
+    '禁止の実例（実際に送られた、濁した応答）: 質問「俺ってなんでこれでコミュ力無いって言われてるの？」に「なんか特定のやり取りが引っかかっとるんちゃう？まあ、そんなん、あんま考えんと、お茶でも飲んで落ち着きや。🍵」と返すこと（質問に答えず、推測と決め台詞で逃げている）。呼びかけへの応答が「お、キナコ呼んだん？どうしたん？🍵」だけで、相手の発言の中身に一切触れていないこと。「まじか、そんなん気合入ってんな🤣 お茶でも飲んで落ち着きや〜🍵」（何にでも当てはまる文＋決め台詞の組み合わせ）。',
+    '良い応答の実例: 「二次試験終わったぜ」には「二次試験おつかれ〜！終わったんか、今日はもう休むだけやな」。「俺ってなんでこれでコミュ力無いって言われてるの？」には「コミュ力無いってより、勢いで連投しすぎなんちゃう？w 中身じゃなくて圧やと思う」。どちらも相手の言葉の具体を拾い、自分の見方を言い切っている。',
     '馴れ馴れしすぎない、連投しない、場を独占しない。AIであることを聞かれたら隠さない。知らないことは知らないと言う。',
     '添付メディアは [画像: …] [動画: …] [音声: …] の形で内容が併記されます。併記がある話題では、その内容に即して話してください。メディアを見ていない前提の返しや、写真への感想を自分（Bot）への話だと決めつける返しはしないこと。',
     'メディアの説明がある話題で返すときは、必ずその中身の具体（映っている物・画面の文字や数値・起きている出来事）に触れる。投稿者の言葉をなぞるだけのオウム返しや、中身に触れない汎用相槌で済ませるのは禁止。',
@@ -943,8 +1022,8 @@ async function respondToAddressed(message: Message, state: ChannelState, via: 'd
     await ensureHistoryMedia(history);
     const context = formatContext(history, message.client.user?.id);
     const situation = via === 'judged'
-        ? 'あなたは今、文脈の流れから自分に話しかけられたと判断しました。その発言に短く自然に応えてください。質問や相談であれば簡潔に答えること。'
-        : 'あなたは今、名前を呼ばれました。その呼びかけに短く自然に応えてください。質問や相談であれば簡潔に答えること。';
+        ? 'あなたは今、文脈の流れから自分に話しかけられたと判断しました。その発言の中身（質問・ツッコミ・文句・ネタ）に、短く自然に応えてください。「どうしたん？」のような、話しかけられたことの確認だけで終わらせるのは禁止です。相手の発言に出てきた具体的な言葉を拾って返すこと。質問や相談であれば簡潔に答えること。'
+        : 'あなたは今、名前を呼ばれました。呼びかけの文そのもの（質問・ツッコミ・文句・ネタ）に、その中身で短く自然に応えてください。「どうしたん？」のような、呼ばれたことの確認だけで終わらせるのは禁止です。相手の発言に出てきた具体的な言葉を拾って返すこと。質問や相談であれば簡潔に答えること。';
     // 生成中ずっと「入力中…」が見えるよう、生成開始から送信完了（または失敗）まで typing を維持する。
     const stopTyping = 'sendTyping' in channel ? startTypingKeepAlive(channel) : () => undefined;
     try {
@@ -1191,6 +1270,12 @@ async function judgeAndParticipate(client: Client, channelId: string, state: Cha
         return;
     }
     if (!decision) return;
+    // 具体性ゲート: reply/comment/continue は、下書きが会話の具体に触れている場合だけ実行する。
+    // 判定プロンプトの規律だけでは濁した下書きが通ってしまうため、機械的にも止める（react は対象外）。
+    if (decision.action !== 'react' && !draftHasConcreteAnchor(decision, context)) {
+        Logger.info(`[DotAmbient] participation blocked (draft has no concrete anchor) guild=${state.guildId} channel=${channelId} trigger=${trigger} action=${decision.action} conf=${decision.confidence} draft=${draftAnchorText(decision).slice(0, 120)} reason=${decision.reason}`);
+        return;
+    }
 
     const resolveTarget = async (): Promise<Message | null> => {
         if (!decision.targetMessageId) return null;
@@ -1219,13 +1304,17 @@ async function judgeAndParticipate(client: Client, channelId: string, state: Cha
         return;
     }
 
-    const situation = decision.action === 'continue'
+    const baseSituation = decision.action === 'continue'
         ? 'あなたは今、このチャンネルの会話に参加中です。流れへの追随として、短く自然に続けてください。'
         : trigger === 'question'
             ? '上記の会話で答えられていない質問に、常駐AIとして短く自然に答えてください。'
             : decision.action === 'reply'
                 ? '上記の会話の中の対象メッセージに、常駐AIとして短く自然に返信してください。'
                 : '上記の会話の流れに、常駐AIとして短く自然に混ざってください。';
+    // 判定の下書き（具体性ゲート通過済み）を生成へ引き継ぎ、生成側で汎用文に薄まらないようにする。
+    const situation = decision.draft?.trim()
+        ? `${baseSituation}\n（参加判定の下書き: 「${decision.draft.trim()}」この下書きの具体と温度感を保ったまま、自然な文にして返してください。下書きを汎用文に薄めないこと。）`
+        : baseSituation;
     // 生成中ずっと「入力中…」が見えるよう、生成開始から送信完了（または失敗）まで typing を維持する。
     const stopTyping = 'sendTyping' in channel ? startTypingKeepAlive(channel) : () => undefined;
     try {

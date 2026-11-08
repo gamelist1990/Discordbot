@@ -22,6 +22,9 @@ import {
     formatRecentReactions,
     type RecentReaction,
     startTypingKeepAlive,
+    extractContentTokens,
+    draftAnchorText,
+    draftHasConcreteAnchor,
     AMBIENT_SYSTEM_RULES,
     PARTICIPATION_JUDGE_SYSTEM_PROMPT,
     ADDRESSED_JUDGE_SYSTEM_PROMPT,
@@ -687,4 +690,69 @@ test('dsh judge log line: stable formatting without relative time', () => {
     assert.ok(!/分前|時間前/.test(a));
     const self = formatJudgeLogLine({ ...entry, authorId: 'bot-id' } as never, 'bot-id');
     assert.ok(self.startsWith('[42] (自分=このBot):'));
+});
+
+test('parser: draft field is extracted when present, absent otherwise', () => {
+    const withDraft = parseParticipationDecision('{"action":"comment","targetMessageId":null,"emoji":null,"draft":"二次試験おつかれ〜！","confidence":0.8,"reason":"労う"}');
+    assert.equal(withDraft?.draft, '二次試験おつかれ〜！');
+    // draft が無い旧形式は、オブジェクトに draft キー自体が付かない（deepEqual 互換）
+    const without = parseParticipationDecision('{"action":"react","targetMessageId":"123456789012345678","emoji":"👍","confidence":0.8,"reason":"笑える"}');
+    assert.deepEqual(without, { action: 'react', targetMessageId: '123456789012345678', emoji: '👍', confidence: 0.8, reason: '笑える' });
+    assert.equal(without && 'draft' in without, false);
+});
+
+test('content tokens: nouns and numbers are anchors, generic escape words are not', () => {
+    const tokens = extractContentTokens('[1] namagomi1919: すき家のマグロユッケ');
+    assert.ok(tokens.includes('マグロ'));
+    assert.ok(tokens.includes('ユッケ'));
+    // 単語境界のない連続（「二次試験終」）からも断片が取れる
+    assert.ok(extractContentTokens('二次試験終わったぜ').includes('二次試験'));
+    // 一般語だけの文からは具体トークンが出てこない
+    const vague = extractContentTokens('なんか技術的な話は、結構複雑な仕組みで動いてるんだよね');
+    assert.ok(!vague.includes('仕組み'));
+    assert.ok(!vague.includes('技術'));
+    assert.ok(!vague.includes('複雑'));
+});
+
+test('draft concreteness gate: vague drafts are blocked, concrete drafts pass', () => {
+    const base = { targetMessageId: null, emoji: null, confidence: 0.85 } as const;
+    // 2026-11-07 の実例: 相槌だけの下書きは、会話の具体と重ならないので落ちる
+    const anticheatContext = '[1] koukun_: 転送しまくっても検知されないのキツい\n[2] namagomi1919: 対策が全然機能してない';
+    assert.equal(draftHasConcreteAnchor({ ...base, action: 'comment', reason: '相槌', draft: 'なるほど、そういう駆け引きもあるんだね' }, anticheatContext), false);
+    // 具体（転送・検知）を拾った下書きは通る
+    assert.equal(draftHasConcreteAnchor({ ...base, action: 'comment', reason: '乗る', draft: '転送しまくっても検知されないのはキツいよね' }, anticheatContext), true);
+    // 2026-11-08 の実例: 質問への推測＋お茶文句の逃げは落ちる
+    const questionContext = '[1] namagomi1919: 俺ってなんでこれでコミュ力無いって言われてるの？';
+    assert.equal(draftHasConcreteAnchor({ ...base, action: 'reply', reason: '推測', draft: 'なんか特定のやり取りが引っかかっとるんちゃう？まあ、お茶でも飲んで落ち着きや' }, questionContext), false);
+    // 具体を拾って言い切る下書きは通る
+    assert.equal(draftHasConcreteAnchor({ ...base, action: 'reply', reason: '答える', draft: 'コミュ力無いってより、勢いで連投しすぎなんちゃう？w' }, questionContext), true);
+    // draft が無くても reason 内の「」引用が下書きとして扱われる
+    assert.equal(draftHasConcreteAnchor({ ...base, action: 'comment', reason: '「二次試験おつかれ〜！」と労う' }, '[1] lcyxd: 二次試験終わったぜ'), true);
+    // 「具体的な言葉は考える必要はない」式の理由は下書きにならない
+    assert.equal(draftHasConcreteAnchor({ ...base, action: 'comment', reason: '労いの言葉を添えて反応する。具体的な労いの言葉を考える必要はない' }, '[1] lcyxd: 二次試験終わったぜ'), false);
+    // draftAnchorText の優先順位: draft > 引用 > reason
+    assert.equal(draftAnchorText({ ...base, action: 'comment', reason: '「引用」', draft: '下書き本体' }), '下書き本体');
+    assert.equal(draftAnchorText({ ...base, action: 'comment', reason: '「引用された文」と言う' }), '引用された文');
+});
+
+test('judge prompt: draft is a separate field and concreteness is machine-enforced', () => {
+    assert.ok(PARTICIPATION_JUDGE_SYSTEM_PROMPT.includes('"draft"'));
+    assert.ok(PARTICIPATION_JUDGE_SYSTEM_PROMPT.includes('機械的に却下され、参加自体が取り消される'));
+    assert.ok(PARTICIPATION_JUDGE_SYSTEM_PROMPT.includes('下書きを放棄した判断は却下対象'));
+    // 良い下書きの実例が入っている
+    assert.ok(PARTICIPATION_JUDGE_SYSTEM_PROMPT.includes('二次試験おつかれ〜！終わったんか、今日はもう休むだけやな'));
+});
+
+test('ambient rules: commit to a concrete take, catchphrases are not an answer', () => {
+    // 応答の芯（肯定形の指示）
+    assert.ok(AMBIENT_SYSTEM_RULES.includes('応答の芯'));
+    assert.ok(AMBIENT_SYSTEM_RULES.includes('言い切ること'));
+    assert.ok(AMBIENT_SYSTEM_RULES.includes('当たりも外れもしない言い方で逃げない'));
+    // 決め台詞・緩ませ文句は返事の代わりにしない
+    assert.ok(AMBIENT_SYSTEM_RULES.includes('返事の代わりに使わない'));
+    // 実際に送られた濁した応答が NG 実例として入っている
+    assert.ok(AMBIENT_SYSTEM_RULES.includes('引っかかっとるんちゃう'));
+    assert.ok(AMBIENT_SYSTEM_RULES.includes('キナコ呼んだん？どうしたん？'));
+    // 良い応答の実例が入っている
+    assert.ok(AMBIENT_SYSTEM_RULES.includes('中身じゃなくて圧やと思う'));
 });
