@@ -12,7 +12,7 @@ type Budget = {
   used: number; limit: number; remaining: number; windowMs: number;
   nextRecoveryAt: number | null; fullRecoveryAt: number | null;
 };
-type Preset = { id: string; label: string; description: string };
+type Preset = { id: string; label: string; description: string; example?: string };
 type Operation = { type: string; [key: string]: unknown };
 type Plan = { version: number; summary: string; operations: Operation[] };
 type ApplyResult = { index: number; type: string; ok: boolean; detail: string; createdId?: string };
@@ -69,10 +69,10 @@ const ServerBuilderPage: React.FC = () => {
   const [structure, setStructure] = useState<Structure | null>(null);
   const [budget, setBudget] = useState<Budget | null>(null);
   const [presets, setPresets] = useState<Preset[]>([]);
-  const [style, setStyle] = useState('plain');
+  const [style, setStyle] = useState('emoji');
   const [request, setRequest] = useState('');
   const [chat, setChat] = useState<ChatEntry[]>([]);
-  const [preview, setPreview] = useState<{ previewId: string; plan: Plan } | null>(null);
+  const [preview, setPreview] = useState<{ previewId: string; plan: Plan; droppedNoops?: number; droppedNames?: string[] } | null>(null);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [results, setResults] = useState<ApplyResult[] | null>(null);
   const [error, setError] = useState('');
@@ -226,12 +226,18 @@ const ServerBuilderPage: React.FC = () => {
         body: JSON.stringify({ operations: manualOps, summary: '手動編集プラン' }),
       });
       if (target !== guildRef.current) return;
+      if (data.budget) setBudget(data.budget as Budget);
+      if (data.noop) {
+        // 全操作が現在の状態と同じだった場合はエラーではなく「変更不要」として扱う。
+        setManualOps([]);
+        addToast(String(data.message ?? '変更は不要でした'), 'success');
+        return;
+      }
       const plan = data.plan as Plan;
-      setPreview({ previewId: data.previewId as string, plan });
+      setPreview({ previewId: data.previewId as string, plan, droppedNoops: (data.droppedNoops as number) ?? 0, droppedNames: (data.droppedNames as string[]) ?? [] });
       setSelected(new Set(plan.operations.map((_, i) => i)));
       setManualOps([]);
-      if (data.budget) setBudget(data.budget as Budget);
-      addToast('手動プランを作成しました。ツリーで確認して適用してください', 'success');
+      addToast(data.droppedNoops ? `手動プランを作成しました（現在の状態と同じだった ${String(data.droppedNoops)} 件は除外しました）` : '手動プランを作成しました。ツリーで確認して適用してください', 'success');
     } catch (e) {
       const err = e as Error & { details?: string[] };
       setError(err.details?.length ? `${err.message}（${err.details.join(' / ')}）` : err.message);
@@ -252,14 +258,27 @@ const ServerBuilderPage: React.FC = () => {
         body: JSON.stringify({ request: text, style, ...(aiFocus ? { focus: { kind: aiFocus.kind, id: aiFocus.id } } : {}) }),
       });
       if (target !== guildRef.current) return;
-      const plan = data.plan as Plan;
-      setPreview({ previewId: data.previewId as string, plan });
-      setSelected(new Set(plan.operations.map((_, i) => i)));
       setBudget(data.budget as Budget);
+      const userEntry: ChatEntry = { role: 'user', text: aiFocus ? `【対象: ${aiFocus.kind === 'category' ? 'カテゴリ' : 'チャンネル'}「${aiFocus.name}」】${text}` : text, at: new Date().toLocaleTimeString('ja-JP') };
+      const usageNote = `使用 ${fmt(data.usage?.tokens ?? 0)} トークン${data.usage?.estimated ? '・見積り' : ''}`;
+      if (data.noop) {
+        // 対象がすべて既に条件を満たしていたケース。エラーではなく通常の結果として表示する。
+        setChat(prev => [
+          ...prev,
+          userEntry,
+          { role: 'ai', text: `${String(data.message ?? '対象はすべて既に条件を満たしていました（変更は不要でした）')}（${usageNote}）`, at: new Date().toLocaleTimeString('ja-JP') },
+        ]);
+        setRequest('');
+        addToast('変更は不要でした', 'success');
+        return;
+      }
+      const plan = data.plan as Plan;
+      setPreview({ previewId: data.previewId as string, plan, droppedNoops: (data.droppedNoops as number) ?? 0, droppedNames: (data.droppedNames as string[]) ?? [] });
+      setSelected(new Set(plan.operations.map((_, i) => i)));
       setChat(prev => [
         ...prev,
-        { role: 'user', text: aiFocus ? `【対象: ${aiFocus.kind === 'category' ? 'カテゴリ' : 'チャンネル'}「${aiFocus.name}」】${text}` : text, at: new Date().toLocaleTimeString('ja-JP') },
-        { role: 'ai', text: `${plan.summary || 'プランを作成しました'}（操作 ${plan.operations.length} 件 / 使用 ${fmt(data.usage?.tokens ?? 0)} トークン${data.usage?.estimated ? '・見積り' : ''}${data.repaired ? ' / 検証エラーを自動修復しました' : ''}）`, at: new Date().toLocaleTimeString('ja-JP') },
+        userEntry,
+        { role: 'ai', text: `${plan.summary || 'プランを作成しました'}（操作 ${plan.operations.length} 件 / ${usageNote}${data.repaired ? ' / 検証エラーを自動修復しました' : ''}${data.droppedNoops ? ` / 既に条件を満たしていた ${String(data.droppedNoops)} 件は除外しました` : ''}）`, at: new Date().toLocaleTimeString('ja-JP') },
       ]);
       setRequest('');
       addToast('プランを生成しました。内容を確認して適用してください', 'success');
@@ -306,6 +325,7 @@ const ServerBuilderPage: React.FC = () => {
 
   const budgetPercent = budget ? Math.min(100, (budget.used / budget.limit) * 100) : 0;
   const selectedGuild = guilds.find(g => g.id === guildId);
+  const selectedPreset = presets.find(p => p.id === style);
 
   return <div className={ui.page}>
     <header className={ui.hero}>
@@ -440,8 +460,9 @@ const ServerBuilderPage: React.FC = () => {
                 </div>}
                 <label className={ui.label}>命名スタイル
                   <select className={ui.select} value={style} onChange={e => setStyle(e.target.value)}>
-                    {presets.map(p => <option key={p.id} value={p.id}>{p.label} — {p.description}</option>)}
+                    {presets.map(p => <option key={p.id} value={p.id}>{p.example ? `${p.label}（例: ${p.example}）` : p.label}</option>)}
                   </select>
+                  {selectedPreset && <span className={ui.muted}>{selectedPreset.description}{selectedPreset.example ? ` — 表示例: ${selectedPreset.example}` : ''}</span>}
                 </label>
                 <label className={ui.label}>依頼文
                   <textarea className={ui.textarea} rows={4} maxLength={1000} value={request} ref={requestTextareaRef}
@@ -469,7 +490,10 @@ const ServerBuilderPage: React.FC = () => {
                   </div>)}
                 </div>
               </> : preview ? <>
-                {preview.plan.summary && <div className={styles.formBody}><p>{preview.plan.summary}</p></div>}
+                {(preview.plan.summary || preview.droppedNoops) ? <div className={styles.formBody}>
+                  {preview.plan.summary && <p>{preview.plan.summary}</p>}
+                  {!!preview.droppedNoops && <p className={ui.muted}>既に現在の名前と同じだった操作 {preview.droppedNoops} 件は除外しました{preview.droppedNames?.length ? `（${preview.droppedNames.join('、')}）` : ''}。</p>}
+                </div> : null}
                 <div className={styles.opList}>
                   {preview.plan.operations.map((op, i) => {
                     const described = describeOp(op, preview.plan);

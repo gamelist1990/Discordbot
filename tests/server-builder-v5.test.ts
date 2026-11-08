@@ -111,7 +111,9 @@ test('検証: カテゴリ内のアイコン未付与チャンネル全件（5�
     assert.ok(!targets.includes(CH.programming), '他カテゴリのチャンネルは対象に含まない');
 });
 
-test('検証: 現在の名前と同じ名前へのリネーム（無意味な操作）は却下され、対象の選び直しを促す', () => {
+test('検証: 現在の名前と同じ名前へのリネーム（無意味な操作）はエラーにせず静かに取り除かれる', () => {
+    // v5（fcaf3a8）では同名リネームを検証エラーとして却下していたが、AIが既に条件を満たす
+    // チャンネルを同名で混ぜるだけでプラン全体が詰まる事故が起きたため、v6でドロップ方式に変更した。
     const structure = makeStructure();
     const plan = {
         version: 1,
@@ -123,11 +125,10 @@ test('検証: 現在の名前と同じ名前へのリネーム（無意味な操
         ],
     };
     const result = validatePlan(plan, planContextFromStructure(structure));
-    assert.ok(!result.ok, '同名リネームのみのプランは通らない');
-    if (!result.ok) {
-        assert.equal(result.errors.length, 2);
-        assert.ok(result.errors.every(e => e.includes('同じ名前へのリネームは無効です')));
-    }
+    assert.ok(result.ok, '同名リネームだけのプランでも検証エラーにはならない');
+    assert.equal(result.plan.operations.length, 0, '同名リネームはすべて取り除かれる');
+    assert.equal(result.droppedNoops.length, 2);
+    assert.deepEqual(result.droppedNoops.map(d => d.targetId), [CH.mcSupport, STAFF_CAT]);
 });
 
 test('生成フロー: 「ちゃんと複数アイコン付いてないチャンネルお願い」で複数件の付与プランが検証を通る', async () => {

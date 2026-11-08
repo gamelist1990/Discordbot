@@ -120,7 +120,8 @@
 .treeChSel { background: var(--app-accent-soft) !important; color: var(--app-ink) !important; }
 .treeChIcon { display: grid; place-items: center; width: 20px; flex: none; color: var(--app-ink-soft); }
 .hashIcon { font-size: 1.05rem; font-weight: 600; line-height: 1; }
-.treeChName { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.treeChName { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.treeCatName { min-width: 0; }
 .lockBadge { font-size: 13px !important; color: var(--app-ink-soft); flex: none; }
 .changeBadge {
   flex: none; font-size: .64rem; font-weight: 700; padding: 1px 6px; border-radius: 999px;
@@ -143,3 +144,35 @@
 }
 .manualList { display: grid; gap: 10px; border-top: 1px solid var(--app-border); padding-top: 14px; }
 .manualItem { display: flex; gap: 8px; justify-content: space-between; align-items: center; font-size: .82rem; flex-wrap: wrap; }
+
+/* --- モバイル（幅640px以下）: 横スクロール防止・タップ領域の拡大・入力ズーム防止 --- */
+@media (max-width: 640px) {
+  .layout { gap: 14px; }
+  .leftCol, .rightCol { gap: 14px; }
+  .budgetBar { padding: 14px 16px 16px; }
+  .budgetNumbers { gap: 6px 14px; }
+  .budgetNumbers strong { font-size: 1.3rem; }
+  .chatLog { padding: 14px 16px; max-height: 320px; }
+  .formBody { padding: 16px; }
+  .opList { padding: 14px 16px; }
+  .resultList { padding: 0 16px 16px; }
+  .detailBox { padding: 14px 16px 16px; }
+  /* iOS Safari は16px未満の入力欄にフォーカスすると自動ズームするため、実寸16pxにする */
+  .layout select, .layout textarea, .layout input { font-size: 16px; }
+  .layout select { width: 100%; max-width: none; min-height: 48px; }
+  /* このページ内のボタンはすべて最低44pxの高さにして押しやすくする */
+  .layout button { min-height: 44px; }
+  .focusChip button { min-height: 0; }
+  .tree { padding: 8px 4px 12px; max-height: 520px; }
+  .treeChildren { margin-left: 8px; }
+  .treeCh { padding: 8px; }
+  .treeCatRow { padding: 8px 6px; }
+  .treeCollapse { padding: 8px 6px; }
+  .opCard { padding: 12px; gap: 10px; }
+  .opCard input { width: 24px; height: 24px; }
+  .opIcon { width: 30px; height: 30px; }
+  .quickRow { gap: 10px; }
+  .quickRow input { flex: 1 1 100%; min-width: 0; }
+  .quickRow button { flex: 1 1 0; }
+  .manualItem span { overflow-wrap: anywhere; }
+}

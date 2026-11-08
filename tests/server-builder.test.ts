@@ -170,7 +170,7 @@ test('プラン検証: 削除系・未知操作・未知フィールドを拒否
         { operations: [{ type: 'kickMember', userId: CHANNEL_ID }] },
         { operations: [{ type: 'createCategory', name: 'x', extra: 1 }] },
         { operations: [{ type: 'createCategory', name: 'x' }], admin: true },
-        { operations: [] },
+        // 注: 空の operations 配列は「対象がすべて既に条件を満たしていた」正常系として扱う（v6で変更）。
         { operations: 'nope' },
         'not-an-object',
     ]) {
@@ -267,7 +267,8 @@ test('生成プロンプトはスキーマ限定とデータ扱いを明記し�
     assert.ok(messages[1].content.includes('<request>'));
     assert.ok(messages[1].content.includes('ゲーム用カテゴリを作って'));
     assert.equal(getStylePreset('unknown-style'), null);
-    assert.equal(getStylePreset(undefined)?.id, 'plain');
+    // 未指定時のデフォルトは主流形式の「絵文字｜名前」（v6で plain から変更）。
+    assert.equal(getStylePreset(undefined)?.id, 'emoji');
 });
 
 // ---------------------------------------------------------------------------

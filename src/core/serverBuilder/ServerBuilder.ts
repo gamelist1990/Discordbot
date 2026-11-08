@@ -18,6 +18,8 @@ export interface StylePreset {
     id: string;
     label: string;
     description: string;
+    /** 実際の見た目の例（クライアントの選択肢表示用）。 */
+    example: string;
     /** プラン生成プロンプトへ渡す様式指示。 */
     instruction: string;
 }
@@ -27,30 +29,38 @@ export const STYLE_PRESETS: StylePreset[] = [
         id: 'plain',
         label: '装飾なし',
         description: '名前をそのまま使う標準スタイル',
+        example: '雑談',
         instruction: 'チャンネル名・カテゴリ名に装飾は付けない。意味が伝わる簡潔な名前を使う。',
     },
     {
         id: 'emoji',
         label: '絵文字｜名前',
         description: 'チャンネル名を「絵文字｜名前」形式にする',
+        example: '💬｜雑談',
         instruction: 'チャンネル名は「絵文字｜名前」形式にする（例: 「💬｜雑談」「📢｜お知らせ」「🎮｜ゲーム募集」）。話題に合う絵文字を1つだけ付ける。カテゴリ名は装飾しない。',
     },
     {
         id: 'decorCategory',
         label: 'カテゴリ装飾 ===名前===',
         description: 'カテゴリ名を「===名前===」形式に装飾する',
+        example: '===雑談===',
         instruction: 'カテゴリ名は「===名前===」形式にする（例: 「===雑談===」）。チャンネル名は装飾しない。',
     },
     {
         id: 'lineCategory',
         label: 'カテゴリ装飾 ━ NAME ━',
         description: 'カテゴリ名を「━ NAME ━」（英字大文字）形式にする',
+        example: '━ GENERAL ━',
         instruction: 'カテゴリ名は「━ NAME ━」形式にする。英字部分は大文字にする（例: 「━ GENERAL ━」）。日本語の名前はそのまま挟む（例: 「━ 雑談 ━」）。チャンネル名は装飾しない。',
     },
 ];
 
 export function getStylePreset(styleId: unknown): StylePreset | null {
-    if (styleId === undefined || styleId === null || styleId === '') return STYLE_PRESETS[0];
+    if (styleId === undefined || styleId === null || styleId === '') {
+        // 未指定時のデフォルトは「絵文字｜名前」。対象サーバーの主流形式がこの形式であり、
+        // plain（装飾なし）を初期値にすると装飾なし方向へ寄る事故の元になるため。
+        return STYLE_PRESETS.find(preset => preset.id === 'emoji') ?? STYLE_PRESETS[0];
+    }
     if (typeof styleId !== 'string') return null;
     return STYLE_PRESETS.find(preset => preset.id === styleId) ?? null;
 }
@@ -241,12 +251,28 @@ export function planContextFromStructure(structure: GuildStructure): PlanValidat
     };
 }
 
+/**
+ * 検証で「無意味な操作」として静かに取り除かれた同名リネーム。
+ * エラーにはせず、残りの操作だけでプランを成立させる（呼び出し側は件数を表示・監査できる）。
+ */
+export interface DroppedNoopOperation {
+    /** 元の operations 内の位置。 */
+    index: number;
+    type: 'renameChannel' | 'renameCategory';
+    targetId: string;
+    /** 現在の名前（＝指定された新しい名前）。 */
+    name: string;
+}
+
+export type PlanValidationSuccess = { ok: true; plan: ServerBuilderPlan; droppedNoops: DroppedNoopOperation[] };
+export type PlanValidationResult = PlanValidationSuccess | { ok: false; errors: string[] };
+
 /** 手動プラン入力をAIプランと同じ検証に通す純関数。AI予算には一切触れない。 */
 export function validateManualPlan(
     operations: unknown,
     ctx: PlanValidationContext,
     summary = '手動プラン',
-): { ok: true; plan: ServerBuilderPlan } | { ok: false; errors: string[] } {
+): PlanValidationResult {
     return validatePlan({ version: 1, summary, operations }, ctx);
 }
 
@@ -352,7 +378,7 @@ function parseOverwrites(value: unknown, ctx: PlanValidationContext, errors: str
 export function validatePlan(
     raw: unknown,
     ctx: PlanValidationContext,
-): { ok: true; plan: ServerBuilderPlan } | { ok: false; errors: string[] } {
+): PlanValidationResult {
     const errors: string[] = [];
     if (!isRecord(raw)) return { ok: false, errors: ['プランがJSONオブジェクトではありません'] };
     for (const key of Object.keys(raw)) {
@@ -361,14 +387,29 @@ export function validatePlan(
         }
     }
     const summary = typeof raw.summary === 'string' ? raw.summary.trim().slice(0, 300) : '';
-    if (!Array.isArray(raw.operations) || raw.operations.length === 0) {
-        return { ok: false, errors: ['operations が空、または配列ではありません'] };
+    if (!Array.isArray(raw.operations)) {
+        return { ok: false, errors: ['operations は配列で指定してください'] };
     }
     if (raw.operations.length > MAX_PLAN_OPERATIONS) {
         return { ok: false, errors: [`操作は最大${MAX_PLAN_OPERATIONS}件までです（出力は${raw.operations.length}件でした）。依頼の対象範囲を絞ってください`] };
     }
     const rawOps = raw.operations;
     const operations: ServerBuilderOperation[] = [];
+    const droppedNoops: DroppedNoopOperation[] = [];
+    // 同名リネームを取り除いても、作成操作への参照（newIndex / targetRef）が最終プラン内の
+    // 位置を指し続けるよう、元のindex→最終indexの対応を保持して参照を付け替える。
+    const finalIndexByRawIndex = new Map<number, number>();
+    const pushOperation = (rawIndex: number, op: ServerBuilderOperation): void => {
+        finalIndexByRawIndex.set(rawIndex, operations.length);
+        operations.push(op);
+    };
+    const remapCategoryRef = (ref: CategoryRef | null): CategoryRef | null => {
+        if (ref && ref.kind === 'new') {
+            const mapped = finalIndexByRawIndex.get(ref.index);
+            if (mapped !== undefined && mapped !== ref.index) return { kind: 'new', index: mapped };
+        }
+        return ref;
+    };
     let createdCount = 0;
 
     for (let i = 0; i < rawOps.length; i += 1) {
@@ -387,7 +428,7 @@ export function validatePlan(
         switch (op.type) {
             case 'createCategory': {
                 if (!validName(op.name)) { errors.push(`${label}: カテゴリ名は1〜${MAX_NAME_LENGTH}文字です`); break; }
-                operations.push({ type: 'createCategory', name: (op.name as string).trim() });
+                pushOperation(i, { type: 'createCategory', name: (op.name as string).trim() });
                 createdCount += 1;
                 break;
             }
@@ -412,11 +453,11 @@ export function validatePlan(
                     errors.push(`${label}: nsfw は真偽値です`);
                     break;
                 }
-                operations.push({
+                pushOperation(i, {
                     type: 'createChannel',
                     name: (op.name as string).trim(),
                     channelType: op.channelType,
-                    categoryRef: categoryRef ?? null,
+                    categoryRef: remapCategoryRef(categoryRef ?? null),
                     ...(typeof op.topic === 'string' && op.topic ? { topic: op.topic } : {}),
                     ...(typeof op.slowmodeSeconds === 'number' ? { slowmodeSeconds: op.slowmodeSeconds } : {}),
                     ...(typeof op.nsfw === 'boolean' ? { nsfw: op.nsfw } : {}),
@@ -432,10 +473,12 @@ export function validatePlan(
                 if (!validName(op.name)) { errors.push(`${label}: チャンネル名は1〜${MAX_NAME_LENGTH}文字です`); break; }
                 const newChannelName = (op.name as string).trim();
                 if (ctx.channelNames && ctx.channelNames.get(op.channelId) === newChannelName) {
-                    errors.push(`${label}: 現在の名前（${newChannelName}）と同じ名前へのリネームは無効です。対象が条件に合っているか選び直してください`);
+                    // 同名リネームは無意味な操作なので、エラーにせず静かに取り除く。
+                    // 残りの操作が正しければプランはそのまま成立する（自動修復も発火させない）。
+                    droppedNoops.push({ index: i, type: 'renameChannel', targetId: op.channelId, name: newChannelName });
                     break;
                 }
-                operations.push({ type: 'renameChannel', channelId: op.channelId, name: newChannelName });
+                pushOperation(i, { type: 'renameChannel', channelId: op.channelId, name: newChannelName });
                 break;
             }
             case 'renameCategory': {
@@ -446,10 +489,11 @@ export function validatePlan(
                 if (!validName(op.name)) { errors.push(`${label}: カテゴリ名は1〜${MAX_NAME_LENGTH}文字です`); break; }
                 const newCategoryName = (op.name as string).trim();
                 if (ctx.categoryNames && ctx.categoryNames.get(op.categoryId) === newCategoryName) {
-                    errors.push(`${label}: 現在の名前（${newCategoryName}）と同じ名前へのリネームは無効です。対象が条件に合っているか選び直してください`);
+                    // チャンネル側と同様、同名リネームは静かに取り除く。
+                    droppedNoops.push({ index: i, type: 'renameCategory', targetId: op.categoryId, name: newCategoryName });
                     break;
                 }
-                operations.push({ type: 'renameCategory', categoryId: op.categoryId, name: newCategoryName });
+                pushOperation(i, { type: 'renameCategory', categoryId: op.categoryId, name: newCategoryName });
                 break;
             }
             case 'moveChannel': {
@@ -462,7 +506,7 @@ export function validatePlan(
                     if (categoryRef === null) errors.push(`${label}: 移動先カテゴリが必要です`);
                     break;
                 }
-                operations.push({ type: 'moveChannel', channelId: op.channelId, categoryRef });
+                pushOperation(i, { type: 'moveChannel', channelId: op.channelId, categoryRef: remapCategoryRef(categoryRef) as CategoryRef });
                 break;
             }
             case 'setTopic': {
@@ -474,7 +518,7 @@ export function validatePlan(
                     errors.push(`${label}: topic は${MAX_TOPIC_LENGTH}文字以内です`);
                     break;
                 }
-                operations.push({ type: 'setTopic', channelId: op.channelId, topic: op.topic });
+                pushOperation(i, { type: 'setTopic', channelId: op.channelId, topic: op.topic });
                 break;
             }
             case 'setSlowmode': {
@@ -486,7 +530,7 @@ export function validatePlan(
                     errors.push(`${label}: seconds は0〜${MAX_SLOWMODE_SECONDS}の整数です`);
                     break;
                 }
-                operations.push({ type: 'setSlowmode', channelId: op.channelId, seconds: op.seconds as number });
+                pushOperation(i, { type: 'setSlowmode', channelId: op.channelId, seconds: op.seconds as number });
                 break;
             }
             case 'setPermissions': {
@@ -511,14 +555,14 @@ export function validatePlan(
                         errors.push(`${label}: targetRef は先行する ${expected} 操作を指す必要があります`);
                         break;
                     }
-                    targetRef = { index: idx };
+                    targetRef = { index: finalIndexByRawIndex.get(idx) ?? idx };
                 } else {
                     errors.push(`${label}: targetId か targetRef のいずれかが必要です`);
                     break;
                 }
                 const overwrites = parseOverwrites(op.overwrites, ctx, errors, label);
                 if (!overwrites) break;
-                operations.push({
+                pushOperation(i, {
                     type: 'setPermissions',
                     targetKind: op.targetKind,
                     ...(targetId ? { targetId } : {}),
@@ -532,13 +576,13 @@ export function validatePlan(
                 const pool = op.targetKind === 'channel' ? ctx.channelIds : ctx.categoryIds;
                 if (typeof op.targetId !== 'string' || !pool.has(op.targetId)) { errors.push(`${label}: 存在しない対象IDが指定されています`); break; }
                 if (!Number.isInteger(op.position) || (op.position as number) < 0 || (op.position as number) > MAX_POSITION) { errors.push(`${label}: position は0〜${MAX_POSITION}の整数です`); break; }
-                operations.push({ type: 'setPosition', targetKind: op.targetKind, targetId: op.targetId, position: op.position as number });
+                pushOperation(i, { type: 'setPosition', targetKind: op.targetKind, targetId: op.targetId, position: op.position as number });
                 break;
             }
             case 'syncPermissions': {
                 if (typeof op.channelId !== 'string' || !ctx.channelIds.has(op.channelId)) { errors.push(`${label}: 存在しないチャンネルIDが指定されています`); break; }
                 if (ctx.parentByChannelId && !ctx.parentByChannelId.get(op.channelId)) { errors.push(`${label}: カテゴリに所属していないチャンネルは権限同期できません`); break; }
-                operations.push({ type: 'syncPermissions', channelId: op.channelId });
+                pushOperation(i, { type: 'syncPermissions', channelId: op.channelId });
                 break;
             }
             default:
@@ -553,7 +597,7 @@ export function validatePlan(
             errors: [`チャンネル総数の上限（${MAX_GUILD_CHANNELS}）を超えます（現在 ${ctx.currentChannelCount} 件、作成 ${createdCount} 件）`],
         };
     }
-    return { ok: true, plan: { version: 1, summary, operations } };
+    return { ok: true, plan: { version: 1, summary, operations }, droppedNoops };
 }
 
 /** AIの生出力から最初のJSONオブジェクトを取り出す。 */
@@ -678,6 +722,7 @@ export function buildPlanMessages(input: {
         '依頼の範囲の解釈（厳守）:',
         '- カテゴリが指定された依頼（「〜カテゴリの〜チャンネル」のような言い回し）は、そのカテゴリの中で条件に合うチャンネル全部が対象（テキスト／ボイス／アナウンス等の種別は問わない）。条件に合うものが複数あれば全件を操作に入れること。代表の1件だけを選んで済ませない。',
         '- 「アイコンが付いてない」「絵文字がない」チャンネルとは、名前の先頭に絵文字プレフィックス（「絵文字｜名前」の絵文字部分）が無いチャンネルを指す。やることは、そのチャンネルに内容に合う絵文字を1つ付けること。既に先頭に絵文字があるチャンネルは対象外。',
+        '- 付与・変更の依頼では、既に条件を満たしているチャンネル（既に絵文字プレフィックスがある、既に依頼通りの名前・状態になっている等）を操作に含めないこと。特に「現在の名前と同じ名前への renameChannel / renameCategory」は無意味な操作なので絶対に出力しないこと（検証で自動的に取り除かれるが、操作件数の無駄になり、プランが上限に届かなくなる）。条件を満たす対象が1件も無い場合は operations を空配列にし、summary に「対象はすべて既に条件を満たしていました」のように書くこと。',
         '- 「複数」は原則として対象の数のこと（「複数のチャンネル」の意味）。「アイコンが複数付いている・重複している」という意味に読まないこと。',
         '- 既存の絵文字や装飾を取り除く操作（プレフィックスの削除、装飾の整理・統一）は、依頼文に「重複」「二重」「整理して」「外して」「消して」など除去の明示がある場合にだけ行う。頼まれていない装飾の除去・統一は絶対にしない。「アイコンを付けて」という依頼にアイコンを外す操作を混ぜるのは、正反対の解釈であり厳禁。',
         '- 「様式の統一」を行う場合でも、統一の方向は「付いていないものに付ける」が原則。除去方向の統一は、上記の除去の明示がある場合だけ。',
@@ -689,6 +734,12 @@ export function buildPlanMessages(input: {
         '- 例1: 依頼「スタッフカテゴリのスタッフチャンネルにアイコン付いてないのでつけて欲しい」→ 正しい解釈は、スタッフカテゴリ内で名前の先頭に絵文字が無いチャンネルを全部洗い出し、それぞれに内容に合う絵文字を付ける rename を全件出すこと。チャンネルを1件だけ選んで終わらせない。',
         '- 例2: 依頼「ちゃんと複数アイコン付いてないチャンネルお願い」→ 「複数」はチャンネルの数のこと。対象範囲内でアイコン未付与のチャンネル全件にアイコンを付けるプランにすること。アイコンや装飾を外す操作は1件も入れない（この言い回しを装飾の整理・除去と読むのは誤り）。',
         '- 例3: 依頼「アイコンが二重に付いてるチャンネルを直して」「重複した装飾を整理して」→ このように除去が明示された場合に限り、二重プレフィックスの除去など装飾整理のリネームを行う。',
+        '',
+        'アイコンの適合チェック（「合ってないアイコンを直して」系の依頼）:',
+        '- 「チャンネル名と合っていないアイコンを直して」「変なアイコンが付いているものを直して」「合ってないアイコンを適切なものに直して」のような依頼では、構造データの全チャンネルを走査し、先頭の絵文字の意味とチャンネル名・内容（トピック等）が合っていないものを、すべて候補としてプランに含めること。気づいた1件だけを選んで済ませない（ユーザーはプレビューで個別に除外できるため、候補は広めに含める方が正しい）。',
+        '- 付け替える絵文字は、チャンネル名・用途の意味に合うものを1つ選ぶこと。名前と明らかに合っているチャンネルには触れないこと。',
+        '- 具体例: 「📊｜お知らせ」は告知にグラフの絵文字が合わないので「📢｜お知らせ」に付け替える。「💬｜ボイスチャット」は文字の雑談ではなく通話の場なので「🔊｜ボイスチャット」に付け替える。「🍣｜ゲーム募集」は「🎮｜ゲーム募集」に付け替える。逆に「📢｜お知らせ」「🎮｜ゲーム募集」「🔊｜ボイスチャット」は名前と合っているので対象外。',
+        '- 付け替え候補が操作上限（30件）に収まらない場合は、意味のずれが大きいもの（名前と全く無関係な絵文字）を優先して含め、summary に対象の全件数と今回含めた件数を書くこと。',
         '',
         'setPermissions の詳細:',
         '- overwrites は1〜10件の配列。各要素は対象（everyone か role＋roleId）ごとに1件にまとめ、allow と deny の両方に同じ権限名を入れないこと（各配列は最大20件、空配列でもよい）。',
@@ -755,13 +806,15 @@ export function buildPlanMessages(input: {
 }
 
 export type PlanGenerationOutcome =
-    | { ok: true; plan: ServerBuilderPlan; repaired: boolean; attempts: number }
+    | { ok: true; plan: ServerBuilderPlan; repaired: boolean; attempts: number; droppedNoops: DroppedNoopOperation[] }
     | { ok: false; errors: string[]; firstErrors: string[]; attempts: number };
 
 /**
  * プラン生成→検証→（失敗時は理由をフィードバックして1回だけ自動修復）の編成ロジック。
  * generate はメッセージ列を受け取りAIの生テキストを返す関数（route側で実呼び出しと予算記録を行う）。
  * canRepair は修復呼び出しの可否（予算残量など）を返す。修復も生成呼び出しとして数えるのは呼び出し側の責務。
+ * 同名リネームのような無意味な操作は検証側で静かに取り除かれるため、それだけが理由で修復は発火しない。
+ * plan.operations が0件の成功は「対象がすべて既に条件を満たしていた」ケース（呼び出し側で通常表示する）。
  */
 export async function generatePlanWithRepair(input: {
     request: string;
@@ -771,7 +824,7 @@ export async function generatePlanWithRepair(input: {
     generate: (messages: Array<{ role: 'system' | 'user'; content: string }>) => Promise<string>;
     canRepair?: () => Promise<boolean> | boolean;
 }): Promise<PlanGenerationOutcome> {
-    const validateOutput = (text: string): { ok: true; plan: ServerBuilderPlan } | { ok: false; errors: string[] } => {
+    const validateOutput = (text: string): PlanValidationResult => {
         const rawPlan = extractPlanJson(text);
         if (rawPlan === null) return { ok: false, errors: ['AIの出力からプランJSONを読み取れませんでした'] };
         return validatePlan(rawPlan, planContextFromStructure(input.structure));
@@ -781,7 +834,7 @@ export async function generatePlanWithRepair(input: {
         request: input.request, style: input.style, structure: input.structure, focus: input.focus ?? null,
     }));
     const first = validateOutput(firstText);
-    if (first.ok) return { ok: true, plan: first.plan, repaired: false, attempts: 1 };
+    if (first.ok) return { ok: true, plan: first.plan, repaired: false, attempts: 1, droppedNoops: first.droppedNoops };
 
     const firstErrors = first.errors;
     const canRepair = input.canRepair ? await input.canRepair() : true;
@@ -792,7 +845,7 @@ export async function generatePlanWithRepair(input: {
         repair: { previousOutput: firstText, errors: firstErrors },
     }));
     const second = validateOutput(repairText);
-    if (second.ok) return { ok: true, plan: second.plan, repaired: true, attempts: 2 };
+    if (second.ok) return { ok: true, plan: second.plan, repaired: true, attempts: 2, droppedNoops: second.droppedNoops };
     return { ok: false, errors: second.errors, firstErrors, attempts: 2 };
 }
 

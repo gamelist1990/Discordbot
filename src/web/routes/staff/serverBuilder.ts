@@ -110,13 +110,25 @@ export function createServerBuilderRoutes(sessions: Map<string, SettingsSession>
                     res.status(422).json({ error: '手動プランが検証を通過しませんでした', details: validated.errors.slice(0, 5) });
                     return;
                 }
+                const droppedNames = validated.droppedNoops.map(d => d.name);
+                const status = await budget.status(guildId);
+                if (validated.plan.operations.length === 0) {
+                    // 全操作が同名リネーム等の無意味な操作だった場合は、エラーではなく「変更不要」の正常系で返す。
+                    Logger.info(`[ServerBuilderAudit] action=plan-manual-noop guild=${guildId} user=${session.userId} dropped-noops=${validated.droppedNoops.length}`);
+                    res.json({
+                        noop: true,
+                        message: 'すべての操作が現在の状態と同じだったため、変更は不要でした',
+                        droppedNoops: validated.droppedNoops.length, droppedNames,
+                        budget: status, usage: { tokens: 0, estimated: false }, source: 'manual',
+                    });
+                    return;
+                }
                 const previewId = createServerBuilderPreview({
                     guildId, userId: session.userId, plan: validated.plan,
                     styleId: 'manual', request: '', source: 'manual',
                 });
-                Logger.info(`[ServerBuilderAudit] action=plan-manual guild=${guildId} user=${session.userId} (${session.username ?? ''}) ops=${validated.plan.operations.length} ops-summary=${summarizePlan(validated.plan)}`);
-                const status = await budget.status(guildId);
-                res.json({ previewId, plan: validated.plan, budget: status, usage: { tokens: 0, estimated: false }, source: 'manual', expiresInSeconds: 600 });
+                Logger.info(`[ServerBuilderAudit] action=plan-manual guild=${guildId} user=${session.userId} (${session.username ?? ''}) ops=${validated.plan.operations.length} dropped-noops=${validated.droppedNoops.length} ops-summary=${summarizePlan(validated.plan)}`);
+                res.json({ previewId, plan: validated.plan, budget: status, usage: { tokens: 0, estimated: false }, source: 'manual', expiresInSeconds: 600, droppedNoops: validated.droppedNoops.length, droppedNames });
             } catch {
                 res.status(500).json({ error: '手動プランの作成に失敗しました' });
             }
@@ -250,6 +262,28 @@ export function createServerBuilderRoutes(sessions: Map<string, SettingsSession>
                 return;
             }
 
+            const usageJson = {
+                tokens: totals.tokens,
+                inputTokens: totals.hasInput ? totals.inputTokens : undefined,
+                outputTokens: totals.hasOutput ? totals.outputTokens : undefined,
+                estimated: totals.estimated,
+            };
+            const droppedNames = outcome.droppedNoops.map(d => d.name);
+            if (outcome.plan.operations.length === 0) {
+                // 対象がすべて既に条件を満たしていたケース。エラーではなく通常の結果として返す。
+                Logger.info(`[ServerBuilderAudit] action=plan-noop guild=${guildId} user=${session.userId} (${session.username ?? ''}) style=${style.id} focus=${focus ? `${focus.kind}:${focus.id}` : 'none'} repaired=${outcome.repaired} dropped-noops=${outcome.droppedNoops.length} tokens=${totals.tokens} estimated=${totals.estimated}`);
+                res.json({
+                    noop: true,
+                    message: '対象はすべて既に条件を満たしていました（変更は不要でした）',
+                    droppedNoops: outcome.droppedNoops.length,
+                    droppedNames,
+                    budget: nextBudget,
+                    usage: usageJson,
+                    repaired: outcome.repaired,
+                });
+                return;
+            }
+
             const previewId = createServerBuilderPreview({
                 guildId,
                 userId: session.userId,
@@ -258,18 +292,15 @@ export function createServerBuilderRoutes(sessions: Map<string, SettingsSession>
                 request: requestText.slice(0, 200),
                 source: 'ai',
             });
-            Logger.info(`[ServerBuilderAudit] action=plan guild=${guildId} user=${session.userId} (${session.username ?? ''}) style=${style.id} focus=${focus ? `${focus.kind}:${focus.id}` : 'none'} repaired=${outcome.repaired} ops=${outcome.plan.operations.length} tokens=${totals.tokens} estimated=${totals.estimated} ops-summary=${summarizePlan(outcome.plan)}`);
+            Logger.info(`[ServerBuilderAudit] action=plan guild=${guildId} user=${session.userId} (${session.username ?? ''}) style=${style.id} focus=${focus ? `${focus.kind}:${focus.id}` : 'none'} repaired=${outcome.repaired} ops=${outcome.plan.operations.length} dropped-noops=${outcome.droppedNoops.length} tokens=${totals.tokens} estimated=${totals.estimated} ops-summary=${summarizePlan(outcome.plan)}`);
             res.json({
                 previewId,
                 plan: outcome.plan,
                 budget: nextBudget,
-                usage: {
-                    tokens: totals.tokens,
-                    inputTokens: totals.hasInput ? totals.inputTokens : undefined,
-                    outputTokens: totals.hasOutput ? totals.outputTokens : undefined,
-                    estimated: totals.estimated,
-                },
+                usage: usageJson,
                 repaired: outcome.repaired,
+                droppedNoops: outcome.droppedNoops.length,
+                droppedNames,
                 expiresInSeconds: 600,
             });
         } catch (error) {
