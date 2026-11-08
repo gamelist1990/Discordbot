@@ -360,3 +360,51 @@ await saveGuildMemberMemoStore(guildId, store, adapter);
 return { authors: authors.length, updated: memosUpdated};
 });
 }
+
+// ---------------------------------------------------------------------------
+// 管理画面向け: 閲覧用の整形と、メンバー単位の削除（WebUIからの誤メモ消去）
+// ---------------------------------------------------------------------------
+
+/** 管理画面APIで返す1人分の形。ストア内部の型をそのまま外へ出さず、表示に必要な項目だけに絞る。 */
+export interface MemberMemoAdminItem {
+userId: string;
+name: string;
+memo: string;
+messageCount: number;
+updatedAt: string;
+lastSeenAt: number;
+}
+
+export function toMemberMemoAdminItem(memo: GuildMemberMemo): MemberMemoAdminItem {
+return {
+userId: memo.userId,
+name: memo.name,
+memo: memo.memo,
+messageCount: memo.messageCount,
+updatedAt: memo.updatedAt,
+lastSeenAt: memo.lastSeenAt,
+};
+}
+
+/**
+* メンバー1人分のメモ（活動記録ごと）をストアから削除する、管理画面用の正規の削除経路。
+* 削除したレコードを返し、対象が無ければ null。学習側の書き込みと競合しないよう
+* 他の保存処理と同じストアロックの中で load → 削除 → save を行う。
+* なお、そのメンバーが再び活発に発言すれば観測から活動記録とメモは作り直されうる
+* （これは「間違ったメモを消す」操作であり、学習対象からの恒久除外ではない）。
+*/
+export async function removeGuildMemberMemo(
+guildId: string,
+userId: string,
+adapter: MemberMemoStoreAdapter = defaultAdapter,
+): Promise<GuildMemberMemo | null> {
+if (!guildId || !userId) return null;
+return withMemberMemoStoreLock(guildId, async () => {
+const store = await loadGuildMemberMemoStore(guildId, adapter);
+const index = store.memos.findIndex(memo => memo.userId === userId);
+if (index < 0) return null;
+const [removed] = store.memos.splice(index, 1);
+await saveGuildMemberMemoStore(guildId, store, adapter);
+return removed;
+});
+}

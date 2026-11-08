@@ -18,6 +18,11 @@ import {
     type GuildAIPersona,
     type GuildAIPersonalitySettings,
 } from '../../../core/ai/GuildAIPersonality.js';
+import {
+    loadGuildMemberMemoStore,
+    removeGuildMemberMemo,
+    toMemberMemoAdminItem,
+} from '../../../core/ai/GuildMemberMemory.js';
 import { Logger } from '../../../utils/Logger.js';
 import {
     canGeneratePersona,
@@ -49,13 +54,31 @@ export function createStaffAIRoutes(sessions: Map<string, SettingsSession>, _bot
      * 許可できない場合は 403 を返して null を返す。
      */
     function authorizePersonaGeneration(req: any, res: any, guildId: string): SettingsSession | null {
-        const session = req.session as SettingsSession | undefined;
+        const session = (req as any).session as SettingsSession | undefined;
         const actor = {
             permissionLevel: getSessionGuildPermissionLevel(session, guildId),
             isBotOwner: isBotOwnerSession(session),
         };
         if (!session || !canGeneratePersona(actor)) {
             res.status(403).json({ error: '性格の生成・調整にはサーバー管理者権限（またはBot管理者）が必要です' });
+            return null;
+        }
+        return session;
+    }
+
+    /**
+     * メンバーメモ削除の認可。性格生成と同じ水準（ギルド権限レベル2以上またはBot管理者）。
+     * 閲覧（GET）はルーター共通のレベル1以上で足りるが、削除は誤メモの消去とはいえ
+     * 他人の記録を消す操作なので、生成系と同じ一段強い認可にする。
+     */
+    function authorizeMemberMemoManagement(req: any, res: any, guildId: string): SettingsSession | null {
+        const session = (req as any).session as SettingsSession | undefined;
+        const actor = {
+            permissionLevel: getSessionGuildPermissionLevel(session, guildId),
+            isBotOwner: isBotOwnerSession(session),
+        };
+        if (!session || !canGeneratePersona(actor)) {
+            res.status(403).json({ error: 'メンバーメモの削除にはサーバー管理者権限（またはBot管理者）が必要です' });
             return null;
         }
         return session;
@@ -218,6 +241,38 @@ export function createStaffAIRoutes(sessions: Map<string, SettingsSession>, _bot
         } catch {
             Logger.warn(`[PersonaAudit] action=apply-rejected guild=${guildId} user=${session.userId} (${session.username ?? ''}) reason=apply-failed`);
             res.status(500).json({ error: 'AIの性格を適用できませんでした' });
+        }
+    });
+    router.get('/:guildId/member-memos', async (req, res) => {
+        const guildId = String(req.params.guildId);
+        const session = (req as any).session as SettingsSession | undefined;
+        // 削除ボタンの表示可否はサーバー側の判定を正としてクライアントへ渡す。
+        const canManage = canGeneratePersona({
+            permissionLevel: getSessionGuildPermissionLevel(session, guildId),
+            isBotOwner: isBotOwnerSession(session),
+        });
+        try {
+            const store = await loadGuildMemberMemoStore(guildId);
+            res.json({ memos: store.memos.map(toMemberMemoAdminItem), canManage });
+        } catch {
+            res.status(500).json({ error: 'メンバーメモの取得に失敗しました' });
+        }
+    });
+    router.delete('/:guildId/member-memos/:userId', async (req, res) => {
+        const guildId = String(req.params.guildId);
+        const session = authorizeMemberMemoManagement(req, res, guildId);
+        if (!session) return;
+        const userId = String(req.params.userId);
+        if (!/^\d{17,20}$/.test(userId)) {
+            res.status(400).json({ error: 'ユーザーIDの形式が不正です' });
+            return;
+        }
+        try {
+            const removed = await removeGuildMemberMemo(guildId, userId);
+            Logger.info(`[MemberMemoAudit] action=delete guild=${guildId} user=${session.userId} (${session.username ?? ''}) target=${userId} targetName=${removed?.name ?? ''} removed=${removed !== null}`);
+            res.json({ removed: removed !== null });
+        } catch {
+            res.status(500).json({ error: 'メンバーメモの削除に失敗しました' });
         }
     });
     router.put('/:guildId/memories/:id', async (req, res) => {

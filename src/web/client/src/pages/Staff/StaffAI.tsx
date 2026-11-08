@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom';
 import { useAppToast } from '../../AppToastProvider';
 import ui from '../ManagementDashboard.module.css';
+import styles from './StaffAI.module.css';
 
 type Guild = { id: string; name: string };
 type Metrics = {
@@ -75,6 +76,54 @@ async function readJson(url: string, options?: RequestInit) {
   return body;
 }
 
+type MemberMemoItem = {
+  userId: string; name: string; memo: string;
+  messageCount: number; updatedAt: string; lastSeenAt: number;
+};
+
+/** 長文を数行に畳んで表示し、必要なときだけ全文に広げる（ライブラリが増えても縦に伸び続けないため）。 */
+const ClampText: React.FC<{ text: string; className?: string; style?: React.CSSProperties }> = ({ text, className, style }) => {
+  const [open, setOpen] = useState(false);
+  const long = text.length > 240;
+  return <div style={style}>
+    <p className={`${className ?? ''} ${long && !open ? styles.clamped : ''}`}>{text}</p>
+    {long && <button type="button" className={styles.moreButton} onClick={() => setOpen(v => !v)}>
+      {open ? '閉じる' : '全文を表示'}
+    </button>}
+  </div>;
+};
+
+/**
+ * セクションの折りたたみ。詳細系は初期状態で閉じ、見出しだけでも内容が分かるように
+ * 説明文とバッジは閉じた状態でも見せる。開いたときだけ中身を描画する。
+ */
+const CollapsibleSection: React.FC<{
+  eyebrow: React.ReactNode;
+  title: string;
+  description?: string;
+  badge?: React.ReactNode;
+  headerActions?: React.ReactNode;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+}> = ({ eyebrow, title, description, badge, headerActions, defaultOpen = false, children }) => {
+  const [open, setOpen] = useState(defaultOpen);
+  return <section className={ui.panel} aria-label={title}>
+    <div className={`${ui.sectionHeader} ${open ? '' : styles.headerClosed}`}>
+      <button type="button" className={styles.sectionToggle} aria-expanded={open} onClick={() => setOpen(v => !v)}>
+        <span className={styles.sectionToggleText}>
+          <span>{eyebrow}</span>
+          <span className={styles.sectionTitle}>{title}</span>
+          {description ? <span className={styles.sectionDesc}>{description}</span> : null}
+        </span>
+        <span className={`material-icons ${styles.chevron} ${open ? styles.chevronOpen : ''}`} aria-hidden="true">expand_more</span>
+      </button>
+      {badge}
+      {headerActions}
+    </div>
+    {open ? children : null}
+  </section>;
+};
+
 const PersonaDetails: React.FC<{ persona: Persona }> = ({ persona }) => (
   <>
     <p><b>{persona.name}</b>{persona.firstPerson ? `（一人称：${persona.firstPerson}）` : ''}：{persona.character}</p>
@@ -121,6 +170,10 @@ const StaffAIPage: React.FC = () => {
   const [draft, setDraft] = useState('');
   const [deleting, setDeleting] = useState<Memory | 'all' | null>(null);
   const [confirmation, setConfirmation] = useState('');
+  const [memberMemos, setMemberMemos] = useState<MemberMemoItem[]>([]);
+  const [memberMemoCanManage, setMemberMemoCanManage] = useState(false);
+  const [memberMemoSearch, setMemberMemoSearch] = useState('');
+  const [memberMemoBusyId, setMemberMemoBusyId] = useState<string | null>(null);
 
   const updatePersonalityDraft = (next: PersonalitySettings) => {
     personalityDirtyRef.current = true;
@@ -151,6 +204,13 @@ const StaffAIPage: React.FC = () => {
       setMetrics(data.metrics ?? zero);
       setMemories(data.memories ?? []);
       setCustomMemos(data.customMemos ?? []);
+      try {
+        const memoData = await readJson(`/api/staff/ai/${selectedGuild}/member-memos`);
+        if (selectedGuild === selectedGuildRef.current) {
+          setMemberMemos(Array.isArray(memoData.memos) ? memoData.memos as MemberMemoItem[] : []);
+          setMemberMemoCanManage(!!memoData.canManage);
+        }
+      } catch { /* メンバーメモは補助表示のため、失敗してもページ全体は止めない */ }
       const nextPersonality = data.personality ?? defaultPersonality;
       setPersonality(nextPersonality);
       if (showLoading || !personalityDirtyRef.current) {
@@ -278,6 +338,7 @@ const StaffAIPage: React.FC = () => {
   useEffect(() => {
     if (!guildId) return;
     setMetrics(zero); setMemories([]); setCustomMemos([]); setEditing(null); setSearch(''); setLastUpdated(null);
+    setMemberMemos([]); setMemberMemoCanManage(false); setMemberMemoSearch(''); setMemberMemoBusyId(null);
     setPersonaPreview(null); setPersonaDirection('');
     personalityDirtyRef.current = false; setPersonalityDirty(false);
     void refresh(guildId, true);
@@ -315,6 +376,27 @@ const StaffAIPage: React.FC = () => {
     finally { setBusy(false); }
   };
 
+  const deleteMemberMemo = async (item: MemberMemoItem) => {
+    if (memberMemoBusyId) return;
+    if (!window.confirm(`${item.name} さんのメンバーメモを削除しますか？\n間違ったメモを消すための操作です。そのメンバーが再び活発に発言すると、観測からメモが作り直されることがあります。`)) return;
+    setMemberMemoBusyId(item.userId);
+    try {
+      await readJson(`/api/staff/ai/${guildId}/member-memos/${encodeURIComponent(item.userId)}`, { method: 'DELETE' });
+      setMemberMemos(list => list.filter(memo => memo.userId !== item.userId));
+      addToast('メンバーメモを削除しました', 'success');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'メンバーメモを削除できませんでした');
+      addToast('メンバーメモを削除できませんでした', 'error');
+    } finally { setMemberMemoBusyId(null); }
+  };
+
+  const filteredMemberMemos = useMemo(() => {
+    const query = memberMemoSearch.trim().toLocaleLowerCase();
+    if (!query) return memberMemos;
+    return memberMemos.filter(memo => [memo.name, memo.memo, memo.userId]
+      .join(' ').toLocaleLowerCase().includes(query));
+  }, [memberMemos, memberMemoSearch]);
+
   const filtered = useMemo(() => memories
     .filter(item => item.kind === tab && [item.title, item.content, item.userId || '', item.day || '']
       .join(' ').toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()))
@@ -328,7 +410,7 @@ const StaffAIPage: React.FC = () => {
   const cache = metrics.cacheInputTokens > 0 ? metrics.cacheHitTokens / metrics.cacheInputTokens * 100 : null;
   const selected = guilds.find(g => g.id === guildId);
 
-  return <div className={ui.page}>
+  return <div className={`${ui.page} ${styles.pageRoot}`}>
     <header className={ui.hero}>
       <div>
         <Link to="/staff" className={ui.muted}>{icon('arrow_back')} スタッフ運用に戻る</Link>
@@ -354,18 +436,6 @@ const StaffAIPage: React.FC = () => {
     {loadingGuilds ? <div className={ui.state} role="status">{icon('hourglass_top')}<p>サーバー情報を読み込んでいます…</p></div>
       : !guildId ? <div className={ui.state}>{icon('dns')}<h3>管理できるサーバーがありません</h3><p>Staff権限のあるサーバーでログインしてください。</p></div>
         : <>
-          <div className={ui.notice}>
-            {icon('delete_forever')}
-            <div><strong>総履歴のリセット</strong><p>このサーバーのStaff AI統計、会話履歴、日次記録を削除します。元に戻せません。</p>
-              <button type="button" className={ui.buttonDanger} onClick={async () => {
-                if (!window.confirm('このサーバーのAI履歴・累計統計を完全にリセットしますか？元には戻せません。')) return;
-                try {
-                  await readJson(`/api/staff/ai/${guildId}/history/reset`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({confirm:'RESET'})});
-                  await refresh(guildId, true); addToast('総履歴をリセットしました', 'success');
-                } catch (error) { addToast(error instanceof Error ? error.message : 'リセットに失敗しました', 'error'); }
-              }}>総履歴をリセット</button>
-            </div>
-          </div>
           <section aria-label="Staff AIの累計利用統計">
             <div className={ui.sectionHeader} style={{ padding: '0 0 15px', borderBottom: 0 }}>
               <div><h2>利用状況</h2><p>{selected?.name || 'サーバー'} の累計統計</p></div>
@@ -385,27 +455,22 @@ const StaffAIPage: React.FC = () => {
               </div>)}
             </div>
             {metrics.byPurpose && Object.keys(metrics.byPurpose).length > 0 && (
-              <p className={ui.muted} style={{ marginTop: 10 }}>
-                用途別: {Object.entries(metrics.byPurpose)
-                  .sort((a, b) => b[1].requests - a[1].requests)
-                  .map(([purpose, totals]) => `${purposeLabels[purpose] ?? purpose} ${fmt(totals.requests)}件・${fmt(totals.totalTokens)}`)
-                  .join(' / ')}
-              </p>
+              <ClampText className={ui.muted} style={{ marginTop: 10 }} text={`用途別: ${Object.entries(metrics.byPurpose)
+                .sort((a, b) => b[1].requests - a[1].requests)
+                .map(([purpose, totals]) => `${purposeLabels[purpose] ?? purpose} ${fmt(totals.requests)}件・${fmt(totals.totalTokens)}`)
+                .join(' / ')}`} />
             )}
           </section>
 
-          <section className={ui.panel} aria-labelledby="staff-ai-personality-title">
-            <div className={ui.sectionHeader}>
-              <div>
-                <span className={ui.eyebrow}>{icon('psychology')} サーバーの学習 / 共通の話し方</span>
-                <h2 id="staff-ai-personality-title" style={{ marginTop: 10 }}>サーバーになじむAI</h2>
-                <p>口調・ユーモア・絵文字・回答の詳しさ・追加調整はAIChannelと /staff ai で共通です。サーバーの雰囲気はサーバー内の会話（dot常駐の観測）から学び、その傾向も両方の返答に反映します。会話の学習元とメモリーは機能ごとに分けて管理します。</p>
-              </div>
-              <span className={`${ui.badge} ${personalityDraft.learningEnabled ? ui.badgeSuccess : ui.badgeWarn}`}>
-                {icon(personalityDraft.learningEnabled ? 'auto_awesome' : 'pause_circle')}
-                {personalityDraft.learningEnabled ? '学習中' : '自動学習停止中'}
-              </span>
-            </div>
+          <CollapsibleSection
+            eyebrow={<span className={ui.eyebrow}>{icon('psychology')} サーバーの学習 / 共通の話し方</span>}
+            title="サーバーになじむAI"
+            description="口調・ユーモア・絵文字・回答の詳しさ・追加調整はAIChannelと /staff ai で共通です。サーバーの雰囲気はサーバー内の会話（dot常駐の観測）から学び、その傾向も両方の返答に反映します。会話の学習元とメモリーは機能ごとに分けて管理します。"
+            badge={<span className={`${ui.badge} ${personalityDraft.learningEnabled ? ui.badgeSuccess : ui.badgeWarn}`}>
+              {icon(personalityDraft.learningEnabled ? 'auto_awesome' : 'pause_circle')}
+              {personalityDraft.learningEnabled ? '学習中' : '自動学習停止中'}
+            </span>}
+          >
             <div className={ui.personalityBody}>
               <div className={ui.personalityGrid}>
                 <label className={ui.label}>基本の口調
@@ -480,7 +545,7 @@ const StaffAIPage: React.FC = () => {
               </div>
               <div className={ui.personalityInsight}>
                 <strong>{icon('auto_awesome')} サーバーの雰囲気</strong>
-                <p>{personality.learnedSummary || 'まだ十分な傾向はありません。サーバーで会話が増えると、複数人に共通する話題や口調だけを少しずつ学びます。'}</p>
+                <ClampText text={personality.learnedSummary || 'まだ十分な傾向はありません。サーバーで会話が増えると、複数人に共通する話題や口調だけを少しずつ学びます。'} />
                 <span className={ui.muted}>観測した発言: {fmt(personality.learnedMessageCount)} 件</span>
               </div>
               <div className={ui.personalityFooter}>
@@ -499,25 +564,68 @@ const StaffAIPage: React.FC = () => {
                 </div>
               </div>
             </div>
-          </section>
+          </CollapsibleSection>
 
-          <section className={ui.panel}>
-            <div className={ui.sectionHeader}><div><span className={ui.eyebrow}>Custom memos</span><h2>カスタムメモ</h2>
-              <p>Discordの /staff ai に「○○を共有メモに保存して」と依頼すると、ここに表示されます。</p></div></div>
+          <CollapsibleSection
+            eyebrow={<span className={ui.eyebrow}>{icon('group')} メンバーメモ</span>}
+            title="メンバーメモ"
+            description="dot常駐が観測から学習した、メンバーごとの短いメモです。常駐の応答では、その人が会話に出てきたときだけ使われます。センシティブな属性の推測は記録しません。"
+            badge={memberMemos.length ? <span className={ui.badge}>{icon('group')} {memberMemos.length} 人</span> : undefined}
+          >
+            <div className={ui.toolbar}>
+              <label className={ui.searchWrap}>{icon('search')}<input aria-label="メンバーメモ検索" placeholder="名前・メモ本文を検索" value={memberMemoSearch} onChange={e => setMemberMemoSearch(e.target.value)} /></label>
+              <span className={ui.muted}>{filteredMemberMemos.length} 人表示</span>
+            </div>
+            {memberMemos.length ? (filteredMemberMemos.length ? <div className={styles.memoList}>
+              {filteredMemberMemos.map(memo => <article className={styles.memoItem} key={memo.userId}>
+                <div>
+                  <h3 className={styles.memoName}>{memo.name}</h3>
+                  <div className={styles.memoMeta}>
+                    <span>観測した発言: {fmt(memo.messageCount)} 件</span>
+                    {memo.memo ? <span>更新 {new Date(memo.updatedAt).toLocaleString('ja-JP')}</span> : null}
+                    {memo.lastSeenAt > 0 ? <span>最終観測 {new Date(memo.lastSeenAt).toLocaleString('ja-JP')}</span> : null}
+                  </div>
+                  {memo.memo
+                    ? <p className={styles.memoBody}>{memo.memo}</p>
+                    : <p className={styles.memoEmpty}>メモはまだ生成されていません（発言の観測だけが記録されています）。</p>}
+                </div>
+                {memberMemoCanManage ? <div className={styles.memoActions}>
+                  <button type="button" className={ui.buttonDanger} disabled={memberMemoBusyId !== null}
+                    onClick={() => void deleteMemberMemo(memo)} aria-label={`${memo.name} のメンバーメモを削除`}>
+                    {icon('delete_outline')} {memberMemoBusyId === memo.userId ? '削除中…' : '削除'}
+                  </button>
+                </div> : null}
+              </article>)}
+            </div> : <div className={ui.emptyInner}>
+              <div className={ui.emptyIcon}>{icon('search_off')}</div>
+              <h3>一致するメンバーがいません</h3>
+              <p>検索条件を変えてみてください。</p>
+            </div>) : <div className={ui.emptyInner}>
+              <div className={ui.emptyIcon}>{icon('group')}</div>
+              <h3>まだメモがありません</h3>
+              <p>dot常駐の観測から学習されます。サーバーで会話が増えると、活発なメンバーのメモがここに表示されます。</p>
+            </div>}
+          </CollapsibleSection>
+
+          <CollapsibleSection
+            eyebrow={<span className={ui.eyebrow}>Custom memos</span>}
+            title="カスタムメモ"
+            description="Discordの /staff ai に「○○を共有メモに保存して」と依頼すると、ここに表示されます。"
+          >
             {customMemos.length ? <div className={ui.list}>{customMemos.map(memo => <article className={ui.listItem} key={memo.id}><div>
               <h3 className={ui.listTitle}>{memo.title || '無題のメモ'}</h3>
               <div className={ui.listMeta}><span>{memo.authorName || 'Staff'}</span><span>{new Date(memo.updatedAt || memo.createdAt).toLocaleString('ja-JP')}</span></div>
-              <p className={ui.listBody}>{memo.content}</p>
+              <ClampText className={ui.listBody} text={memo.content} />
             </div></article>)}</div> : <div className={ui.emptyInner}><h3>まだカスタムメモはありません</h3><p>日次記録や履歴をリセットしても、カスタムメモは保持されます。</p></div>}
-          </section>
-          <section className={ui.panel} aria-labelledby="staff-ai-memories-title">
-            <div className={ui.sectionHeader}>
-              <div><span className={ui.eyebrow}>Memory workspace</span><h2 id="staff-ai-memories-title" style={{ marginTop: 10 }}>メモリーライブラリ</h2>
-                <p>通常のサーバー会話を蓄積し、12時間ごとにチャンネル別の会話を確認し、バックグラウンドで出来事を更新します。/staff aiの利用は不要です。AIChannelとStaff AIは共通の話し方設定を使います。</p></div>
-              <button type="button" className={ui.buttonDanger} disabled={busy || (!memories.length && !personality.learnedSummary)} onClick={() => { setDeleting('all'); setConfirmation(''); }}>
-                {icon('delete_outline')} 全件削除
-              </button>
-            </div>
+          </CollapsibleSection>
+          <CollapsibleSection
+            eyebrow={<span className={ui.eyebrow}>Memory workspace</span>}
+            title="メモリーライブラリ"
+            description="通常のサーバー会話を蓄積し、12時間ごとにチャンネル別の会話を確認し、バックグラウンドで出来事を更新します。/staff aiの利用は不要です。AIChannelとStaff AIは共通の話し方設定を使います。"
+            headerActions={<button type="button" className={ui.buttonDanger} disabled={busy || (!memories.length && !personality.learnedSummary)} onClick={() => { setDeleting('all'); setConfirmation(''); }}>
+              {icon('delete_outline')} 全件削除
+            </button>}
+          >
             <div className={ui.toolbar}>
               <div className={ui.tabs} role="tablist" aria-label="メモリー種別">
                 <button role="tab" aria-selected={tab === 'daily'} type="button" className={`${ui.tab} ${tab === 'daily' ? ui.tabActive : ''}`}>
@@ -549,7 +657,7 @@ const StaffAIPage: React.FC = () => {
                         <button type="button" className={ui.buttonPrimary} disabled={busy || !draft.trim()} onClick={() => void save(item)}>{icon('save')} 保存</button>
                       </div>
                     </> : <>
-                      <p className={ui.listBody}>{item.content}</p>
+                      <ClampText className={ui.listBody} text={item.content} />
                       {item.kind === 'user' && item.publicInterests && <p className={ui.muted} style={{ marginTop: 12 }}>
                         {icon('public')} 公開可能な趣味: {item.publicInterests}
                       </p>}
@@ -566,8 +674,28 @@ const StaffAIPage: React.FC = () => {
                 <h3>{search ? '一致するメモリーがありません' : 'まだメモリーがありません'}</h3>
                 <p>{search ? '検索条件を変えてみてください。' : tab === 'daily' ? 'チャンネル履歴や/staff aiの会話から、日々の振り返りをバックグラウンドで作成します。' : 'Discordからカスタムメモを作成できます。'}</p>
               </div>}
-          </section>
-          <div className={ui.notice}>{icon('verified_user')} <div><strong style={{ color: 'var(--app-ink)' }}>メモリーの取り扱い</strong><p>メモリーはサーバーごとに分離して保存します。通常のサーバー会話をもとに、12時間ごとにメモリーを更新します。興味・活動・話し方は会話で観測できる範囲に限り、私的情報や性格診断は保存しません。AIChannelとStaff AIは共通の話し方設定を使い、会話履歴から日次記録を作成します。</p></div></div>
+          </CollapsibleSection>
+          <CollapsibleSection
+            eyebrow={<span className={ui.eyebrow}>{icon('settings')} その他</span>}
+            title="その他・履歴のリセット"
+            description="総履歴のリセットと、メモリーの取り扱いについて。"
+          >
+            <div className={styles.sectionPad}>
+              <div className={ui.notice}>
+                {icon('delete_forever')}
+                <div><strong>総履歴のリセット</strong><p>このサーバーのStaff AI統計、会話履歴、日次記録を削除します。元に戻せません。</p>
+                  <button type="button" className={ui.buttonDanger} onClick={async () => {
+                    if (!window.confirm('このサーバーのAI履歴・累計統計を完全にリセットしますか？元には戻せません。')) return;
+                    try {
+                      await readJson(`/api/staff/ai/${guildId}/history/reset`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({confirm:'RESET'})});
+                      await refresh(guildId, true); addToast('総履歴をリセットしました', 'success');
+                    } catch (error) { addToast(error instanceof Error ? error.message : 'リセットに失敗しました', 'error'); }
+                  }}>総履歴をリセット</button>
+                </div>
+              </div>
+              <div className={ui.notice}>{icon('verified_user')} <div><strong style={{ color: 'var(--app-ink)' }}>メモリーの取り扱い</strong><p>メモリーはサーバーごとに分離して保存します。通常のサーバー会話をもとに、12時間ごとにメモリーを更新します。興味・活動・話し方は会話で観測できる範囲に限り、私的情報や性格診断は保存しません。AIChannelとStaff AIは共通の話し方設定を使い、会話履歴から日次記録を作成します。</p></div></div>
+            </div>
+          </CollapsibleSection>
         </>}
 
     {deleting && <div className={ui.modalBackdrop} role="presentation" onMouseDown={e => { if (e.target === e.currentTarget && !busy) setDeleting(null); }}>

@@ -1,0 +1,116 @@
+/* StaffAI ページ専用: 折りたたみセクション、長文の省略表示、メンバーメモ、モバイル調整。
+   共有の ManagementDashboard.module.css は他ページと共用のため触らず、このページの
+   追加分だけをここに閉じ込める。モバイルの流儀は ServerBuilder（c6df683）に合わせる。 */
+
+/* --- 折りたたみセクション --- */
+.sectionToggle {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  background: none;
+  border: none;
+  padding: 0;
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+}
+.sectionToggle:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--app-accent) 45%, transparent);
+  outline-offset: 3px;
+}
+/* flex: 1 でボタン幅いっぱいに広げる。付けないと overflow-wrap: anywhere の
+   子要素の min-content（1文字幅）まで縮んでタイトルが潰れる。 */
+.sectionToggleText { display: grid; min-width: 0; flex: 1; }
+.sectionTitle {
+  font-size: 1.22rem;
+  font-weight: 700;
+  letter-spacing: -.025em;
+  margin-top: 10px;
+  overflow-wrap: anywhere;
+}
+.sectionDesc {
+  line-height: 1.8;
+  color: var(--app-ink-soft);
+  font-size: .88rem;
+  margin-top: 5px;
+  overflow-wrap: anywhere;
+}
+.chevron {
+  margin-left: auto;
+  flex: none;
+  align-self: center;
+  color: var(--app-ink-soft);
+  transition: transform .18s ease;
+}
+.chevronOpen { transform: rotate(180deg); }
+.headerClosed { border-bottom: none; }
+.sectionPad { padding: 18px 24px; display: grid; gap: 14px; }
+
+/* --- 長文の省略（メモリー本文・学習サマリなど） --- */
+.clamped {
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.moreButton {
+  background: none;
+  border: none;
+  padding: 6px 2px;
+  margin-top: 4px;
+  color: var(--app-accent-strong);
+  font-size: .8rem;
+  font-weight: 650;
+  cursor: pointer;
+  font-family: inherit;
+}
+.moreButton:hover { text-decoration: underline; }
+
+/* --- メンバーメモ一覧 --- */
+.memoList { padding: 6px 24px 18px; display: grid; }
+.memoItem {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--app-border);
+}
+.memoItem:last-child { border-bottom: none; }
+.memoName { font-weight: 700; font-size: .95rem; overflow-wrap: anywhere; }
+.memoMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  margin-top: 6px;
+  font-size: .75rem;
+  color: var(--app-ink-soft);
+}
+.memoBody {
+  font-size: .87rem;
+  line-height: 1.8;
+  margin-top: 9px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.memoEmpty { font-size: .84rem; color: var(--app-ink-soft); margin-top: 9px; line-height: 1.7; }
+.memoActions { display: flex; align-items: flex-start; }
+
+/* --- モバイル（幅640px以下）: ServerBuilder と同じ流儀 --- */
+@media (max-width: 640px) {
+  /* iOS Safari は16px未満の入力欄にフォーカスすると自動ズームするため、実寸16pxにする */
+  .pageRoot select, .pageRoot textarea, .pageRoot input { font-size: 16px; }
+  /* このページ内のボタンはすべて最低44pxの高さにして押しやすくする */
+  .pageRoot button { min-height: 44px; }
+  .sectionTitle { font-size: 1.08rem; }
+  .sectionDesc { font-size: .83rem; }
+  .sectionPad { padding: 16px 18px; }
+  .memoList { padding: 4px 18px 14px; }
+  .memoItem { grid-template-columns: minmax(0, 1fr); }
+  .memoActions { justify-content: flex-start; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .chevron { transition: none; }
+}
