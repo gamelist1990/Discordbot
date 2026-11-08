@@ -1,5 +1,5 @@
 import { execFile as execFileCallback } from 'node:child_process';
-import { mkdtemp as makeTempDir, writeFile as writeTempFile, readFile as readTempFile, rm as removeTempDir } from 'node:fs/promises';
+import { mkdtemp as makeTempDir, writeFile as writeTempFile, readFile as readTempFile, readdir as readDir, rm as removeTempDir } from 'node:fs/promises';
 import { tmpdir as osTmpdir } from 'node:os';
 import { join as joinPath } from 'node:path';
 import { promisify as promisifyFn } from 'node:util';
@@ -29,9 +29,16 @@ const execFileAsync = promisifyFn(execFileCallback);
  * 動画の注意（2026-11-08 の実インシデントで判明）: video_url は動画をフレーム列の
  * トークンに展開するため、長さ×解像度に比例してプロンプトが膨らむ。27秒・1918x1078 の
  * 画面録画は 96,237 トークンになり、ゲートウェイの 32,768 トークン枠を超えて 400 になった。
- * そのため動画は原則として「ffmpeg で等間隔フレームを切り出して画像として説明する」経路を
- * 使い（実測: 同動画6フレームで 2,234 トークン・内容も正確）、ネイティブ video_url は
- * 小さく短い動画のときだけ先に試す。どちらか一方が失敗したらもう一方へフォールバックする。
+ * そのため動画の映像は原則として「ffmpeg でフレームを切り出して画像として説明する」経路を
+ * 使い、ネイティブ video_url は小さく短い動画のときだけ先に試す。どちらか一方が失敗したら
+ * もう一方へフォールバックする。
+ *
+ * 説明の厚み（2026-11-08、ユーザー指示で予算拡大）: 「ちゃんと中身を読ませる」ため、
+ * 説明の出力予算を引き上げ（画像1,000／動画・音声1,500トークン）、フレームは長さに応じて
+ * 約3.5秒に1枚（推定トークンの上限管理つき・最大1024px）に増やした。動画に音声トラックが
+ * あれば音声も抽出して説明し、映像の説明と統合する。長尺の音声は5分ごとに分割して順に
+ * 説明する。フレーム数と音声分割はどちらも推定トークンで枠（32,768）超えを防ぐ設計で、
+ * 「トークン爆発で説明が丸ごと失敗する」事故を再発させないことを優先する。
  */
 
 export type DotMediaKind = 'image' | 'video' | 'audio';
@@ -57,13 +64,27 @@ export const DOT_MEDIA_LIMITS = {
     videoMaxBytes: 10 * 1024 * 1024,
     audioMaxBytes: 10 * 1024 * 1024,
     downloadTimeoutMs: 20_000,
-    describeTimeoutMs: 45_000,
-    nativeVideoTimeoutMs: 30_000,
-    describeMaxTokens: 400,
-    descriptionMaxLength: 300,
+    /** 説明リクエストのタイムアウト。厚い説明（最大1,500トークン出力＋大きなプロンプト処理）に合わせる。 */
+    describeTimeoutMs: 240_000,
+    nativeVideoTimeoutMs: 90_000,
+    /** 説明の出力トークン予算（種別ごと）。中身を具体的に書かせるための厚み。 */
+    imageDescribeMaxTokens: 1_000,
+    videoDescribeMaxTokens: 1_500,
+    audioDescribeMaxTokens: 1_500,
+    /** 説明文を文脈へ載せるときの保持上限（文字数）。映像＋音声の統合説明が収まる量にする。 */
+    descriptionMaxLength: 2_000,
     cacheMaxKeys: 160,
-    /** 動画をフレーム列で説明するときの切り出し枚数（ContentSafety と同じ流儀）。 */
-    videoFrameCount: 6,
+    /** フレーム切り出しの目安間隔（秒）。長さ ÷ 間隔 が素のフレーム数になる。 */
+    videoFrameIntervalSec: 3.5,
+    videoFrameMinCount: 6,
+    videoFrameMaxCount: 48,
+    /** フレーム画像の最大辺（px）。 */
+    videoFrameMaxEdge: 1_024,
+    /** フレーム群の推定プロンプトトークン上限（枠 32,768 に出力分と余裕を残す）。 */
+    videoFrameTokenBudget: 16_000,
+    /** 音声を分割する単位（秒）と最大分割数（これを超える分は末尾を未確認として明記する）。 */
+    audioChunkSec: 300,
+    audioMaxChunks: 8,
 } as const;
 
 /**
@@ -76,16 +97,97 @@ export const NATIVE_VIDEO_MAX_ESTIMATED_TOKENS = 10_000;
 export const NATIVE_VIDEO_MAX_DURATION_SEC = 8;
 export const NATIVE_VIDEO_MAX_BYTES = 4 * 1024 * 1024;
 
+/**
+ * 画像1枚がプロンプトで占めるトークン数の経験係数（トークン / ピクセル）と固定分。
+ * 実測（2026-11-08）: 768x432 のフレーム6枚＋指示文で 2,234 トークンだったことから算出。
+ */
+export const IMAGE_TOKENS_PER_PIXEL = 0.0011;
+export const IMAGE_TOKEN_OVERHEAD = 48;
+
+/** 音声1秒あたりのプロンプトトークン数の経験値（input_audio、16kHz mono）。 */
+export const AUDIO_TOKENS_PER_SECOND = 25;
+
 export interface VideoProbeInfo {
     durationSec: number;
     width: number;
     height: number;
+    /** 音声トラックがあるか（ffprobe で判明した場合）。 */
+    hasAudio?: boolean;
 }
 
 /** 動画が video_url で何トークンに展開されるかの見積もり。寸法・長さが不明なら無限大（安全側）。 */
 export function estimateVideoPromptTokens(info: VideoProbeInfo): number {
     if (!(info.durationSec > 0) || !(info.width > 0) || !(info.height > 0)) return Number.POSITIVE_INFINITY;
     return Math.round(info.durationSec * info.width * info.height * VIDEO_TOKENS_PER_PIXEL_SECOND);
+}
+
+/** 画像1枚（切り出し後の寸法）の推定プロンプトトークン数。 */
+export function estimateImagePromptTokens(width: number, height: number): number {
+    if (!(width > 0) || !(height > 0)) return Number.POSITIVE_INFINITY;
+    return Math.ceil(width * height * IMAGE_TOKENS_PER_PIXEL) + IMAGE_TOKEN_OVERHEAD;
+}
+
+export interface VideoFramePlan {
+    count: number;
+    intervalSec: number;
+}
+
+/**
+ * 動画の長さと寸法から、説明用フレームの枚数と間隔を決める（純粋関数）。
+ * 約 videoFrameIntervalSec 秒に1枚を基本にしつつ、フレーム群の推定トークンが
+ * videoFrameTokenBudget を超えないよう枚数を絞る（枠超えで説明が丸ごと失敗する事故の防止）。
+ */
+export function planVideoFrames(info: VideoProbeInfo): VideoFramePlan {
+    const durationSec = info.durationSec > 0 ? info.durationSec : 0;
+    if (durationSec <= 0) return { count: DOT_MEDIA_LIMITS.videoFrameMinCount, intervalSec: 0 };
+    const scale = Math.min(1, DOT_MEDIA_LIMITS.videoFrameMaxEdge / Math.max(info.width, info.height));
+    const frameWidth = Math.max(1, Math.round(info.width * scale));
+    const frameHeight = Math.max(1, Math.round(info.height * scale));
+    const perFrameTokens = estimateImagePromptTokens(frameWidth, frameHeight);
+    const byBudget = Math.max(1, Math.floor(DOT_MEDIA_LIMITS.videoFrameTokenBudget / Math.max(1, perFrameTokens)));
+    const byInterval = Math.ceil(durationSec / DOT_MEDIA_LIMITS.videoFrameIntervalSec);
+    const count = Math.max(1, Math.min(
+        DOT_MEDIA_LIMITS.videoFrameMaxCount,
+        byBudget,
+        Math.max(DOT_MEDIA_LIMITS.videoFrameMinCount, byInterval),
+    ));
+    return { count, intervalSec: durationSec / count };
+}
+
+export interface AudioChunkPlan {
+    startSec: number;
+    /** 0 は「末尾まで」（長さ不明のときの単一チャンク）。 */
+    durationSec: number;
+}
+
+/**
+ * 音声を説明用に分割する計画（純粋関数）。1チャンクは audioChunkSec 秒以内
+ * （推定トークンでも枠に十分収まる長さ）とし、分割数は audioMaxChunks で打ち切る。
+ * 長さ不明なら全体を1チャンクとして扱う。
+ */
+export function planAudioChunks(durationSec: number): AudioChunkPlan[] {
+    if (!(durationSec > 0)) return [{ startSec: 0, durationSec: 0 }];
+    const chunks: AudioChunkPlan[] = [];
+    for (let start = 0; start < durationSec && chunks.length < DOT_MEDIA_LIMITS.audioMaxChunks; start += DOT_MEDIA_LIMITS.audioChunkSec) {
+        chunks.push({ startSec: start, durationSec: Math.min(DOT_MEDIA_LIMITS.audioChunkSec, durationSec - start) });
+    }
+    return chunks;
+}
+
+/** 秒を m:ss 表記にする（音声チャンクの範囲表示用）。 */
+export function formatClock(totalSec: number): string {
+    const sec = Math.max(0, Math.floor(totalSec));
+    return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
+}
+
+/** 映像と音声の説明を1つの説明文に統合する（純粋関数）。どちらか欠けても残りで成立させる。 */
+export function mergeMediaDescriptions(visual: string | null, audio: string | null): string | null {
+    const v = (visual ?? '').trim();
+    const a = (audio ?? '').trim();
+    if (v && a) return `${v} 音声: ${a}`;
+    if (v) return v;
+    if (a) return `（映像は確認できなかった）音声: ${a}`;
+    return null;
 }
 
 /**
@@ -281,13 +383,41 @@ export class DotMediaDescriptionStore {
 }
 
 const DESCRIBE_PROMPTS: Record<DotMediaKind, string> = {
-    image: 'この画像の内容を日本語で簡潔に説明してください（2文以内）。写っている物・人・場面を具体的に書き、読み取れる文字があれば含めてください。',
-    video: 'この動画の内容を日本語で具体的に説明してください（3文以内）。何が映っているか、何が起きているか（途中の変化も含む）を書き、画面に読み取れる文字や数値（通知の件数など）があれば含めてください。見た人がツッコミたくなるポイントがあれば一言添えてください。',
-    audio: 'この音声の内容を日本語で簡潔に説明してください（2文以内）。話し声なら内容の要点を書き、音楽や効果音ならその特徴を書いてください。無音やノイズだけの場合はその旨を書いてください。',
+    image: 'この画像の内容を日本語で具体的に説明してください。写っている物・人・場面・状況を詳しく書き、読み取れる文字や数値があれば含めてください。写真ならどんな場面か、スクリーンショットなら何の画面で何が表示されているかまで書いてください。',
+    video: 'この動画の内容を日本語で具体的に説明してください。最初から最後まで時間の流れに沿って、何が映っていて何が起きるかを詳しく書き、画面に読み取れる文字や数値（通知の件数など）があれば含めてください。見た人がツッコミたくなるポイントがあれば一言添えてください。',
+    audio: 'この音声は実際に添付されています。聞こえる内容を日本語で具体的に説明してください。話し声があれば誰が何を話しているか要点を書き、音楽・効果音・環境音があればその特徴を書いてください。発言の内容は、はっきり聞き取れた場合だけ書き、聞き取れない発言を推測で作らないでください。はっきりした発言や音が確認できない場合（無音・ノイズのみ等）は、断定しすぎずにその旨を書いてください。「音声が提供されていない」「再生できない」といった表現は使わないでください。',
 };
 
+/** 音声説明が「提供されていない」等の誤った拒否になったときの再試行用プロンプト（短く直接的に）。 */
+const AUDIO_FALLBACK_PROMPT = 'この音声で聞こえる音や声について、日本語で具体的に書いてください。聞き取れない発言を推測で作らないでください。';
+
+/**
+ * メディアが実際に渡っているのに「提供されていない」「再生できない」と返す誤拒否の検出（純粋関数）。
+ * 実測（2026-11-08）: 発言のない音声（音楽・環境音）に対し、発言中心の長い指示文だと
+ * E4B がこの誤拒否に倒れることがあった。無音・ノイズへの正当な言及は拒否に含めない。
+ */
+export function looksLikeMediaRefusal(text: string): boolean {
+    return /(提供|添付)されてい(ない|ません)|再生でき(ない|ません)|ご提供いただけ|アップロード(して|していただけ)/.test(text);
+}
+
+/** 発言の書き起こし検証用プロンプト。実測で安定して正確だった形（発言が無ければ「発言なし」）。 */
+const AUDIO_TRANSCRIBE_PROMPT = 'この音声に人の発言が含まれている場合、その発言をできるだけそのまま書き起こしてください。発言が含まれていない場合は「発言なし」とだけ書いてください。発言を創作しないでください。';
+
+/**
+ * 説明文が具体的な発言内容を主張しているかの検出（純粋関数）。
+ * 引用つきの発言や「話し声」への言及がある場合に、書き起こし検証の対象にする。
+ */
+export function claimsSpeechContent(text: string): boolean {
+    return /「[^」]{2,}」/.test(text) || /話し声|声が聞こえ|の声が|と話し|と述べ|と言い/.test(text);
+}
+
+/** 書き起こし検証の結果が「発言なし」を示しているかの検出（純粋関数）。 */
+export function saysNoSpeech(text: string): boolean {
+    return /発言なし|発言は(含まれてい)?ない|発言は確認でき(ない|ません)|話し声は(聞こえ|確認でき)(ない|ません)|人の声は(聞こえ|確認でき)(ない|ません)/.test(text);
+}
+
 /** フレーム列（画像群）として動画を説明するときのプロンプト。 */
-const VIDEO_FRAMES_PROMPT = '次の画像は、1本の動画から等間隔に切り出したフレームです（時系列順）。この動画の内容を日本語で具体的に説明してください（3文以内）。何が映っているか、時間とともに何が起きているかを書き、画面に読み取れる文字や数値（通知の件数など）があれば含めてください。見た人がツッコミたくなるポイントがあれば一言添えてください。';
+const VIDEO_FRAMES_PROMPT = '次の画像は、1本の動画から等間隔に切り出したフレームです（時系列順）。この動画の内容を日本語で具体的に説明してください。最初のフレームから最後のフレームまで、時間の流れに沿って何が映っていて何が起きているかを詳しく書き、画面に読み取れる文字や数値（通知の件数など）があれば含めてください。見た人がツッコミたくなるポイントがあれば一言添えてください。';
 
 async function downloadMedia(url: string, maxBytes: number): Promise<Buffer | null> {
     try {
@@ -306,16 +436,13 @@ async function downloadMedia(url: string, maxBytes: number): Promise<Buffer | nu
     }
 }
 
-/** 音声を 16kHz mono WAV に正規化する（OGG/Opus 等、ランタイムのデコーダ依存を避けるため）。 */
-async function convertAudioToWav(data: Buffer): Promise<Buffer | null> {
-    const folder = await makeTempDir(joinPath(osTmpdir(), 'dot-audio-'));
+/** ダウンロードしたメディアを一時ファイルに置き、処理後に必ず消す。 */
+async function withTempMediaFile<T>(data: Buffer, prefix: string, fn: (sourcePath: string, folder: string) => Promise<T>): Promise<T | null> {
+    const folder = await makeTempDir(joinPath(osTmpdir(), prefix));
     try {
         const source = joinPath(folder, 'input.bin');
-        const target = joinPath(folder, 'output.wav');
         await writeTempFile(source, data);
-        await execFileAsync('ffmpeg', ['-v', 'error', '-i', source, '-ar', '16000', '-ac', '1', '-y', target], { timeout: 20_000 });
-        const wav = await readTempFile(target);
-        return wav.byteLength > 0 ? wav : null;
+        return await fn(source, folder);
     } catch {
         return null;
     } finally {
@@ -323,59 +450,68 @@ async function convertAudioToWav(data: Buffer): Promise<Buffer | null> {
     }
 }
 
-/** 動画の長さと寸法を ffprobe で取得する（フレーム切り出し位置と経路判断に使う）。 */
-async function probeVideo(data: Buffer): Promise<VideoProbeInfo | null> {
-    const folder = await makeTempDir(joinPath(osTmpdir(), 'dot-video-probe-'));
+/** メディアファイルの長さ・寸法・音声トラック有無を ffprobe で取得する（動画・音声共通）。 */
+async function probeMediaFile(sourcePath: string): Promise<VideoProbeInfo | null> {
     try {
-        const source = joinPath(folder, 'input.bin');
-        await writeTempFile(source, data);
-        const { stdout } = await execFileAsync('ffprobe', ['-v', 'error', '-select_streams', 'v:0',
-            '-show_entries', 'stream=width,height', '-show_entries', 'format=duration', '-of', 'json', source], { timeout: 15_000 });
+        const { stdout } = await execFileAsync('ffprobe', ['-v', 'error',
+            '-show_entries', 'stream=codec_type,width,height', '-show_entries', 'format=duration', '-of', 'json', sourcePath], { timeout: 15_000 });
         const parsed = JSON.parse(String(stdout)) as {
-            streams?: Array<{ width?: number; height?: number }>;
+            streams?: Array<{ codec_type?: string; width?: number; height?: number }>;
             format?: { duration?: string };
         };
-        const durationSec = Number(parsed.format?.duration ?? 0);
-        const width = Number(parsed.streams?.[0]?.width ?? 0);
-        const height = Number(parsed.streams?.[0]?.height ?? 0);
-        if (!(durationSec > 0) || !(width > 0) || !(height > 0)) return null;
-        return { durationSec, width, height };
+        const streams = parsed.streams ?? [];
+        const video = streams.find(stream => stream.codec_type === 'video');
+        return {
+            durationSec: Number(parsed.format?.duration ?? 0),
+            width: Number(video?.width ?? 0),
+            height: Number(video?.height ?? 0),
+            hasAudio: streams.some(stream => stream.codec_type === 'audio'),
+        };
     } catch {
         return null;
-    } finally {
-        await removeTempDir(folder, { recursive: true, force: true }).catch(() => undefined);
     }
 }
 
-/** 動画から等間隔のフレーム（JPEG・最大768px）を切り出す。ContentSafety の抽出と同じ流儀。 */
-async function extractVideoFramesForDescribe(data: Buffer, durationSec: number): Promise<Buffer[]> {
-    const folder = await makeTempDir(joinPath(osTmpdir(), 'dot-video-frames-'));
+/** 動画から計画どおりのフレーム（JPEG・最大辺 videoFrameMaxEdge px）を1パスの抽出で切り出す。 */
+async function extractVideoFramesFromFile(sourcePath: string, folder: string, plan: VideoFramePlan): Promise<Buffer[]> {
+    if (!(plan.intervalSec > 0) || plan.count < 1) return [];
     try {
-        const source = joinPath(folder, 'input.bin');
-        await writeTempFile(source, data);
-        const total: number = DOT_MEDIA_LIMITS.videoFrameCount;
+        const fps = (1 / plan.intervalSec).toFixed(5);
+        const scale = `scale=${DOT_MEDIA_LIMITS.videoFrameMaxEdge}:${DOT_MEDIA_LIMITS.videoFrameMaxEdge}:force_original_aspect_ratio=decrease`;
+        await execFileAsync('ffmpeg', ['-v', 'error', '-i', sourcePath,
+            '-vf', `fps=${fps},${scale}`, '-frames:v', String(plan.count), '-q:v', '3', '-y', joinPath(folder, 'frame-%03d.jpg')],
+            { timeout: 90_000 });
+        const names = (await readDir(folder)).filter(name => /^frame-\d+\.jpg$/.test(name)).sort();
         const frames: Buffer[] = [];
-        for (let i = 0; i < total; i++) {
-            const target = joinPath(folder, `frame-${i}.jpg`);
-            try {
-                await execFileAsync('ffmpeg', ['-v', 'error', '-ss', String(total === 1 ? 0 : durationSec * i / total), '-i', source, '-frames:v', '1',
-                    '-vf', 'scale=768:768:force_original_aspect_ratio=decrease', '-q:v', '3', '-y', target], { timeout: 20_000 });
-                const frame = await readTempFile(target);
-                if (frame.byteLength > 0) frames.push(frame);
-            } catch {
-                // 1フレーム取れなくても残りで続行する
-            }
+        for (const name of names) {
+            const frame = await readTempFile(joinPath(folder, name)).catch(() => null);
+            if (frame && frame.byteLength > 0) frames.push(frame);
         }
         return frames;
     } catch {
         return [];
-    } finally {
-        await removeTempDir(folder, { recursive: true, force: true }).catch(() => undefined);
+    }
+}
+
+/** 音声の1チャンクを 16kHz mono WAV で切り出す（動画の音声トラックにも同じ処理を使う）。 */
+async function extractAudioChunkWav(sourcePath: string, folder: string, index: number, chunk: AudioChunkPlan): Promise<Buffer | null> {
+    try {
+        const target = joinPath(folder, `audio-${index}.wav`);
+        const args = ['-v', 'error'];
+        if (chunk.startSec > 0) args.push('-ss', String(chunk.startSec));
+        args.push('-i', sourcePath);
+        if (chunk.durationSec > 0) args.push('-t', String(chunk.durationSec));
+        args.push('-vn', '-ar', '16000', '-ac', '1', '-y', target);
+        await execFileAsync('ffmpeg', args, { timeout: 45_000 });
+        const wav = await readTempFile(target);
+        return wav.byteLength > 0 ? wav : null;
+    } catch {
+        return null;
     }
 }
 
 /** 説明リクエストを EndPoint 経由で Gemma に投げる共通処理。失敗時は理由をログに残して null。 */
-async function requestMediaDescription(parts: Array<Record<string, unknown>>, timeoutMs: number, kind: DotMediaKind): Promise<string | null> {
+async function requestMediaDescription(parts: Array<Record<string, unknown>>, timeoutMs: number, kind: DotMediaKind, maxTokens: number): Promise<string | null> {
     try {
         const response = await fetch(`${config.pexAi.endpoint.replace(/\/+$/, '')}/chat/completions`, {
             method: 'POST',
@@ -387,7 +523,7 @@ async function requestMediaDescription(parts: Array<Record<string, unknown>>, ti
                 model: GEMMA_MODEL,
                 messages: [{ role: 'user', content: parts }],
                 temperature: 0.2,
-                max_tokens: DOT_MEDIA_LIMITS.describeMaxTokens,
+                max_tokens: maxTokens,
                 chat_template_kwargs: { enable_thinking: false },
             }),
             signal: AbortSignal.timeout(timeoutMs),
@@ -419,43 +555,126 @@ async function requestMediaDescription(parts: Array<Record<string, unknown>>, ti
     }
 }
 
+/** 音声1チャンクを説明する。誤拒否への再試行と、発言主張に対する書き起こし検証つき。 */
+async function describeAudioChunk(wav: Buffer, rangeNote: string): Promise<string | null> {
+    const audioPart = { type: 'input_audio', input_audio: { data: wav.toString('base64'), format: 'wav' } };
+    const call = (prompt: string, maxTokens: number) => requestMediaDescription(
+        [{ type: 'text', text: rangeNote + prompt }, audioPart],
+        DOT_MEDIA_LIMITS.describeTimeoutMs, 'audio', maxTokens,
+    );
+    let text = await call(DESCRIBE_PROMPTS.audio, DOT_MEDIA_LIMITS.audioDescribeMaxTokens);
+    if (text && looksLikeMediaRefusal(text)) {
+        // 音声は実際に渡っているのに「提供されていない」と返す誤拒否。短い指示で1回だけ再試行する。
+        Logger.debug('[DotAmbient] media describe audio refusal, retrying with fallback prompt');
+        const retry = await call(AUDIO_FALLBACK_PROMPT, DOT_MEDIA_LIMITS.audioDescribeMaxTokens);
+        text = retry && !looksLikeMediaRefusal(retry) ? retry : null;
+    }
+    if (!text) return null;
+    if (claimsSpeechContent(text)) {
+        // 発言の具体を主張する説明は書き起こしで裏取りする。E4B は静かな音楽・環境音にも
+        // 発言を創作することがある（実測 2026-11-08: 無発言の録画音声に議事発言や女性の声を創作）。
+        // 検証が「発言なし」なら、発言に触れない説明へ作り直す（作り直しも主張する場合は固定文）。
+        const verdict = await call(AUDIO_TRANSCRIBE_PROMPT, 600);
+        if (verdict && saysNoSpeech(verdict)) {
+            Logger.debug('[DotAmbient] media describe audio speech claim rejected by transcription check');
+            const redo = await call('検証の結果、この音声に明瞭な発言は含まれていませんでした。発言の内容には触れず、聞こえる音（音楽・効果音・環境音など）の特徴だけを具体的に書いてください。聞き取れない発言を推測で作らないでください。', DOT_MEDIA_LIMITS.audioDescribeMaxTokens);
+            if (redo && !looksLikeMediaRefusal(redo) && !claimsSpeechContent(redo)) return redo;
+            return '明瞭な発言は確認できなかった';
+        }
+    }
+    return text;
+}
+
 /**
- * 動画1件を説明する。小さく短い動画はネイティブ video_url を先に試し、それ以外は
- * フレーム列（画像）として説明する。一方が失敗したらもう一方へフォールバックする。
+ * 音声トラック（または音声ファイル全体）を説明する。長い場合は planAudioChunks の
+ * 分割ごとに説明し、時刻範囲つきで順に連結する。分割上限を超えた分は未確認と明記する。
+ */
+async function describeAudioTrack(sourcePath: string, folder: string, durationSec: number): Promise<string | null> {
+    const chunks = planAudioChunks(durationSec);
+    const parts: string[] = [];
+    for (let i = 0; i < chunks.length; i++) {
+        const chunk = chunks[i];
+        const wav = await extractAudioChunkWav(sourcePath, folder, i, chunk);
+        if (!wav) continue;
+        const rangeNote = chunks.length > 1
+            ? `この音声は全体の ${i + 1}/${chunks.length} 部分（${formatClock(chunk.startSec)}〜${formatClock(chunk.startSec + chunk.durationSec)}）です。`
+            : '';
+        const text = await describeAudioChunk(wav, rangeNote);
+        if (text) parts.push(chunks.length > 1 ? `${formatClock(chunk.startSec)}〜 ${text}` : text);
+    }
+    if (parts.length === 0) return null;
+    let combined = parts.join(' ');
+    const last = chunks[chunks.length - 1];
+    const coveredEnd = last.durationSec > 0 ? last.startSec + last.durationSec : durationSec;
+    if (durationSec > coveredEnd + 1) {
+        combined += `（長いため ${formatClock(coveredEnd)} 以降の音声は未確認）`;
+    }
+    return combined;
+}
+
+/**
+ * 動画1件を説明する。映像は、小さく短い動画ならネイティブ video_url を先に試し、
+ * それ以外はフレーム列（画像）として説明する（一方が失敗したらもう一方へフォールバック）。
+ * 音声トラックがあれば音声も別途説明し、映像の説明と統合する。
  * （video_url は長さ×解像度でトークンが膨らみ、枠を超えると 400 になるため。）
  */
 async function describeVideoWithGemma(item: DotMediaItem, data: Buffer): Promise<string | null> {
-    const probe = await probeVideo(data);
-    const mime = item.contentType.startsWith('video/') ? item.contentType : 'video/mp4';
-    let nativeTried = false;
-    const tryNative = async (): Promise<string | null> => {
-        nativeTried = true;
-        return requestMediaDescription([
-            { type: 'text', text: DESCRIBE_PROMPTS.video },
-            { type: 'video_url', video_url: { url: `data:${mime};base64,${data.toString('base64')}` } },
-        ], DOT_MEDIA_LIMITS.nativeVideoTimeoutMs, 'video');
-    };
-    const tryFrames = async (): Promise<string | null> => {
-        // 長さ不明のときはフレーム位置が決められないため、プローブ無しでは抽出できない
-        if (!probe) return null;
-        const frames = await extractVideoFramesForDescribe(data, probe.durationSec);
-        if (frames.length === 0) return null;
-        Logger.debug(`[DotAmbient] media describe via frames kind=video frames=${frames.length}`);
-        return requestMediaDescription([
-            { type: 'text', text: VIDEO_FRAMES_PROMPT },
-            ...frames.map(frame => ({ type: 'image_url', image_url: { url: `data:image/jpeg;base64,${frame.toString('base64')}` } })),
-        ], DOT_MEDIA_LIMITS.describeTimeoutMs, 'video');
-    };
+    return withTempMediaFile(data, 'dot-video-', async (source, folder) => {
+        const probe = await probeMediaFile(source);
+        const probeInfo: VideoProbeInfo | null = probe && probe.durationSec > 0 && probe.width > 0 && probe.height > 0 ? probe : null;
+        const mime = item.contentType.startsWith('video/') ? item.contentType : 'video/mp4';
+        let nativeTried = false;
+        const tryNative = async (): Promise<string | null> => {
+            nativeTried = true;
+            return requestMediaDescription([
+                { type: 'text', text: DESCRIBE_PROMPTS.video },
+                { type: 'video_url', video_url: { url: `data:${mime};base64,${data.toString('base64')}` } },
+            ], DOT_MEDIA_LIMITS.nativeVideoTimeoutMs, 'video', DOT_MEDIA_LIMITS.videoDescribeMaxTokens);
+        };
+        const tryFrames = async (): Promise<string | null> => {
+            // 長さ・寸法が不明だとフレーム計画が立てられないため、プローブ無しでは抽出できない
+            if (!probeInfo) return null;
+            const plan = planVideoFrames(probeInfo);
+            const frames = await extractVideoFramesFromFile(source, folder, plan);
+            if (frames.length === 0) return null;
+            Logger.debug(`[DotAmbient] media describe via frames kind=video frames=${frames.length} plan=${plan.count}`);
+            const describeWithFrames = (selected: Buffer[]) => requestMediaDescription([
+                { type: 'text', text: VIDEO_FRAMES_PROMPT },
+                ...selected.map(frame => ({ type: 'image_url', image_url: { url: `data:image/jpeg;base64,${frame.toString('base64')}` } })),
+            ], DOT_MEDIA_LIMITS.describeTimeoutMs, 'video', DOT_MEDIA_LIMITS.videoDescribeMaxTokens);
+            const described = await describeWithFrames(frames);
+            if (described) return described;
+            // フレームが多いと視覚処理＋生成がタイムアウトしうる（実測: 32枚で150秒超）。
+            // 1回だけ、フレームを半分に間引いて再試行する（間隔が粗くなっても説明は成立する）。
+            if (frames.length >= 8) {
+                const thinned = frames.filter((_, index) => index % 2 === 0);
+                Logger.debug(`[DotAmbient] media describe via frames retry thinned=${thinned.length}`);
+                return describeWithFrames(thinned);
+            }
+            return null;
+        };
 
-    if (shouldTryNativeVideoFirst(probe, data.byteLength)) {
-        const native = await tryNative();
-        if (native) return native;
-        return tryFrames();
-    }
-    const framed = await tryFrames();
-    if (framed) return framed;
-    if (!nativeTried) return tryNative();
-    return null;
+        let visual: string | null = null;
+        if (shouldTryNativeVideoFirst(probeInfo, data.byteLength)) {
+            visual = await tryNative();
+        }
+        if (!visual) visual = await tryFrames();
+        if (!visual && !nativeTried) visual = await tryNative();
+
+        let audio: string | null = null;
+        if (probe?.hasAudio) {
+            audio = await describeAudioTrack(source, folder, probe.durationSec);
+        }
+        return mergeMediaDescriptions(visual, audio);
+    });
+}
+
+/** 音声ファイル1件を説明する（長尺は分割して順に説明する）。 */
+async function describeAudioWithGemma(data: Buffer): Promise<string | null> {
+    return withTempMediaFile(data, 'dot-audio-', async (source, folder) => {
+        const probe = await probeMediaFile(source);
+        return describeAudioTrack(source, folder, probe?.durationSec ?? 0);
+    });
 }
 
 /** Gemma（EndPoint 経由）でメディア1件を説明する。失敗時は null（呼び出し側で failed 扱い）。 */
@@ -469,20 +688,17 @@ export async function describeDotMediaWithGemma(item: DotMediaItem): Promise<str
     if (!data) return null;
 
     if (item.kind === 'video') return describeVideoWithGemma(item, data);
+    if (item.kind === 'audio') return describeAudioWithGemma(data);
 
-    let part: Record<string, unknown>;
-    if (item.kind === 'image') {
-        const mime = item.contentType.startsWith('image/') && item.contentType !== 'image/*' ? item.contentType : 'image/jpeg';
-        part = { type: 'image_url', image_url: { url: `data:${mime};base64,${data.toString('base64')}` } };
-    } else {
-        const wav = await convertAudioToWav(data);
-        if (!wav) return null;
-        part = { type: 'input_audio', input_audio: { data: wav.toString('base64'), format: 'wav' } };
-    }
+    const mime = item.contentType.startsWith('image/') && item.contentType !== 'image/*' ? item.contentType : 'image/jpeg';
     return requestMediaDescription(
-        [{ type: 'text', text: DESCRIBE_PROMPTS[item.kind] }, part],
+        [
+            { type: 'text', text: DESCRIBE_PROMPTS.image },
+            { type: 'image_url', image_url: { url: `data:${mime};base64,${data.toString('base64')}` } },
+        ],
         DOT_MEDIA_LIMITS.describeTimeoutMs,
-        item.kind,
+        'image',
+        DOT_MEDIA_LIMITS.imageDescribeMaxTokens,
     );
 }
 
