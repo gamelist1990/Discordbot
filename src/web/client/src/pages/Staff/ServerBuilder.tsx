@@ -336,7 +336,7 @@ const ServerBuilderPage: React.FC = () => {
           <section className={ui.panel} aria-label="AI予算">
             <div className={ui.sectionHeader}>
               <div><h2>AI予算（{selectedGuild?.name || 'サーバー'}）</h2>
-                <p>プラン生成はギルドごとに5時間あたり100,000トークンまで。適用（Discord変更）自体は予算を消費しません。</p></div>
+                <p>プラン生成はギルドごとに5時間あたり{budget ? fmt(budget.limit) : '…'}トークンまで。適用（Discord変更）自体は予算を消費しません。</p></div>
               {budget && <span className={ui.badge}>{icon('schedule')} {budget.nextRecoveryAt
                 ? `回復開始 ${new Date(budget.nextRecoveryAt).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}`
                 : '全量回復中'}</span>}

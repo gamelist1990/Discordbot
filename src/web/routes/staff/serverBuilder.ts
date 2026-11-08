@@ -34,7 +34,7 @@ const PLAN_MAX_TOKENS = 6000;
 /**
  * AIサーバー構築コントロールパネルのルート。
  * 認可は性格生成と同じ流儀: ギルド権限レベル2以上またはBot管理者のみ（閲覧含む）。
- * プラン生成は予算（ギルド毎5時間100,000トークン）を消費し、適用はワンタイムプレビューの消費が必須。
+ * プラン生成は予算（ギルド毎5時間300,000トークン）を消費し、適用はワンタイムプレビューの消費が必須。
  */
 export function createServerBuilderRoutes(sessions: Map<string, SettingsSession>, botClient: BotClient): Router {
     const router = Router();
@@ -159,24 +159,28 @@ export function createServerBuilderRoutes(sessions: Map<string, SettingsSession>
             // 詳細画面で選択中の対象（任意）。構造に実在する対象だけを文脈として採用する。
             const focus = resolvePlanFocus(structure, req.body?.focus);
 
-            // usage の取得可否: ChatGPTClient の Responses ストリームは response.completed で
-            // usage デルタ（type: 'usage'）を流すため、streamResponseText 経由で入力/出力トークンを
-            // 取得できる。取得できた場合はそれを予算集計の正とし、取得できない場合のみ
-            // 文字数見積り（estimateTokensFromText）にフォールバックして estimated として記録する。
+            // usage の取得経路: EndPoint の Responses API は response.completed の usage を
+            // 常に0で返す（2026-11-08 実測）ため、Responses 経由では実測が取れない。
+            // Chat Completions のストリームは最終チャンクに usage（prompt/completion/total）を
+            // 含む（include_usage、ChatGPTClient 側でも常時有効化）ため、streamMessage 経由で
+            // 実測を取得し、それを予算集計の正とする。取得できない場合のみ文字数見積り
+            // （estimateTokensFromText）にフォールバックして estimated として記録する。
             // 検証失敗時の自動修復呼び出しも、ここを通るため同じ集計に含まれる。
             const totals = { tokens: 0, inputTokens: 0, outputTokens: 0, hasInput: false, hasOutput: false, estimated: false };
             const generate = async (messages: Array<{ role: 'system' | 'user'; content: string }>): Promise<string> => {
                 let text = '';
                 const usageRef: { current: { inputTokens?: number; outputTokens?: number; totalTokens?: number } | null } = { current: null };
-                await new OpenAIChatManager().streamResponseText(
+                await new OpenAIChatManager().streamMessage(
                     messages,
-                    delta => {
-                        if (delta.type === 'text') text += delta.text;
-                        if (delta.type === 'usage') {
+                    chunk => {
+                        const content = chunk.choices?.[0]?.delta?.content;
+                        if (typeof content === 'string' && content) text += content;
+                        const u = chunk.usage;
+                        if (u && (typeof u.prompt_tokens === 'number' || typeof u.completion_tokens === 'number' || typeof u.total_tokens === 'number')) {
                             usageRef.current = {
-                                inputTokens: delta.inputTokens,
-                                outputTokens: delta.outputTokens,
-                                totalTokens: delta.totalTokens,
+                                inputTokens: typeof u.prompt_tokens === 'number' ? u.prompt_tokens : undefined,
+                                outputTokens: typeof u.completion_tokens === 'number' ? u.completion_tokens : undefined,
+                                totalTokens: typeof u.total_tokens === 'number' ? u.total_tokens : undefined,
                             };
                         }
                     },
@@ -185,6 +189,7 @@ export function createServerBuilderRoutes(sessions: Map<string, SettingsSession>
                         strictModel: true,
                         maxTokens: PLAN_MAX_TOKENS,
                         priority: 'background',
+                        includeUsage: true,
                         usageContext: { guildId, purpose: 'server-builder' },
                     },
                 );

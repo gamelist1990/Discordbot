@@ -85,7 +85,7 @@ test('予算: ウィンドウ集計と回復目安', () => {
     ], now);
     assert.equal(status.used, 40_000);
     assert.equal(status.limit, SERVER_BUILDER_BUDGET_LIMIT);
-    assert.equal(status.remaining, 60_000);
+    assert.equal(status.remaining, SERVER_BUILDER_BUDGET_LIMIT - 40_000);
     assert.equal(status.nextRecoveryAt, now - 60_000 + SERVER_BUILDER_BUDGET_WINDOW_MS);
     assert.equal(status.fullRecoveryAt, now - 30_000 + SERVER_BUILDER_BUDGET_WINDOW_MS);
     const empty = computeBudgetStatus([], now);
