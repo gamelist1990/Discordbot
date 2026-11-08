@@ -223,6 +223,10 @@ export interface PlanValidationContext {
     roleIds: Set<string>;
     currentChannelCount: number;
     parentByChannelId?: Map<string, string | null>;
+    /** 現在のチャンネル名（同名リネーム＝無意味な操作の検出用）。 */
+    channelNames?: Map<string, string>;
+    /** 現在のカテゴリ名（同上）。 */
+    categoryNames?: Map<string, string>;
 }
 
 export function planContextFromStructure(structure: GuildStructure): PlanValidationContext {
@@ -232,6 +236,8 @@ export function planContextFromStructure(structure: GuildStructure): PlanValidat
         roleIds: new Set(structure.roles.map(r => r.id)),
         currentChannelCount: structure.channelCount,
         parentByChannelId: new Map(structure.channels.filter(c => c.kind !== 'category').map(c => [c.id, c.parentId ?? null])),
+        channelNames: new Map(structure.channels.filter(c => c.kind !== 'category').map(c => [c.id, c.name])),
+        categoryNames: new Map(structure.categories.map(c => [c.id, c.name])),
     };
 }
 
@@ -424,7 +430,12 @@ export function validatePlan(
                     break;
                 }
                 if (!validName(op.name)) { errors.push(`${label}: チャンネル名は1〜${MAX_NAME_LENGTH}文字です`); break; }
-                operations.push({ type: 'renameChannel', channelId: op.channelId, name: (op.name as string).trim() });
+                const newChannelName = (op.name as string).trim();
+                if (ctx.channelNames && ctx.channelNames.get(op.channelId) === newChannelName) {
+                    errors.push(`${label}: 現在の名前（${newChannelName}）と同じ名前へのリネームは無効です。対象が条件に合っているか選び直してください`);
+                    break;
+                }
+                operations.push({ type: 'renameChannel', channelId: op.channelId, name: newChannelName });
                 break;
             }
             case 'renameCategory': {
@@ -433,7 +444,12 @@ export function validatePlan(
                     break;
                 }
                 if (!validName(op.name)) { errors.push(`${label}: カテゴリ名は1〜${MAX_NAME_LENGTH}文字です`); break; }
-                operations.push({ type: 'renameCategory', categoryId: op.categoryId, name: (op.name as string).trim() });
+                const newCategoryName = (op.name as string).trim();
+                if (ctx.categoryNames && ctx.categoryNames.get(op.categoryId) === newCategoryName) {
+                    errors.push(`${label}: 現在の名前（${newCategoryName}）と同じ名前へのリネームは無効です。対象が条件に合っているか選び直してください`);
+                    break;
+                }
+                operations.push({ type: 'renameCategory', categoryId: op.categoryId, name: newCategoryName });
                 break;
             }
             case 'moveChannel': {
@@ -658,6 +674,21 @@ export function buildPlanMessages(input: {
         '- 依頼の実現にそれ以上の操作が必要な場合は、依頼で指定された対象（対象指定がある場合はそのカテゴリ/チャンネルとその配下だけ）に範囲を絞り、重要な操作を優先して上限以内に収めること。省略した範囲がある場合は summary にその旨を必ず書くこと。',
         '- カテゴリの権限を変えるだけなら setPermissions（targetKind:"category"）が1件で足りる。配下チャンネルへの個別の setPermissions や syncPermissions は、依頼で明示された場合にだけ使うこと。対象指定がある場合、指定外のカテゴリ/チャンネルへの操作は依頼に明示がある場合を除いて入れないこと。',
         '- 様式統一のためのリネーム提案は最大5件まで、依頼の対象範囲内に限ること。',
+        '',
+        '依頼の範囲の解釈（厳守）:',
+        '- カテゴリが指定された依頼（「〜カテゴリの〜チャンネル」のような言い回し）は、そのカテゴリの中で条件に合うチャンネル全部が対象（テキスト／ボイス／アナウンス等の種別は問わない）。条件に合うものが複数あれば全件を操作に入れること。代表の1件だけを選んで済ませない。',
+        '- 「アイコンが付いてない」「絵文字がない」チャンネルとは、名前の先頭に絵文字プレフィックス（「絵文字｜名前」の絵文字部分）が無いチャンネルを指す。やることは、そのチャンネルに内容に合う絵文字を1つ付けること。既に先頭に絵文字があるチャンネルは対象外。',
+        '- 「複数」は原則として対象の数のこと（「複数のチャンネル」の意味）。「アイコンが複数付いている・重複している」という意味に読まないこと。',
+        '- 既存の絵文字や装飾を取り除く操作（プレフィックスの削除、装飾の整理・統一）は、依頼文に「重複」「二重」「整理して」「外して」「消して」など除去の明示がある場合にだけ行う。頼まれていない装飾の除去・統一は絶対にしない。「アイコンを付けて」という依頼にアイコンを外す操作を混ぜるのは、正反対の解釈であり厳禁。',
+        '- 「様式の統一」を行う場合でも、統一の方向は「付いていないものに付ける」が原則。除去方向の統一は、上記の除去の明示がある場合だけ。',
+        '- 命名スタイルは新規作成・リネーム時の様式の指定にすぎず、依頼文の明示指示が常に優先する。「アイコンを付けて」と言われたら、スタイルが「装飾なし」でもアイコンを付けること。逆に、スタイルを理由に既存の装飾を外すこともしない。',
+        '- 対象が曖昧な場合は、条件に合いそうな候補を広めに含めること（ユーザーはプレビュー画面で個別に除外できるため、過小に絞るより過大に含める方が正しい）。ただし、指定されたカテゴリや範囲の外、条件に明らかに合わないチャンネルには広げない。',
+        '- summary は対象範囲と件数が分かる文にすること（例: 「スタッフカテゴリでアイコン未付与の5件に絵文字を付けました」）。依頼されていないこと（装飾の整理など）を summary に書かない。',
+        '',
+        '範囲解釈の具体例:',
+        '- 例1: 依頼「スタッフカテゴリのスタッフチャンネルにアイコン付いてないのでつけて欲しい」→ 正しい解釈は、スタッフカテゴリ内で名前の先頭に絵文字が無いチャンネルを全部洗い出し、それぞれに内容に合う絵文字を付ける rename を全件出すこと。チャンネルを1件だけ選んで終わらせない。',
+        '- 例2: 依頼「ちゃんと複数アイコン付いてないチャンネルお願い」→ 「複数」はチャンネルの数のこと。対象範囲内でアイコン未付与のチャンネル全件にアイコンを付けるプランにすること。アイコンや装飾を外す操作は1件も入れない（この言い回しを装飾の整理・除去と読むのは誤り）。',
+        '- 例3: 依頼「アイコンが二重に付いてるチャンネルを直して」「重複した装飾を整理して」→ このように除去が明示された場合に限り、二重プレフィックスの除去など装飾整理のリネームを行う。',
         '',
         'setPermissions の詳細:',
         '- overwrites は1〜10件の配列。各要素は対象（everyone か role＋roleId）ごとに1件にまとめ、allow と deny の両方に同じ権限名を入れないこと（各配列は最大20件、空配列でもよい）。',
