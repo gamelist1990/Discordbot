@@ -268,6 +268,104 @@ export function searchEpisodeRecords(episodes: GuildEpisode[], criteria: Episode
     return hits.slice(0, limit);
 }
 
+/** 会話側の発言1件分（出来事との決定的照合の入力）。 */
+export interface EpisodeConversationMessage {
+    authorId?: string;
+    authorName?: string;
+    content: string;
+}
+
+/**
+ * 文章から照合用の具体トークンを取り出す。要約はAIが書いた文章で会話は口語のため、
+ * フレーズ単位ではほぼ一致しない。漢字・カタカナの連続は、4文字以下なら語として丸ごとに、
+ * 5文字以上なら2グラムに分解して取り出す（判定の下書きゲートと同じ考え方）。
+ * 短い語を2グラムに割ると「カレー」の「レー」と「グレー」の「レー」のような
+ * 音の断片だけの偶然一致が頻発するため、丸ごと一致を基本にし、2グラムは
+ * 2個以上揃ったときだけ加点する（呼び出し側のスコア計算を参照）。
+ * 英字3文字以上・数字2桁以上も丸ごとトークンとして数える。
+ */
+function episodeContentTokens(text: string): { whole: Set<string>; bigrams: Set<string> } {
+    const whole = new Set<string>();
+    const bigrams = new Set<string>();
+    const normalized = text.normalize('NFKC').toLowerCase();
+    for (const run of normalized.match(/[一-龥々ァ-ヶー]{2,}|[a-z]{3,}|[0-9]{2,}/g) ?? []) {
+        if (/^[a-z0-9]+$/.test(run) || run.length <= 4) {
+            whole.add(run);
+            continue;
+        }
+        for (let i = 0; i + 2 <= run.length; i++) bigrams.add(run.slice(i, i + 2));
+    }
+    return { whole, bigrams };
+}
+
+/**
+ * 今の会話に関連する出来事を決定的に照合する（純粋関数・AI呼び出しなし）。
+ *
+ * スコアの考え方:
+ * - 主体シグナル: 出来事の主体が今の会話の発言者にいる（ID一致=4、表示名一致=3）、
+ *   または主体の名前が会話本文に出てくる（=2）。
+ * - キーワード: 要約の具体トークンのうち会話本文にも現れるもので決める。
+ *   丸ごとトークンは1個2点、2グラムは個数分（ただし1個だけでは加点しない）。
+ *   合計点が5以上=4、3以上=3、2=2、それ未満=0。
+ * 採用条件は「キーワードが2以上あり、主体シグナルとの合計が5以上」または「キーワード単独で4」。
+ * 主体がいるだけ（話題が無関係）では採用せず、逆に主体がいなくても話題が強く一致すれば拾う。
+ * 並びはスコア降順→新しい順。同じ主体・同じ要約の重複は新しい方だけ残す。
+ */
+export function matchEpisodesForConversation(
+    episodes: GuildEpisode[],
+    messages: EpisodeConversationMessage[],
+    limit = 3,
+): GuildEpisode[] {
+    if (!episodes.length || !messages.length) return [];
+    const speakerIds = new Set<string>();
+    const speakerNames = new Set<string>();
+    for (const message of messages) {
+        if (message.authorId) speakerIds.add(message.authorId);
+        if (message.authorName) speakerNames.add(normalizeSearchText(message.authorName));
+    }
+    const conversationText = messages.map(message => message.content).join('\n');
+    const normalizedConversation = normalizeSearchText(conversationText);
+    const scored: Array<{ episode: GuildEpisode; score: number }> = [];
+    for (const episode of episodes) {
+        let signal = 0;
+        if (episode.actorId && speakerIds.has(episode.actorId)) signal = 4;
+        else if (episode.actor && speakerNames.has(normalizeSearchText(episode.actor))) signal = 3;
+        else if (episode.actor && episode.actor.trim().length >= 2
+            && normalizedConversation.includes(normalizeSearchText(episode.actor))) signal = 2;
+        const tokens = episodeContentTokens(episode.summary);
+        let tokenScore = 0;
+        for (const token of tokens.whole) {
+            if (normalizedConversation.includes(token)) tokenScore += 2;
+        }
+        let matchedBigrams = 0;
+        for (const gram of tokens.bigrams) {
+            if (normalizedConversation.includes(gram)) matchedBigrams++;
+        }
+        if (matchedBigrams >= 2) tokenScore += matchedBigrams;
+        const keyword = tokenScore >= 5 ? 4 : tokenScore >= 3 ? 3 : tokenScore === 2 ? 2 : 0;
+        if (keyword >= 4 || (keyword >= 2 && signal + keyword >= 5)) {
+            scored.push({ episode, score: signal + keyword });
+        }
+    }
+    scored.sort((a, b) => (b.score - a.score) || (b.episode.at - a.episode.at));
+    const seen = new Set<string>();
+    const result: GuildEpisode[] = [];
+    for (const { episode } of scored) {
+        const key = `${episode.actor}|${normalizeEpisodeSummary(episode.summary)}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        result.push(episode);
+        if (result.length >= Math.max(1, limit)) break;
+    }
+    return result;
+}
+
+/** 注入用に出来事を1行へ整形する（日付・主体・要約・チャンネル）。 */
+export function formatEpisodeForMemory(episode: GuildEpisode): string {
+    const where = episode.channelName ? `（#${episode.channelName}）` : '';
+    return `- ${episode.date} ${episode.actor}: ${episode.summary}${where}`.slice(0, 170);
+}
+
 /** 抽出の入力になる発言1件分。 */
 export interface EpisodeSourceMessage {
     id: string;

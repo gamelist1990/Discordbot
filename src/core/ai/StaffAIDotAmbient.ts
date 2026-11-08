@@ -11,7 +11,20 @@ import {
     type DotMediaItem,
     type DotMediaMessageLike,
 } from './DotAmbientMedia.js';
-import { extractGuildEpisodes } from './GuildEpisodeMemory.js';
+import {
+    extractGuildEpisodes,
+    formatEpisodeForMemory,
+    loadGuildEpisodeStore,
+    matchEpisodesForConversation,
+    type GuildEpisode,
+} from './GuildEpisodeMemory.js';
+import {
+    formatMemberMemoLine,
+    loadGuildMemberMemoStore,
+    selectMemberMemosForContext,
+    updateGuildMemberMemos,
+    type GuildMemberMemo,
+} from './GuildMemberMemory.js';
 import { getStaffAIDotMode } from '../../commands/staff/subcommands/StaffAIDotMode.js';
 import {
     applyGuildAIPersonalityLearning,
@@ -65,6 +78,15 @@ export const DOT_AMBIENT = {
     episodeUseMessages: 40,
     episodeMaxTokens: 1600,
     episodePendingCap: 300,
+    // 過去の記憶（出来事・メンバーメモ）の文脈注入。件数は判定・生成の末尾に差し込む上限。
+    episodeInjectLimit: 3,
+    memberMemoInjectLimit: 4,
+    memoryStoreCacheMs: 60_000,
+    memberMemoMinPending: 15,
+    memberMemoIntervalMs: 20 * 60_000,
+    memberMemoUseMessages: 40,
+    memberMemoMaxTokens: 1600,
+    memberMemoPendingCap: 300,
     judgeMaxTokens: 1024,
     judgeSessionMaxChars: 24_000,
     judgeSessionMaxTurns: 40,
@@ -541,6 +563,8 @@ const guildObservations = new Map<string, ObservedMessage[]>();
 const guildLastLearnAt = new Map<string, number>();
 const guildEpisodePending = new Map<string, ObservedMessage[]>();
 const guildLastEpisodeAt = new Map<string, number>();
+const guildMemberMemoPending = new Map<string, ObservedMessage[]>();
+const guildLastMemberMemoAt = new Map<string, number>();
 const guildNamesCache = new Map<string, { names: string[]; at: number }>();
 const excludedChannels = new Set<string>();
 
@@ -664,6 +688,8 @@ export interface AppendOnlySession {
     loggedMessageIds: Set<string>;
     mediaNotesByMessage: Map<string, string>;
     personalitySent: string;
+    /** 過去の記憶ブロック（出来事・メンバーメモ）の送信済み内容。変わった時だけ末尾へ追記する。 */
+    memorySent: string;
     lastLoggedAt: number;
     chars: number;
 }
@@ -674,6 +700,7 @@ export function createAppendOnlySession(): AppendOnlySession {
         loggedMessageIds: new Set(),
         mediaNotesByMessage: new Map(),
         personalitySent: '',
+        memorySent: '',
         lastLoggedAt: 0,
         chars: 0,
     };
@@ -707,6 +734,8 @@ export interface AppendOnlyTurnInput {
     entries: JudgeLogEntry[];
     /** 学習サマリ等の「更新される安定情報」。前回送信分と変わった時だけ末尾側に載る */
     personalityPrompt?: string;
+    /** 過去の記憶ブロック（出来事・メンバーメモ）。雰囲気と同じく、前回送信分と変わった時だけ末尾側に載る */
+    memoryPrompt?: string;
     /** プレゼンス・きっかけ・リアクション履歴・対象メッセージ等の今回限りの材料（必ず末尾） */
     tailLines: string[];
     /** 初回ターン先頭の説明 */
@@ -742,6 +771,7 @@ export function prepareAppendOnlyTurn(
     const baseMedia = rebased ? new Map<string, string>() : session.mediaNotesByMessage;
     const baseLastAt = rebased ? 0 : session.lastLoggedAt;
     const basePersonality = rebased ? '' : session.personalitySent;
+    const baseMemory = rebased ? '' : session.memorySent;
 
     const newEntries = sorted.filter(e => !baseLogged.has(e.id) && e.at >= baseLastAt);
     const supplements = sorted.filter(e => baseLogged.has(e.id) && e.mediaNotes && e.mediaNotes !== baseMedia.get(e.id));
@@ -760,6 +790,11 @@ export function prepareAppendOnlyTurn(
     if (personalityChanged) {
         parts.push('【サーバーの雰囲気・話し方（最新の学習結果）】\n' + personality);
     }
+    const memory = (input.memoryPrompt ?? '').slice(0, 1200);
+    const memoryChanged = memory.length > 0 && memory !== baseMemory;
+    if (memoryChanged) {
+        parts.push(memory);
+    }
     parts.push('【今回の判定材料】\n' + input.tailLines.join('\n'));
     const turnText = sanitizeAiText(parts.join('\n\n'));
 
@@ -776,6 +811,7 @@ export function prepareAppendOnlyTurn(
             session.loggedMessageIds = new Set();
             session.mediaNotesByMessage = new Map();
             session.personalitySent = '';
+            session.memorySent = '';
             session.lastLoggedAt = 0;
             session.chars = 0;
         }
@@ -788,6 +824,7 @@ export function prepareAppendOnlyTurn(
         }
         for (const e of supplements) session.mediaNotesByMessage.set(e.id, e.mediaNotes);
         if (personalityChanged) session.personalitySent = personality;
+        if (memoryChanged) session.memorySent = memory;
     };
 
     return { messages, commit, rebased, newEntryCount: newEntries.length };
@@ -816,6 +853,65 @@ async function ensureHistoryMedia(history: Message[]): Promise<void> {
 function withMediaNotes(content: string, messageId: string): string {
     const notes = dotMediaStore.notesForMessage(messageId);
     return notes ? `${content} ${notes}` : content;
+}
+
+// ---------------------------------------------------------------------------
+// 過去の記憶（出来事・メンバーメモ）の文脈注入
+//
+// 判定・生成はツールなし設計のため、検索はAIに任せずコード側で決定的に行う。
+// 照合結果は dsh 規律どおり文脈の末尾にだけ差し込み、セットが変わったときだけ更新する。
+// ストア読みは短時間キャッシュし、判定のたびのファイル読みを避ける（学習で更新されたら破棄）。
+// ---------------------------------------------------------------------------
+
+const episodeStoreCache = new Map<string, { at: number; episodes: GuildEpisode[] }>();
+const memberMemoStoreCache = new Map<string, { at: number; memos: GuildMemberMemo[] }>();
+
+async function cachedGuildEpisodes(guildId: string): Promise<GuildEpisode[]> {
+    const cached = episodeStoreCache.get(guildId);
+    if (cached && Date.now() - cached.at < DOT_AMBIENT.memoryStoreCacheMs) return cached.episodes;
+    const store = await loadGuildEpisodeStore(guildId);
+    episodeStoreCache.set(guildId, { at: Date.now(), episodes: store.episodes });
+    return store.episodes;
+}
+
+async function cachedGuildMemberMemos(guildId: string): Promise<GuildMemberMemo[]> {
+    const cached = memberMemoStoreCache.get(guildId);
+    if (cached && Date.now() - cached.at < DOT_AMBIENT.memoryStoreCacheMs) return cached.memos;
+    const store = await loadGuildMemberMemoStore(guildId);
+    memberMemoStoreCache.set(guildId, { at: Date.now(), memos: store.memos });
+    return store.memos;
+}
+
+export interface DotMemoryMessageSource {
+    authorId?: string;
+    authorName?: string;
+    content: string;
+}
+
+/** 注入ブロックの組み立て（純粋関数）。出来事・メモのどちらも無ければ空文字。 */
+export function formatDotMemoryBlock(episodes: GuildEpisode[], memos: GuildMemberMemo[]): string {
+    const sections: string[] = [];
+    if (episodes.length > 0) {
+        sections.push(['【過去の出来事（サーバーの記録）】', ...episodes.map(formatEpisodeForMemory)].join('\n'));
+    }
+    if (memos.length > 0) {
+        sections.push(['【今の会話に出ている人について（記録メモ）】', ...memos.map(formatMemberMemoLine)].join('\n'));
+    }
+    return sections.join('\n\n');
+}
+
+/**
+ * 今の会話に合う過去の出来事とメンバーメモを照合し、判定・生成の末尾へ差し込むブロックを作る。
+ * 出来事は話者・話題での決定的照合（最大 episodeInjectLimit 件）、メモは今の会話に出ている人だけ。
+ */
+export async function buildDotMemoryBlock(guildId: string, messages: DotMemoryMessageSource[]): Promise<string> {
+    if (!guildId || messages.length === 0) return '';
+    const [episodes, memos] = await Promise.all([cachedGuildEpisodes(guildId), cachedGuildMemberMemos(guildId)]);
+    const matched = matchEpisodesForConversation(episodes, messages, DOT_AMBIENT.episodeInjectLimit);
+    const speakerIds = new Set(messages.map(message => message.authorId).filter((id): id is string => !!id));
+    const conversationText = messages.map(message => `${message.authorName ?? ''} ${message.content}`).join('\n');
+    const selected = selectMemberMemosForContext(memos, speakerIds, conversationText, DOT_AMBIENT.memberMemoInjectLimit);
+    return formatDotMemoryBlock(matched, selected);
 }
 
 const sleepMs = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms));
@@ -881,6 +977,10 @@ export const PARTICIPATION_JUDGE_SYSTEM_PROMPT = [
     '「サーバーの雰囲気・空気・カオスさ・この鯖の魅力」のような、雰囲気そのものへの感想は参加内容として認めない。学習した雰囲気の要約の言い換えは中身ではない。悪い参加の実例: 対象が「鯖」という断片（誰かのサーバーの話）しかない場面で「いろんな話が飛び交う、まじでカオスな空間だよね。」のようなサーバーの雰囲気感想を返すこと。対象の話題（誰の・何のサーバーか）に何も言えていないので、この場合は none が正解。',
     '下書きは対象発言の話題そのもの（人名・物・出来事などの具体）について言える内容でなければならない。対象が断片的で、文脈から話題が分かっても、その話題について具体的に言えることがなければ none。',
     '対象の発言にメディアの説明（[動画: …] [画像: …] [音声: …]）が付いている場合、下書きはそのメディアの中身の具体（映っている物・画面の文字や数値・起きている出来事）について書くこと。投稿者の文言をなぞっただけの下書きや、メディアの中身に一切触れていない下書きは、内容が空なので none にする。',
+    '会話ログの末尾には【過去の出来事（サーバーの記録）】と【今の会話に出ている人について（記録メモ）】が付くことがあります。これは実際に記録された出来事と、観測から分かったその人のメモです。話題の判断と下書きの材料に使ってください。',
+    '下書きが、渡された過去の出来事の具体（出来事・固有名詞・数字）に触れている場合も、「具体に触れている」下書きとして有効です（システム側の機械チェックでも、その記録の文面が照合対象に含まれます）。',
+    '過去の出来事への言及（掘り返し）は自然な参加の一形態です。ただし、渡された記録にない出来事を作って言及してはならない。掘り返しは会話の流れに自然に合うときだけで十分で、毎回する必要はありません。',
+    '渡された記録の中に、同じ人が同じ話題や文句を以前も言っていた形跡がある場合、「また〜って言ってる」「前も同じこと言ってた」式の軽い掘り返しは、このサーバーでは自然な参加の形です。具体例: 記録に「2026-11-05 AIはゴミだと述べた」とあり、本人が今日もAIへの文句を言っているなら、下書きは「またAIゴミって言ってるw 5日も同じこと言ってたやん」のように、記録の具体（日付・内容）に触れて書くのが良い参加になります。',
     '知らない固有名詞・知らない話題については、知ったかぶりの一般論で参加しない。知らないことは参加の理由にならないので none。',
 ].join('\n');
 
@@ -889,6 +989,7 @@ export const ADDRESSED_JUDGE_SYSTEM_PROMPT = [
     '形式: {"action":"reply"または"none","targetMessageId":null,"emoji":null,"confidence":0.0から1.0,"reason":"短い理由"}',
     '判定するのは「対象メッセージ」が、常駐AIであるあなた自身に話しかけているかどうかです。会話ログの中であなたは「(自分=このBot)」と表示されています。直近の会話は文脈としてだけ使い、判定は対象メッセージについて行ってください。',
     '会話ログには添付メディアの内容が [画像: …]、[動画: …]、[音声: …] の形で併記されることがあります。「AIかと思った」などは、その写真がAI生成に見えたという話題であることがあるので、メディアの内容と文脈から、あなた宛てかどうかを判断してください。',
+    '会話ログの末尾に【過去の出来事（サーバーの記録）】や【今の会話に出ている人について（記録メモ）】が付くことがあります。実際に記録された過去の出来事と、その人についてのメモです。あなた宛てかどうかの判定の文脈としてだけ使ってください。',
     'action=reply: 名前や「AI」などでの呼びかけ、あなたへの質問・依頼・相談、あなたの直前の発言への返答・ツッコミ・続きの質問、二人称であなたに向けられた発言。',
     'action=none: あなたを話題にしているだけの発言（感想・報告・他人への説明）、他の特定の人への発言・質問、独り言、あなたが入ると割り込みになる発言。他のユーザーをメンションしている発言は原則その人宛です。',
     '例外として、話題にしているだけでも、発言の形が明らかにあなたへの呼びかけ・ツッコミで、あなた本人が短く返すのが会話の流れとして自然な場合に限り、高い確信度で reply にしてよい。',
@@ -915,20 +1016,23 @@ export const AMBIENT_SYSTEM_RULES = [
     '添付メディアは [画像: …] [動画: …] [音声: …] の形で内容が併記されます。併記がある話題では、その内容に即して話してください。メディアを見ていない前提の返しや、写真への感想を自分（Bot）への話だと決めつける返しはしないこと。',
     'メディアの説明がある話題で返すときは、必ずその中身の具体（映っている物・画面の文字や数値・起きている出来事）に触れる。投稿者の言葉をなぞるだけのオウム返しや、中身に触れない汎用相槌で済ませるのは禁止。',
     '禁止の実例: 動画付きの「最終的にこんな動作になった」という投稿への返しで「うわ、最終的にそんな動作になるんか。これ、相当な仕組みで組まれたんやな〜」と返すこと。投稿者の文言の言い換えと「相当な仕組み」という空の相槌だけで、動画の中身（サーバーの設定画面でロールが次々に作られていく様子）に一切触れていない。メディアの中身について具体的に言えることがなければ、無理に参加しない。',
+    '文脈に【過去の出来事（サーバーの記録）】が含まれる場合、過去への言及はその記録にある内容だけを使うこと。記録にない出来事を「前に〜だったよね」の形で思い出したように語るのは捏造なので禁止。',
+    '掘り返しは、会話の流れに自然にハマるときだけ、軽く一度だけにする。同じ出来事を繰り返し蒸し返したり、相手が蒸し返されたくない過去に触れたりしない。',
+    '文脈に【今の会話に出ている人について（記録メモ）】が含まれる場合、その人の話題の好みなどの参考にしてよい。ただしメモを決めつけやラベル貼りに使わず、メモに書かれていない性質を推測で付け足さない。',
     'ツールは使わない。サーバーの話し方設定と学習した雰囲気に合わせる。',
 ].join('\n');
 
-async function generateAmbientReply(guildId: string, context: string, situation: string): Promise<string> {
+async function generateAmbientReply(guildId: string, context: string, situation: string, memoryBlock = ''): Promise<string> {
     const personality = await ensureGuildAIPersona(guildId, false);
     const personalityPrompt = buildGuildAIPersonalityPrompt(personality);
     const personaBlock = personality.persona
         ? `あなたの名前は「${personality.persona.name}」。${personality.persona.firstPerson ? `一人称は「${personality.persona.firstPerson}」。` : ''}性格: ${personality.persona.character} 話し方: ${personality.persona.speakingStyle} 振る舞い: ${personality.persona.behavior}`
         : '';
     // dsh原則: システムは固定ルールのみ（全ギルド共通でバイト同一）。ペルソナや学習サマリ等の
-    // 可変情報は user 側の末尾に置き、先頭の接頭辞を安定させる。
+    // 可変情報は user 側の末尾に置き、先頭の接頭辞を安定させる。過去の記憶ブロックも末尾に置く。
     const text = await chatManager.generateText([
         { role: 'system', content: AMBIENT_SYSTEM_RULES },
-        { role: 'user', content: sanitizeAiText(`直近の会話:\n${context}\n\n${situation}${personaBlock || personalityPrompt ? `\n\n${[personaBlock, personalityPrompt].filter(Boolean).join('\n')}` : ''}`) },
+        { role: 'user', content: sanitizeAiText(`直近の会話:\n${context}\n\n${situation}${personaBlock || personalityPrompt ? `\n\n${[personaBlock, personalityPrompt].filter(Boolean).join('\n')}` : ''}${memoryBlock ? `\n\n${memoryBlock}` : ''}`) },
     ], { model: GEMMA_MODEL, strictModel: true, maxTokens: DOT_AMBIENT.generationMaxTokens, priority: 'background',
         usageContext: { guildId, purpose: 'dot-generate' } });
     return text.trim();
@@ -982,9 +1086,16 @@ async function judgeAddressed(message: Message, state: ChannelState, basis: Addr
     const mentionsOthers = message.mentions.users.some(user => user.id !== selfId);
     const candidate = sanitizeAiText((message.content ?? '').replace(/\s+/g, ' ').slice(0, 300));
     const authorName = sanitizeAiText(message.author.username);
+    // 過去の記憶（出来事・メンバーメモ）も判定の文脈として末尾に差し込む（参加判定と同じ規律）。
+    const memoryBlock = await buildDotMemoryBlock(message.guildId ?? '', history.map(item => ({
+        authorId: item.author.id,
+        authorName: item.author.username,
+        content: (getEffectiveContent(item) || item.content || ''),
+    }))).catch(() => '');
     // 参加判定と同じ追記専用セッション規律（呼びかけ専用セッション。システムプロンプトが違うため分ける）。
     const prepared = prepareAppendOnlyTurn(state.addressedSession, ADDRESSED_JUDGE_SYSTEM_PROMPT, {
         entries: judgeEntriesOf(history, selfId),
+        memoryPrompt: memoryBlock || undefined,
         tailLines: [
             `対象メッセージ: ${authorName}: ${candidate}`,
             ...(mentionsOthers ? ['（このメッセージは他のユーザーをメンションしています）'] : []),
@@ -1021,6 +1132,12 @@ async function respondToAddressed(message: Message, state: ChannelState, via: 'd
     const history = fetched ? [...fetched.values()].reverse() : [message];
     await ensureHistoryMedia(history);
     const context = formatContext(history, message.client.user?.id);
+    // 過去の記憶（出来事・メンバーメモ）を生成の文脈にも差し込む（掘り返しはこの記録の範囲でのみ許可される）。
+    const memoryBlock = await buildDotMemoryBlock(message.guildId ?? '', history.map(item => ({
+        authorId: item.author.id,
+        authorName: item.author.username,
+        content: (getEffectiveContent(item) || item.content || ''),
+    }))).catch(() => '');
     const situation = via === 'judged'
         ? 'あなたは今、文脈の流れから自分に話しかけられたと判断しました。その発言の中身（質問・ツッコミ・文句・ネタ）に、短く自然に応えてください。「どうしたん？」のような、話しかけられたことの確認だけで終わらせるのは禁止です。相手の発言に出てきた具体的な言葉を拾って返すこと。質問や相談であれば簡潔に答えること。'
         : 'あなたは今、名前を呼ばれました。呼びかけの文そのもの（質問・ツッコミ・文句・ネタ）に、その中身で短く自然に応えてください。「どうしたん？」のような、呼ばれたことの確認だけで終わらせるのは禁止です。相手の発言に出てきた具体的な言葉を拾って返すこと。質問や相談であれば簡潔に答えること。';
@@ -1030,8 +1147,8 @@ async function respondToAddressed(message: Message, state: ChannelState, via: 'd
         // 生成が文脈側の事情で落ちたら、履歴なし（対象メッセージ＋状況文だけの最小文脈）で1回だけ組み立て直す。
         // 再試行も落ちた場合に初めて、呼び出し側が「addressed response failed」として記録する。
         const replyText = await generateWithContextFallback(
-            () => generateAmbientReply(message.guildId ?? '', context, situation),
-            () => generateAmbientReply(message.guildId ?? '', formatContext([message], message.client.user?.id), situation),
+            () => generateAmbientReply(message.guildId ?? '', context, situation, memoryBlock),
+            () => generateAmbientReply(message.guildId ?? '', formatContext([message], message.client.user?.id), situation, memoryBlock),
             error => Logger.warn(`[DotAmbient] addressed reply generation failed guild=${message.guildId} channel=${message.channelId}; retrying with minimal context:`, error),
         );
         if (!replyText) return;
@@ -1102,6 +1219,11 @@ function onMessageCreate(client: Client) {
                     pending.push(observed);
                     while (pending.length > DOT_AMBIENT.episodePendingCap) pending.shift();
                     guildEpisodePending.set(message.guildId, pending);
+                    // メンバーメモ用にも同じ観測を貯める（更新は sweep 側で学習サイクルに合わせて行う）。
+                    const memoPending = guildMemberMemoPending.get(message.guildId) ?? [];
+                    memoPending.push(observed);
+                    while (memoPending.length > DOT_AMBIENT.memberMemoPendingCap) memoPending.shift();
+                    guildMemberMemoPending.set(message.guildId, memoPending);
                 }
 
                 // 呼びかけ判定: Discordメンション / Botの発言への直接返信は「呼ばれた」確定信号として即応答。
@@ -1235,9 +1357,16 @@ async function judgeAndParticipate(client: Client, channelId: string, state: Cha
     const judgeEntries = state.recentMessages.length > history.length
         ? judgeEntriesOfBuffered(state.recentMessages, client.user?.id)
         : judgeEntriesOf(history, client.user?.id);
+    // 過去の記憶（出来事・メンバーメモ）: 判定に使った会話と同じ材料で決定的に照合し、末尾へ差し込む。
+    const memoryBlock = await buildDotMemoryBlock(state.guildId,
+        state.recentMessages.length > history.length
+            ? state.recentMessages.map(entry => ({ authorId: entry.authorId, authorName: entry.authorName, content: entry.content }))
+            : history.map(item => ({ authorId: item.author.id, authorName: item.author.username, content: (getEffectiveContent(item) || item.content || '') })),
+    ).catch(() => '');
     const prepared = prepareAppendOnlyTurn(state.participationSession, PARTICIPATION_JUDGE_SYSTEM_PROMPT, {
         entries: judgeEntries,
         personalityPrompt,
+        memoryPrompt: memoryBlock || undefined,
         tailLines: [
             `あなたの状態: ${presence === 'engaged' ? 'このチャンネルでは会話に参加中（engaged）' : 'このチャンネルでは様子見中（lurking）'}`,
             `きっかけ: ${trigger}`,
@@ -1272,7 +1401,10 @@ async function judgeAndParticipate(client: Client, channelId: string, state: Cha
     if (!decision) return;
     // 具体性ゲート: reply/comment/continue は、下書きが会話の具体に触れている場合だけ実行する。
     // 判定プロンプトの規律だけでは濁した下書きが通ってしまうため、機械的にも止める（react は対象外）。
-    if (decision.action !== 'react' && !draftHasConcreteAnchor(decision, context)) {
+    // 照合元には注入した過去の記憶（出来事・メンバーメモ）の文面も含める。含めないと、
+    // 記録に基づく良い掘り返しの下書きが「会話に出てこない具体」として全部弾かれてしまう。
+    const gateContext = memoryBlock ? `${context}\n${memoryBlock}` : context;
+    if (decision.action !== 'react' && !draftHasConcreteAnchor(decision, gateContext)) {
         Logger.info(`[DotAmbient] participation blocked (draft has no concrete anchor) guild=${state.guildId} channel=${channelId} trigger=${trigger} action=${decision.action} conf=${decision.confidence} draft=${draftAnchorText(decision).slice(0, 120)} reason=${decision.reason}`);
         return;
     }
@@ -1318,7 +1450,7 @@ async function judgeAndParticipate(client: Client, channelId: string, state: Cha
     // 生成中ずっと「入力中…」が見えるよう、生成開始から送信完了（または失敗）まで typing を維持する。
     const stopTyping = 'sendTyping' in channel ? startTypingKeepAlive(channel) : () => undefined;
     try {
-        const replyText = await generateAmbientReply(state.guildId, context, situation);
+        const replyText = await generateAmbientReply(state.guildId, context, situation, memoryBlock);
         if (!replyText) return;
 
         await sleepMs(ambientSendDelayMs('join', Math.random()));
@@ -1395,7 +1527,33 @@ async function extractObservedEpisodes(guildId: string): Promise<void> {
     // 抽出に成功した分だけ消費する（失敗時は次回 sweep で再挑戦）。
     guildEpisodePending.set(guildId, buffer.slice(used.length));
     guildLastEpisodeAt.set(guildId, now);
-    if (result.added > 0) Logger.info(`[DotAmbient] recorded episodes guild=${guildId} added=${result.added} parsed=${result.parsed}`);
+    if (result.added > 0) {
+        episodeStoreCache.delete(guildId);
+        Logger.info(`[DotAmbient] recorded episodes guild=${guildId} added=${result.added} parsed=${result.parsed}`);
+    }
+}
+
+/** 観測した会話から、活発なメンバーについての軽いメモ（GuildMemberMemory）を更新する。雰囲気学習と同じ観測の別枠。 */
+async function learnGuildMemberMemos(guildId: string): Promise<void> {
+    const buffer = guildMemberMemoPending.get(guildId) ?? [];
+    if (buffer.length < DOT_AMBIENT.memberMemoMinPending) return;
+    const now = Date.now();
+    if (now - (guildLastMemberMemoAt.get(guildId) ?? 0) < DOT_AMBIENT.memberMemoIntervalMs) return;
+    const personality = await getGuildAIPersonality(guildId);
+    if (!personality.learningEnabled) return;
+    const used = buffer.slice(0, DOT_AMBIENT.memberMemoUseMessages);
+    const result = await updateGuildMemberMemos(guildId, used, async messages => chatManager.generateText(
+        messages.map(message => ({ role: message.role, content: sanitizeAiText(message.content) })),
+        { model: config.pexAi.channelModel || config.pexAi.model, strictModel: true, maxTokens: DOT_AMBIENT.memberMemoMaxTokens, priority: 'background',
+            usageContext: { guildId, purpose: 'member-memo' } },
+    ));
+    // 生成に成功した分だけ消費する（失敗時は例外で抜け、次回 sweep で再挑戦）。
+    guildMemberMemoPending.set(guildId, buffer.slice(used.length));
+    guildLastMemberMemoAt.set(guildId, now);
+    if (result.updated > 0) {
+        memberMemoStoreCache.delete(guildId);
+        Logger.info(`[DotAmbient] updated member memos guild=${guildId} authors=${result.authors} updated=${result.updated}`);
+    }
 }
 
 async function sweep(client: Client): Promise<void> {
@@ -1437,6 +1595,11 @@ async function sweep(client: Client): Promise<void> {
         for (const guildId of guildEpisodePending.keys()) {
             await extractObservedEpisodes(guildId).catch(error => {
                 Logger.warn('[DotAmbient] episode extraction failed:', error);
+            });
+        }
+        for (const guildId of guildMemberMemoPending.keys()) {
+            await learnGuildMemberMemos(guildId).catch(error => {
+                Logger.warn('[DotAmbient] member memo learning failed:', error);
             });
         }
     } finally {
