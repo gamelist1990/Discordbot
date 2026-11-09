@@ -90,10 +90,18 @@ export function createStaffAIRoutes(sessions: Map<string, SettingsSession>, _bot
     function beginPersonaGeneration(res: any, guildId: string, userId: string): boolean {
         const verdict = personaGenerationLimiter.check(guildId, userId);
         if (!verdict.ok) {
+            const retryAfterSeconds = Math.max(1, Math.ceil(verdict.retryAfterMs / 1000));
+            const error = verdict.reason === 'in-flight'
+                ? 'このサーバーの性格を生成中です。完了するまでお待ちください'
+                : verdict.reason === 'daily-user' || verdict.reason === 'daily-guild'
+                    ? '本日の性格生成の上限に達しました。日本時間の翌日0時以降に再試行してください'
+                    : `性格生成の間隔が短すぎます。${retryAfterSeconds}秒後に再試行してください`;
+            Logger.info(`[PersonaAudit] action=generation-rejected guild=${guildId} user=${userId} reason=${verdict.reason}`);
+            res.setHeader('Retry-After', String(retryAfterSeconds));
             res.status(429).json({
-                error: '性格の生成が混み合っています。しばらく待ってから再試行してください',
+                error,
                 reason: verdict.reason,
-                retryAfterSeconds: Math.max(1, Math.ceil(verdict.retryAfterMs / 1000)),
+                retryAfterSeconds,
             });
             return false;
         }
@@ -177,7 +185,8 @@ export function createStaffAIRoutes(sessions: Map<string, SettingsSession>, _bot
             const personality = await regenerateGuildAIPersona(guildId);
             Logger.info(`[PersonaAudit] action=regenerate guild=${guildId} user=${session.userId} (${session.username ?? ''}) persona=${personality.persona?.name ?? ''}`);
             res.json({ personality });
-        } catch {
+        } catch (error) {
+            Logger.error(`[PersonaAudit] action=regenerate-failed guild=${guildId} user=${session.userId}`, error);
             res.status(500).json({ error: 'AIの性格を再生成できませんでした' });
         } finally {
             personaGenerationLimiter.end(guildId);

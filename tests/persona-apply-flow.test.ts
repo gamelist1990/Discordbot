@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import express from 'express';
 import { readFile } from 'node:fs/promises';
 import { database } from '../src/core/persistence/Database.ts';
+import { OpenAIChatManager } from '../src/core/ai/OpenAIChatManager.ts';
 import {
     applyGuildAIPersona,
     applyGuildAIPersonalityLearning,
@@ -84,8 +85,46 @@ async function startApp(guildId: string, level = 2) {
             body: JSON.stringify({ previewId }),
         });
     const close = () => new Promise<void>(resolve => { server.closeAllConnections(); server.close(() => resolve()); });
-    return { apply, close };
+    const regenerate = (token = 'tok-admin') => fetch(url.replace(/apply$/, 'regenerate'), {
+        method: 'POST',
+        headers: { Cookie: `sessionId=${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+    });
+    return { apply, regenerate, close };
 }
+
+test('再生成は保存まで成功し、権限不足と連打では生成を呼ばず具体的な理由を返す', async () => {
+    await withMockDatabase(async () => {
+        const guildId = '523456789012345678';
+        await applyGuildAIPersona(guildId, personaA);
+        const original = OpenAIChatManager.prototype.streamResponseText;
+        let generations = 0;
+        OpenAIChatManager.prototype.streamResponseText = async (_messages, onDelta) => {
+            generations += 1;
+            onDelta({ type: 'text', text: JSON.stringify(draftB) });
+        };
+        const { regenerate, close } = await startApp(guildId);
+        try {
+            assert.equal((await regenerate('tok-low')).status, 403);
+            assert.equal(generations, 0);
+            const response = await regenerate();
+            assert.equal(response.status, 200);
+            const body = await response.json() as any;
+            assert.equal(body.personality.persona.name, 'ルナ');
+            assert.equal((await getGuildAIPersonality(guildId)).persona?.name, 'ルナ');
+            const limited = await regenerate();
+            assert.equal(limited.status, 429);
+            const limit = await limited.json() as any;
+            assert.equal(limit.reason, 'cooldown-guild');
+            assert.match(limit.error, /秒後に再試行/);
+            assert.equal(limited.headers.get('Retry-After'), String(limit.retryAfterSeconds));
+            assert.equal(generations, 1);
+        } finally {
+            OpenAIChatManager.prototype.streamResponseText = original;
+            await close();
+        }
+    });
+});
 
 /** プレビュールートが作るのと同じ形のプレビューを発行する（生成自体は対象外）。 */
 async function issuePreview(guildId: string, draft: GuildAIPersona): Promise<string> {

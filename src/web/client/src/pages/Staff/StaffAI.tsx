@@ -261,23 +261,28 @@ const StaffAIPage: React.FC = () => {
 
   const regeneratePersona = async () => {
     const selectedGuild = guildId;
-    if (!selectedGuild || personaBusy) return;
+    if (!selectedGuild || personaBusy || personaPreviewBusy || personaApplyBusy) return;
     setPersonaBusy(true);
     try {
-      const data = await readJson(`/api/staff/ai/${selectedGuild}/personality/persona/regenerate`, { method: 'POST' });
+      const data = await readJson(`/api/staff/ai/${selectedGuild}/personality/persona/regenerate`, {
+        method: 'POST', body: JSON.stringify({}),
+      });
       if (selectedGuild === selectedGuildRef.current) {
         setPersonality(data.personality as Personality);
+        setPersonaPreview(null);
+        setError('');
         addToast('AIが新しい性格を決めました', 'success');
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'AIの性格を再生成できませんでした');
-      addToast('AIの性格を再生成できませんでした', 'error');
+      const message = e instanceof Error ? e.message : 'AIの性格を再生成できませんでした';
+      setError(message);
+      addToast(message, 'error');
     } finally { setPersonaBusy(false); }
   };
 
   const previewPersona = async () => {
     const selectedGuild = guildId;
-    if (!selectedGuild || personaPreviewBusy) return;
+    if (!selectedGuild || personaBusy || personaPreviewBusy || personaApplyBusy) return;
     setPersonaPreviewBusy(true);
     try {
       const data = await readJson(`/api/staff/ai/${selectedGuild}/personality/persona/preview`, {
@@ -287,8 +292,9 @@ const StaffAIPage: React.FC = () => {
         setPersonaPreview({ previewId: data.previewId as string, persona: data.persona as Persona });
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'AIの性格を生成できませんでした');
-      addToast('AIの性格を生成できませんでした', 'error');
+      const message = e instanceof Error ? e.message : 'AIの性格を生成できませんでした';
+      setError(message);
+      addToast(message, 'error');
     } finally { setPersonaPreviewBusy(false); }
   };
 
@@ -515,7 +521,7 @@ const StaffAIPage: React.FC = () => {
                   </span>
                 </> : <p>AIが性格を決めています。まもなく表示されます。</p>}
                 <div className={ui.personalityActions}>
-                  <button type="button" className={ui.button} disabled={personaBusy} onClick={() => void regeneratePersona()}>
+                  <button type="button" className={ui.button} disabled={personaBusy || personaPreviewBusy || personaApplyBusy} onClick={() => void regeneratePersona()}>
                     {icon('autorenew')} {personaBusy ? '生成中…' : '性格を再生成'}
                   </button>
                 </div>
@@ -526,7 +532,7 @@ const StaffAIPage: React.FC = () => {
                   <span className={ui.muted}>{personaDirection.length} / 300文字。現在の性格をもとに、方向に寄せて作り直します。生成・適用にはサーバー管理者権限が必要です。</span>
                 </label>
                 <div className={ui.personalityActions}>
-                  <button type="button" className={ui.button} disabled={personaPreviewBusy} onClick={() => void previewPersona()}>
+                  <button type="button" className={ui.button} disabled={personaBusy || personaPreviewBusy || personaApplyBusy} onClick={() => void previewPersona()}>
                     {icon('science')} {personaPreviewBusy ? '生成中…' : '方向を指定して生成（プレビュー）'}
                   </button>
                 </div>
@@ -535,7 +541,7 @@ const StaffAIPage: React.FC = () => {
                   <PersonaDetails persona={personaPreview.persona} />
                   <span className={ui.muted}>プレビューは10分間だけ有効です。適用すると現在の性格と置き換わります。</span>
                   <div className={ui.personalityActions}>
-                    <button type="button" className={ui.buttonPrimary} disabled={personaApplyBusy} onClick={() => void applyPersonaPreview()}>
+                    <button type="button" className={ui.buttonPrimary} disabled={personaBusy || personaPreviewBusy || personaApplyBusy} onClick={() => void applyPersonaPreview()}>
                       {icon('check')} {personaApplyBusy ? '適用中…' : 'この性格を適用'}
                     </button>
                     <button type="button" className={ui.button} disabled={personaApplyBusy} onClick={() => setPersonaPreview(null)}>
