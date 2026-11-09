@@ -27,6 +27,7 @@ import {
     draftHasConcreteAnchor,
     AMBIENT_SYSTEM_RULES,
     PARTICIPATION_JUDGE_SYSTEM_PROMPT,
+    ambientMessageText,
     ADDRESSED_JUDGE_SYSTEM_PROMPT,
     createAppendOnlySession,
     prepareAppendOnlyTurn,
@@ -735,4 +736,49 @@ test('ambient rules: commit to a concrete take, catchphrases are not an answer',
     assert.ok(AMBIENT_SYSTEM_RULES.includes('キナコ呼んだん？どうしたん？'));
     // 良い応答の実例が入っている
     assert.ok(AMBIENT_SYSTEM_RULES.includes('中身じゃなくて圧やと思う'));
+});
+
+test('ambientMessageText marks forwards with their origin and keeps plain messages untouched', () => {
+    const at = Date.parse('2024-12-09T11:18:58.932Z');
+    const forward = {
+        content: '',
+        guildId: '890315487962095637',
+        messageSnapshots: new Map([['1315638823593705472', {
+            content: '',
+            createdTimestamp: at,
+            guildId: '1304404938138320926',
+            author: null,
+        }]]),
+    } as any;
+    // 本文もスナップショット本文も空の転送（写真だけの転送）でも出所が残る。
+    assert.equal(ambientMessageText(forward), '[転送: 別サーバーから, 2024/12/09]');
+
+    const forwardWithBody = {
+        content: 'これ見て',
+        guildId: 'g1',
+        messageSnapshots: new Map([['m1', {
+            content: '昔の本文',
+            createdTimestamp: at,
+            guildId: 'g2',
+            author: { username: 'someone' },
+        }]]),
+    } as any;
+    assert.equal(ambientMessageText(forwardWithBody), '[転送: 別サーバーから, 2024/12/09, someone] これ見て\n昔の本文');
+
+    assert.equal(ambientMessageText({ content: '普通の投稿', guildId: 'g1' } as any), '普通の投稿');
+    assert.equal(ambientMessageText({ content: '', guildId: 'g1' } as any), '');
+});
+
+test('rules cover forward origin, persona-bit hijacking and catchphrase recitation', () => {
+    // 転送の出所を聞き返さない（生成・判定の両方）。
+    assert.ok(AMBIENT_SYSTEM_RULES.includes('[転送: …]'));
+    assert.ok(AMBIENT_SYSTEM_RULES.includes('出所を聞き返さない'));
+    assert.ok(PARTICIPATION_JUDGE_SYSTEM_PROMPT.includes('[転送: …]'));
+    // 無関係な話題を自分の設定に結びつけない。
+    assert.ok(AMBIENT_SYSTEM_RULES.includes('無関係な話題を、自分のキャラ設定・経歴・持ち物・店や仕事の話に結びつけない'));
+    assert.ok(PARTICIPATION_JUDGE_SYSTEM_PROMPT.includes('無関係な話題をペルソナ定義にある自分の設定'));
+    // 例文・口癖の読み上げと自己紹介独白の禁止（2026-11-09 の実例つき）。
+    assert.ok(AMBIENT_SYSTEM_RULES.includes('そのまま読み上げるように使わない'));
+    assert.ok(AMBIENT_SYSTEM_RULES.includes('しゃしゃんなとか言われるけど'));
+    assert.ok(PARTICIPATION_JUDGE_SYSTEM_PROMPT.includes('口癖・実例セリフ・自己紹介文の寄せ集めにしない'));
 });

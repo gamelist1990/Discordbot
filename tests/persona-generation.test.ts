@@ -145,6 +145,9 @@ test('性格生成プロンプトは構造化スキーマと個性付け・資�
     // 無難な定型の禁止とクセ/弱点の必須化。
     assert.ok(system.includes('無難な定型'));
     assert.ok(system.includes('クセと弱点'));
+    // 単一のビット（職業・店など）で全反応を染める設計の禁止。
+    assert.ok(system.includes('単一のビット'));
+    assert.ok(system.includes('決め打ちを書かない'));
     // 構造化スキーマのキー。
     for (const key of ['firstPerson', 'exampleLines', 'catchphrases', 'likes', 'dislikes', 'interactionStrengths', 'weakTopicReaction', 'avoidBehaviors']) {
         assert.ok(system.includes(key), key);

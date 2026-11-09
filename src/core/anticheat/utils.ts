@@ -95,8 +95,8 @@ export function normalizeContent(content: string): string {
         .trim();
 }
 
-export { getForwardedSnapshots, hasForwardedContent, getEffectiveContent } from './ForwardedContent.js';
-export type { ForwardedSnapshotLike } from './ForwardedContent.js';
+export { getForwardedSnapshots, hasForwardedContent, getEffectiveContent, getForwardOrigin, formatForwardAnnotation } from './ForwardedContent.js';
+export type { ForwardedSnapshotLike, ForwardOrigin } from './ForwardedContent.js';
 
 export function extractUrls(content: string): string[] {
     const matches = content.match(/(https?:\/\/[^\s<>()]+|discord\.gg\/[A-Za-z0-9-]+|discord(?:app)?\.com\/invite\/[A-Za-z0-9-]+)/gi);

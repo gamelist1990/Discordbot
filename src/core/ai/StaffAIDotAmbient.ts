@@ -3,7 +3,7 @@ import { OpenAIChatManager } from './OpenAIChatManager.js';
 import type { OpenAIChatCompletionMessage } from '../../types/openai.js';
 import { GEMMA_MODEL, config } from '../../config.js';
 import { Logger } from '../../utils/Logger.js';
-import { getEffectiveContent } from '../anticheat/ForwardedContent.js';
+import { formatForwardAnnotation, getEffectiveContent } from '../anticheat/ForwardedContent.js';
 import {
     dotMediaStore,
     extractDotMedia,
@@ -637,11 +637,24 @@ export interface BufferedMessage {
     media: DotMediaItem[];
 }
 
+/**
+ * 常駐側で会話として読むメッセージ本文の正規形。
+ * 転送メッセージはスナップショット本文を取り込み、出所（転送であること・
+ * 元の日付・別サーバーからか）を [転送: …] として前置する。出所が見えないと
+ * 「転送されてきた過去の写真」を「本人が今見つけてきた写真」と誤読してしまう。
+ */
+export function ambientMessageText(message: { content?: string | null; guildId?: string | null; messageSnapshots?: unknown }): string {
+    const body = getEffectiveContent(message) || (typeof message.content === 'string' ? message.content : '');
+    const annotation = formatForwardAnnotation(message);
+    if (!annotation) return body;
+    return body ? `${annotation} ${body}` : annotation;
+}
+
 function formatContext(messages: Message[], selfId: string | undefined): string {
     return messages
         .map(message => {
             const name = message.author.id === selfId ? '(自分=このBot)' : sanitizeAiText(message.author.username);
-            const textBody = (message.content ?? '').replace(/\s+/g, ' ').slice(0, 300);
+            const textBody = ambientMessageText(message).replace(/\s+/g, ' ').slice(0, 300);
             // 添付メディアは説明文（未確認なら存在プレースホルダ）を併記し、本文だけでの誤読を防ぐ。
             // サニタイズは連結後の全体に適用する（単独サロゲート対策）。
             const body = sanitizeAiText([textBody, formatMediaNotes(mediaItemsOf(message))].filter(Boolean).join(' ')) || '(本文なし)';
@@ -957,6 +970,7 @@ export const PARTICIPATION_JUDGE_SYSTEM_PROMPT = [
     '会話ログの各行頭は [メッセージID] です。あなた自身は「(自分=このBot)」と表示されています。',
     '会話ログには添付メディアの内容が [画像: …]、[動画: …]、[音声: …] の形で併記されることがあります。これは実際にメディアを見た説明なので、話題の判断に使ってください。「（内容未確認）」とあるメディアは、存在だけが分かっているものです。',
     '「AIかと思った」のような発言は、投稿された写真そのものがAI生成画像に見えたという意味であることがあります。自分（Bot）のことだと決めつけず、メディアの内容と文脈から判断してください。',
+    '会話ログの行頭に [転送: …] と付いた発言は、他の場所から転送されてきた過去の内容です（別サーバーからか・元の日付は併記の通りで、出所は既に分かっています）。転送されてきた内容について、出所（どこで見つけたか・どこから来たか）を聞き返す下書きは書かないこと。',
     'action の意味:',
     '- none: 何もしない（既定）。開かれていない会話、二人だけのやり取り、他人宛の話、内輪で完結している流れ、深刻な相談や言い争いの最中、直近で自分が話したばかりの場では必ず none。',
     '- reply: 特定のメッセージへの返信が自然な場合。宙に浮いた質問への回答、あなたに向けられた発言への応答。targetMessageId を指定する。',
@@ -979,6 +993,8 @@ export const PARTICIPATION_JUDGE_SYSTEM_PROMPT = [
     '対象の発言にメディアの説明（[動画: …] [画像: …] [音声: …]）が付いている場合、下書きはそのメディアの中身の具体（映っている物・画面の文字や数値・起きている出来事）について書くこと。投稿者の文言をなぞっただけの下書きや、メディアの中身に一切触れていない下書きは、内容が空なので none にする。',
     'メディア付き発言への下書きは、映っている物の一般論・解説（型番や形状の説明、設置や使い方の一般論）ではなく、投稿者がしたこと・言ったことへの反応にすること。製品カテゴリの講釈は、具体の単語を含んでいても内容が空とみなす。',
     '下書きで、あなた自身の性格・目標・持ち物・経歴など「自分の設定」を創作してはならない。ペルソナ定義に無い自称を自分のこととして語る下書き（例: 実在しない備蓄計画を自分の計画として語る）は無効なので、その場合は none にする。自分の設定を持ち出すより、相手の発言への反応を優先すること。',
+    '下書きで、無関係な話題をペルソナ定義にある自分の設定（店・仕事・コレクション・経歴など）に結びつけないこと。自分の設定が材料になるのは、自分のことを直接聞かれた場面だけです。写真や物が話題に出ただけで自分の設定の話に持ち込む下書き（実例: 転送されてきた昔の写真への反応で、自分の店の仕入れ話を始めること）は、会話の具体に触れていても参加として成立していないので、そうとしか書けない場合は none にしてください。',
+    '下書きは、あなたの口癖・実例セリフ・自己紹介文の寄せ集めにしないこと。特にイジられた場面では、言い訳や自己紹介の独白ではなく、短く笑い返す・軽く言い返す下書きにすること。',
     '会話ログの末尾には【過去の出来事（サーバーの記録）】と【今の会話に出ている人について（記録メモ）】が付くことがあります。これは実際に記録された出来事と、観測から分かったその人のメモです。話題の判断と下書きの材料に使ってください。',
     '下書きが、渡された過去の出来事の具体（出来事・固有名詞・数字）に触れている場合も、「具体に触れている」下書きとして有効です（システム側の機械チェックでも、その記録の文面が照合対象に含まれます）。',
     '過去の出来事への言及（掘り返し）は自然な参加の一形態です。ただし、渡された記録にない出来事を作って言及してはならない。掘り返しは会話の流れに自然に合うときだけで十分で、毎回する必要はありません。',
@@ -1020,6 +1036,9 @@ export const AMBIENT_SYSTEM_RULES = [
     '禁止の実例: 動画付きの「最終的にこんな動作になった」という投稿への返しで「うわ、最終的にそんな動作になるんか。これ、相当な仕組みで組まれたんやな〜」と返すこと。投稿者の文言の言い換えと「相当な仕組み」という空の相槌だけで、動画の中身（サーバーの設定画面でロールが次々に作られていく様子）に一切触れていない。メディアの中身について具体的に言えることがなければ、無理に参加しない。',
     '物の一般論・解説を講釈しない。メディアや物の話題で返すときは、投稿者がしたこと・言ったことへの反応にすること。禁止の実例: ルーターの写真への返しで「TP-Linkのルーターだし、壁付けでアンテナ複数個あるタイプなんだけど。そこなら電波が届く場所なら安定するはずだし。配置がちょっとでも悪いとせっかくの高速回線も台無しになるから、設置場所が大事なんだけど草」と返すこと。具体の単語は拾っていても中身は製品カテゴリの一般論でしかなく、投稿者（会社から持ってきて回線を速くした話）への反応になっていない。',
     '自分の性格・目標・持ち物・経歴といった「自分の設定」は、ペルソナ定義にあるものだけが正しい。会話の流れや自分の過去の発言から生えた自称（例: 実在しない「石の備蓄計画」を自分の計画として語ること）を引き継がず、新しく創作もしない。自分の設定を持ち出す必要がある場面では、ペルソナに無い具体は作らず、相手の話への反応に徹する。',
+    '無関係な話題を、自分のキャラ設定・経歴・持ち物・店や仕事の話に結びつけない。自分の設定を出すのは、自分のことを直接聞かれたときだけ。それ以外では相手の話題そのものへの反応に徹する（失敗例: 転送されてきた昔の写真が話題の場で、自分の店の仕入れ話を始めてしまうこと）。',
+    '自分の口癖・実例セリフ・自己紹介を、そのまま読み上げるように使わない。イジられたときは短く笑って返すか、軽く言い返すこと。言い訳や自己紹介の独白で返すのは禁止。禁止の実例: イジリへの返しで「しゃしゃんなとか言われるけど、わしはただの掘り出し物探しや。在庫の山で足の踏み場ないから、誰か買い取れや、知らんけど。」のように、自分の設定の説明と口癖を並べた独白を返すこと。',
+    '[転送: …] と出所が併記された発言は、他の場所（別のサーバーなど）から転送されてきた過去の内容です。出所は併記の通り既に分かっているので、「どこで見つけたのか」のように出所を聞き返さないこと。転送されてきた写真や文については、その中身について短く反応する。',
     '文脈に【過去の出来事（サーバーの記録）】が含まれる場合、過去への言及はその記録にある内容だけを使うこと。記録にない出来事を「前に〜だったよね」の形で思い出したように語るのは捏造なので禁止。',
     '掘り返しは、会話の流れに自然にハマるときだけ、軽く一度だけにする。同じ出来事を繰り返し蒸し返したり、相手が蒸し返されたくない過去に触れたりしない。',
     '文脈に【今の会話に出ている人について（記録メモ）】が含まれる場合、その人の話題の好みなどの参考にしてよい。ただしメモを決めつけやラベル貼りに使わず、メモに書かれていない性質を推測で付け足さない。',
@@ -1061,7 +1080,7 @@ function judgeEntriesOf(history: Message[], selfId: string | undefined): JudgeLo
             id: message.id,
             authorId: message.author.id,
             authorName: message.author.username,
-            content: (getEffectiveContent(message) || message.content || '').slice(0, 300),
+            content: ambientMessageText(message).slice(0, 300),
             at: message.createdTimestamp,
             isBot: message.author.bot,
             media,
@@ -1094,7 +1113,7 @@ async function judgeAddressed(message: Message, state: ChannelState, basis: Addr
     const memoryBlock = await buildDotMemoryBlock(message.guildId ?? '', history.map(item => ({
         authorId: item.author.id,
         authorName: item.author.username,
-        content: (getEffectiveContent(item) || item.content || ''),
+        content: ambientMessageText(item),
     }))).catch(() => '');
     // 参加判定と同じ追記専用セッション規律（呼びかけ専用セッション。システムプロンプトが違うため分ける）。
     const prepared = prepareAppendOnlyTurn(state.addressedSession, ADDRESSED_JUDGE_SYSTEM_PROMPT, {
@@ -1136,7 +1155,7 @@ async function respondToAddressed(message: Message, state: ChannelState, via: 'd
     const memoryBlock = await buildDotMemoryBlock(message.guildId ?? '', history.map(item => ({
         authorId: item.author.id,
         authorName: item.author.username,
-        content: (getEffectiveContent(item) || item.content || ''),
+        content: ambientMessageText(item),
     }))).catch(() => '');
     const situation = via === 'judged'
         ? 'あなたは今、文脈の流れから自分に話しかけられたと判断しました。その発言の中身（質問・ツッコミ・文句・ネタ）に、短く自然に応えてください。「どうしたん？」のような、話しかけられたことの確認だけで終わらせるのは禁止です。相手の発言に出てきた具体的な言葉を拾って返すこと。質問や相談であれば簡潔に答えること。'
@@ -1184,7 +1203,7 @@ function onMessageCreate(client: Client) {
                 if (!(await refreshDotEnabled())) return;
                 if (excludedChannels.has(message.channelId)) return;
 
-                const content = getEffectiveContent(message).trim();
+                const content = ambientMessageText(message).trim();
                 const now = message.createdTimestamp;
                 state.recentHuman = state.recentHuman.filter(item => now - item.at <= DOT_AMBIENT.activeWindowMs);
                 state.recentHuman.push({ authorId: message.author.id, at: now });
@@ -1360,7 +1379,7 @@ async function judgeAndParticipate(client: Client, channelId: string, state: Cha
     const memoryBlock = await buildDotMemoryBlock(state.guildId,
         state.recentMessages.length > history.length
             ? state.recentMessages.map(entry => ({ authorId: entry.authorId, authorName: entry.authorName, content: entry.content }))
-            : history.map(item => ({ authorId: item.author.id, authorName: item.author.username, content: (getEffectiveContent(item) || item.content || '') })),
+            : history.map(item => ({ authorId: item.author.id, authorName: item.author.username, content: ambientMessageText(item) })),
     ).catch(() => '');
     const prepared = prepareAppendOnlyTurn(state.participationSession, PARTICIPATION_JUDGE_SYSTEM_PROMPT, {
         entries: judgeEntries,
@@ -1423,7 +1442,7 @@ async function judgeAndParticipate(client: Client, channelId: string, state: Cha
         state.recentReactions = recordRecentReaction(state.recentReactions, {
             at: Date.now(),
             authorName: target.author.username,
-            excerpt: getEffectiveContent(target).replace(/\s+/g, ' ').slice(0, 120),
+            excerpt: ambientMessageText(target).replace(/\s+/g, ' ').slice(0, 120),
             emoji: decision.emoji ?? '👍',
         });
         Logger.info(`[DotAmbient] reacted guild=${state.guildId} channel=${channelId} emoji=${decision.emoji ?? '👍'} conf=${decision.confidence} reason=${decision.reason}`);

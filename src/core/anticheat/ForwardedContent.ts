@@ -51,3 +51,57 @@ export function getEffectiveContent(message: { content?: string | null; messageS
         .filter((part) => part.length > 0);
     return parts.join('\n');
 }
+
+/** Origin metadata a snapshot may carry (discord.js snapshots are Message-shaped). */
+export interface ForwardedSnapshotOriginLike extends ForwardedSnapshotLike {
+    createdTimestamp?: number | null;
+    author?: { username?: string | null } | null;
+    guildId?: string | null;
+}
+
+export interface ForwardOrigin {
+    /** 元メッセージの投稿時刻 (epoch ms)。取得できない場合は null。 */
+    at: number | null;
+    /** 元の発言者名。Discord のスナップショットは発言者を含まないことがあり、その場合は null。 */
+    authorName: string | null;
+    /** 元メッセージがこのギルド以外から転送されたものか。判定材料が無ければ null。 */
+    fromOtherGuild: boolean | null;
+}
+
+/**
+ * Origin of the first forwarded snapshot: when it was originally posted,
+ * who posted it (when the payload carries an author) and whether it came
+ * from another guild. Returns null for non-forwarded messages.
+ */
+export function getForwardOrigin(message: { guildId?: string | null; messageSnapshots?: unknown }): ForwardOrigin | null {
+    const snapshots = getForwardedSnapshots(message || {}) as ForwardedSnapshotOriginLike[];
+    if (!snapshots.length) return null;
+    const first = snapshots[0];
+    const at = typeof first.createdTimestamp === 'number' && first.createdTimestamp > 0 ? first.createdTimestamp : null;
+    const authorName = typeof first.author?.username === 'string' && first.author.username ? first.author.username : null;
+    const sourceGuildId = typeof first.guildId === 'string' && first.guildId ? first.guildId : null;
+    const ownGuildId = typeof message?.guildId === 'string' && message.guildId ? message.guildId : null;
+    const fromOtherGuild = sourceGuildId && ownGuildId ? sourceGuildId !== ownGuildId : null;
+    return { at, authorName, fromOtherGuild };
+}
+
+const forwardDateFormatter = new Intl.DateTimeFormat('ja-JP', {
+    timeZone: 'Asia/Tokyo', year: 'numeric', month: '2-digit', day: '2-digit',
+});
+
+/**
+ * Short origin label for a forwarded message, e.g. `[転送: 別サーバーから, 2024/12/09]`.
+ * Empty string for non-forwards. The source guild's NAME is not available
+ * (the bot is not a member of it and the payload carries no name), so a
+ * cross-guild forward is labelled 別サーバーから; the original date and,
+ * when present, the original author's name are included. Derived only from
+ * immutable message fields, so the label is stable for a given message.
+ */
+export function formatForwardAnnotation(message: { guildId?: string | null; messageSnapshots?: unknown }): string {
+    const origin = getForwardOrigin(message || {});
+    if (!origin) return '';
+    const parts = [origin.fromOtherGuild ? '転送: 別サーバーから' : '転送'];
+    if (origin.at) parts.push(forwardDateFormatter.format(new Date(origin.at)));
+    if (origin.authorName) parts.push(origin.authorName);
+    return `[${parts.join(', ')}]`;
+}

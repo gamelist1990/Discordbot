@@ -8,7 +8,7 @@ import { CrossChannelSpamDetector } from '../src/core/anticheat/detectors/CrossC
 import { InviteReferralDetector } from '../src/core/anticheat/detectors/InviteReferralDetector.ts';
 import { MentionSpamDetector } from '../src/core/anticheat/detectors/MentionSpamDetector.ts';
 import { ContentSafetyDetector, SPAM_LABEL } from '../src/core/anticheat/detectors/ContentSafetyDetector.ts';
-import { getEffectiveContent, getForwardedSnapshots, hasForwardedContent } from '../src/core/anticheat/utils.ts';
+import { getEffectiveContent, getForwardedSnapshots, hasForwardedContent, getForwardOrigin, formatForwardAnnotation } from '../src/core/anticheat/utils.ts';
 import { CacheManager } from '../src/utils/CacheManager.ts';
 
 (globalThis as any)._cacheCleanupInterval?.unref?.();
@@ -234,4 +234,49 @@ test('a single benign forward is not flagged by any integrated detector', async 
     } finally {
         globalThis.fetch = previousFetch;
     }
+});
+
+test('forward origin annotation exposes source guild relation and original date', () => {
+    const at = Date.parse('2024-12-09T11:18:58.932Z'); // 2024/12/09 20:18 JST
+    const crossGuild = {
+        content: '',
+        guildId: '890315487962095637',
+        messageSnapshots: new Map([['1315638823593705472', {
+            content: '',
+            createdTimestamp: at,
+            guildId: '1304404938138320926',
+            author: null,
+        }]]),
+    } as any;
+    assert.deepEqual(getForwardOrigin(crossGuild), { at, authorName: null, fromOtherGuild: true });
+    assert.equal(formatForwardAnnotation(crossGuild), '[転送: 別サーバーから, 2024/12/09]');
+
+    const sameGuild = {
+        content: 'これ見て',
+        guildId: '890315487962095637',
+        messageSnapshots: new Map([['m1', {
+            content: '昔の投稿',
+            createdTimestamp: at,
+            guildId: '890315487962095637',
+            author: { username: 'someone' },
+        }]]),
+    } as any;
+    assert.equal(formatForwardAnnotation(sameGuild), '[転送, 2024/12/09, someone]');
+
+    // 日付は JST 基準（16:00 UTC は翌日 01:00 JST）。
+    const lateUtc = {
+        content: '',
+        guildId: 'g1',
+        messageSnapshots: new Map([['m2', { content: '', createdTimestamp: Date.parse('2024-12-09T16:00:00Z'), guildId: 'g2' }]]),
+    } as any;
+    assert.equal(formatForwardAnnotation(lateUtc), '[転送: 別サーバーから, 2024/12/10]');
+
+    // メタデータが無いスナップショットでも「転送」であることだけは示す。
+    const bare = forwardedMessage('u9', '転送本文');
+    assert.equal(formatForwardAnnotation(bare), '[転送]');
+    assert.deepEqual(getForwardOrigin(bare), { at: null, authorName: null, fromOtherGuild: null });
+
+    // 転送でなければ注記なし。
+    assert.equal(formatForwardAnnotation({ content: '普通の投稿', guildId: 'g1' } as any), '');
+    assert.equal(getForwardOrigin({ content: '普通の投稿', guildId: 'g1' } as any), null);
 });
