@@ -35,6 +35,16 @@ export function canGeneratePersona(actor: { permissionLevel: number; isBotOwner:
     return actor.isBotOwner || actor.permissionLevel >= 2;
 }
 
+/**
+ * 方向プロンプトの内容スクリーニング（中核ポリシーの再公開）。
+ * 長さ検証（validatePersonaDirection）を通った方向に対して、性的・被虐/加虐・
+ * 罵倒誘発・未成年設定・差別・過激な攻撃性の指定が含まれていないか検査する。
+ * 結果が sanitize の場合は無害な部分だけに丸めた方向を生成へ渡し、reject の場合は
+ * 理由を利用者へ返す。どちらの場合も呼び出し側で監査ログに残すこと。
+ */
+export { screenPersonaDirection, type PersonaDirectionScreenResult } from '../../../core/ai/PersonaContentPolicy.js';
+export { PERSONA_RISK_CATEGORY_LABELS, type PersonaRiskCategory } from '../../../core/ai/PersonaContentPolicy.js';
+
 /** 方向プロンプトの検証。未指定は空として扱い、上限を超えたら拒否する。 */
 export function validatePersonaDirection(value: unknown): { ok: true; direction: string } | { ok: false; error: string } {
     if (value === undefined || value === null) return { ok: true, direction: '' };

@@ -32,7 +32,9 @@ import {
     createPersonaPreview,
     peekPersonaPreview,
     isBotOwnerSession,
+    PERSONA_RISK_CATEGORY_LABELS,
     PersonaGenerationLimiter,
+    screenPersonaDirection,
     validatePersonaDirection,
 } from './personaGenerationGuard.js';
 
@@ -201,14 +203,30 @@ export function createStaffAIRoutes(sessions: Map<string, SettingsSession>, _bot
         if (!validated.ok) {
             res.status(400).json({ error: validated.error }); return;
         }
+        // 内容スクリーニング: 性的・被虐的な指定などは生成へ渡さない。無害な部分だけに
+        // 丸められる場合は丸めて生成し（監査ログ＋利用者への通知つき）、全体が不適切な
+        // 指定だけなら理由を返して拒否する。
+        const screened = screenPersonaDirection(validated.direction);
+        if (screened.action === 'reject') {
+            Logger.warn(`[PersonaAudit] action=direction-rejected guild=${guildId} user=${session.userId} (${session.username ?? ''}) categories=${screened.categories.join(',')} direction=${JSON.stringify(validated.direction.slice(0, 80))}`);
+            res.status(400).json({ error: screened.reason, reason: 'direction-content', categories: screened.categories }); return;
+        }
+        if (screened.action === 'sanitize') {
+            Logger.info(`[PersonaAudit] action=direction-sanitized guild=${guildId} user=${session.userId} (${session.username ?? ''}) categories=${screened.categories.join(',')} removedClauses=${screened.removedClauses.length} direction=${JSON.stringify(screened.direction.slice(0, 80))}`);
+        }
         if (!beginPersonaGeneration(res, guildId, session.userId)) return;
         try {
-            const { draft, base } = await generateGuildAIPersonaDraft(guildId, validated.direction || undefined);
+            const { draft, base } = await generateGuildAIPersonaDraft(guildId, screened.direction || undefined);
             const previewId = createPersonaPreview({
                 guildId, userId: session.userId, persona: draft, basePersonaFingerprint: personaContentFingerprint(base),
             });
-            Logger.info(`[PersonaAudit] action=preview guild=${guildId} user=${session.userId} (${session.username ?? ''}) direction=${JSON.stringify(validated.direction.slice(0, 80))} persona=${draft.name}`);
-            res.json({ previewId, persona: draft, expiresInSeconds: 600 });
+            Logger.info(`[PersonaAudit] action=preview guild=${guildId} user=${session.userId} (${session.username ?? ''}) direction=${JSON.stringify(screened.direction.slice(0, 80))} persona=${draft.name}`);
+            res.json({
+                previewId, persona: draft, expiresInSeconds: 600,
+                ...(screened.action === 'sanitize'
+                    ? { directionNotice: `方向の一部（${screened.categories.map(category => PERSONA_RISK_CATEGORY_LABELS[category]).join('・')}）は使えないため取り除いて生成しました` }
+                    : {}),
+            });
         } catch {
             res.status(500).json({ error: 'AIの性格を生成できませんでした' });
         } finally {

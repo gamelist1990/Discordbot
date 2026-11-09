@@ -290,6 +290,10 @@ const StaffAIPage: React.FC = () => {
       });
       if (selectedGuild === selectedGuildRef.current) {
         setPersonaPreview({ previewId: data.previewId as string, persona: data.persona as Persona });
+        // 方向の一部が内容ポリシーで取り除かれた場合は、その旨を利用者へ伝える。
+        if (typeof data.directionNotice === 'string' && data.directionNotice) {
+          addToast(data.directionNotice, 'info');
+        }
       }
     } catch (e) {
       const message = e instanceof Error ? e.message : 'AIの性格を生成できませんでした';
