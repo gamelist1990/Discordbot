@@ -315,20 +315,20 @@ export async function parseDecisionWithRetry(
 }
 
 /**
- * 生成リクエスト自体がエラーで落ちた場合に、最小文脈で組み立て直した再試行へ切り替える。
- * 文脈側の文字列が原因で中継（EndPoint）が 400 を返すケースでも、履歴を落とせば大抵は通る。
- * 再試行も落ちた場合はそのエラーをそのまま投げる（失敗としての記録は呼び出し側に委ねる）。
+ * 生成は1回だけ試し、失敗したらその回は沈黙する（null を返す）。
+ * 以前は失敗時に履歴やルールを落とした「最小文脈」で組み立て直して再試行していたが、
+ * 文脈を削られた再生成がそのまま投稿され、会話を無視した暴走発言を生んだ（2026-11-09）。
+ * 文脈を削った再生成は二度と行わない。失敗は onFailure でログに残す。
  */
-export async function generateWithContextFallback<T>(
+export async function tryGenerateOnce<T>(
     primary: () => Promise<T>,
-    minimalRetry: () => Promise<T>,
-    onRetry?: (error: unknown) => void,
-): Promise<T> {
+    onFailure?: (error: unknown) => void,
+): Promise<T | null> {
     try {
         return await primary();
     } catch (error) {
-        onRetry?.(error);
-        return await minimalRetry();
+        onFailure?.(error);
+        return null;
     }
 }
 
@@ -977,6 +977,8 @@ export const PARTICIPATION_JUDGE_SYSTEM_PROMPT = [
     '「サーバーの雰囲気・空気・カオスさ・この鯖の魅力」のような、雰囲気そのものへの感想は参加内容として認めない。学習した雰囲気の要約の言い換えは中身ではない。悪い参加の実例: 対象が「鯖」という断片（誰かのサーバーの話）しかない場面で「いろんな話が飛び交う、まじでカオスな空間だよね。」のようなサーバーの雰囲気感想を返すこと。対象の話題（誰の・何のサーバーか）に何も言えていないので、この場合は none が正解。',
     '下書きは対象発言の話題そのもの（人名・物・出来事などの具体）について言える内容でなければならない。対象が断片的で、文脈から話題が分かっても、その話題について具体的に言えることがなければ none。',
     '対象の発言にメディアの説明（[動画: …] [画像: …] [音声: …]）が付いている場合、下書きはそのメディアの中身の具体（映っている物・画面の文字や数値・起きている出来事）について書くこと。投稿者の文言をなぞっただけの下書きや、メディアの中身に一切触れていない下書きは、内容が空なので none にする。',
+    'メディア付き発言への下書きは、映っている物の一般論・解説（型番や形状の説明、設置や使い方の一般論）ではなく、投稿者がしたこと・言ったことへの反応にすること。製品カテゴリの講釈は、具体の単語を含んでいても内容が空とみなす。',
+    '下書きで、あなた自身の性格・目標・持ち物・経歴など「自分の設定」を創作してはならない。ペルソナ定義に無い自称を自分のこととして語る下書き（例: 実在しない備蓄計画を自分の計画として語る）は無効なので、その場合は none にする。自分の設定を持ち出すより、相手の発言への反応を優先すること。',
     '会話ログの末尾には【過去の出来事（サーバーの記録）】と【今の会話に出ている人について（記録メモ）】が付くことがあります。これは実際に記録された出来事と、観測から分かったその人のメモです。話題の判断と下書きの材料に使ってください。',
     '下書きが、渡された過去の出来事の具体（出来事・固有名詞・数字）に触れている場合も、「具体に触れている」下書きとして有効です（システム側の機械チェックでも、その記録の文面が照合対象に含まれます）。',
     '過去の出来事への言及（掘り返し）は自然な参加の一形態です。ただし、渡された記録にない出来事を作って言及してはならない。掘り返しは会話の流れに自然に合うときだけで十分で、毎回する必要はありません。',
@@ -1016,6 +1018,8 @@ export const AMBIENT_SYSTEM_RULES = [
     '添付メディアは [画像: …] [動画: …] [音声: …] の形で内容が併記されます。併記がある話題では、その内容に即して話してください。メディアを見ていない前提の返しや、写真への感想を自分（Bot）への話だと決めつける返しはしないこと。',
     'メディアの説明がある話題で返すときは、必ずその中身の具体（映っている物・画面の文字や数値・起きている出来事）に触れる。投稿者の言葉をなぞるだけのオウム返しや、中身に触れない汎用相槌で済ませるのは禁止。',
     '禁止の実例: 動画付きの「最終的にこんな動作になった」という投稿への返しで「うわ、最終的にそんな動作になるんか。これ、相当な仕組みで組まれたんやな〜」と返すこと。投稿者の文言の言い換えと「相当な仕組み」という空の相槌だけで、動画の中身（サーバーの設定画面でロールが次々に作られていく様子）に一切触れていない。メディアの中身について具体的に言えることがなければ、無理に参加しない。',
+    '物の一般論・解説を講釈しない。メディアや物の話題で返すときは、投稿者がしたこと・言ったことへの反応にすること。禁止の実例: ルーターの写真への返しで「TP-Linkのルーターだし、壁付けでアンテナ複数個あるタイプなんだけど。そこなら電波が届く場所なら安定するはずだし。配置がちょっとでも悪いとせっかくの高速回線も台無しになるから、設置場所が大事なんだけど草」と返すこと。具体の単語は拾っていても中身は製品カテゴリの一般論でしかなく、投稿者（会社から持ってきて回線を速くした話）への反応になっていない。',
+    '自分の性格・目標・持ち物・経歴といった「自分の設定」は、ペルソナ定義にあるものだけが正しい。会話の流れや自分の過去の発言から生えた自称（例: 実在しない「石の備蓄計画」を自分の計画として語ること）を引き継がず、新しく創作もしない。自分の設定を持ち出す必要がある場面では、ペルソナに無い具体は作らず、相手の話への反応に徹する。',
     '文脈に【過去の出来事（サーバーの記録）】が含まれる場合、過去への言及はその記録にある内容だけを使うこと。記録にない出来事を「前に〜だったよね」の形で思い出したように語るのは捏造なので禁止。',
     '掘り返しは、会話の流れに自然にハマるときだけ、軽く一度だけにする。同じ出来事を繰り返し蒸し返したり、相手が蒸し返されたくない過去に触れたりしない。',
     '文脈に【今の会話に出ている人について（記録メモ）】が含まれる場合、その人の話題の好みなどの参考にしてよい。ただしメモを決めつけやラベル貼りに使わず、メモに書かれていない性質を推測で付け足さない。',
@@ -1112,16 +1116,12 @@ async function judgeAddressed(message: Message, state: ChannelState, basis: Addr
                 usageContext: { guildId: message.guildId ?? undefined, purpose: 'dot-judge' } }),
         (raw, attempt) => Logger.warn(`[DotAmbient] addressed judge parse failed guild=${message.guildId} channel=${message.channelId} attempt=${attempt}/2 raw=${JSON.stringify(raw.slice(0, 200))}`),
     );
-    // 生成リクエスト自体が落ちた場合は、履歴なし（対象メッセージのみの文脈）で組み立て直して再試行する。
-    // それでも落ちたら null を返す（呼び出し側の名前呼びフォールバック判定に委ねる）。
-    return generateWithContextFallback(
+    // 生成リクエスト自体が落ちたら、その回は判定しない（文脈を削った再判定はしない）。
+    // null を返すと、呼び出し側は名前呼びフォールバック判定に委ねる。
+    return tryGenerateOnce(
         async () => { const decision = await runJudge(prepared.messages); prepared.commit(); return decision; },
-        () => runJudge([
-            { role: 'system', content: ADDRESSED_JUDGE_SYSTEM_PROMPT },
-            { role: 'user', content: sanitizeAiText(`直近の会話:\n${formatContext([message], selfId)}\n\n対象メッセージ: ${authorName}: ${candidate}`) },
-        ]),
-        error => Logger.warn(`[DotAmbient] addressed judge request failed guild=${message.guildId} channel=${message.channelId}; retrying with minimal context:`, error),
-    ).catch(() => null);
+        error => Logger.warn(`[DotAmbient] addressed judge request failed guild=${message.guildId} channel=${message.channelId}; not judging this time (no stripped-context retry):`, error),
+    );
 }
 
 /** 呼びかけへの応答。direct=メンション/返信の確定信号、judged=モデルが文脈で話しかけられたと判定。 */
@@ -1144,12 +1144,11 @@ async function respondToAddressed(message: Message, state: ChannelState, via: 'd
     // 生成中ずっと「入力中…」が見えるよう、生成開始から送信完了（または失敗）まで typing を維持する。
     const stopTyping = 'sendTyping' in channel ? startTypingKeepAlive(channel) : () => undefined;
     try {
-        // 生成が文脈側の事情で落ちたら、履歴なし（対象メッセージ＋状況文だけの最小文脈）で1回だけ組み立て直す。
-        // 再試行も落ちた場合に初めて、呼び出し側が「addressed response failed」として記録する。
-        const replyText = await generateWithContextFallback(
+        // 生成が落ちたら、その回は返信しない。文脈（ルール・ペルソナ・会話履歴）を削った
+        // 再生成は、文脈無視の発言がそのまま投稿される事故の原因になったため廃止した。
+        const replyText = await tryGenerateOnce(
             () => generateAmbientReply(message.guildId ?? '', context, situation, memoryBlock),
-            () => generateAmbientReply(message.guildId ?? '', formatContext([message], message.client.user?.id), situation, memoryBlock),
-            error => Logger.warn(`[DotAmbient] addressed reply generation failed guild=${message.guildId} channel=${message.channelId}; retrying with minimal context:`, error),
+            error => Logger.warn(`[DotAmbient] addressed reply generation failed guild=${message.guildId} channel=${message.channelId}; not posting (no stripped-context retry):`, error),
         );
         if (!replyText) return;
         await sleepMs(ambientSendDelayMs('addressed', Math.random()));
@@ -1383,17 +1382,12 @@ async function judgeAndParticipate(client: Client, channelId: string, state: Cha
                 usageContext: { guildId: state.guildId, purpose: 'dot-judge' } }),
         (raw, attempt) => Logger.warn(`[DotAmbient] participation judge parse failed guild=${state.guildId} channel=${channelId} trigger=${trigger} attempt=${attempt}/2 raw=${JSON.stringify(raw.slice(0, 200))}`),
     );
-    const latestHumanMessage = [...history].reverse().find(item => !item.author.bot) ?? history[history.length - 1];
-    // 生成リクエスト自体が落ちた場合は、最新の人間の発言だけの最小文脈で再試行する。それでも落ちたら参加しない。
-    // フォールバック時はセッションへ確定しない（見ていない追記は次回もう一度送る）。
-    const decision = await generateWithContextFallback(
+    // 生成リクエスト自体が落ちたら、その回は参加しない（文脈を削った再判定はしない）。
+    // 失敗時はセッションへ確定しない（見ていない追記は次回もう一度送る）。
+    const decision = await tryGenerateOnce(
         async () => { const d = await runJudge(prepared.messages); prepared.commit(); return d; },
-        () => runJudge([
-            { role: 'system', content: PARTICIPATION_JUDGE_SYSTEM_PROMPT },
-            { role: 'user', content: sanitizeAiText(`あなたの状態: ${presence === 'engaged' ? 'このチャンネルでは会話に参加中（engaged）' : 'このチャンネルでは様子見中（lurking）'}\nきっかけ: ${trigger}\n直近の会話:\n${formatContext([latestHumanMessage], client.user?.id)}`) },
-        ]),
-        error => Logger.warn(`[DotAmbient] participation judge request failed guild=${state.guildId} channel=${channelId} trigger=${trigger}; retrying with minimal context:`, error),
-    ).catch(() => null);
+        error => Logger.warn(`[DotAmbient] participation judge request failed guild=${state.guildId} channel=${channelId} trigger=${trigger}; not participating this time (no stripped-context retry):`, error),
+    );
     if (!shouldExecuteParticipation(decision, presence)) {
         Logger.debug(`[DotAmbient] pass guild=${state.guildId} channel=${channelId} trigger=${trigger} decision=${decision ? `action=${decision.action} conf=${decision.confidence}` : 'null'}`);
         return;

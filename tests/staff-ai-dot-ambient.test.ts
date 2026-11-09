@@ -13,7 +13,7 @@ import {
     shouldFallbackToAddressed,
     parseDecisionWithRetry,
     sanitizeAiText,
-    generateWithContextFallback,
+    tryGenerateOnce,
     presenceOf,
     evaluateEvaluationTrigger,
     ambientSendDelayMs,
@@ -348,58 +348,38 @@ test('sanitize: unsafe control characters are dropped, newline/tab/CR are kept',
     assert.equal(sanitizeAiText('普通のテキスト'), '普通のテキスト');
 });
 
-test('generation fallback: reply generation retries once with minimal context on request failure', async () => {
-    // (b) 応答生成が1回失敗しても、最小文脈で組み立て直した再試行の結果が使われる
+test('generation: a failed generation is never retried with stripped context (stays silent)', async () => {
+    // (b) 応答生成が失敗したら、その回は沈黙する。履歴やルールを落とした「最小文脈」での
+    // 再生成は二度と行わない（2026-11-09: 削られた再生成がそのまま投稿され暴走発言になった）。
     let primaryCalls = 0;
-    let fallbackCalls = 0;
-    const retriedErrors: unknown[] = [];
-    const value = await generateWithContextFallback(
-        async () => { primaryCalls++; throw new Error('400 [proxy-error-body] Failed to parse the request body as JSON'); },
-        async () => { fallbackCalls++; return 'ご挨拶の返信'; },
-        error => { retriedErrors.push(error); },
+    const failures: unknown[] = [];
+    const value = await tryGenerateOnce(
+        async () => { primaryCalls++; throw new Error('502 AI provider is unavailable'); },
+        error => { failures.push(error); },
     );
-    assert.equal(value, 'ご挨拶の返信');
+    assert.equal(value, null);
+    // 生成は完全な文脈で1回だけ。フォールバックの再生成は存在しない。
     assert.equal(primaryCalls, 1);
-    assert.equal(fallbackCalls, 1);
-    assert.equal(retriedErrors.length, 1);
-    // 1回目が成功すれば再試行は走らない
-    let unusedFallback = 0;
-    const ok = await generateWithContextFallback(
-        async () => '通常の返信',
-        async () => { unusedFallback++; return 'unused'; },
-    );
+    assert.equal(failures.length, 1);
+    // 成功すればその値がそのまま返る
+    const ok = await tryGenerateOnce(async () => '通常の返信');
     assert.equal(ok, '通常の返信');
-    assert.equal(unusedFallback, 0);
-    // 再試行も失敗したら、そのエラーが呼び出し側へ伝播する（失敗として記録される）
-    await assert.rejects(
-        generateWithContextFallback(
-            async () => { throw new Error('first failure'); },
-            async () => { throw new Error('second failure'); },
-        ),
-        /second failure/,
-    );
 });
 
-test('generation fallback: judge request errors retry with minimal context before returning null', async () => {
-    // (c) 判定の生成エラー時は最小文脈で再試行し、再試行の応答が解釈できればそれを使う
-    let seenContexts: string[] = [];
-    const runJudge = async (contextText: string) => {
-        seenContexts.push(contextText);
-        if (contextText === 'full-context') throw new Error('400 [proxy-error-body]');
-        return '{"action":"reply","confidence":0.9}';
-    };
-    const decision = await generateWithContextFallback(
-        () => parseDecisionWithRetry(() => runJudge('full-context')),
-        () => parseDecisionWithRetry(() => runJudge('minimal-context')),
-    ).catch(() => null);
-    assert.deepEqual(seenContexts, ['full-context', 'minimal-context']);
-    assert.equal(decision?.action, 'reply');
-    // 再試行も生成エラーなら null（従来どおり無言＋フォールバック判定へ）
-    const failed = await generateWithContextFallback(
-        () => parseDecisionWithRetry(async () => { throw new Error('400'); }),
-        () => parseDecisionWithRetry(async () => { throw new Error('400 again'); }),
-    ).catch(() => null);
-    assert.equal(failed, null);
+test('generation: judge request errors return null without a minimal-context retry', async () => {
+    // (c) 判定の生成エラー時も、文脈を削った再判定はしない。試行は完全な文脈で1回だけ。
+    let judgeCalls = 0;
+    const decision = await tryGenerateOnce(
+        () => parseDecisionWithRetry(async () => { judgeCalls++; throw new Error('400 [proxy-error-body]'); }),
+        () => undefined,
+    );
+    assert.equal(decision, null);
+    assert.equal(judgeCalls, 1);
+    // 解釈できる応答が返れば判定はそのまま使われる
+    const parsed = await tryGenerateOnce(
+        () => parseDecisionWithRetry(async () => '{"action":"reply","confidence":0.9}'),
+    );
+    assert.equal(parsed?.action, 'reply');
 });
 
 test('typing keep-alive resends on interval until stopped, and stopping is idempotent', () => {
