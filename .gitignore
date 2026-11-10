@@ -19,3 +19,8 @@ Database
 .claude/settings.local.json
 assets/youtube/youtube-cookies.json
 /test-results/safety-samples/
+
+# local backups / test artifacts (never commit)
+*.backup-*
+config.json.backup-*
+test-results/
