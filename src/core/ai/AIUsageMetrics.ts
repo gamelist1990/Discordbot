@@ -18,7 +18,7 @@ import { database } from '../persistence/Database.js';
  *   LfmContentClassifier）で、HTTP レスポンス単位に usage を記録する。
  *   ツールラウンドや再試行はそれぞれ実リクエストなので個別に数える。
  * - KVヒット率の定義は全経路で統一: cached prompt tokens ÷ total prompt tokens。
- *   cached の取得元は実測で確定済み（2026-11-07、EndPoint 経由 gemma-4-E4B-it）:
+ *   cached の取得元は実測で確定済み（2026-11-07、EndPoint 経由 gemma-4-12B-it）:
  *   Chat Completions は usage.prompt_tokens_details.cached_tokens、
  *   Responses は usage.input_tokens_details.cached_tokens が Bot 側まで届き、
  *   どちらも timings.cache_n と一致し、prompt_tokens = cache_n + prompt_n が成立する。

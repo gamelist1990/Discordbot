@@ -20,7 +20,7 @@ const execFileAsync = promisifyFn(execFileCallback);
  * というコストと確実性のバランスを取る。説明できなかったメディアは「内容未確認」の
  * プレースホルダで存在だけは伝える（見えないまま本文だけで誤読する事故を防ぐ）。
  *
- * 経路は本番稼働中のものと同じ: EndPoint（config.pexAi.endpoint）経由の gemma-4-E4B-it。
+ * 経路は本番稼働中のものと同じ: EndPoint（config.pexAi.endpoint）経由の gemma-4-12B-it。
  * 実リクエストで確認済み（2026-11-07）: 画像=image_url、動画=video_url、音声=input_audio(wav)
  * の3形式とも現行スタック（EndPoint→A8ゲートウェイのカスタムビルド+mmproj）で処理できる。
  * 音声は OGG/Opus 等のデコード可否がランタイム依存のため、ffmpeg で 16kHz mono WAV に
