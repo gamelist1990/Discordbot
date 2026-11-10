@@ -1056,7 +1056,7 @@ async function generateAmbientReply(guildId: string, context: string, situation:
     const text = await chatManager.generateText([
         { role: 'system', content: AMBIENT_SYSTEM_RULES },
         { role: 'user', content: sanitizeAiText(`直近の会話:\n${context}\n\n${situation}${personaBlock || personalityPrompt ? `\n\n${[personaBlock, personalityPrompt].filter(Boolean).join('\n')}` : ''}${memoryBlock ? `\n\n${memoryBlock}` : ''}`) },
-    ], { model: GEMMA_MODEL, strictModel: true, maxTokens: DOT_AMBIENT.generationMaxTokens, priority: 'background',
+    ], { model: GEMMA_MODEL, strictModel: true, maxTokens: DOT_AMBIENT.generationMaxTokens, priority: 'background', chatTemplateKwargs: { enable_thinking: false },
         usageContext: { guildId, purpose: 'dot-generate' } });
     return text.trim();
 }
@@ -1169,7 +1169,10 @@ async function respondToAddressed(message: Message, state: ChannelState, via: 'd
             () => generateAmbientReply(message.guildId ?? '', context, situation, memoryBlock),
             error => Logger.warn(`[DotAmbient] addressed reply generation failed guild=${message.guildId} channel=${message.channelId}; not posting (no stripped-context retry):`, error),
         );
-        if (!replyText) return;
+        if (!replyText) {
+            Logger.warn(`[DotAmbient] addressed reply generation returned empty guild=${message.guildId} channel=${message.channelId}; not posting`);
+            return;
+        }
         await sleepMs(ambientSendDelayMs('addressed', Math.random()));
         const sent = await message.reply({ content: replyText.slice(0, 1900) }).catch(() => null);
         if (sent) {
@@ -1464,7 +1467,10 @@ async function judgeAndParticipate(client: Client, channelId: string, state: Cha
     const stopTyping = 'sendTyping' in channel ? startTypingKeepAlive(channel) : () => undefined;
     try {
         const replyText = await generateAmbientReply(state.guildId, context, situation, memoryBlock);
-        if (!replyText) return;
+        if (!replyText) {
+            Logger.warn(`[DotAmbient] ambient reply generation returned empty guild=${state.guildId} channel=${channel.id}; not posting`);
+            return;
+        }
 
         await sleepMs(ambientSendDelayMs('join', Math.random()));
 
