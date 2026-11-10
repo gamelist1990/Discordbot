@@ -7,7 +7,7 @@ import { fillMissingConfig } from './utils/configDefaults.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-export const GEMMA_MODEL = 'gemma-4-E4B-it';
+export const GEMMA_MODEL = 'gemma-4-26B-A4B-it';
 export const LFM3_MODEL = 'lfm3';
 
 export interface AppConfig {
