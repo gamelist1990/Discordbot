@@ -96,6 +96,10 @@ export const DOT_AMBIENT = {
     // （2026-11-08 A/B検証で敵対的な呼びかけ文脈で3回中2回が空応答）。空応答は無言になるだけ
     // なので、予算を広げて本文が返る側に倒す（ユーザーの「予算は十分に大きく」方針にも沿う）。
     generationMaxTokens: 2048,
+    // 送信前ゲート: 自分の直近の投稿と文字3グラムJaccardがこれ以上似た返信は「同じ話の繰り返し」として送らない。
+    // 実測（2026-11-11の説教反復ペア）: 反復ペア 0.227 / 同話題の別内容 0.057 / 無関係 0.000。
+    selfRepeatMaxSimilarity: 0.15,
+    selfRepeatMinChars: 20,
     learningMaxTokens: 1600,
     mediaDescribeMaxPerMessage: 2,
     mediaEnsureMaxPerCall: 3,
@@ -701,6 +705,8 @@ export interface BufferedMessage {
     isBot: boolean;
     /** 添付メディア（説明は DotAmbientMedia 側で非同期に付く。無ければ空配列） */
     media: DotMediaItem[];
+    /** 返信先の発言者（Discordの返信機能で参照されたユーザー）。会話の応答関係をモデルに見せるために保持する */
+    replyTo?: { authorId: string; authorName: string };
 }
 
 /**
@@ -716,15 +722,26 @@ export function ambientMessageText(message: { content?: string | null; guildId?:
     return body ? `${annotation} ${body}` : annotation;
 }
 
+export function replyTargetOf(message: { mentions?: { repliedUser?: { id: string; username: string } | null } | null }): { authorId: string; authorName: string } | undefined {
+    const user = message.mentions?.repliedUser;
+    return user ? { authorId: user.id, authorName: user.username } : undefined;
+}
+
+function formatReplyAnnotation(replyTo: { authorId: string; authorName: string } | undefined, selfId: string | undefined): string {
+    if (!replyTo) return '';
+    return replyTo.authorId === selfId ? ' (→ 自分への返信)' : ` (→ ${sanitizeAiText(replyTo.authorName)}への返信)`;
+}
+
 function formatContext(messages: Message[], selfId: string | undefined): string {
     return messages
         .map(message => {
             const name = message.author.id === selfId ? '(自分=このBot)' : sanitizeAiText(message.author.username);
+            const replyMark = formatReplyAnnotation(replyTargetOf(message), selfId);
             const textBody = ambientMessageText(message).replace(/\s+/g, ' ').slice(0, 300);
             // 添付メディアは説明文（未確認なら存在プレースホルダ）を併記し、本文だけでの誤読を防ぐ。
             // サニタイズは連結後の全体に適用する（単独サロゲート対策）。
             const body = sanitizeAiText([textBody, formatMediaNotes(mediaItemsOf(message))].filter(Boolean).join(' ')) || '(本文なし)';
-            return `[${message.id}] ${name}: ${body}`;
+            return `[${message.id}] ${name}${replyMark}: ${body}`;
         })
         .join('\n');
 }
@@ -738,7 +755,7 @@ function formatBuffered(messages: BufferedMessage[], selfId: string | undefined,
             const body = sanitizeAiText([textBody, formatMediaNotes(entry.media)].filter(Boolean).join(' ')) || '(本文なし)';
             const mins = Math.floor((now - entry.at) / 60_000);
             const when = mins >= 1 ? ` (${mins}分前)` : '';
-            return `[${entry.id}] ${name}${when}: ${body}`;
+            return `[${entry.id}] ${name}${when}${formatReplyAnnotation(entry.replyTo, selfId)}: ${body}`;
         })
         .join('\n');
 }
@@ -797,7 +814,7 @@ export function formatJudgeLogLine(entry: BufferedMessage, selfId: string | unde
     const name = entry.authorId === selfId ? '(自分=このBot)' : sanitizeAiText(entry.authorName);
     const textBody = entry.content.replace(/\s+/g, ' ').slice(0, 300);
     const body = sanitizeAiText([textBody, formatMediaNotes(entry.media)].filter(Boolean).join(' ')) || '(本文なし)';
-    return `[${entry.id}] ${name}: ${body}`;
+    return `[${entry.id}] ${name}${formatReplyAnnotation(entry.replyTo, selfId)}: ${body}`;
 }
 
 export interface JudgeLogEntry {
@@ -1112,8 +1129,68 @@ export const AMBIENT_SYSTEM_RULES = [
     '文脈に【過去の出来事（サーバーの記録）】が含まれる場合、過去への言及はその記録にある内容だけを使うこと。記録にない出来事を「前に〜だったよね」の形で思い出したように語るのは捏造なので禁止。',
     '掘り返しは、会話の流れに自然にハマるときだけ、軽く一度だけにする。同じ出来事を繰り返し蒸し返したり、相手が蒸し返されたくない過去に触れたりしない。',
     '文脈に【今の会話に出ている人について（記録メモ）】が含まれる場合、その人の話題の好みなどの参考にしてよい。ただしメモを決めつけやラベル貼りに使わず、メモに書かれていない性質を推測で付け足さない。',
+    '自分への返信で間違いや勘違いを指摘されたら、同じ主張を繰り返したり講釈で押し切ったりせず、短く認めて笑って流す。',
+    '中国語の単語や簡体字（例: 「規劃」）を混ぜない。日本語として自然な漢字と表現だけを使う。',
     '最新情報や相手がWeb検索を依頼した場合はweb_searchを実行して事実と出典URLを確認する。推測で検索済みと装わない。雑談では検索しない。サーバーの話し方設定と学習した雰囲気に合わせる。',
 ].join('\n');
+
+/**
+ * 中国語混入の機械検出（純粋関数）。簡体字特有の字形と中国語の複合語だけを対象にし、
+ * 日本語で普通に使う漢字（給・着・没・点など）は含めない。Qwen系は日本語に中国語を
+ * 混ぜる癖があり（例: 「合理規劃」）、プロンプトの注意だけでは止まらなかったための担保。
+ */
+const SIMPLIFIED_ONLY_CHARS: ReadonlySet<string> = new Set([...'么们这为对时过还让从现谁虽东车马鸟鱼爱开关问说语读听买卖间麽']);
+const CHINESE_COMPOUNDS: readonly string[] = ['規劃', '计划', '应该', '觉得', '知道'];
+
+export function detectChineseBleed(text: string): string | null {
+    for (const compound of CHINESE_COMPOUNDS) if (text.includes(compound)) return compound;
+    for (const ch of text) if (SIMPLIFIED_ONLY_CHARS.has(ch)) return ch;
+    return null;
+}
+
+function charTrigrams(text: string): Set<string> {
+    const normalized = text.replace(/[\s\p{P}\p{S}]/gu, '');
+    const grams = new Set<string>();
+    for (let i = 0; i + 3 <= normalized.length; i++) grams.add(normalized.slice(i, i + 3));
+    return grams;
+}
+
+/** 2文の類似度（文字3グラムのJaccard）。日本語の言い換え反復を拾うための機械指標。 */
+export function replySimilarity(a: string, b: string): number {
+    const A = charTrigrams(a);
+    const B = charTrigrams(b);
+    if (A.size === 0 || B.size === 0) return 0;
+    let intersection = 0;
+    for (const gram of A) if (B.has(gram)) intersection++;
+    return intersection / (A.size + B.size - intersection);
+}
+
+/**
+ * 新しい返信が、自分の直近の投稿と同じ話の繰り返しになっていないか（純粋関数）。
+ * 「同じ文型・言い回しを繰り返さない」というプロンプト規律だけでは、同じ趣旨の
+ * 説教を言い換えて繰り返す事故（2026-11-11）が止まらなかったための機械担保。
+ * 短い相槌（「草」「まじ〜」等）は対象外。
+ */
+export function findSelfRepetition(replyText: string, ownPrevious: readonly string[]): string | null {
+    if (replyText.replace(/\s+/g, '').length < DOT_AMBIENT.selfRepeatMinChars) return null;
+    for (const previous of ownPrevious) {
+        if (replySimilarity(replyText, previous) >= DOT_AMBIENT.selfRepeatMaxSimilarity) return previous;
+    }
+    return null;
+}
+
+export type AmbientReplyBlock = 'self-repetition' | 'chinese-bleed';
+
+/** 送信直前の最終ゲート。ブロック理由を返し、問題なければ null。 */
+export function checkAmbientReply(replyText: string, ownPrevious: readonly string[]): AmbientReplyBlock | null {
+    if (detectChineseBleed(replyText)) return 'chinese-bleed';
+    if (findSelfRepetition(replyText, ownPrevious)) return 'self-repetition';
+    return null;
+}
+
+function ownPreviousReplies(state: ChannelState): string[] {
+    return state.recentMessages.filter(entry => state.dotPostIds.has(entry.id)).map(entry => entry.content);
+}
 
 async function generateAmbientReply(guildId: string, context: string, situation: string, memoryBlock = '', webRequest = ''): Promise<string> {
     const personality = await ensureGuildAIPersona(guildId, false);
@@ -1172,6 +1249,7 @@ function judgeEntriesOf(history: Message[], selfId: string | undefined): JudgeLo
             at: message.createdTimestamp,
             isBot: message.author.bot,
             media,
+            replyTo: replyTargetOf(message),
         };
         return { id: entry.id, at: entry.at, text: formatJudgeLogLine(entry, selfId), mediaNotes: formatMediaNotes(media) };
     });
@@ -1261,6 +1339,11 @@ async function respondToAddressed(message: Message, state: ChannelState, via: 'd
             Logger.warn(`[DotAmbient] addressed reply generation returned empty guild=${message.guildId} channel=${message.channelId}; not posting`);
             return;
         }
+        const addressedBlock = checkAmbientReply(replyText, ownPreviousReplies(state));
+        if (addressedBlock) {
+            Logger.info(`[DotAmbient] addressed reply blocked (${addressedBlock}) guild=${message.guildId} channel=${message.channelId}; not posting`);
+            return;
+        }
         await sleepMs(ambientSendDelayMs('addressed', Math.random()));
         const sent = await message.reply({ content: replyText.slice(0, 1900) }).catch(() => null);
         if (sent) {
@@ -1282,7 +1365,7 @@ function onMessageCreate(client: Client) {
                 const state = stateFor(message);
                 if (message.author.id === client.user?.id) {
                     state.lastBotMessageAt = message.createdTimestamp;
-                    pushBuffered(state, { id: message.id, authorId: message.author.id, authorName: message.author.username, content: (message.content ?? '').replace(/\s+/g, ' ').slice(0, 300), at: message.createdTimestamp, isBot: true, media: [] });
+                    pushBuffered(state, { id: message.id, authorId: message.author.id, authorName: message.author.username, content: (message.content ?? '').replace(/\s+/g, ' ').slice(0, 300), at: message.createdTimestamp, isBot: true, media: [], replyTo: replyTargetOf(message) });
                     if (!state.dotPostIds.has(message.id)) {
                         state.lastOtherBotMessageAt = message.createdTimestamp;
                     }
@@ -1303,7 +1386,7 @@ function onMessageCreate(client: Client) {
                 state.lastHumanMessageId = message.id;
                 state.lastHumanMessageIsQuestion = isHangingQuestion(content);
                 const media = mediaItemsOf(message);
-                pushBuffered(state, { id: message.id, authorId: message.author.id, authorName: message.author.username, content: content.slice(0, 300), at: now, isBot: false, media });
+                pushBuffered(state, { id: message.id, authorId: message.author.id, authorName: message.author.username, content: content.slice(0, 300), at: now, isBot: false, media, replyTo: replyTargetOf(message) });
                 if (media.length > 0) {
                     // 添付メディアは非同期で説明しておく（参加判定・応答が回る頃には説明が揃っている）。
                     void dotMediaStore.ensure(media, DOT_AMBIENT.mediaDescribeMaxPerMessage).catch(() => undefined);
@@ -1565,6 +1648,11 @@ async function judgeAndParticipate(client: Client, channelId: string, state: Cha
         const replyText = await generateAmbientReply(state.guildId, context, situation, memoryBlock);
         if (!replyText) {
             Logger.warn(`[DotAmbient] ambient reply generation returned empty guild=${state.guildId} channel=${channel.id}; not posting`);
+            return;
+        }
+        const ambientBlock = checkAmbientReply(replyText, ownPreviousReplies(state));
+        if (ambientBlock) {
+            Logger.info(`[DotAmbient] participation blocked (${ambientBlock}) guild=${state.guildId} channel=${channel.id}; not posting`);
             return;
         }
 

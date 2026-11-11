@@ -28,6 +28,13 @@ import {
     type RecentReaction,
     startTypingKeepAlive,
     extractContentTokens,
+    replyTargetOf,
+    formatJudgeLogLine,
+    detectChineseBleed,
+    replySimilarity,
+    findSelfRepetition,
+    checkAmbientReply,
+    type BufferedMessage,
     draftAnchorText,
     draftHasConcreteAnchor,
     AMBIENT_SYSTEM_RULES,
@@ -814,4 +821,41 @@ test('rules cover forward origin, persona-bit hijacking and catchphrase recitati
     assert.ok(AMBIENT_SYSTEM_RULES.includes('そのまま読み上げるように使わない'));
     assert.ok(AMBIENT_SYSTEM_RULES.includes('しゃしゃんなとか言われるけど'));
     assert.ok(PARTICIPATION_JUDGE_SYSTEM_PROMPT.includes('口癖・実例セリフ・自己紹介文の寄せ集めにしない'));
+});
+
+
+const LECTURE_1 = '塾の帰りで今からランニングとか、翌日を考えると無理しすぎやろ。無理せず歩いて帰ってこいよ。';
+const LECTURE_2 = '塾の帰りに今からランニングとか、時間管理がダラダラやしすぎやろ。歩いて帰ってくる方が時間的にも体にも合理規劃やで。';
+
+test('reply targets are captured from repliedUser and annotated in history lines', () => {
+    assert.deepEqual(replyTargetOf({ mentions: { repliedUser: { id: 'u2', username: '70455xy' } } }),
+        { authorId: 'u2', authorName: '70455xy' });
+    assert.equal(replyTargetOf({ mentions: { repliedUser: null } }), undefined);
+    assert.equal(replyTargetOf({}), undefined);
+    const base: BufferedMessage = { id: 'm1', authorId: 'u1', authorName: 'koukun_', content: 'ランニング中すか', at: 0, isBot: false, media: [] };
+    assert.equal(formatJudgeLogLine(base, 'bot1'), '[m1] koukun_: ランニング中すか');
+    assert.equal(
+        formatJudgeLogLine({ ...base, replyTo: { authorId: 'bot1', authorName: 'PEXserver' } }, 'bot1'),
+        '[m1] koukun_ (→ 自分への返信): ランニング中すか');
+    assert.equal(
+        formatJudgeLogLine({ ...base, replyTo: { authorId: 'u9', authorName: '生ゴミの擬人化' } }, 'bot1'),
+        '[m1] koukun_ (→ 生ゴミの擬人化への返信): ランニング中すか');
+});
+
+test('chinese bleed detection catches simplified chars and compounds but not normal Japanese', () => {
+    assert.equal(detectChineseBleed(LECTURE_2), '規劃');
+    assert.equal(detectChineseBleed('それは时间の問題だよ'), '时');
+    assert.equal(detectChineseBleed('普通の日本語の返信だよ、給料の話とか着る物の話なら分かる'), null);
+    assert.equal(detectChineseBleed(LECTURE_1), null);
+});
+
+test('self repetition gate blocks paraphrased repeats of own posts only', () => {
+    assert.ok(replySimilarity(LECTURE_1, LECTURE_2) >= DOT_AMBIENT.selfRepeatMaxSimilarity,
+        `fixture similarity ${replySimilarity(LECTURE_1, LECTURE_2)}`);
+    assert.equal(findSelfRepetition(LECTURE_2, [LECTURE_1]), LECTURE_1);
+    assert.equal(findSelfRepetition('ランニング行くんや、帰り道気をつけてな、無理せんようにな', [LECTURE_1]), null);
+    assert.equal(findSelfRepetition('草', ['草、さっきも言ったけど本当に草なんよこれは']), null, 'short acks are exempt');
+    assert.equal(checkAmbientReply(LECTURE_2, []), 'chinese-bleed');
+    assert.equal(checkAmbientReply(LECTURE_2.replace('規劃', '計画'), [LECTURE_1]), 'self-repetition');
+    assert.equal(checkAmbientReply('二次試験おつかれ〜！終わったんか、今日はもう休むだけやな', [LECTURE_1]), null);
 });
