@@ -228,7 +228,8 @@ export const drawImageToolHandler: ToolHandler = async (args, context) => {
         state.hash = hash;
         const attachment = reply.attachments?.find(entry => entry.name === filename)
             ?? (reply.attachments?.size === 1 ? reply.attachments.first() : undefined);
-        const lines = [`IMAGE_POSTED: ${JSON.stringify({ filename, url: attachment?.url ?? '', width: rendered.width, height: rendered.height, render: state.renders })}`];
+        if (!attachment?.url) return 'DRAW_ERROR: Discordへの画像投稿後、添付ファイルのURLを確認できませんでした。送信状態を確認してください。';
+        const lines = [`IMAGE_POSTED: ${JSON.stringify({ filename, url: attachment.url, width: rendered.width, height: rendered.height, render: state.renders })}`];
         if (state.renders <= MAX_REVIEW_ROUNDS) {
             const review = await reviewRender(rendered.png, intent, extractSvgTexts(checked.svg), interaction.guildId);
             lines.push(`VISUAL_REVIEW: ${review}`);
@@ -247,3 +248,21 @@ export const drawImageToolHandler: ToolHandler = async (args, context) => {
         return `DRAW_ERROR: Discordへの投稿が失敗しました: ${error instanceof Error ? error.message.slice(0, 160) : 'unknown'}`;
     }
 };
+
+/** Only verified Discord attachments count as a successful drawing. Never accept the model's claim. */
+export function completeStaffDrawingTool(results: Array<{ name: string; output: string }>): string | undefined {
+    const result = results.find(item => item.name === 'draw_image');
+    if (!result) return undefined;
+    const match = /^IMAGE_POSTED:\s*(\{[^\n]+\})/m.exec(result.output);
+    if (match) {
+        try {
+            const posted = JSON.parse(match[1]) as {filename?: unknown; url?: unknown};
+            if (typeof posted.url === 'string' && /^https:\/\//.test(posted.url)
+                && typeof posted.filename === 'string' && /^[A-Za-z0-9][A-Za-z0-9._-]*\.png$/i.test(posted.filename)) {
+                return `🎨 ${posted.filename} を画像としてDiscordに投稿しました。`;
+            }
+        } catch { /* malformed result is never a success */ }
+    }
+    const reason = result.output.replace(/^DRAW_ERROR:\s*/i, '').replace(/[\r\n]+/g, ' ').slice(0, 240);
+    return `⚠️ 画像は投稿されていません。${reason || '描画ツールの投稿結果を確認できませんでした。'}`;
+}

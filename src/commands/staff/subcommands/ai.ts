@@ -25,6 +25,8 @@ import { selectStaffEmojis, getStaffEmojiImageParts } from './StaffAIEmojiContex
 import { PdfRAGManager } from '../../../core/ai/PdfRAGManager.js';
 import { staffMemoryContext } from '../../../core/ai/StaffAIMemory.js';
 import { registerStaffAITools } from './ai-tools/catalog.js';
+import { isStaffDrawingRequest } from './StaffAIDrawingIntent.js';
+import { completeStaffDrawingTool } from './ai-tools/drawing.js';
 import { resolveStaffModerationPermissions } from './ai-tools/moderation.js';
 import { staffMemoryToolScope } from './ai-tools/staff_memory.js';
 import { database } from '../../../core/persistence/Database.js';
@@ -370,6 +372,9 @@ ${reason}` });
         const forceChannelSearchTool = !forceTextFileTools
             && /チャンネル|メッセージ|会話|発言|履歴|ログ/.test(prompt ?? '')
             && /検索|探し|調べ|昔|古い|以前|過去/.test(prompt ?? '');
+        // The user asked for an actual picture, not a verbal claim or quoted reply.
+        const forceDrawingTool = !forceTextFileTools && !forceChannelSearchTool
+            && isStaffDrawingRequest(prompt ?? '');
         // Tool handlers use the real slash interaction (same guild, actor and channel).
         // File output attaches directly via interaction.followUp and needs no sandbox proxy.
         chatManager.setToolContext(interaction);
@@ -554,13 +559,24 @@ ${reason}` });
             queuePreview(streamState.thinkingPhaseCount > previousPhase);
         }
 
+        let verifiedDrawingOutcome: string | null = null;
         const streamOptions = {
             // Keep enough budget for a final answer after reasoning/tool calls.
             // A smaller limit can end a Responses stream with thinking only.
-            model: config.pexAi.model, strictModel: true, maxTokens: dotMode ? (forceTextFileTools ? 8192 : 6144) : (forceTextFileTools ? 4096 : 3072),
-            reasoningEffort: (dotMode ? 'medium' : 'low') as 'medium' | 'low',
+            model: config.pexAi.model, strictModel: true,
+            maxTokens: dotMode ? (forceTextFileTools || forceDrawingTool ? 8192 : 6144)
+                : (forceDrawingTool ? 6144 : forceTextFileTools ? 4096 : 3072),
+            reasoningEffort: (dotMode || forceDrawingTool ? 'high' : 'medium') as 'high' | 'medium',
+            // A8 Strata defaults to thinking OFF if enable_thinking is omitted.
+            chatTemplateKwargs: { enable_thinking: true },
             ...(forceTextFileTools ? { forceToolSequence: ['output_file'] }
-                : forceChannelSearchTool ? { forceToolSequence: ['search_channel_messages'] } : {}),
+                : forceChannelSearchTool ? { forceToolSequence: ['search_channel_messages'] }
+                    : forceDrawingTool ? { forceToolSequence: ['draw_image'] } : {}),
+            ...(forceDrawingTool ? {completeAfterTools: (results: Array<{name: string; output: string}>) => {
+                const reply = completeStaffDrawingTool(results);
+                if (reply !== undefined) verifiedDrawingOutcome = reply;
+                return reply;
+            }} : {}),
             includeUsage: true,
             usageContext: { guildId: interaction.guildId ?? undefined, purpose: 'staff-ai' },
             ...(isSingleStaffFileRequest(prompt ?? '') ? { completeAfterTools: (results: Array<{name: string; output: string}>) => completeStaffFileTools(interaction, results) } : {}),
@@ -615,6 +631,15 @@ ${reason}` });
             console.info(`[StaffAI Perf] setup_ms=${modelRequestStartedAt - staffRequestStartedAt} messages=${messages.length} model=${config.pexAi.model}`);
             await staffMemoryToolScope.run({ guildId: interaction.guildId || 'global', userId }, () =>
                 chatManager.streamResponseText(messages, handleResponseDelta, streamOptions));
+            // For drawing, trust only IMAGE_POSTED returned by the real draw_image handler.
+            // Discard any text generated before the tool call, including hallucinated "描いたよ".
+            if (forceDrawingTool) {
+                if (verifiedDrawingOutcome === null) {
+                    throw new Error('Required tool was not called: draw_image');
+                }
+                responseContent = verifiedDrawingOutcome;
+                streamState.content = verifiedDrawingOutcome;
+            }
             // A response with reasoning only, no final text and no tool result is
             // not successful. Retry once without reasoning before failing visibly.
             responseContent = staffFileOutputResponse(interaction, responseContent) ?? responseContent;
@@ -631,6 +656,7 @@ ${reason}` });
                         ...streamOptions,
                         maxTokens: 1024,
                         reasoningEffort: 'none',
+                        chatTemplateKwargs: { enable_thinking: false },
                     }));
             }
             if (!responseContent.trim()) {
@@ -754,6 +780,9 @@ ${reason}` });
             if (messageStr.includes('without final answer text')) {
                 errorMessage = '⚠️ Thinkingのみで回答本文が返らなかったよ。もう一度試してね。';
             }
+            if (forceDrawingTool && messageStr.includes('Required tool was not called')) {
+                errorMessage = '⚠️ 描画ツールを呼び出せなかったため、画像は投稿されていません。再試行してください。';
+            }
             if (error instanceof Error && error.message.includes('RateLimitReached')) {
                 errorMessage = '⚠️ AIサービスのレート制限に達しました。しばらく待ってから再試行してください。';
             }
@@ -784,7 +813,7 @@ ${reason}` });
         }
 
         // 何らかの理由で完了せずに終了した場合、現在の内容で更新
-        if (!isCompleted && !interactionExpired && responseContent.trim()) {
+        if (!isCompleted && !interactionExpired && responseContent.trim() && !forceDrawingTool) {
             finishPreview();
             await drainPreview();
             try {

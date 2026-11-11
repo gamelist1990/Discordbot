@@ -4,6 +4,7 @@ import { toolResultError, toolStepArguments } from './ToolResultStatus.js';
 import { executeToolBatch } from './ToolCallBatch.js';
 import { toolResultSummary } from './ToolResultSummary.js';
 import { ToolProtocolTextFilter, stripToolProtocolText } from './ToolProtocolTextFilter.js';
+import { ThinkingStreamDemux } from './ThinkingStreamDemux.js';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { AIProgressGuard, AIProgressStalledError, AI_LOOP_STOP_MESSAGE, AI_LOOP_FINALIZE_INSTRUCTION } from './AIProgressGuard.js';
 import { config } from '../../config.js';
@@ -659,7 +660,11 @@ export class ChatGPTClient {
                     this.notifyPrefillStart(options, toolRound, payload);
                     const requestStarted = Date.now();
                     let firstContentReceived = false;
-                    const result = await this.streamResponseApiPayload(auth, payload, (delta) => {
+                    // Strata's Ornith XML-template begins inside a think block but streams
+                    // every token as content. Split it here until Strata sends native reasoning.
+                    const thinkingStream = options?.chatTemplateKwargs?.enable_thinking === true
+                        && /ornith/i.test(model) ? new ThinkingStreamDemux() : null;
+                    const deliverDelta = (delta: ResponseApiStreamDelta): void => {
                         if (toolRound > 0 && delta.type !== 'usage' && !firstContentReceived) {
                             firstContentReceived = true;
                             this.debugToolCall('continuation-first-delta', {round: toolRound, waitMs: Date.now() - requestStarted, type: delta.type});
@@ -675,7 +680,11 @@ export class ChatGPTClient {
                         }
                         emittedDelta = true;
                         onDeltaReceive(delta);
+                    };
+                    const result = await this.streamResponseApiPayload(auth, payload, (delta) => {
+                        for (const item of thinkingStream ? thinkingStream.push(delta) : [delta]) deliverDelta(item);
                     }, options?.signal, (call, complete) => this.notifyToolCallDelta(options, call, toolRound + 1, complete));
+                    for (const item of thinkingStream?.finish() ?? []) deliverDelta(item);
                     this.throwIfAborted(options?.signal);
 
                     const requiredTool = this.forcedToolForRound(options, toolDefinitions, toolRound);
@@ -875,6 +884,9 @@ export class ChatGPTClient {
             ...(options?.reasoningEffort
                 ? { reasoning: { effort: options.reasoningEffort } }
                 : {}),
+            // RustingStrata defaults to thinking OFF unless explicitly enabled.
+            // EndPoint's Responses->Chat adapter forwards this field unchanged.
+            ...(options?.chatTemplateKwargs ? { chat_template_kwargs: options.chatTemplateKwargs } : {}),
             ...(previousResponseId ? { previous_response_id: previousResponseId } : {}),
             ...(tools.length > 0 ? {
                 tools: this.convertToolsToResponseTools(tools),
