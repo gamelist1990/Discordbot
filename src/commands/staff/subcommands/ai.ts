@@ -27,6 +27,7 @@ import { PdfRAGManager } from '../../../core/ai/PdfRAGManager.js';
 import { staffMemoryContext } from '../../../core/ai/StaffAIMemory.js';
 import { registerStaffAITools } from './ai-tools/catalog.js';
 import { isStaffDrawingRequest, buildStaffDrawingMessages } from './StaffAIDrawingIntent.js';
+import { protectStaffAnswerFromHistoryLeak } from './StaffAIAnswerIntegrity.js';
 import { completeStaffDrawingTool, drawImageToolDefinition, drawImageToolHandler } from './ai-tools/drawing.js';
 import { resolveStaffModerationPermissions } from './ai-tools/moderation.js';
 import { staffMemoryToolScope } from './ai-tools/staff_memory.js';
@@ -693,6 +694,13 @@ ${reason}` });
             }
             // A response with reasoning only, no final text and no tool result is
             // not successful. Retry once without reasoning before failing visibly.
+            const integrityChecked = protectStaffAnswerFromHistoryLeak(
+                responseContent, verifiedDrawingOutcome !== null);
+            if (integrityChecked !== responseContent) {
+                console.warn('[StaffAI] Removed echoed Discord history markers or unverified image-post claim');
+                responseContent = integrityChecked;
+                streamState.content = integrityChecked;
+            }
             responseContent = staffFileOutputResponse(interaction, responseContent) ?? responseContent;
             if (!responseContent.trim()) {
                 const recoveryMessages: OpenAIChatCompletionMessage[] = [

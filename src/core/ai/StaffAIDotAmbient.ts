@@ -1313,9 +1313,25 @@ async function judgeAddressed(message: Message, state: ChannelState, basis: Addr
 async function respondToAddressed(message: Message, state: ChannelState, via: 'direct' | 'judged' = 'direct', confidence?: number): Promise<void> {
     const channel = message.channel;
     if (!channel.isTextBased() || !('messages' in channel)) return;
+    const startedAt = Date.now();
+    // Begin typing before fetching history or loading media descriptions.
+    const stopTyping = 'sendTyping' in channel ? startTypingKeepAlive(channel) : () => undefined;
+    try {
     const fetched = await channel.messages.fetch({ limit: 10 }).catch(() => null);
     const history = fetched ? [...fetched.values()].reverse() : [message];
-    await ensureHistoryMedia(history);
+    const currentMedia = mediaItemsOf(message);
+    if (currentMedia.length > 0) {
+        await ensureHistoryMedia(history);
+    } else {
+        // Do not hold up unrelated text mentions for older videos and GIFs.
+        let mediaCompleted = false;
+        await Promise.race([
+            ensureHistoryMedia(history).then(() => { mediaCompleted = true; }),
+            sleepMs(1600),
+        ]);
+        if (!mediaCompleted) Logger.info('[DotAmbient] historic media lookup deferred guild='
+            + message.guildId + ' channel=' + message.channelId + ' after 1600ms');
+    }
     const context = formatContext(history, message.client.user?.id);
     // 過去の記憶（出来事・メンバーメモ）を生成の文脈にも差し込む（掘り返しはこの記録の範囲でのみ許可される）。
     const memoryBlock = await buildDotMemoryBlock(message.guildId ?? '', history.map(item => ({
@@ -1326,9 +1342,6 @@ async function respondToAddressed(message: Message, state: ChannelState, via: 'd
     const situation = via === 'judged'
         ? 'あなたは今、文脈の流れから自分に話しかけられたと判断しました。その発言の中身（質問・ツッコミ・文句・ネタ）に、短く自然に応えてください。「どうしたん？」のような、話しかけられたことの確認だけで終わらせるのは禁止です。相手の発言に出てきた具体的な言葉を拾って返すこと。質問や相談であれば簡潔に答えること。'
         : 'あなたは今、名前を呼ばれました。呼びかけの文そのもの（質問・ツッコミ・文句・ネタ）に、その中身で短く自然に応えてください。「どうしたん？」のような、呼ばれたことの確認だけで終わらせるのは禁止です。相手の発言に出てきた具体的な言葉を拾って返すこと。質問や相談であれば簡潔に答えること。';
-    // 生成中ずっと「入力中…」が見えるよう、生成開始から送信完了（または失敗）まで typing を維持する。
-    const stopTyping = 'sendTyping' in channel ? startTypingKeepAlive(channel) : () => undefined;
-    try {
         // 生成が落ちたら、その回は返信しない。文脈（ルール・ペルソナ・会話履歴）を削った
         // 再生成は、文脈無視の発言がそのまま投稿される事故の原因になったため廃止した。
         const replyText = await tryGenerateOnce(
@@ -1345,11 +1358,16 @@ async function respondToAddressed(message: Message, state: ChannelState, via: 'd
             return;
         }
         await sleepMs(ambientSendDelayMs('addressed', Math.random()));
-        const sent = await message.reply({ content: replyText.slice(0, 1900) }).catch(() => null);
+        const sent = await message.reply({ content: replyText.slice(0, 1900) }).catch(error => {
+            Logger.warn('[DotAmbient] Discord mention reply failed guild=' + message.guildId
+                + ' channel=' + message.channelId + ' elapsed_ms=' + (Date.now() - startedAt), error);
+            return null;
+        });
         if (sent) {
             rememberDotPost(state, sent);
             state.lastBotParticipationAt = sent.createdTimestamp;
             state.engagedUntil = Date.now() + DOT_AMBIENT.engagedWindowMs;
+            Logger.info('[DotAmbient] addressed delivery complete elapsed_ms=' + (Date.now() - startedAt) + ' channel=' + message.channelId);
             Logger.info(`[DotAmbient] addressed guild=${message.guildId} channel=${message.channelId} via=${via}${via === 'judged' ? ` conf=${confidence ?? '?'}` : ''}`);
         }
     } finally {
