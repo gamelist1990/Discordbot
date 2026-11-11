@@ -18,7 +18,7 @@ function stable(value: unknown): string {
 /** Request-scoped progress detection; there is deliberately no total tool-call budget. */
 export class AIProgressGuard {
     private noProgress = 0;
-    private readonly seen = new Map<string, number>();
+    private lastAttemptFingerprint: string | null = null;
     private readonly text = new Map<string, { pending: string; sentences: Map<string, number>; inCode: boolean }>();
     private usedTool = false;
     private researched = false;
@@ -47,14 +47,20 @@ export class AIProgressGuard {
             .map(line => line.replace(/^\d+\.\s*/, '').replace(/\s+/g, ' ').trim()).filter(Boolean);
         if (research) lines.sort();
         const evidence = lines.join('\n');
-        const fingerprint = createHash('sha256').update(stable([name, research ? null : args, failed ? 'failed' : evidence])).digest('hex');
-        const previous = this.seen.get(fingerprint) ?? 0;
-        if (this.seen.size >= 512 && !this.seen.has(fingerprint)) this.seen.delete(this.seen.keys().next().value!);
-        this.seen.set(fingerprint, previous + 1);
-        this.noProgress = failed || previous > 0 ? this.noProgress + 1 : 0;
-        // Three consecutive failures/unchanged outcomes, or the same outcome recurring
-        // three times across a longer cycle, indicate a stalled investigation.
-        this.stalled = this.noProgress >= 3 || previous >= 2;
+        // Never treat DISTINCT searches/files/targets as a loop, even when the
+        // remote service returns the same empty/error page. A loop needs the
+        // same tool, equivalent arguments AND unchanged outcome three times
+        // consecutively. This protects multi-source research from false stops.
+        let callArguments = args;
+        if (typeof args === 'string') {
+            try { callArguments = JSON.parse(args); } catch { /* preserve malformed input */ }
+        }
+        const fingerprint = createHash('sha256')
+            .update(stable([name, callArguments, failed ? 'failed' : evidence]))
+            .digest('hex');
+        this.noProgress = fingerprint === this.lastAttemptFingerprint ? this.noProgress + 1 : 0;
+        this.lastAttemptFingerprint = fingerprint;
+        this.stalled = this.noProgress >= 2;
     }
 
     public observe(chunk: string, channel: string): void {
@@ -75,7 +81,11 @@ export class AIProgressGuard {
             const count = (state.sentences.get(sentence) ?? 0) + 1;
             if (state.sentences.size >= 128 && !state.sentences.has(sentence)) state.sentences.delete(state.sentences.keys().next().value!);
             state.sentences.set(sentence, count);
-            if (count >= 4) { this.stalled = true; throw new AIProgressStalledError(); }
+            // Repeated narration is not evidence that a tool operation is
+            // looping: an otherwise valid report can repeat status sentences.
+            // Do not interrupt a live Thinking/text stream mid-answer. The
+            // actual (name + arguments + outcome) tool guard above remains.
+            if (count >= 4) state.sentences.set(sentence, 4);
         }
     }
 }

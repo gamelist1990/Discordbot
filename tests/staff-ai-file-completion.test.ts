@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Collection } from 'discord.js';
 import { ChatGPTClient } from '../src/core/ai/ChatGPTClient.ts';
-import { AIProgressGuard, AIProgressStalledError } from '../src/core/ai/AIProgressGuard.ts';
+import { AIProgressGuard } from '../src/core/ai/AIProgressGuard.ts';
 import { staffOutputFileDefinition, staffOutputFileHandler, completeStaffFileTools, isSingleStaffFileRequest } from '../src/commands/staff/subcommands/ai-tools/fileOutput.ts';
 import { toolResultError } from '../src/core/ai/ToolResultStatus.ts';
 
@@ -88,8 +88,9 @@ test('File errors count as failures even when arguments change, and repeated fil
     assert.equal(toolResultError('FILE_ERROR: no destination'),'FILE_ERROR: no destination');
     assert.equal(toolResultError('FILE_UPLOADED: {}'),undefined);
     const guard=new AIProgressGuard();
-    for(let n=0;n<3;n++)guard.record('output_file',{filename:`file-${n}.txt`},'FILE_ERROR: no destination');
-    assert.equal(guard.stalled,true);
+    for(let n=0;n<3;n++)guard.record('output_file',{filename:'file-'+n+'.txt'},'FILE_ERROR: no destination');
+    assert.equal(guard.stalled,false);
     const narration=new AIProgressGuard();
-    assert.throws(()=>narration.observe('ファイル出力が失敗した。適当なファイルで再試行。'.repeat(10),'thinking'),AIProgressStalledError);
+    narration.observe('ファイル出力が失敗した。適当なファイルで再試行。'.repeat(10),'thinking');
+    assert.equal(narration.stalled,false);
 });

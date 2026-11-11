@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { AIProgressGuard, AIProgressStalledError, AI_LOOP_STOP_MESSAGE } from '../src/core/ai/AIProgressGuard.ts';
+import { AIProgressGuard, AI_LOOP_STOP_MESSAGE } from '../src/core/ai/AIProgressGuard.ts';
 import { ChatGPTClient } from '../src/core/ai/ChatGPTClient.ts';
 
 const options = { model: 'test-model', strictModel: true };
@@ -18,42 +18,44 @@ function call(n: number) {
     return { type: 'function_call', id: `fc_${n}`, call_id: `call_${n}`, name: 'web_search', arguments: JSON.stringify({ query: `variant ${n}` }) };
 }
 
-test('Different empty/failed queries stop, while arbitrarily long productive research is allowed', () => {
+test('Distinct failed queries never trigger loop detection', () => {
     const guard = new AIProgressGuard();
-    for (let i=0; i<100; i++) guard.record('web_search', {query:`q${i}`}, `New fact ${i}`);
-    assert.equal(guard.stalled, false);
+    for (let i = 0; i < 100; i++) guard.record('web_search', {query:'q'+i}, 'New fact '+i);
     guard.record('web_search', {query:'ja'}, 'SEARCH_EMPTY: ja');
     guard.record('web_search', {query:'en'}, 'SEARCH_ERROR: offline');
-    assert.equal(guard.stalled, false);
     guard.record('web_search', {query:'rephrased'}, 'SEARCH_EMPTY: rephrased');
+    assert.equal(guard.stalled, false);
+});
+
+test('Distinct searches may return identical pages; only exact retries stall', () => {
+    const guard = new AIProgressGuard();
+    const a = '1. [A](https://a.example)\nFact A\n2. [B](https://b.example)\nFact B\n検索日時: t1';
+    const b = '1. [B](https://b.example)\nFact B\n2. [A](https://a.example)\nFact A\n検索日時: t2';
+    guard.record('web_search', {query:'q1'}, a);
+    guard.record('web_search', {query:'q2'}, b);
+    guard.record('web_search', {query:'q3'}, a);
+    assert.equal(guard.stalled, false);
+    guard.record('web_search', {query:'q3'}, b);
+    guard.record('web_search', {query:'q3'}, a);
     assert.equal(guard.stalled, true);
 });
 
-test('Changing rank/order and retrieval timestamps does not count as new search evidence', () => {
+test('New evidence can restore a stalled repeated request', () => {
     const guard = new AIProgressGuard();
-    guard.record('web_search', {query:'q1'}, '1. [A](https://a.example)\nFact A\n2. [B](https://b.example)\nFact B\n検索日時: t1');
-    guard.record('web_search', {query:'q2'}, '1. [B](https://b.example)\nFact B\n2. [A](https://a.example)\nFact A\n検索日時: t2');
-    guard.record('web_search', {query:'q3'}, '1. [A](https://a.example)\nFact A\n2. [B](https://b.example)\nFact B\n検索日時: t3');
-    assert.equal(guard.stalled, true);
-});
-
-test('New evidence from another call in a parallel batch restores progress', () => {
-    const guard = new AIProgressGuard();
-    for (let i=0; i<3; i++) guard.record('web_search', {query:`q${i}`}, 'SEARCH_ERROR: offline');
+    for (let i = 0; i < 3; i++) guard.record('web_search', {query:'same'}, 'SEARCH_ERROR: offline');
     assert.equal(guard.stalled, true);
     guard.record('fetch_url', {url:'https://primary.example/'}, 'Confirmed fact from source');
     assert.equal(guard.stalled, false);
 });
 
-test('Retry narration is detected across chunk boundaries, while quoted examples and poetry are allowed', () => {
+test('Repeated narration never interrupts normal ongoing response', () => {
     const guard = new AIProgressGuard();
     const repeated = sentence.repeat(20);
-    assert.throws(() => { for (let i=0; i<repeated.length; i+=3) guard.observe(repeated.slice(i,i+3), 'thinking'); }, AIProgressStalledError);
-    const ordinary = new AIProgressGuard();
-    ordinary.observe('海は青い。'.repeat(30), 'text');
-    ordinary.observe('```text\n'+sentence.repeat(10)+'\n```\n', 'text');
-    ordinary.observe(('> '+sentence+'\n').repeat(10), 'text');
-    assert.equal(ordinary.stalled, false);
+    for (let i=0; i<repeated.length; i+=3) guard.observe(repeated.slice(i,i+3), 'thinking');
+    guard.observe('回答を完成させます。', 'text');
+    guard.observe('海は青い。'.repeat(30), 'text');
+    guard.observe('記載のファイルが見つからなかった。'.repeat(10), 'text');
+    assert.equal(guard.stalled, false);
 });
 
 test('Repeated thinking across actual tool turns does not accumulate into a false loop', () => {
@@ -66,9 +68,11 @@ test('Repeated thinking across actual tool turns does not accumulate into a fals
     assert.equal(guard.stalled, false);
 });
 
-test('Structured tool failures count as failures even when the model changes arguments', () => {
+test('Different failed file operations are not a loop; identical attempts still are', () => {
     const guard = new AIProgressGuard();
-    for (let n = 0; n < 3; n++) guard.record('manage_memory', {store: `invalid-${n}`}, {error: '有効なstoreを指定してください'});
+    for (let i=0; i<3; i++) guard.record('output_file', {filename:'file-'+i}, {error:'no destination'});
+    assert.equal(guard.stalled, false);
+    for (let i=0; i<3; i++) guard.record('output_file', {filename:'same.txt'}, {error:'no destination'});
     assert.equal(guard.stalled, true);
 });
 
@@ -85,6 +89,7 @@ test('Responses ends three unsuccessful search rounds with a tool-free summary, 
         }
         assert.ok(requests<=3,'loop was not stopped');
         const item=call(requests);
+        item.arguments = '{"query":"same repeated failed search"}';
         return {responseId:`resp_${requests}`,functionCalls:[{id:item.id,callId:item.call_id,name:item.name,arguments:item.arguments}],outputItems:[item]};
     };
     let text='';
@@ -99,6 +104,7 @@ test('A provider ignoring tool_choice none cannot execute further tools or trigg
     internal.streamResponseApiPayload=async()=>{
         assert.ok(++requests<=4);
         const item=call(requests);
+        item.arguments = '{"query":"same repeated failed search"}';
         return {responseId:'resp',functionCalls:[{callId:item.call_id,name:item.name,arguments:item.arguments}],outputItems:[item]};
     };
     let text='';
@@ -124,18 +130,18 @@ test('A real repeated memory loop stops without claiming a Web investigation fai
     assert.doesNotMatch(text, /検索|事実を確認/);
 });
 
-test('Repeating Thinking is interrupted and produces one truthful final message', async () => {
+test('Long repeated Thinking continues until a real final response', async () => {
     const {client,internal}=clientFor(()=>{throw new Error('must not run');});
-    let attempts=0,closed=false,emitted=0,text='';
-    internal.streamResponseApiPayload=async(_auth: unknown,_payload: unknown,emit: any)=>{
-        attempts++;
-        try { for(let i=0;i<100;i++){emitted++;emit({type:'thinking',text:sentence});} }
-        finally {closed=true;}
-        throw new Error('loop guard failed');
+    let requests=0,emitted=0,text='';
+    internal.streamResponseApiPayload=async(_auth:unknown,_payload:unknown,emit:any)=>{
+        requests++;
+        for(let i=0;i<100;i++){emitted++;emit({type:'thinking',text:sentence});}
+        emit({type:'text',text:'調査は正常に完走しました。'});
+        return {responseId:'resp_done',functionCalls:[],outputItems:[]};
     };
     await client.streamResponse(messages,delta=>{if(delta.type==='text')text+=delta.text;},options);
-    assert.equal(attempts,1);assert.ok(closed);assert.equal(emitted,4);
-    assert.equal(text.trim(),AI_LOOP_STOP_MESSAGE);
+    assert.equal(requests,1);assert.equal(emitted,100);
+    assert.equal(text,'調査は正常に完走しました。');
 });
 
 for (const stream of [false,true]) {
@@ -147,6 +153,7 @@ for (const stream of [false,true]) {
             assert.ok(requests<=4);
             const final=payload.tool_choice==='none';
             const item=call(requests);
+            item.arguments = '{"query":"same repeated failed search"}';
             const message=final?{role:'assistant',content:'確認できません。'}:{role:'assistant',content:null,tool_calls:[{id:item.call_id,type:'function',function:{name:item.name,arguments:item.arguments}}]};
             if(!stream)return {choices:[{message,finish_reason:final?'stop':'tool_calls'}]};
             return (async function*(){yield {choices:[{delta:final?{content:message.content}:{tool_calls:message.tool_calls!.map(tool=>({...tool,index:0}))},finish_reason:final?'stop':'tool_calls'}]};})();
@@ -168,7 +175,7 @@ test('Progress state is isolated for concurrent requests on one client',async()=
             emit({type:'text',text:origin});return {responseId:'resp',functionCalls:[],outputItems:[]};
         }
         assert.ok(rounds<13);
-        const item=call(rounds);item.arguments=JSON.stringify({query:`${origin} ${rounds}`});
+        const item=call(rounds);item.arguments=JSON.stringify({query:origin==='empty' ? 'same failed query' : origin+' '+rounds});
         return {responseId:'resp',functionCalls:[{callId:item.call_id,name:item.name,arguments:item.arguments}],outputItems:[item]};
     };
     const output=['',''];
@@ -176,32 +183,35 @@ test('Progress state is isolated for concurrent requests on one client',async()=
     assert.deepEqual(output,['empty','productive']);
 });
 
-test('A real SDK SSE stream is closed when repeated reasoning is detected',async()=>{
+test('A real SDK SSE stream delivers final text after 21 repeated Thinking chunks', async () => {
     const http=await import('node:http');
     let sent=0,closed=false;
-    let waitForClose!:()=>void;
-    const closing=new Promise<void>(resolve=>{waitForClose=resolve;});
     const server=http.createServer((_request,response)=>{
         response.writeHead(200,{'content-type':'text/event-stream'});
         const timer=setInterval(()=>{
             sent++;
-            response.write(`data: ${JSON.stringify({type:'response.reasoning_summary_text.delta',item_id:'rs_test',output_index:0,summary_index:0,delta:sentence,sequence_number:sent})}\n\n`);
-            if(sent>20){clearInterval(timer);response.end();}
+            response.write('data: '+JSON.stringify({type:'response.reasoning_summary_text.delta',item_id:'rs_test',output_index:0,summary_index:0,delta:sentence,sequence_number:sent})+'\n\n');
+            if(sent>20){
+                clearInterval(timer);
+                response.write('data: '+JSON.stringify({type:'response.output_text.delta',item_id:'msg_1',output_index:1,delta:'最後まで回答した。'})+'\n\n');
+                response.write('data: '+JSON.stringify({type:'response.completed',response:{id:'resp_done',output:[]}})+'\n\n');
+                response.end();
+            }
         },5);
-        response.on('close',()=>{clearInterval(timer);closed=true;waitForClose();});
+        response.on('close',()=>{clearInterval(timer);closed=true;});
     });
     await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));
     const address=server.address();assert.ok(address&&typeof address!=='string');
-    const client=new ChatGPTClient({apiEndpoint:`http://127.0.0.1:${address.port}`,apiKey:'test',defaultModel:'test-model'});
+    const client=new ChatGPTClient({apiEndpoint:'http://127.0.0.1:'+address.port,apiKey:'test',defaultModel:'test-model'});
     const internal=client as any;
     internal.resolveModelCandidates=async()=>['test-model'];
-    internal.resolveAuthCandidates=()=>[{apiEndpoint:`http://127.0.0.1:${address.port}`,apiKey:'test'}];
+    internal.resolveAuthCandidates=()=>[{apiEndpoint:'http://127.0.0.1:'+address.port,apiKey:'test'}];
     try{
         let text='';
         await client.streamResponse(messages,delta=>{if(delta.type==='text')text+=delta.text;},options);
-        await Promise.race([closing,new Promise((_,reject)=>setTimeout(()=>reject(new Error('SSE did not close')),1000))]);
-        assert.ok(closed);assert.ok(sent<20);assert.equal(text.trim(),AI_LOOP_STOP_MESSAGE);
+        assert.ok(sent>=21);assert.equal(text,'最後まで回答した。');
     }finally{server.closeAllConnections();await new Promise<void>(resolve=>server.close(()=>resolve()));}
+    assert.ok(closed);
 });
 
 test('A stalled investigation with only usage or thinking still gives a final stop notice',async()=>{
@@ -214,6 +224,7 @@ test('A stalled investigation with only usage or thinking still gives a final st
             return {responseId:'resp',functionCalls:[],outputItems:[]};
         }
         const item=call(requests);
+        item.arguments = '{"query":"same repeated failed search"}';
         return {responseId:'resp',functionCalls:[{callId:item.call_id,name:item.name,arguments:item.arguments}],outputItems:[item]};
     };
     let text='';
