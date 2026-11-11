@@ -25,8 +25,8 @@ import { selectStaffEmojis, getStaffEmojiImageParts } from './StaffAIEmojiContex
 import { PdfRAGManager } from '../../../core/ai/PdfRAGManager.js';
 import { staffMemoryContext } from '../../../core/ai/StaffAIMemory.js';
 import { registerStaffAITools } from './ai-tools/catalog.js';
-import { isStaffDrawingRequest } from './StaffAIDrawingIntent.js';
-import { completeStaffDrawingTool } from './ai-tools/drawing.js';
+import { isStaffDrawingRequest, buildStaffDrawingMessages } from './StaffAIDrawingIntent.js';
+import { completeStaffDrawingTool, drawImageToolDefinition, drawImageToolHandler } from './ai-tools/drawing.js';
 import { resolveStaffModerationPermissions } from './ai-tools/moderation.js';
 import { staffMemoryToolScope } from './ai-tools/staff_memory.js';
 import { database } from '../../../core/persistence/Database.js';
@@ -378,6 +378,13 @@ ${reason}` });
         // Tool handlers use the real slash interaction (same guild, actor and channel).
         // File output attaches directly via interaction.followUp and needs no sandbox proxy.
         chatManager.setToolContext(interaction);
+        // Drawing must not compete with 21 unrelated tools: Strata's tool_choice
+        // is advisory, and Ornith often ignores it on long multi-tool prompts.
+        const drawingManager = forceDrawingTool ? new OpenAIChatManager() : null;
+        if (drawingManager) {
+            drawingManager.registerTool(drawImageToolDefinition, drawImageToolHandler);
+            drawingManager.setToolContext(interaction);
+        }
 
         // カスタム system prompt と安全化オプションの取得
         const userSystemPrompt = interaction.options.getString('system_prompt', false);
@@ -497,6 +504,13 @@ ${reason}` });
                 messages.push({ role: 'user', content: attachmentContent });
             }
         }
+
+        const drawingMessages = forceDrawingTool ? buildStaffDrawingMessages({
+            userContent: currentUserContent,
+            systemPrompt: userSystemPrompt ? sanitizeSystemPrompt(userSystemPrompt) : null,
+            reply: visionReplyContext,
+            attachmentContent: attachmentContent as OpenAIChatCompletionMessage['content'] | null,
+        }) : null;
 
         // SSEは受信したまま描画。Discord edit は単一キューで順序を保証する。
         const botMember = interaction.guild?.members.me;
@@ -629,8 +643,37 @@ ${reason}` });
             queuePreview(true);
             modelRequestStartedAt = Date.now();
             console.info(`[StaffAI Perf] setup_ms=${modelRequestStartedAt - staffRequestStartedAt} messages=${messages.length} model=${config.pexAi.model}`);
-            await staffMemoryToolScope.run({ guildId: interaction.guildId || 'global', userId }, () =>
-                chatManager.streamResponseText(messages, handleResponseDelta, streamOptions));
+            if (drawingManager && drawingMessages) {
+                const executeDrawing = (input: OpenAIChatCompletionMessage[], think: boolean) =>
+                    staffMemoryToolScope.run({ guildId: interaction.guildId || 'global', userId }, () =>
+                        drawingManager.streamResponseText(input, handleResponseDelta, {
+                            ...streamOptions,
+                            reasoningEffort: think ? 'medium' : 'none',
+                            chatTemplateKwargs: { enable_thinking: think },
+                            maxTokens: 4096,
+                        }));
+                try {
+                    await executeDrawing(drawingMessages, true);
+                } catch (error) {
+                    // Retry only when no function call was made. Never retry a tool
+                    // that might already have posted a Discord attachment.
+                    if (verifiedDrawingOutcome !== null
+                        || !(error instanceof Error)
+                        || !error.message.includes('Required tool was not called: draw_image')) throw error;
+                    console.warn('[StaffAI] Ornith ignored draw_image tool_choice; retrying isolated draw-only request without Thinking');
+                    const retryMessages = buildStaffDrawingMessages({
+                        userContent: currentUserContent,
+                        systemPrompt: userSystemPrompt ? sanitizeSystemPrompt(userSystemPrompt) : null,
+                        reply: visionReplyContext,
+                        attachmentContent: attachmentContent as OpenAIChatCompletionMessage['content'] | null,
+                        retry: true,
+                    });
+                    await executeDrawing(retryMessages, false);
+                }
+            } else {
+                await staffMemoryToolScope.run({ guildId: interaction.guildId || 'global', userId }, () =>
+                    chatManager.streamResponseText(messages, handleResponseDelta, streamOptions));
+            }
             // For drawing, trust only IMAGE_POSTED returned by the real draw_image handler.
             // Discard any text generated before the tool call, including hallucinated "描いたよ".
             if (forceDrawingTool) {

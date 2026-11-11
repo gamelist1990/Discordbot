@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { isStaffDrawingRequest } from '../src/commands/staff/subcommands/StaffAIDrawingIntent.ts';
+import { isStaffDrawingRequest, buildStaffDrawingMessages } from '../src/commands/staff/subcommands/StaffAIDrawingIntent.ts';
 import { completeStaffDrawingTool } from '../src/commands/staff/subcommands/ai-tools/drawing.ts';
 import { ChatGPTClient } from '../src/core/ai/ChatGPTClient.ts';
 
@@ -36,4 +36,22 @@ test('Responses API explicitly sends thinking ON and forces draw_image', () => {
     assert.deepEqual(payload.tool_choice,{type:'function',name:'draw_image'});
     assert.equal(payload.reasoning.effort,'high');
     assert.equal(payload.max_output_tokens,1024);
+});
+
+test('drawing-only request ignores unrelated conversation history, keeps user intent and cited images', () => {
+    const result = buildStaffDrawingMessages({
+        userContent: '猫描いて',
+        systemPrompt: '背景は青にして',
+        reply: { text: 'ユーザーの参考画像', imageParts: [{type:'image_url',image_url:{url:'https://cdn.discordapp.com/a.png',detail:'auto'}}] },
+    });
+    assert.equal(result.length, 3);
+    assert.equal(result[0].role, 'system');
+    assert.match(String(result[0].content), /draw_image/);
+    assert.match(String(result[0].content), /背景は青/);
+    assert.equal(result[1].role, 'user');
+    assert.equal((result[1].content as any[])[1].image_url.url, 'https://cdn.discordapp.com/a.png');
+    assert.deepEqual(result[2],{role:'user',content:'猫描いて'});
+    const retry = buildStaffDrawingMessages({userContent:'猫描いて',retry:true});
+    assert.equal(retry.length, 2);
+    assert.match(String(retry[0].content), /直前の生成では必要なdraw_image/);
 });
