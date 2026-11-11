@@ -233,7 +233,7 @@ export interface ParticipationDecision {
 /**
  * 参加判断モデルのJSON出力を解釈する。解釈できない場合は参加しない。
  * 前後に説明文や別の波括弧が混ざっていても、対応の取れた {...} 断片を順に試して本命のJSONを探す。
- * emoji は通常のUnicode絵文字だけを採用する（カスタム絵文字・英数字は落とす）。
+ * emoji は形だけ大まかに通し（Unicode絵文字／:名前:／<:名前:id>）、実在チェックは実行時の resolveReactionEmoji で行う。
  */
 export function parseParticipationDecision(text: string): ParticipationDecision | null {
     for (const candidate of extractJsonObjectCandidates(text)) {
@@ -282,10 +282,8 @@ function parseDecisionCandidate(candidate: string): ParticipationDecision | null
         const targetMessageId = typeof value.targetMessageId === 'string' && /^\d{5,25}$/.test(value.targetMessageId)
             ? value.targetMessageId
             : null;
-        const emoji = typeof value.emoji === 'string'
-            && value.emoji.length >= 1 && value.emoji.length <= 8
-            && !/[\x00-\x7F]/.test(value.emoji)
-            ? value.emoji
+        const emoji = typeof value.emoji === 'string' && isPlausibleReactionEmoji(value.emoji)
+            ? value.emoji.trim()
             : null;
         const reason = typeof value.reason === 'string' ? value.reason.slice(0, 120) : '';
         const decision: ParticipationDecision = { action, targetMessageId, emoji, confidence, reason };
@@ -295,6 +293,69 @@ function parseDecisionCandidate(candidate: string): ParticipationDecision | null
     } catch {
         return null;
     }
+}
+
+
+/** ギルドのカスタム絵文字1件（リアクション解決用）。 */
+export interface CustomEmojiInfo {
+    name: string;
+    id: string;
+    animated: boolean;
+}
+
+/** discord.js の絵文字コレクションから、利用可能なカスタム絵文字だけを抜き出す。 */
+export function listCustomEmojis(emojis: Iterable<{ name: string | null; id: string; animated: boolean | null; available?: boolean | null }>): CustomEmojiInfo[] {
+    const out: CustomEmojiInfo[] = [];
+    for (const e of emojis) {
+        if (!e.name || e.available === false) continue;
+        out.push({ name: e.name, id: e.id, animated: e.animated ?? false });
+    }
+    return out;
+}
+
+/** 判定入力用に、カスタム絵文字を :名前: の並びにする（上限を超えたら切る）。 */
+export function formatCustomEmojiPalette(emojis: CustomEmojiInfo[], max = 60): string {
+    return emojis.slice(0, max).map(e => `:${e.name}:`).join(' ');
+}
+
+const CUSTOM_EMOJI_MENTION_PATTERN = /^<a?:([A-Za-z0-9_]{2,32}):(\d{5,25})>$/;
+const CUSTOM_EMOJI_NAME_PATTERN = /^:?([A-Za-z0-9_]{2,32}):?$/;
+
+/**
+ * モデルが返した emoji 文字列が「付けられる候補」の形をしているか（大まかな形だけ見る）。
+ * 実在チェックは付けるときに resolveReactionEmoji がギルドの絵文字一覧と照合して行う。
+ */
+export function isPlausibleReactionEmoji(text: string): boolean {
+    const t = text.trim();
+    if (t.length < 1 || t.length > 40) return false;
+    if (CUSTOM_EMOJI_MENTION_PATTERN.test(t)) return true;
+    if (CUSTOM_EMOJI_NAME_PATTERN.test(t) && /[A-Za-z_]/.test(t)) return true;
+    // Unicode絵文字: ASCII を含まず、絵文字らしいコードポイントを含む短い文字列（ZWJ連結も許容）。
+    return t.length <= 16 && !/[\x00-\x7F]/.test(t) && /\p{Extended_Pictographic}/u.test(t);
+}
+
+/**
+ * モデルが返した emoji を、実際にリアクションへ付けられる形へ解決する。
+ * カスタム絵文字はギルドに実在するものだけを採用し、解決できない場合は null（＝付けない）。
+ * 以前は解決できない場合に 👍 へフォールバックしていたため、場面に合わない
+ * 同じ絵文字ばかりが付いていた。合う絵文字が無いなら付けないのが正しい。
+ */
+export function resolveReactionEmoji(raw: string | null | undefined, customs: CustomEmojiInfo[]):
+    { emoji: string; label: string } | null {
+    if (!raw) return null;
+    const t = raw.trim();
+    const mention = CUSTOM_EMOJI_MENTION_PATTERN.exec(t);
+    const named = CUSTOM_EMOJI_NAME_PATTERN.exec(t);
+    const customName = mention?.[1] ?? (named && /[A-Za-z_]/.test(named[1]) ? named[1] : undefined);
+    if (customName) {
+        const found = customs.find(e => e.name === customName && (!mention || e.id === mention[2]));
+        if (!found) return null;
+        return { emoji: `${found.animated ? '<a:' : '<:'}${found.name}:${found.id}>`, label: `:${found.name}:` };
+    }
+    if (t.length >= 1 && t.length <= 16 && !/[\x00-\x7F]/.test(t) && /\p{Extended_Pictographic}/u.test(t)) {
+        return { emoji: t, label: t };
+    }
+    return null;
 }
 
 /**
@@ -966,7 +1027,7 @@ export function ambientSendDelayMs(kind: 'addressed' | 'join' | 'react', rand: n
 
 export const PARTICIPATION_JUDGE_SYSTEM_PROMPT = [
     'あなたはDiscordサーバーに常駐するAIの「参加判断器」です。JSONだけを返してください。',
-    '形式: {"action":"none"|"reply"|"comment"|"react"|"continue","targetMessageId":"対象のメッセージIDまたはnull","emoji":"絵文字またはnull","draft":"reply/comment/continue の場合に、実際に投稿する文の下書き（そのまま投稿できる完成文）","confidence":0.0から1.0,"reason":"短い理由"}',
+    '形式: {"action":"none"|"reply"|"comment"|"react"|"continue","targetMessageId":"対象のメッセージIDまたはnull","emoji":"Unicode絵文字、またはカスタム絵文字を :名前: の形で。なければnull","draft":"reply/comment/continue の場合に、実際に投稿する文の下書き（そのまま投稿できる完成文）","confidence":0.0から1.0,"reason":"短い理由"}',
     '会話ログの各行頭は [メッセージID] です。あなた自身は「(自分=このBot)」と表示されています。',
     '会話ログには添付メディアの内容が [画像: …]、[動画: …]、[音声: …] の形で併記されることがあります。これは実際にメディアを見た説明なので、話題の判断に使ってください。「（内容未確認）」とあるメディアは、存在だけが分かっているものです。',
     '「AIかと思った」のような発言は、投稿された写真そのものがAI生成画像に見えたという意味であることがあります。自分（Bot）のことだと決めつけず、メディアの内容と文脈から判断してください。',
@@ -976,6 +1037,10 @@ export const PARTICIPATION_JUDGE_SYSTEM_PROMPT = [
     '- reply: 特定のメッセージへの返信が自然な場合。宙に浮いた質問への回答、あなたに向けられた発言への応答。targetMessageId を指定する。',
     '- comment: 会話全体に短く口を挟む余地が本当にある場合だけ（ネタへの乗っかり、困っている人へのさりげない助け）。ハードルは高い。',
     '- react: 言葉ではなく絵文字リアクションが一番自然な軽い反応（笑い・驚き・共感）。targetMessageId と emoji を必ず指定する。',
+    '- react の emoji は、対象の発言の感情・内容に意味が合うものを1つだけ選ぶこと。笑える話には笑い系、達成や良い知らせには祝福・称賛系、驚きには驚き系、強い同意には頷き系。悲しい・深刻・困っている話に、笑い系や煽り系の絵文字は絶対に使わない。',
+    '- カスタム絵文字は、ユーザー文に「このサーバーで使えるカスタム絵文字」が列挙されている場合に限り、その中から :名前: の形で選べる。意味が名前から推測できないカスタム絵文字は使わないこと（何の画像か分からない内輪絵文字も多い）。',
+    '- 合う絵文字が思いつかないなら、場面に合わない絵文字を無理に付けず、action を none にすること。適当な絵文字を付けるくらいなら付けない方が自然。',
+    '- 直近のリアクション履歴と同じ絵文字ばかり繰り返さないこと。場面に合う範囲で、付ける絵文字は毎回きちんと選び直す。',
     'react の間隔は固定ルールでは決めない。ユーザー文には「あなたの直近のリアクション」（いつ・誰の・どんな発言に・どの絵文字を付けたか）が渡されるので、それと会話の進み具合を見て、人間らしい間隔を自分で判断すること。秒数の決まりは無い。',
     '直前に自分がリアクションしたばかりで、会話があまり進んでいない・話題も変わっていないなら、react は none に寄せる。うるさく感じられる連打はしない。',
     '全部の発言に付けるのは不自然で、付けすぎは空気を壊す。付けるのは笑いどころ・強い同意・祝福など、反応が自然な一点だけにする。',
@@ -1364,6 +1429,8 @@ async function judgeAndParticipate(client: Client, channelId: string, state: Cha
 
     const personality = await ensureGuildAIPersona(state.guildId, false);
     const personalityPrompt = buildGuildAIPersonalityPrompt(personality);
+    const customEmojis = listCustomEmojis([...(client.guilds.cache.get(state.guildId)?.emojis.cache.values() ?? [])]);
+    const emojiPalette = formatCustomEmojiPalette(customEmojis);
     const presence = presenceOf(snapshotOf(state, Date.now()), Date.now());
     // 会話の絵: バッファの方が厚ければそちらを、そうでなければ取得した履歴を使う。
     // ただし判定へ渡す形は dsh 方式の追記専用セッション（過去ターン不変・新規分だけ末尾追記）。
@@ -1392,6 +1459,7 @@ async function judgeAndParticipate(client: Client, channelId: string, state: Cha
             `あなたの状態: ${presence === 'engaged' ? 'このチャンネルでは会話に参加中（engaged）' : 'このチャンネルでは様子見中（lurking）'}`,
             `きっかけ: ${trigger}`,
             `あなたの直近のリアクション（このチャンネル）:\n${formatRecentReactions(state.recentReactions, Date.now())}`,
+            ...(emojiPalette ? [`このサーバーで使えるカスタム絵文字: ${emojiPalette}`] : []),
             '上記の追記ログ全体が現在の会話です。最後の追記が最新の発言です。判定は最新の状態で行ってください。',
         ],
         firstTurnHeader: '以下はこのチャンネルの会話ログです（新しい発言は追記として末尾に足されます。過去の内容は変わりません）。',
@@ -1439,16 +1507,21 @@ async function judgeAndParticipate(client: Client, channelId: string, state: Cha
         if (!permissions.has(PermissionFlagsBits.AddReactions)) return;
         const target = (await resolveTarget()) ?? lastHumanMessage;
         if (!target) return;
+        const resolved = resolveReactionEmoji(decision.emoji, customEmojis);
+        if (!resolved) {
+            Logger.info(`[DotAmbient] react skipped (emoji not resolvable) guild=${state.guildId} channel=${channelId} emoji=${decision.emoji ?? 'null'} reason=${decision.reason}`);
+            return;
+        }
         await sleepMs(ambientSendDelayMs('react', Math.random()));
-        const reacted = await target.react(decision.emoji ?? '👍').then(() => true).catch(() => false);
+        const reacted = await target.react(resolved.emoji).then(() => true).catch(() => false);
         if (!reacted) return;
         state.recentReactions = recordRecentReaction(state.recentReactions, {
             at: Date.now(),
             authorName: target.author.username,
             excerpt: ambientMessageText(target).replace(/\s+/g, ' ').slice(0, 120),
-            emoji: decision.emoji ?? '👍',
+            emoji: resolved.label,
         });
-        Logger.info(`[DotAmbient] reacted guild=${state.guildId} channel=${channelId} emoji=${decision.emoji ?? '👍'} conf=${decision.confidence} reason=${decision.reason}`);
+        Logger.info(`[DotAmbient] reacted guild=${state.guildId} channel=${channelId} emoji=${resolved.label} conf=${decision.confidence} reason=${decision.reason}`);
         return;
     }
 

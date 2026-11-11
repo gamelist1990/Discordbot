@@ -20,6 +20,11 @@ import {
     DOT_AMBIENT,
     recordRecentReaction,
     formatRecentReactions,
+    resolveReactionEmoji,
+    listCustomEmojis,
+    formatCustomEmojiPalette,
+    isPlausibleReactionEmoji,
+    type CustomEmojiInfo,
     type RecentReaction,
     startTypingKeepAlive,
     extractContentTokens,
@@ -98,10 +103,38 @@ test('participation decision parser validates the structured schema', () => {
     assert.equal(parseParticipationDecision('{"action":"join","confidence":0.9}'), null);
     assert.equal(parseParticipationDecision('参加しません'), null);
     assert.equal(parseParticipationDecision(''), null);
-    // カスタム絵文字は emoji として採用しない（リアクションは通常絵文字のみ）
-    assert.equal(parseParticipationDecision('{"action":"react","targetMessageId":"123456789012345678","emoji":"<:pepe:123456>","confidence":0.8}')?.emoji, null);
+    // カスタム絵文字は形だけ通す（実在チェックは実行時の resolveReactionEmoji で行う）
+    assert.equal(parseParticipationDecision('{"action":"react","targetMessageId":"123456789012345678","emoji":"<:pepe:123456>","confidence":0.8}')?.emoji, '<:pepe:123456>');
+    assert.equal(parseParticipationDecision('{"action":"react","targetMessageId":"123456789012345678","emoji":":pepe:","confidence":0.8}')?.emoji, ':pepe:');
     // 数値でない targetMessageId は null に落とす
     assert.equal(parseParticipationDecision('{"action":"reply","targetMessageId":"abc","confidence":0.8}')?.targetMessageId, null);
+});
+
+test('reaction emoji resolution allows guild custom emojis and rejects unresolvable ones', () => {
+    const customs: CustomEmojiInfo[] = [
+        { name: 'pepe', id: '123456789012345678', animated: false },
+        { name: 'party', id: '234567890123456789', animated: true },
+    ];
+    // Unicode絵文字はそのまま
+    assert.deepEqual(resolveReactionEmoji('😂', customs), { emoji: '😂', label: '😂' });
+    // カスタム絵文字: :名前: / 名前 / メンション形式のいずれでも、実在すれば解決する
+    assert.deepEqual(resolveReactionEmoji(':pepe:', customs), { emoji: '<:pepe:123456789012345678>', label: ':pepe:' });
+    assert.deepEqual(resolveReactionEmoji('pepe', customs), { emoji: '<:pepe:123456789012345678>', label: ':pepe:' });
+    assert.deepEqual(resolveReactionEmoji('<a:party:234567890123456789>', customs), { emoji: '<a:party:234567890123456789>', label: ':party:' });
+    // 実在しないカスタム絵文字・ID違い・ただの単語・未指定は付けない（👍フォールバックはしない）
+    assert.equal(resolveReactionEmoji(':notreal:', customs), null);
+    assert.equal(resolveReactionEmoji('<:pepe:999999999999999999>', customs), null);
+    assert.equal(resolveReactionEmoji('hello', customs), null);
+    assert.equal(resolveReactionEmoji(null, customs), null);
+    // パレット整形と一覧抽出
+    assert.equal(formatCustomEmojiPalette(customs), ':pepe: :party:');
+    assert.deepEqual(listCustomEmojis([
+        { name: 'a', id: '1', animated: false, available: true },
+        { name: null, id: '2', animated: null },
+        { name: 'b', id: '3', animated: true, available: false },
+    ]), [{ name: 'a', id: '1', animated: false }]);
+    assert.equal(isPlausibleReactionEmoji('😂'), true);
+    assert.equal(isPlausibleReactionEmoji('ただの文章です'), false);
 });
 
 test('addressed decisions accept only high-confidence replies', () => {
