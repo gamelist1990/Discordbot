@@ -42,6 +42,8 @@ export interface ChatOptions {
     onRateLimitWait?: (info: RateLimitWaitInfo) => void | Promise<void>;
     onToolStep?: (step: ToolExecutionStep) => void | Promise<void>;
     onToolCallDelta?: (call: ToolCallStreamDelta) => void;
+    /** 各モデル呼び出しの送信直前に呼ばれる。表示用の prefill 進捗推定に使う。 */
+    onPrefillStart?: (info: { round: number; estimatedPromptTokens: number }) => void;
     /** Force a short ordered tool sequence once per tool round, then return to automatic selection. */
     forceToolSequence?: string[];
     /** Return a verified final answer when the caller knows this tool batch completed its task. */
@@ -162,6 +164,20 @@ export function chatUsageOf(response: {
             ? usage.prompt_tokens_details.cached_tokens : null,
         generatedSeconds,
     };
+}
+
+/** 表示専用: リクエストペイロードの文字数からプロンプト量を粗く推定する（日本語・JSON主体の実測比 0.45 トークン/文字）。 */
+export function estimatePromptTokensFromPayload(payload: unknown): number {
+    try {
+        const p = payload as { messages?: unknown; input?: unknown; instructions?: unknown } | null;
+        if (!p || typeof p !== 'object') return 0;
+        let chars = 0;
+        for (const value of [p.messages, p.input, p.instructions]) {
+            if (value === undefined || value === null) continue;
+            chars += typeof value === 'string' ? value.length : JSON.stringify(value)?.length ?? 0;
+        }
+        return Math.max(0, Math.round(chars * 0.45));
+    } catch { return 0; }
 }
 
 export class ChatGPTClient {
@@ -395,6 +411,7 @@ export class ChatGPTClient {
             for (const model of modelCandidates) {
                 try {
                     const payload = this.buildRequestPayload(messages, options, model, false, Array.from(this.tools.values()).map(tool => tool.definition), toolRound);
+                    this.notifyPrefillStart(options, toolRound, payload);
                     const response = await client.chat.completions.create(
                         payload as OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming,
                         { signal: options?.signal },
@@ -493,6 +510,7 @@ export class ChatGPTClient {
                     const payload = this.buildRequestPayload(messages,
                         options ? { ...options, includeUsage: true } : { includeUsage: true },
                         model, true, toolDefinitions, toolRound);
+                    this.notifyPrefillStart(options, toolRound, payload);
                     const stream = await client.chat.completions.create(
                         payload as OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming,
                         { signal: options?.signal },
@@ -638,6 +656,7 @@ export class ChatGPTClient {
                             ? (this.forcedToolForRound(options, toolDefinitions, toolRound) || 'auto')
                             : 'none',
                     });
+                    this.notifyPrefillStart(options, toolRound, payload);
                     const requestStarted = Date.now();
                     let firstContentReceived = false;
                     const result = await this.streamResponseApiPayload(auth, payload, (delta) => {
@@ -1158,6 +1177,13 @@ export class ChatGPTClient {
             functionCallsByKey.set(key, existing);
             return existing;
         }
+    }
+
+    private notifyPrefillStart(options: ChatOptions | undefined, round: number, payload: unknown): void {
+        if (!options?.onPrefillStart) return;
+        try {
+            options.onPrefillStart({ round, estimatedPromptTokens: estimatePromptTokensFromPayload(payload) });
+        } catch (error) { Logger.debug('[ChatGPTClient] onPrefillStart callback failed:', error); }
     }
 
     private notifyToolCallDelta(options: ChatOptions | undefined, call: ResponseFunctionCallItem,

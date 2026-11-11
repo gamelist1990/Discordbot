@@ -572,6 +572,10 @@ ${reason}` });
                 streamState.recordToolStep(step);
                 queuePreview(true);
             },
+            onPrefillStart: (info: { round: number; estimatedPromptTokens: number }) => {
+                streamState.notePrefillStart(info.estimatedPromptTokens);
+                queuePreview(true);
+            },
         } as const;
 
         try {

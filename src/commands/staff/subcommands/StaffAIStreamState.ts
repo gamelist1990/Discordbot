@@ -30,6 +30,23 @@ type ToolPreview = {
 const DISCORD_LIMIT = 2000;
 const THINKING_PREVIEW_LIMIT = 200;
 
+/** prefill 速度の表示用推定値（tok/s）。2026-11-11 に本番モデル qwen3.6-35b-a3b-strata で実測した約1,174 tok/s。 */
+export const PREFILL_TOKENS_PER_SECOND = 1174;
+
+/**
+ * prefill 進捗の推定表示。バックエンドは prefill 中に進捗を送らないため、
+ * 経過時間×実測速度で処理量を推定し「推定」と明記して出す。キャッシュで
+ * 速く終わる場合は最初のデルタ到着で表示自体が消える。
+ */
+export function formatPrefillProgress(estimatedTokens: number, elapsedMs: number): string | null {
+    if (estimatedTokens < 2000 || elapsedMs <= 0) return null;
+    const processed = Math.min(estimatedTokens * 0.99, (elapsedMs / 1000) * PREFILL_TOKENS_PER_SECOND);
+    const ratio = processed / estimatedTokens;
+    const filled = Math.max(0, Math.min(10, Math.floor(ratio * 10)));
+    const bar = '▓'.repeat(filled) + '░'.repeat(10 - filled);
+    return `⏳ prefill 推定 ${bar} ${Math.floor(ratio * 100)}%（約 ${Math.floor(processed).toLocaleString('ja-JP')} / ${estimatedTokens.toLocaleString('ja-JP')} toks）`;
+}
+
 type ThinkingPreview = {
     number: number;
     characters: number;
@@ -70,6 +87,7 @@ export class StaffAIStreamState {
     private timedOutputTokens = 0;
     private timedOutputSeconds = 0;
     private callIndex = 0;
+    private prefill: { startedAt: number; estimatedTokens: number } | null = null;
 
     get thinkingPhaseCount(): number { return this.thinkingPhases; }
 
@@ -98,6 +116,7 @@ export class StaffAIStreamState {
     }
 
     consume(chunk: OpenAIChatCompletionChunk): void {
+        this.prefill = null;
         const usage = chunk.usage;
         if (usage && Number.isFinite(usage.prompt_tokens) && Number.isFinite(usage.completion_tokens)) {
             this.promptTokens += usage.prompt_tokens;
@@ -139,6 +158,7 @@ export class StaffAIStreamState {
 
     /** Native /v1/responses SSE: reasoning and output text arrive independently. */
     consumeResponse(delta: ResponseApiStreamDelta): void {
+        this.prefill = null;
         if (delta.type === 'thinking') {
             if (delta.text) {
                 if (!this.streamingFrom) this.streamingFrom = Date.now();
@@ -229,6 +249,8 @@ export class StaffAIStreamState {
             const info = describeStaffTool(tool);
             return `-# ${info.name} — ${info.value}`;
         });
+        const prefillLine = !isComplete ? this.prefillProgressLine(Date.now()) : null;
+        if (prefillLine) statusLines.unshift(`-# ${prefillLine}`);
         // Keep the rolling thought preview visible while answer text streams too.
         const showThinking = !isComplete && this.hasReasoning;
         if (!this.ansiColors && showThinking) {
@@ -278,6 +300,17 @@ export class StaffAIStreamState {
             ? [prefix, visible].filter(Boolean).join('\n')
             : visible;
         return (body + suffix).slice(0, DISCORD_LIMIT);
+    }
+
+    /** モデル呼び出しの送信開始を記録する。最初のデルタが来るまで prefill 推定進捗を表示する。 */
+    public notePrefillStart(estimatedTokens: number): void {
+        this.prefill = { startedAt: Date.now(), estimatedTokens };
+    }
+
+    private prefillProgressLine(now: number): string | null {
+        if (!this.prefill) return null;
+        if (now - this.prefill.startedAt < 700) return null;
+        return formatPrefillProgress(this.prefill.estimatedTokens, now - this.prefill.startedAt);
     }
 
     usageMetrics() {
@@ -337,6 +370,7 @@ export class StaffAIStreamState {
 
     private renderNativeDiscord(isComplete: boolean, answer: string) {
         const now = Date.now();
+        const prefillLine = !isComplete ? this.prefillProgressLine(now) : null;
         const active = this.tools.filter(tool => tool.phase === '準備中' || tool.phase === '実行中');
         const completed = this.tools.filter(tool => tool.phase === '完了').length;
         const failed = this.tools.filter(tool => tool.phase === '失敗').length;
@@ -350,6 +384,7 @@ export class StaffAIStreamState {
         const description = [
             !isComplete ? active.length ? 'ツールを使用しています。'
                 : this.content ? '回答を生成しています。' : '💭 応答を準備しています。' : '',
+            prefillLine ?? '',
             isComplete && this.hasReasoning ? `💭 Thinking · 完了（${this.reasoningCharacters}文字）` : '',
             this.tools.length ? `ツール ${this.tools.length}件 · 完了 ${completed}件 · 失敗 ${failed}件` : '',
             isComplete && active.length ? `未完了 ${active.length}件` : '',
