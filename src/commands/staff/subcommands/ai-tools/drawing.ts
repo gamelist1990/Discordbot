@@ -226,10 +226,25 @@ export const drawImageToolHandler: ToolHandler = async (args, context) => {
             : await interaction.followUp(payload);
         state.message = reply;
         state.hash = hash;
-        const attachment = reply.attachments?.find(entry => entry.name === filename)
+        let attachment = reply.attachments?.find(entry => entry.name === filename)
             ?? (reply.attachments?.size === 1 ? reply.attachments.first() : undefined);
-        if (!attachment?.url) return 'DRAW_ERROR: Discordへの画像投稿後、添付ファイルのURLを確認できませんでした。送信状態を確認してください。';
-        const lines = [`IMAGE_POSTED: ${JSON.stringify({ filename, url: attachment.url, width: rendered.width, height: rendered.height, render: state.renders })}`];
+        // A successful Discord response can initially lack attachment metadata.
+        // Refresh the existing message before treating the URL as unavailable.
+        if (!attachment?.url) {
+            try {
+                const fetched = await reply.fetch();
+                state.message = fetched;
+                attachment = fetched.attachments?.find(entry => entry.name === filename)
+                    ?? (fetched.attachments?.size === 1 ? fetched.attachments.first() : undefined);
+            } catch (error) {
+                console.warn('[StaffAI draw_image] Could not refresh posted attachment URL:', error);
+            }
+        }
+        if (!attachment?.url) return 'DRAW_ERROR: Discordへ画像を投稿しましたが、添付URLを確認できませんでした。Discordの投稿を確認してください（自動再送はしません）。';
+        const lines = ['IMAGE_POSTED: ' + JSON.stringify({
+            filename, url: attachment.url, messageUrl: state.message?.url,
+            width: rendered.width, height: rendered.height, render: state.renders,
+        })];
         if (state.renders <= MAX_REVIEW_ROUNDS) {
             const review = await reviewRender(rendered.png, intent, extractSvgTexts(checked.svg), interaction.guildId);
             lines.push(`VISUAL_REVIEW: ${review}`);
@@ -256,10 +271,20 @@ export function completeStaffDrawingTool(results: Array<{ name: string; output: 
     const match = /^IMAGE_POSTED:\s*(\{[^\n]+\})/m.exec(result.output);
     if (match) {
         try {
-            const posted = JSON.parse(match[1]) as {filename?: unknown; url?: unknown};
-            if (typeof posted.url === 'string' && /^https:\/\//.test(posted.url)
+            const posted = JSON.parse(match[1]) as {
+                filename?: unknown; url?: unknown; messageUrl?: unknown; render?: unknown;
+            };
+            if (typeof posted.url === 'string' && /^https:\/\/\S+$/.test(posted.url)
                 && typeof posted.filename === 'string' && /^[A-Za-z0-9][A-Za-z0-9._-]*\.png$/i.test(posted.filename)) {
-                return `🎨 ${posted.filename} を画像としてDiscordに投稿しました。`;
+                const renderCount = typeof posted.render === 'number' && Number.isInteger(posted.render)
+                    && posted.render >= 1 ? '（' + posted.render + '回の描画で完了）' : '';
+                // Never drop the real attachment URL when preparing the final reply.
+                const lines = ['🎨 ' + posted.filename + renderCount, '🔗 画像URL: ' + posted.url];
+                if (typeof posted.messageUrl === 'string'
+                    && /^https:\/\/(?:discord\.com|discordapp\.com)\/channels\/\S+$/.test(posted.messageUrl)) {
+                    lines.push('📌 投稿リンク: ' + posted.messageUrl);
+                }
+                return lines.join('\n');
             }
         } catch { /* malformed result is never a success */ }
     }

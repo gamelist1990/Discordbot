@@ -96,6 +96,22 @@ test('draw_image handler posts, reviews, edits in place and rejects unchanged SV
         assert.match(String(first), /VISUAL_REVIEW: 問題なし/);
         assert.equal(followUps.length, 1);
 
+        const firstMeta = JSON.parse(String(first).split('\n')[0].slice('IMAGE_POSTED: '.length));
+        assert.equal(firstMeta.url, 'https://cdn.example/logo.png');
+        assert.equal(firstMeta.render, 1);
+
+        const late = fakeMessage('late.png');
+        const liveAttachments = late.attachments;
+        late.attachments = new FakeAttachments([]);
+        late.fetch = async () => ({...late, attachments: liveAttachments});
+        const lateInteraction: any = {
+            guildId: 'g1', channelId: 'c1',
+            followUp: async () => late,
+        };
+        const lateResult = await drawImageToolHandler({svg: VALID_SVG, filename: 'late.png', intent:'test'}, lateInteraction);
+        assert.match(String(lateResult), /IMAGE_POSTED/);
+        assert.ok(String(lateResult).includes('https://cdn.example/late.png'));
+
         const same = await drawImageToolHandler({ svg: VALID_SVG, filename: 'logo.png', intent: 'テストロゴ' }, interaction);
         assert.match(String(same), /DRAW_ERROR: 前回と同一の SVG/);
         assert.equal(followUps.length, 1);

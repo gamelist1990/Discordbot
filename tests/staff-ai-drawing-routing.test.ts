@@ -4,7 +4,7 @@ import { isStaffDrawingRequest, buildStaffDrawingMessages } from '../src/command
 import { completeStaffDrawingTool } from '../src/commands/staff/subcommands/ai-tools/drawing.ts';
 import { ChatGPTClient } from '../src/core/ai/ChatGPTClient.ts';
 
-const validPosted = 'IMAGE_POSTED: '+JSON.stringify({ filename: 'cat.png', url: 'https://cdn.discordapp.com/attachments/1/2/cat.png', width: 800, height: 600, render: 1 })+'\nVISUAL_REVIEW: 問題なし';
+const validPosted = 'IMAGE_POSTED: '+JSON.stringify({ filename: 'cat.png', url: 'https://cdn.discordapp.com/attachments/1/2/cat.png?ex=123&is=456', messageUrl: 'https://discord.com/channels/111/222/333', render: 1, width: 800, height: 600, render: 1 })+'\nVISUAL_REVIEW: 問題なし';
 
 test('force drawing for creation requests, not analysis or quoted completion', () => {
     for (const prompt of ['猫描いて', '猫の絵を作って', 'ロゴ作って', 'ロゴ作成して', '画像を生成して', 'SVGで描いて', 'draw an image of a cat']) {
@@ -17,8 +17,13 @@ test('force drawing for creation requests, not analysis or quoted completion', (
 
 test('only a verifiable posted image is a drawing success', () => {
     const success = completeStaffDrawingTool([{name:'draw_image',output:validPosted}]);
-    assert.match(success ?? '', /cat\.png を画像としてDiscordに投稿しました/);
+    assert.match(success ?? '', /🎨 cat\.png（1回の描画で完了）/);
+    assert.ok(success?.includes('🔗 画像URL: https://cdn.discordapp.com/attachments/1/2/cat.png?ex=123&is=456'));
+    assert.ok(success?.includes('📌 投稿リンク: https://discord.com/channels/111/222/333'));
+    assert.doesNotMatch(success ?? '', /IMAGE_POSTED|VISUAL_REVIEW/);
     assert.equal(completeStaffDrawingTool([{name:'web_search',output:'猫'}]),undefined);
+    const oldFormat = completeStaffDrawingTool([{name:'draw_image',output: 'IMAGE_POSTED: '+JSON.stringify({filename:'old.png',url:'https://cdn.discordapp.com/old.png'})}]);
+    assert.ok(oldFormat?.includes('🔗 画像URL: https://cdn.discordapp.com/old.png'));
     for (const bad of ['DRAW_ERROR: filename invalid', 'IMAGE_POSTED: {"filename":"cat.png","url":""}', 'IMAGE_POSTED: nonsense']) {
         const result = completeStaffDrawingTool([{name:'draw_image',output:bad}]);
         assert.match(result ?? '', /画像は投稿されていません/);
