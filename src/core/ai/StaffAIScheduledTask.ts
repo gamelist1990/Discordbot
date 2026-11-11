@@ -1,4 +1,4 @@
-import { GEMMA_MODEL } from '../../config.js';
+import { config } from '../../config.js';
 import { OpenAIChatManager } from './OpenAIChatManager.js';
 import { AI_RESEARCH_POLICY } from './AIResearchPolicy.js';
 import { buildStaffAITimeContext } from './StaffAITimeContext.js';
@@ -52,7 +52,7 @@ export async function executeStaffScheduledTask(schedule: StaffAISchedule, now =
         ].join('') },
         { role: 'system', content: `${buildStaffAITimeContext(now)}\n予約時刻: ${schedule.runAt}。今日・最新などは実行日時を基準にする。` },
         { role: 'user', content: schedule.task },
-    ], { model: GEMMA_MODEL, strictModel: true, maxTokens: 3072, signal,
+    ], { model: config.pexAi.model, strictModel: true, maxTokens: 3072, signal,
         usageContext: { guildId: schedule.guildId, purpose: 'staff-ai-scheduled' },
         requestLabel: `staff-ai-schedule:${schedule.id}`,
         ...(firstTool ? { forceToolSequence: [firstTool] } : {}),

@@ -1,4 +1,4 @@
-import { config, GEMMA_MODEL } from '../../../config.js';
+import { config } from '../../../config.js';
 import { recordAIUsage } from '../../ai/AIUsageMetrics.js';
 import type { OpenAITool, ToolHandler } from '../../../types/openai.js';
 import type { ChatAIToolRegistrar } from './types.js';
@@ -16,7 +16,7 @@ const visionDescribeDefinition: OpenAITool = {
     type: 'function',
     function: {
         name: 'vision_describe_image',
-        description: '画像認識が必要な場合だけ、指定された直近添付画像をA8のGemma 4で解析します。',
+        description: '画像認識が必要な場合だけ、指定された直近添付画像を現在の画像解析モデルで解析します。',
         parameters: {
             type: 'object',
             properties: {
@@ -45,7 +45,7 @@ const visionDescribeHandler: ToolHandler = async (args, context?: VisionToolCont
                 ...(config.pexAi.apiKey ? { authorization: `Bearer ${config.pexAi.apiKey}` } : {}),
             },
             body: JSON.stringify({
-                model: GEMMA_MODEL,
+                model: config.pexAi.visionModel || config.pexAi.model,
                 messages: [
                     {
                         role: 'user',
@@ -68,7 +68,7 @@ const visionDescribeHandler: ToolHandler = async (args, context?: VisionToolCont
 
         const data = await response.json() as any;
         void recordAIUsage({
-            purpose: 'vision', model: GEMMA_MODEL, guildId: context?.guildId,
+            purpose: 'vision', model: config.pexAi.visionModel || config.pexAi.model, guildId: context?.guildId,
             inputTokens: data?.usage?.prompt_tokens, outputTokens: data?.usage?.completion_tokens,
             cachedTokens: data?.usage?.prompt_tokens_details?.cached_tokens ?? null,
             generatedSeconds: data?.timings?.predicted_ms ? data.timings.predicted_ms / 1000 : undefined,

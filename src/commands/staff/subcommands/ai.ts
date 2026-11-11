@@ -3,7 +3,7 @@ import { STAFF_FILE_OUTPUT_FLOW } from '../../../core/ai/AIFileOutputPolicy.js';
 import { ChatInputCommandInteraction, Message, MessageFlags, DiscordAPIError } from 'discord.js';
 import { OpenAIChatManager } from '../../../core/ai/OpenAIChatManager.js';
 import { buildStaffAITimeContext } from '../../../core/ai/StaffAITimeContext.js';
-import { GEMMA_MODEL, isOwner } from '../../../config.js';
+import { config, isOwner } from '../../../config.js';
 import { OpenAIChatCompletionMessage, OpenAIChatCompletionChunk } from '../../../types/openai.js';
 import type { ResponseApiStreamDelta } from '../../../core/ai/ChatGPTClient.js';
 import { StaffAIStreamState } from './StaffAIStreamState.js';
@@ -164,6 +164,7 @@ export const subcommandHandler = {
 
         // prompt と attachment を受け取ったらすぐに defer してインタラクションの期限切れを防止
         await interaction.deferReply();
+        const staffRequestStartedAt = Date.now();
 
         // 履歴取得から生成・保存までをFIFOで処理し、同時リクエスト間の競合を防ぐ。
         const releaseStaffAIRequest = await acquireStaffAIRequest(interaction);
@@ -498,6 +499,8 @@ ${reason}` });
             && interaction.channel.permissionsFor(botMember)?.has('EmbedLinks'));
         let streamState = new StaffAIStreamState(false, nativeCards);
         let responseContent = '';
+        let modelRequestStartedAt = 0;
+        let firstModelOutputLogged = false;
         let isCompleted = false;
         let interactionExpired = false;
         let previewClosed = false;
@@ -539,6 +542,11 @@ ${reason}` });
         }
 
         function handleResponseDelta(delta: ResponseApiStreamDelta): void {
+            if (!firstModelOutputLogged && modelRequestStartedAt > 0
+                && (delta.type === 'text' || delta.type === 'thinking') && delta.text?.trim()) {
+                firstModelOutputLogged = true;
+                console.info(`[StaffAI Perf] first_output_ms=${Date.now() - modelRequestStartedAt} model=${config.pexAi.model} kind=${delta.type}`);
+            }
             const previousPhase = streamState.thinkingPhaseCount;
             streamState.consumeResponse(delta);
             responseContent = streamState.content;
@@ -549,7 +557,7 @@ ${reason}` });
         const streamOptions = {
             // Keep enough budget for a final answer after reasoning/tool calls.
             // A smaller limit can end a Responses stream with thinking only.
-            model: GEMMA_MODEL, strictModel: true, maxTokens: dotMode ? (forceTextFileTools ? 8192 : 6144) : (forceTextFileTools ? 4096 : 3072),
+            model: config.pexAi.model, strictModel: true, maxTokens: dotMode ? (forceTextFileTools ? 8192 : 6144) : (forceTextFileTools ? 4096 : 3072),
             reasoningEffort: (dotMode ? 'medium' : 'low') as 'medium' | 'low',
             ...(forceTextFileTools ? { forceToolSequence: ['output_file'] }
                 : forceChannelSearchTool ? { forceToolSequence: ['search_channel_messages'] } : {}),
@@ -599,6 +607,8 @@ ${reason}` });
             }
             // 全ラウンド（ツール呼び出し含む）のテキストとtoken usageを受け取る。
             queuePreview(true);
+            modelRequestStartedAt = Date.now();
+            console.info(`[StaffAI Perf] setup_ms=${modelRequestStartedAt - staffRequestStartedAt} messages=${messages.length} model=${config.pexAi.model}`);
             await staffMemoryToolScope.run({ guildId: interaction.guildId || 'global', userId }, () =>
                 chatManager.streamResponseText(messages, handleResponseDelta, streamOptions));
             // A response with reasoning only, no final text and no tool result is

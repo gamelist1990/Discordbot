@@ -1,7 +1,7 @@
 import { PermissionFlagsBits, type Client, type Message } from 'discord.js';
 import { OpenAIChatManager } from './OpenAIChatManager.js';
 import type { OpenAIChatCompletionMessage } from '../../types/openai.js';
-import { GEMMA_MODEL, config } from '../../config.js';
+import { config } from '../../config.js';
 import { Logger } from '../../utils/Logger.js';
 import { formatForwardAnnotation, getEffectiveContent } from '../anticheat/ForwardedContent.js';
 import {
@@ -1121,7 +1121,7 @@ async function generateAmbientReply(guildId: string, context: string, situation:
     const text = await chatManager.generateText([
         { role: 'system', content: AMBIENT_SYSTEM_RULES },
         { role: 'user', content: sanitizeAiText(`直近の会話:\n${context}\n\n${situation}${personaBlock || personalityPrompt ? `\n\n${[personaBlock, personalityPrompt].filter(Boolean).join('\n')}` : ''}${memoryBlock ? `\n\n${memoryBlock}` : ''}`) },
-    ], { model: GEMMA_MODEL, strictModel: true, maxTokens: DOT_AMBIENT.generationMaxTokens, priority: 'background', chatTemplateKwargs: { enable_thinking: false },
+    ], { model: config.pexAi.model, strictModel: true, maxTokens: DOT_AMBIENT.generationMaxTokens, priority: 'background', chatTemplateKwargs: { enable_thinking: false },
         usageContext: { guildId, purpose: 'dot-generate' } });
     return text.trim();
 }
@@ -1196,7 +1196,7 @@ async function judgeAddressed(message: Message, state: ChannelState, basis: Addr
     // 欲しいのは短いJSONだけなので思考を切り、トークン予算も確保する。解釈不能なら1回だけ再試行する。
     const runJudge = (messages: OpenAIChatCompletionMessage[]) => parseDecisionWithRetry(
         () => chatManager.generateText(messages,
-            { model: GEMMA_MODEL, strictModel: true, maxTokens: DOT_AMBIENT.judgeMaxTokens, priority: 'background', chatTemplateKwargs: { enable_thinking: false },
+            { model: config.pexAi.model, strictModel: true, maxTokens: DOT_AMBIENT.judgeMaxTokens, priority: 'background', chatTemplateKwargs: { enable_thinking: false },
                 usageContext: { guildId: message.guildId ?? undefined, purpose: 'dot-judge' } }),
         (raw, attempt) => Logger.warn(`[DotAmbient] addressed judge parse failed guild=${message.guildId} channel=${message.channelId} attempt=${attempt}/2 raw=${JSON.stringify(raw.slice(0, 200))}`),
     );
@@ -1468,7 +1468,7 @@ async function judgeAndParticipate(client: Client, channelId: string, state: Cha
 
     const runJudge = (messages: OpenAIChatCompletionMessage[]) => parseDecisionWithRetry(
         () => chatManager.generateText(messages,
-            { model: GEMMA_MODEL, strictModel: true, maxTokens: DOT_AMBIENT.judgeMaxTokens, priority: 'background', chatTemplateKwargs: { enable_thinking: false },
+            { model: config.pexAi.model, strictModel: true, maxTokens: DOT_AMBIENT.judgeMaxTokens, priority: 'background', chatTemplateKwargs: { enable_thinking: false },
                 usageContext: { guildId: state.guildId, purpose: 'dot-judge' } }),
         (raw, attempt) => Logger.warn(`[DotAmbient] participation judge parse failed guild=${state.guildId} channel=${channelId} trigger=${trigger} attempt=${attempt}/2 raw=${JSON.stringify(raw.slice(0, 200))}`),
     );

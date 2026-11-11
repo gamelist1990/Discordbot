@@ -3,7 +3,7 @@ import { mkdtemp as makeTempDir, writeFile as writeTempFile, readFile as readTem
 import { tmpdir as osTmpdir } from 'node:os';
 import { join as joinPath } from 'node:path';
 import { promisify as promisifyFn } from 'node:util';
-import { config, GEMMA_MODEL } from '../../config.js';
+import { config } from '../../config.js';
 import { Logger } from '../../utils/Logger.js';
 import { recordAIUsage } from './AIUsageMetrics.js';
 
@@ -13,7 +13,7 @@ const execFileAsync = promisifyFn(execFileCallback);
  * dot常駐（StaffAIDotAmbient）用の添付メディア理解。
  *
  * 方針: 判定・生成のたびに画像そのものをモデルへ渡すのではなく、メディア付き発言を
- * 1回だけ Gemma の視覚/聴覚で「説明文」に変換してキャッシュし、会話バッファや文脈には
+ * 1回だけ Qwen3.6とHomePCのメディア解析で「説明文」に変換してキャッシュし、会話バッファや文脈には
  * `[画像: 説明]` の形でテキストとして載せる。これにより
  * - 参加判定（30〜90秒おきに回る）がテキストだけで完結し、写真の話題を写真として認識できる
  * - 呼びかけ応答・返信生成も同じ説明を再利用でき、メディア1件あたりの視覚呼び出しが1回で済む
@@ -513,6 +513,8 @@ async function extractAudioChunkWav(sourcePath: string, folder: string, index: n
 /** 説明リクエストを EndPoint 経由で Gemma に投げる共通処理。失敗時は理由をログに残して null。 */
 async function requestMediaDescription(parts: Array<Record<string, unknown>>, timeoutMs: number, kind: DotMediaKind, maxTokens: number): Promise<string | null> {
     try {
+        // Strata handles images/video via HomePC; keep the legacy model for audio processing.
+        const mediaModel = config.pexAi.visionModel || config.pexAi.model;
         const response = await fetch(`${config.pexAi.endpoint.replace(/\/+$/, '')}/chat/completions`, {
             method: 'POST',
             headers: {
@@ -520,7 +522,7 @@ async function requestMediaDescription(parts: Array<Record<string, unknown>>, ti
                 ...(config.pexAi.apiKey ? { authorization: `Bearer ${config.pexAi.apiKey}` } : {}),
             },
             body: JSON.stringify({
-                model: GEMMA_MODEL,
+                model: mediaModel,
                 messages: [{ role: 'user', content: parts }],
                 temperature: 0.2,
                 max_tokens: maxTokens,
@@ -542,7 +544,7 @@ async function requestMediaDescription(parts: Array<Record<string, unknown>>, ti
         // 利用統計: この経路はギルド文脈を持たない（メディア説明はメッセージ単位で
         // キャッシュされ、複数ギルド経路から共有され得る）ため全体統計にだけ記録する。
         void recordAIUsage({
-            purpose: 'media', model: GEMMA_MODEL,
+            purpose: 'media', model: mediaModel,
             inputTokens: json?.usage?.prompt_tokens, outputTokens: json?.usage?.completion_tokens,
             cachedTokens: json?.usage?.prompt_tokens_details?.cached_tokens ?? null,
             generatedSeconds: json?.timings?.predicted_ms ? json.timings.predicted_ms / 1000 : undefined,

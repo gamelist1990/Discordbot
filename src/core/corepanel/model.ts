@@ -1,7 +1,7 @@
 import { ChatGPTClient, RateLimitWaitInfo } from '../ai/ChatGPTClient.js';
 import { CORE_FEATURE_API_ENDPOINT, CORE_FEATURE_MODEL_FALLBACKS } from './constants.js';
 import { clamp, extractJsonObject, pickAiPersonaName } from './helpers.js';
-import { GEMMA_MODEL } from '../../config.js';
+import { config } from '../../config.js';
 
 export interface CoreFeatureModelHooks {
     requestLabel?: string;
@@ -38,7 +38,7 @@ export function requestPersonalityModelText(
     temperature: number,
     hooks?: CoreFeatureModelHooks
 ): Promise<string> {
-    return requestCoreFeatureModelText(messages, maxTokens, temperature, { ...hooks, model: GEMMA_MODEL });
+    return requestCoreFeatureModelText(messages, maxTokens, temperature, { ...hooks, model: config.pexAi.model });
 }
 
 function sanitizePersonaName(value: unknown): string | null {
