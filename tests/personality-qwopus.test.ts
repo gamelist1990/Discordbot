@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ChatGPTClient } from '../src/core/ai/ChatGPTClient.ts';
-import { QWEN_MODEL } from '../src/config.ts';
+import { config, QWEN_MODEL } from '../src/config.ts';
 import { requestPersonalityModelText, requestCoreFeatureNaturalFollowUp, requestCoreFeatureConfidenceCalibration } from '../src/core/corepanel/model.ts';
 import { PersonalityService } from '../src/core/corepanel/personality/PersonalityService.ts';
 import { extractJsonObject, validatePersonalityEvaluation } from '../src/core/corepanel/helpers.ts';
@@ -31,6 +31,24 @@ test('personality uses Gemma for evaluation, follow-up and confidence without si
     assert.equal(await requestCoreFeatureConfidenceCalibration('支援者', '理由', [], 4, '履歴', 50), 64);
     assert.equal(calls.length, 3);
     assert.ok(calls.every((options) => options.model === QWEN_MODEL && options.strictModel === true));
+});
+
+test('PEX AI personality evaluation works without optional OpenAI configuration', async (t) => {
+    const oldApiKey = config.openai.apiKey;
+    const oldEndpoint = config.openai.apiEndpoint;
+    config.openai.apiKey = '';
+    config.openai.apiEndpoint = '';
+    t.after(() => { config.openai.apiKey = oldApiKey; config.openai.apiEndpoint = oldEndpoint; });
+    const calls: any[] = [];
+    t.mock.method(ChatGPTClient.prototype, 'sendMessage', async (_messages: unknown, options: any) => {
+        calls.push(options);
+        return response(JSON.stringify(evaluation));
+    });
+    const raw = await requestPersonalityModelText([{ role: 'user', content: 'こんにちは' }], 140, 0.2);
+    assert.ok(raw.includes('reply'));
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].apiEndpoint, config.pexAi.endpoint);
+    assert.equal(calls[0].model, config.pexAi.model);
 });
 
 test('empty Gemma responses are treated as errors', async (t) => {
