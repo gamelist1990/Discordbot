@@ -15,7 +15,13 @@ export async function requestCoreFeatureModelText(
     temperature: number,
     hooks?: CoreFeatureModelHooks
 ): Promise<string> {
-    const client = new ChatGPTClient();
+    // CorePanel uses PEX AI, even when the optional OpenAI provider is unconfigured.
+    // Constructing ChatGPTClient without credentials incorrectly required config.openai.apiKey.
+    const client = new ChatGPTClient({
+        apiKey: config.pexAi.apiKey,
+        apiEndpoint: CORE_FEATURE_API_ENDPOINT,
+        defaultModel: config.pexAi.model
+    });
     const response = await client.sendMessage(messages, {
         usageContext: { purpose: 'corepanel' },
         apiEndpoint: CORE_FEATURE_API_ENDPOINT,
