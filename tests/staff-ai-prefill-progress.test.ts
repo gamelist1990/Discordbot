@@ -1,17 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { StaffAIStreamState, formatPrefillProgress, PREFILL_TOKENS_PER_SECOND } from '../src/commands/staff/subcommands/StaffAIStreamState.ts';
+import { StaffAIStreamState, formatPrefillProgress } from '../src/commands/staff/subcommands/StaffAIStreamState.ts';
 import { estimatePromptTokensFromPayload } from '../src/core/ai/ChatGPTClient.ts';
 
-test('formatPrefillProgress: small prompts stay hidden, progress grows and caps at 99%', () => {
-    assert.equal(formatPrefillProgress(1500, 5000), null);
+test('first-output waiting message uses only actual elapsed time, never inferred progress', () => {
     assert.equal(formatPrefillProgress(12000, 0), null);
-    const early = formatPrefillProgress(12000, 1000)!;
-    assert.match(early, /prefill 推定/);
-    assert.match(early, new RegExp(`${Math.floor((1000 / 1000 * PREFILL_TOKENS_PER_SECOND) / 12000 * 100)}%`));
-    const late = formatPrefillProgress(12000, 60000)!;
-    assert.match(late, /99%/);
-    assert.match(late, /12,000 toks/);
+    assert.equal(formatPrefillProgress(12000, 400), null);
+    assert.equal(formatPrefillProgress(1500, 5000), '⏳ AIからの初回出力を待機中（5秒経過）');
+    assert.equal(formatPrefillProgress(12000, 5000), '⏳ AIからの初回出力を待機中（5秒経過）');
+    assert.equal(formatPrefillProgress(12000, 60000), '⏳ AIからの初回出力を待機中（60秒経過）');
+    assert.doesNotMatch(formatPrefillProgress(12000, 60000)!, /%|推定|toks|▓|░/);
 });
 
 test('estimatePromptTokensFromPayload handles chat and responses payloads', () => {
@@ -23,22 +21,28 @@ test('estimatePromptTokensFromPayload handles chat and responses payloads', () =
     assert.equal(estimatePromptTokensFromPayload({}), 0);
 });
 
-test('stream state shows the prefill estimate only while waiting for the first delta', () => {
+test('stream state shows real elapsed waiting until actual output, not role-only SSE', () => {
     const state = new StaffAIStreamState(false, true);
     state.notePrefillStart(500);
     (state as any).prefill.startedAt -= 5000;
-    assert.ok(!state.renderDiscord(false).embeds[0]?.description?.includes('prefill 推定'),
-        'small prompts must not show the estimate');
+    assert.match(state.renderDiscord(false).embeds[0]?.description ?? '', /初回出力を待機中/,
+        'small prompts still show a truthful waiting state');
 
     state.notePrefillStart(12431);
     (state as any).prefill.startedAt -= 5300;
     const waiting = state.renderDiscord(false);
-    assert.match(waiting.embeds[0]?.description ?? '', /⏳ prefill 推定 ▓{5}░{5} 50%（約 6,[0-9]{3} \/ 12,431 toks）/);
+    assert.match(waiting.embeds[0]?.description ?? '', /⏳ AIからの初回出力を待機中（5秒経過）/);
+    state.consume({ choices: [{ delta: { role: 'assistant' } }] } as any);
+    assert.match(state.renderDiscord(false).embeds[0]?.description ?? '', /初回出力を待機中/,
+        'role-only SSE must not falsely end waiting');
 
+    state.consumeResponse({ type: 'usage', inputTokens: 1, outputTokens: 0 } as any);
+    assert.match(state.renderDiscord(false).embeds[0]?.description ?? '', /初回出力を待機中/,
+        'usage-only SSE must not end prefill waiting');
     state.consumeResponse({ type: 'text', text: 'こんにちは' } as any);
     const generating = state.renderDiscord(false);
-    assert.ok(!generating.embeds[0]?.description?.includes('prefill 推定'),
+    assert.ok(!generating.embeds[0]?.description?.includes('初回出力を待機中'),
         'the estimate must disappear once generation starts');
-    assert.ok(!state.renderDiscord(true).embeds[0]?.description?.includes('prefill 推定'),
+    assert.ok(!state.renderDiscord(true).embeds[0]?.description?.includes('初回出力を待機中'),
         'the estimate must not leak into the completed card');
 });

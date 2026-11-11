@@ -30,21 +30,13 @@ type ToolPreview = {
 const DISCORD_LIMIT = 2000;
 const THINKING_PREVIEW_LIMIT = 200;
 
-/** prefill 速度の表示用推定値（tok/s）。2026-11-11 に本番モデル qwen3.6-35b-a3b-strata で実測した約1,174 tok/s。 */
-export const PREFILL_TOKENS_PER_SECOND = 1174;
-
 /**
- * prefill 進捗の推定表示。バックエンドは prefill 中に進捗を送らないため、
- * 経過時間×実測速度で処理量を推定し「推定」と明記して出す。キャッシュで
- * 速く終わる場合は最初のデルタ到着で表示自体が消える。
+ * The backend does not report per-token prefill progress. Show only measured elapsed
+ * wall time and the fact that no answer/tool delta has arrived yet.
  */
-export function formatPrefillProgress(estimatedTokens: number, elapsedMs: number): string | null {
-    if (estimatedTokens < 2000 || elapsedMs <= 0) return null;
-    const processed = Math.min(estimatedTokens * 0.99, (elapsedMs / 1000) * PREFILL_TOKENS_PER_SECOND);
-    const ratio = processed / estimatedTokens;
-    const filled = Math.max(0, Math.min(10, Math.floor(ratio * 10)));
-    const bar = '▓'.repeat(filled) + '░'.repeat(10 - filled);
-    return `⏳ prefill 推定 ${bar} ${Math.floor(ratio * 100)}%（約 ${Math.floor(processed).toLocaleString('ja-JP')} / ${estimatedTokens.toLocaleString('ja-JP')} toks）`;
+export function formatPrefillProgress(_promptTokens: number, elapsedMs: number): string | null {
+    if (!Number.isFinite(elapsedMs) || elapsedMs < 700) return null;
+    return `⏳ AIからの初回出力を待機中（${Math.floor(elapsedMs / 1000)}秒経過）`;
 }
 
 type ThinkingPreview = {
@@ -87,7 +79,7 @@ export class StaffAIStreamState {
     private timedOutputTokens = 0;
     private timedOutputSeconds = 0;
     private callIndex = 0;
-    private prefill: { startedAt: number; estimatedTokens: number } | null = null;
+    private prefill: { startedAt: number } | null = null;
 
     get thinkingPhaseCount(): number { return this.thinkingPhases; }
 
@@ -116,7 +108,11 @@ export class StaffAIStreamState {
     }
 
     consume(chunk: OpenAIChatCompletionChunk): void {
-        this.prefill = null;
+        // SSE may begin with an empty role delta. Wait for actual text, reasoning or tool output.
+        const delta = chunk.choices?.[0]?.delta;
+        if (delta?.content || delta?.reasoning_content || delta?.reasoning || (delta?.tool_calls?.length ?? 0) > 0) {
+            this.prefill = null;
+        }
         const usage = chunk.usage;
         if (usage && Number.isFinite(usage.prompt_tokens) && Number.isFinite(usage.completion_tokens)) {
             this.promptTokens += usage.prompt_tokens;
@@ -133,7 +129,6 @@ export class StaffAIStreamState {
                 this.timedOutputSeconds += weight / speed;
             }
         }
-        const delta = chunk.choices?.[0]?.delta;
         const reasoning = delta?.reasoning_content || delta?.reasoning || '';
         this.appendThinking(reasoning);
         if (delta?.content) this.content += delta.content;
@@ -158,7 +153,7 @@ export class StaffAIStreamState {
 
     /** Native /v1/responses SSE: reasoning and output text arrive independently. */
     consumeResponse(delta: ResponseApiStreamDelta): void {
-        this.prefill = null;
+        if ((delta.type === 'thinking' || delta.type === 'text') && delta.text) this.prefill = null;
         if (delta.type === 'thinking') {
             if (delta.text) {
                 if (!this.streamingFrom) this.streamingFrom = Date.now();
@@ -199,6 +194,7 @@ export class StaffAIStreamState {
     }
 
     recordToolCall(call: ToolCallStreamDelta): boolean {
+        this.prefill = null;
         let tool = this.tools.find(item => (call.callId && item.id === call.callId && (item.round === undefined || item.round === call.round))
             || (call.itemId && item.itemId === call.itemId && item.round === call.round));
         tool ??= this.tools.find(item => item.round === call.round && item.index === call.index
@@ -219,6 +215,7 @@ export class StaffAIStreamState {
     }
 
     recordToolStep(step: ToolExecutionStep): void {
+        this.prefill = null;
         const id = step.callId || `step-${step.round}-${step.name}`;
         const active = this.tools.find(item => item.id === id && (item.round === undefined || item.round === step.round)) ?? (!step.callId ? [...this.tools].reverse().find(item =>
             item.name === step.name && (item.phase === '準備中' || item.phase === '実行中')) : undefined);
@@ -302,15 +299,14 @@ export class StaffAIStreamState {
         return (body + suffix).slice(0, DISCORD_LIMIT);
     }
 
-    /** モデル呼び出しの送信開始を記録する。最初のデルタが来るまで prefill 推定進捗を表示する。 */
-    public notePrefillStart(estimatedTokens: number): void {
-        this.prefill = { startedAt: Date.now(), estimatedTokens };
+    /** Request sent; show only actual elapsed time until the first real output/tool event. */
+    public notePrefillStart(_estimatedTokens: number): void {
+        this.prefill = { startedAt: Date.now() };
     }
 
     private prefillProgressLine(now: number): string | null {
         if (!this.prefill) return null;
-        if (now - this.prefill.startedAt < 700) return null;
-        return formatPrefillProgress(this.prefill.estimatedTokens, now - this.prefill.startedAt);
+        return formatPrefillProgress(0, now - this.prefill.startedAt);
     }
 
     usageMetrics() {
@@ -408,7 +404,7 @@ export class StaffAIStreamState {
         const embed: APIEmbed = {
             title: isComplete ? failed || active.length ? '回答完了（一部ツールが失敗・未完了）' : '回答完了'
                 : active.some(tool => tool.phase === '実行中') ? '🛠️ ツール実行中'
-                : active.length ? '🧩 ツール呼び出しを生成中' : this.content ? '✍️ 回答を生成中' : '💭 応答を準備中',
+                : active.length ? '🧩 ツール呼び出しを生成中' : this.content ? '✍️ 回答を生成中' : prefillLine ? '⏳ 初回出力待機中' : '💭 応答を準備中',
             color: isComplete ? failed || active.length ? 0xF4A261 : 0x47C989 : 0x53C4E6,
             ...(description ? {description} : {}),
             ...(fields.length ? {fields} : {}),

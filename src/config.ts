@@ -7,7 +7,9 @@ import { fillMissingConfig } from './utils/configDefaults.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-export const QWEN_MODEL = 'qwen3.6-35b-a3b-strata';
+export const ORNITH_MODEL = 'ornith-1.5-35b-a3b-strata';
+/** @deprecated Kept for source compatibility; new generation default is Ornith. */
+export const QWEN_MODEL = ORNITH_MODEL;
 export const LFM3_MODEL = 'lfm3';
 
 export interface AppConfig {
@@ -74,11 +76,11 @@ const isLegacyDecisionModel = (model: string | undefined): boolean =>
 const contentSafetyModel = !configuredContentSafetyModel || isLegacyDecisionModel(configuredContentSafetyModel)
     ? LFM3_MODEL
     : configuredContentSafetyModel;
-const defaultChannelModel = QWEN_MODEL;
-const migrateModel = (model: string | undefined) => model?.replace(/^qwopus-coder$/i, QWEN_MODEL);
+const defaultChannelModel = ORNITH_MODEL;
+const migrateModel = (model: string | undefined) => model?.replace(/^(?:qwopus-coder|qwen3\.6-35b-a3b-strata)$/i, ORNITH_MODEL);
 const configuredPexModel = migrateModel(raw.pexAi?.model?.trim());
 const configuredChannelModel = migrateModel(raw.pexAi?.channelModel?.trim());
-const pexModel = isLegacyDecisionModel(configuredPexModel) ? QWEN_MODEL : configuredPexModel || QWEN_MODEL;
+const pexModel = isLegacyDecisionModel(configuredPexModel) ? ORNITH_MODEL : configuredPexModel || ORNITH_MODEL;
 const channelModel = isLegacyDecisionModel(configuredChannelModel)
     ? defaultChannelModel
     : configuredChannelModel || defaultChannelModel;
@@ -96,7 +98,7 @@ export const config: Required<AppConfig> = {
     openai: {
         apiKey: raw.openai?.apiKey || '',
         apiEndpoint: raw.openai?.apiEndpoint || '',
-        defaultModel: migrateModel(raw.openai?.defaultModel) || QWEN_MODEL,
+        defaultModel: migrateModel(raw.openai?.defaultModel) || ORNITH_MODEL,
         proxyEndpoints: Array.isArray(raw.openai?.proxyEndpoints)
             ? raw.openai?.proxyEndpoints.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
             : [],
