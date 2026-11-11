@@ -67,6 +67,7 @@ export const DOT_AMBIENT = {
     recentReactionKeep: 5,
     contextBufferSize: 25,
     addressedCooldownMs: 45_000,
+    directMentionsPerUserPerMinute: 6,
     addressedJudgeMinConfidence: 0.65,
     addressedContextOnlyMinConfidence: 0.85,
     addressedContextWindowMs: 10 * 60_000,
@@ -592,6 +593,8 @@ interface ChannelState {
     lastAmbientJoinAt: number;
     lastOtherBotMessageAt: number;
     lastAddressedResponseAt: number;
+    recentDirectMessageIds: Set<string>;
+    directMentionRequests: Array<{ authorId: string; at: number }>;
     lastBotMessageAt: number;
     lastBotParticipationAt: number;
     engagedUntil: number;
@@ -626,6 +629,28 @@ const chatManager = new OpenAIChatManager();
 // Only reply generation has web search; judging and learning remain tool-free.
 const dotReplyManager = new OpenAIChatManager();
 registerDotWebSearchTool(dotReplyManager);
+
+/**
+ * Direct @mentions and replies are explicit requests; the 45s ambient
+ * cooldown must not discard them. Deduplicate events and limit per-user bursts.
+ */
+export function admitDotDirectMention(
+    state: Pick<ChannelState, 'recentDirectMessageIds' | 'directMentionRequests'>,
+    messageId: string, authorId: string, now: number,
+): 'accepted' | 'duplicate' | 'rate_limited' {
+    if (state.recentDirectMessageIds.has(messageId)) return 'duplicate';
+    state.recentDirectMessageIds.add(messageId);
+    if (state.recentDirectMessageIds.size > 80) {
+        const oldest = state.recentDirectMessageIds.values().next().value;
+        if (oldest) state.recentDirectMessageIds.delete(oldest);
+    }
+    state.directMentionRequests = state.directMentionRequests.filter(
+        request => now - request.at < 60_000 && request.at <= now);
+    const count = state.directMentionRequests.filter(request => request.authorId === authorId).length;
+    if (count >= DOT_AMBIENT.directMentionsPerUserPerMinute) return 'rate_limited';
+    state.directMentionRequests.push({ authorId, at: now });
+    return 'accepted';
+}
 
 const channelStates = new Map<string, ChannelState>();
 const guildReplyTimes = new Map<string, number[]>();
@@ -663,6 +688,8 @@ function stateFor(message: Message): ChannelState {
             lastAmbientJoinAt: 0,
             lastOtherBotMessageAt: 0,
             lastAddressedResponseAt: 0,
+            recentDirectMessageIds: new Set(),
+            directMentionRequests: [],
             lastBotMessageAt: 0,
             lastBotParticipationAt: 0,
             engagedUntil: 0,
@@ -1453,13 +1480,27 @@ function onMessageCreate(client: Client) {
                     }
                 }
                 const addressedReady = now - state.lastAddressedResponseAt >= DOT_AMBIENT.addressedCooldownMs;
-                if ((mentioned || repliedToBot) && addressedReady) {
-                    Logger.debug(`[DotAmbient] addressed direct guild=${message.guildId} channel=${message.channelId} self=${selfId ?? '?'} mentionUsers=[${mentionUserIds.join(',')}] rawMention=${rawMention} repliedToBot=${repliedToBot}`);
+                if (mentioned || repliedToBot) {
+                    // Direct requests bypass the 45-second ambient-only cooldown.
+                    const admission = admitDotDirectMention(state, message.id, message.author.id, now);
+                    if (admission === 'duplicate') return;
+                    if (admission === 'rate_limited') {
+                        Logger.warn('[DotAmbient] direct mention per-user burst limit guild='
+                            + message.guildId + ' channel=' + message.channelId);
+                        await message.reply({
+                            content: '短時間に呼び出しが集中しているよ。少し時間を空けてからもう一度メンションしてね。',
+                            allowedMentions: { repliedUser: false },
+                        }).catch(error => Logger.warn('[DotAmbient] direct mention limit notice failed:', error));
+                        return;
+                    }
+                    Logger.debug('[DotAmbient] addressed direct guild=' + message.guildId
+                        + ' channel=' + message.channelId + ' repliedToBot=' + repliedToBot
+                        + ' ambientCooldownReady=' + addressedReady);
                     state.lastAddressedResponseAt = now;
                     await respondToAddressed(message, state, 'direct').catch(error => {
                         Logger.warn('[DotAmbient] addressed response failed:', error);
                     });
-                } else if (!mentioned && !repliedToBot && addressedReady && content.length >= 2) {
+                } else if (addressedReady && content.length >= 2) {
                     const names = await guildCallNames(client, message.guildId);
                     const displayName = message.guild?.members.me?.displayName;
                     const botRecentlyActive = state.lastBotMessageAt > 0

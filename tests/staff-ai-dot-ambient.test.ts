@@ -8,6 +8,7 @@ import {
     parseParticipationDecision,
     shouldExecuteParticipation,
     shouldRespondToAddressed,
+    admitDotDirectMention,
     hasRawBotMention,
     hasExplicitNameCall,
     shouldFallbackToAddressed,
@@ -277,6 +278,27 @@ test('send delays are human-like ranges by kind', () => {
     assert.equal(ambientSendDelayMs('join', 0.999), 3997);
     assert.equal(ambientSendDelayMs('react', 0), 300);
     assert.equal(ambientSendDelayMs('react', 0.999), 899);
+});
+
+test('explicit mentions remain eligible within 45 seconds; only rapid per-user bursts are limited', () => {
+    const state = {
+        recentDirectMessageIds: new Set<string>(),
+        directMentionRequests: [] as Array<{authorId:string;at:number}>,
+    };
+    const t = 1_700_000_000_000;
+    // Reproduce production 20:19:35 mention followed at 20:20:14 (39s later).
+    assert.equal(admitDotDirectMention(state, 'm1', 'alice', t), 'accepted');
+    assert.equal(admitDotDirectMention(state, 'm2', 'alice', t + 39_000), 'accepted');
+    assert.equal(admitDotDirectMention(state, 'm2', 'alice', t + 39_000), 'duplicate');
+    // Several follow-ups are fine, including before the old 45-second cooldown.
+    for (let i=3; i<=6; i++) {
+        assert.equal(admitDotDirectMention(state, 'm' + i, 'alice', t + 39_000 + i), 'accepted');
+    }
+    assert.equal(admitDotDirectMention(state, 'm7', 'alice', t + 40_000), 'rate_limited');
+    // Another user remains independent.
+    assert.equal(admitDotDirectMention(state, 'm8', 'bob', t + 40_000), 'accepted');
+    // The per-user burst limit resets after a minute.
+    assert.equal(admitDotDirectMention(state, 'm9', 'alice', t + 102_000), 'accepted');
 });
 
 test('raw mention text counts as a direct bot mention even when mentions.users misses it', () => {
