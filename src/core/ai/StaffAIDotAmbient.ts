@@ -1,3 +1,4 @@
+import { compactDotConversationNoise, formatDotSpeakerEvidence } from './DotSpeakerContext.js';
 import { PermissionFlagsBits, type Client, type Message } from 'discord.js';
 import { OpenAIChatManager } from './OpenAIChatManager.js';
 import { dotWebResearchQuery, registerDotWebSearchTool, runDotWebSearch } from './DotWebResearch.js';
@@ -72,6 +73,8 @@ export const DOT_AMBIENT = {
     addressedContextOnlyMinConfidence: 0.85,
     addressedContextWindowMs: 10 * 60_000,
     contextMessages: 12,
+    // 生成用の文脈は別途40件取得し、断片化した持ち物の話者を残す。
+    replyContextMessages: 40,
     learningBatchSize: 20,
     learningIntervalMs: 20 * 60_000,
     learningUseMessages: 40,
@@ -759,12 +762,22 @@ function formatReplyAnnotation(replyTo: { authorId: string; authorName: string }
     return replyTo.authorId === selfId ? ' (→ 自分への返信)' : ` (→ ${sanitizeAiText(replyTo.authorName)}への返信)`;
 }
 
+function formatSpeakerIndex(messages: Message[], selfId: string | undefined): string {
+    return formatDotSpeakerEvidence(messages.map(item => ({
+        id: item.id,
+        authorId: item.author.id,
+        authorName: sanitizeAiText(item.member?.displayName || item.author.globalName || item.author.username),
+        content: sanitizeAiText(ambientMessageText(item)),
+        isBot: item.author.bot,
+    })), selfId);
+}
+
 function formatContext(messages: Message[], selfId: string | undefined): string {
     return messages
         .map(message => {
             const name = message.author.id === selfId ? '(自分=このBot)' : sanitizeAiText(message.author.username);
             const replyMark = formatReplyAnnotation(replyTargetOf(message), selfId);
-            const textBody = ambientMessageText(message).replace(/\s+/g, ' ').slice(0, 300);
+            const textBody = compactDotConversationNoise(ambientMessageText(message));
             // 添付メディアは説明文（未確認なら存在プレースホルダ）を併記し、本文だけでの誤読を防ぐ。
             // サニタイズは連結後の全体に適用する（単独サロゲート対策）。
             const body = sanitizeAiText([textBody, formatMediaNotes(mediaItemsOf(message))].filter(Boolean).join(' ')) || '(本文なし)';
@@ -1142,6 +1155,9 @@ export const AMBIENT_SYSTEM_RULES = [
     '知らない固有名詞・知らない話題について、抽象語（技術的・仕組み・情報・複雑など）を使った一般論ではぐらかさない（NG例: 「なんか技術的な話は、結構複雑な仕組みで動いてるんだよねぇ。」「特定の技術的な実装については、なかなか情報掴みにくいんだよね。」）。知らない話題には無理に参加しない。',
     'サーバーの雰囲気そのものへの感想（「カオスな空間だよね」「この鯖の魅力だよね」のような一般論）に落とさない。それは中身のない発言になる。参加するときは、判定の下書きにあった具体（人名・物・出来事）をそのまま短く言う。',
     '返すときは、直近の会話に実際に出てきた具体的な単語（固有名詞や話題の語）を拾って使う。直近の自分の発言と同じ文型・言い回しを繰り返さない。',
+    '会話の発言者を厳密に区別する。各発言の名前・userIdはその投稿を書いた人。「持ってる」「ゲットした」「手に入れた」は、その発言者の体験・所持を表す。他人の発言に結びつけない。',
+    '【発言者別の原文】は、短い連投を本人ごとにまとめた索引。話題が同じでも人物が違えば所持品・成果・予定を混同せず、確信がなければ所有者を断定しない。過去の記憶より現在の原文を優先。',
+    'ログにない数量・所持品・入手方法を創作しない。例えば「開いただけ」とあるだけで「12個開けた」と数字を付け足すのは禁止。勝手に補足せず、発言にある事実だけで自然に返す。',
     '禁止の実例（実際に送られた、濁した応答）: 質問「俺ってなんでこれでコミュ力無いって言われてるの？」に「なんか特定のやり取りが引っかかっとるんちゃう？まあ、そんなん、あんま考えんと、お茶でも飲んで落ち着きや。🍵」と返すこと（質問に答えず、推測と決め台詞で逃げている）。呼びかけへの応答が「お、キナコ呼んだん？どうしたん？🍵」だけで、相手の発言の中身に一切触れていないこと。「まじか、そんなん気合入ってんな🤣 お茶でも飲んで落ち着きや〜🍵」（何にでも当てはまる文＋決め台詞の組み合わせ）。',
     '良い応答の実例: 「二次試験終わったぜ」には「二次試験おつかれ〜！終わったんか、今日はもう休むだけやな」。「俺ってなんでこれでコミュ力無いって言われてるの？」には「コミュ力無いってより、勢いで連投しすぎなんちゃう？w 中身じゃなくて圧やと思う」。どちらも相手の言葉の具体を拾い、自分の見方を言い切っている。',
     '馴れ馴れしすぎない、連投しない、場を独占しない。AIであることを聞かれたら隠さない。知らないことは知らないと言う。',
@@ -1344,7 +1360,7 @@ async function respondToAddressed(message: Message, state: ChannelState, via: 'd
     // Begin typing before fetching history or loading media descriptions.
     const stopTyping = 'sendTyping' in channel ? startTypingKeepAlive(channel) : () => undefined;
     try {
-    const fetched = await channel.messages.fetch({ limit: 10 }).catch(() => null);
+    const fetched = await channel.messages.fetch({ limit: DOT_AMBIENT.replyContextMessages }).catch(() => null);
     const history = fetched ? [...fetched.values()].reverse() : [message];
     const currentMedia = mediaItemsOf(message);
     if (currentMedia.length > 0) {
@@ -1359,7 +1375,7 @@ async function respondToAddressed(message: Message, state: ChannelState, via: 'd
         if (!mediaCompleted) Logger.info('[DotAmbient] historic media lookup deferred guild='
             + message.guildId + ' channel=' + message.channelId + ' after 1600ms');
     }
-    const context = formatContext(history, message.client.user?.id);
+    const context = formatContext(history, message.client.user?.id) + '\n\n' + formatSpeakerIndex(history, message.client.user?.id);
     // 過去の記憶（出来事・メンバーメモ）を生成の文脈にも差し込む（掘り返しはこの記録の範囲でのみ許可される）。
     const memoryBlock = await buildDotMemoryBlock(message.guildId ?? '', history.map(item => ({
         authorId: item.author.id,
@@ -1704,7 +1720,13 @@ async function judgeAndParticipate(client: Client, channelId: string, state: Cha
     // 生成中ずっと「入力中…」が見えるよう、生成開始から送信完了（または失敗）まで typing を維持する。
     const stopTyping = 'sendTyping' in channel ? startTypingKeepAlive(channel) : () => undefined;
     try {
-        const replyText = await generateAmbientReply(state.guildId, context, situation, memoryBlock);
+        // 判定ログは所有者を把握していたが、生成用の12件窓では主語が失われたため、
+        // 投稿直前に40件を読み直し、時系列と話者別原文の双方を与える。
+        const expanded = await channel.messages.fetch({ limit: DOT_AMBIENT.replyContextMessages }).catch(() => null);
+        const generationHistory = expanded ? [...expanded.values()].reverse() : history;
+        const generationContext = formatContext(generationHistory, client.user?.id)
+            + '\n\n' + formatSpeakerIndex(generationHistory, client.user?.id);
+        const replyText = await generateAmbientReply(state.guildId, generationContext, situation, memoryBlock);
         if (!replyText) {
             Logger.warn(`[DotAmbient] ambient reply generation returned empty guild=${state.guildId} channel=${channel.id}; not posting`);
             return;
