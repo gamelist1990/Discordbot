@@ -2,8 +2,10 @@ import {
     ChatInputCommandInteraction,
     ModalSubmitInteraction,
     EmbedBuilder,
-    TextInputStyle
+    TextInputStyle,
+    PermissionFlagsBits
 } from 'discord.js';
+import { canExecuteStaffAction } from '../../../core/permissions/GuildAccess.js';
 import { ModalBuilderBase, registerModalHandler } from '../../../utils/Modal.js';
 import { Logger } from '../../../utils/Logger.js';
 
@@ -17,6 +19,11 @@ export const subcommandHandler = {
     description: 'アナウンス情報をモーダル経由で送信（Title 有: Embed, 無: テキスト）',
     
     async execute(interaction: ChatInputCommandInteraction): Promise<void> {
+        // 権限チェック
+        if (!(await canExecuteStaffAction(interaction.guild, interaction.user.id, PermissionFlagsBits.ManageMessages))) {
+            await interaction.reply({ content: '❌ スタッフ権限が必要です。', ephemeral: true });
+            return;
+        }
         // Modal Builder を使用してモーダルを作成
         const modal = new StaffInfoModalBuilder().build();
 
