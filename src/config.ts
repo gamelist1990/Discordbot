@@ -7,8 +7,10 @@ import { fillMissingConfig } from './utils/configDefaults.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-export const ORNITH_MODEL = 'ornith-1.5-35b-a3b-strata';
-/** @deprecated Kept for source compatibility; new generation default is Ornith. */
+export const GEMMA_MODEL = 'gemma-4-E4B-it';
+/** @deprecated Backward-compatible alias for the generation model. */
+export const ORNITH_MODEL = GEMMA_MODEL;
+/** @deprecated Kept for source compatibility; new generation default is Gemma. */
 export const QWEN_MODEL = ORNITH_MODEL;
 export const LFM3_MODEL = 'lfm3';
 
@@ -77,7 +79,7 @@ const contentSafetyModel = !configuredContentSafetyModel || isLegacyDecisionMode
     ? LFM3_MODEL
     : configuredContentSafetyModel;
 const defaultChannelModel = ORNITH_MODEL;
-const migrateModel = (model: string | undefined) => model?.replace(/^(?:qwopus-coder|qwen3\.6-35b-a3b-strata)$/i, ORNITH_MODEL);
+const migrateModel = (model: string | undefined) => model?.replace(/^(?:qwopus-coder|qwen3\.6-35b-a3b-strata|ornith-1\.5-35b-a3b-strata)$/i, GEMMA_MODEL);
 const configuredPexModel = migrateModel(raw.pexAi?.model?.trim());
 const configuredChannelModel = migrateModel(raw.pexAi?.channelModel?.trim());
 const pexModel = isLegacyDecisionModel(configuredPexModel) ? ORNITH_MODEL : configuredPexModel || ORNITH_MODEL;

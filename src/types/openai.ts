@@ -40,6 +40,8 @@ export interface OpenAIChatCompletionRequest {
     stream_options?: { include_usage: boolean };
     stop?: string | string[];
     max_tokens?: number;
+    /** OpenAI-compatible thinking effort; PolyStrata accepts medium for Ornith. */
+    reasoning_effort?: 'none' | 'minimal' | 'low' | 'medium' | 'high';
     presence_penalty?: number;
     frequency_penalty?: number;
     logit_bias?: { [key: string]: number };

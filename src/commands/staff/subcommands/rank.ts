@@ -1,7 +1,8 @@
+import { resolveGuildPermissionLevel } from '../../../core/permissions/GuildAccess.js';
+import { PermissionLevel } from '../../../web/types/permission.js';
 import {
     ChatInputCommandInteraction,
     EmbedBuilder,
-    PermissionFlagsBits,
     ChannelType,
     SlashCommandSubcommandBuilder,
     TextChannel
@@ -72,17 +73,21 @@ export default {
             return;
         }
 
-        // 権限チェック
-        const member = interaction.guild.members.cache.get(interaction.user.id);
-        if (!member?.permissions.has(PermissionFlagsBits.ManageGuild)) {
+        const action = interaction.options.getString('action', true);
+        const level = await resolveGuildPermissionLevel(interaction.guild, interaction.user.id);
+        // XP manipulation and panel changes require admin, not just a staff role.
+        const requiredLevel = ['list-presets', 'show-ranking'].includes(action)
+            ? PermissionLevel.STAFF : PermissionLevel.ADMIN;
+        if (level < requiredLevel) {
             await interaction.reply({
-                content: '❌ このコマンドを使用するには「サーバー管理」権限が必要です。',
+                content: requiredLevel === PermissionLevel.ADMIN
+                    ? '❌ この操作には管理者権限が必要です。'
+                    : '❌ スタッフ権限が必要です。',
                 ephemeral: true
             });
             return;
         }
 
-        const action = interaction.options.getString('action', true);
         const guildId = interaction.guild.id;
 
         try {

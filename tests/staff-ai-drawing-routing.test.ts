@@ -39,6 +39,8 @@ test('Responses API explicitly sends thinking ON and forces draw_image', () => {
     const payload=internal.buildResponseApiPayload([{role:'user',content:'猫描いて'}],opts,'test', [...internal.tools.values()].map((t:any)=>t.definition), undefined, 0);
     assert.deepEqual(payload.chat_template_kwargs,{enable_thinking:true});
     assert.deepEqual(payload.tool_choice,{type:'function',name:'draw_image'});
+    const followUp = internal.buildResponseApiPayload([{role:'user',content:'猫描いて'}],opts,'test', [...internal.tools.values()].map((t:any)=>t.definition), undefined, 1);
+    assert.equal(followUp.tool_choice, 'auto');
     assert.equal(payload.reasoning.effort,'high');
     assert.equal(payload.max_output_tokens,1024);
 });

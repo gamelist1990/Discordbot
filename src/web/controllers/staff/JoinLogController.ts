@@ -1,5 +1,6 @@
+import { resolveGuildPermissionLevel } from '../../../core/permissions/GuildAccess.js';
 import { Request, Response } from 'express';
-import { ChannelType, PermissionFlagsBits } from 'discord.js';
+import { ChannelType } from 'discord.js';
 import { BotClient } from '../../../core/platform/BotClient.js';
 import {
     DEFAULT_JOIN_LOG_SETTINGS,
@@ -7,10 +8,7 @@ import {
     joinLogManager
 } from '../../../core/join/JoinLogManager.js';
 import { SettingsSession } from '../../types/index.js';
-import {
-    getSessionGuildPermissionLevel,
-    isGuildAccessible
-} from '../../middleware/auth.js';
+import { isGuildAccessible } from '../../middleware/auth.js';
 
 const MAX_TITLE_LENGTH = 256;
 const MAX_DESCRIPTION_LENGTH = 4096;
@@ -132,21 +130,16 @@ export class JoinLogController {
             return null;
         }
 
-        const sessionLevel = getSessionGuildPermissionLevel(session, guildId);
         const guild = await this.botClient.client.guilds.fetch(guildId).catch(() => null);
         if (!guild) {
             res.status(404).json({ error: 'サーバーが見つかりません。' });
             return null;
         }
 
-        if (sessionLevel < 2) {
-            const member = await guild.members.fetch(session.userId).catch(() => null);
-            const canManage = member?.permissions?.has(PermissionFlagsBits.Administrator)
-                || member?.permissions?.has(PermissionFlagsBits.ManageGuild);
-            if (!canManage) {
-                res.status(403).json({ error: 'サーバー管理権限が必要です。' });
-                return null;
-            }
+        const liveLevel = await resolveGuildPermissionLevel(guild, session.userId);
+        if (liveLevel < 2) {
+            res.status(403).json({ error: 'サーバー管理権限が必要です。' });
+            return null;
         }
 
         return { guild, session };

@@ -1,3 +1,4 @@
+import { canExecuteStaffAction } from '../../../core/permissions/GuildAccess.js';
 import { ChatInputCommandInteraction, PermissionFlagsBits, EmbedBuilder } from 'discord.js';
 import { SlashCommandSubcommandBuilder, SlashCommandUserOption, SlashCommandStringOption } from 'discord.js';
 
@@ -37,8 +38,8 @@ export default {
         }
 
         // 権限チェック: 実行者
-        if (!interaction.memberPermissions?.has(PermissionFlagsBits.ModerateMembers)) {
-            await interaction.reply({ content: '❌ このコマンドを実行する権限がありません（Moderate Members）。', ephemeral: true });
+        if (!(await canExecuteStaffAction(interaction.guild, interaction.user.id, PermissionFlagsBits.ModerateMembers))) {
+            await interaction.reply({ content: '❌ スタッフまたはサーバー管理権限が必要です。', ephemeral: true });
             return;
         }
 

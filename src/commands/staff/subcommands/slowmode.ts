@@ -1,3 +1,4 @@
+import { canExecuteStaffAction } from '../../../core/permissions/GuildAccess.js';
 import {
     ChatInputCommandInteraction,
     PermissionFlagsBits,
@@ -33,9 +34,9 @@ export default {
             return;
         }
 
-        if (!interaction.memberPermissions?.has(PermissionFlagsBits.ManageChannels)) {
+        if (!(await canExecuteStaffAction(interaction.guild, interaction.user.id, PermissionFlagsBits.ManageChannels))) {
             await interaction.reply({
-                content: '❌ このコマンドを実行する権限がありません（Manage Channels）。',
+                content: '❌ スタッフまたはサーバー管理権限が必要です。',
                 ephemeral: true
             });
             return;

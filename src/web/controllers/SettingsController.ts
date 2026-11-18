@@ -4,7 +4,8 @@ import { database } from '../../core/persistence/Database.js';
 import { PermissionManager } from '../../utils/PermissionManager.js';
 import { CacheManager } from '../../utils/CacheManager.js';
 import { BotClient } from '../../core/platform/BotClient.js';
-import { Guild, PermissionFlagsBits } from 'discord.js';
+import { Guild } from 'discord.js';
+import { resolveGuildPermissionLevel as resolveLiveGuildLevel } from '../../core/permissions/GuildAccess.js';
 import { getSessionGuildPermissionLevel } from '../middleware/auth.js';
 
 /**
@@ -23,19 +24,7 @@ async function resolveGuildPermissionLevel(
         }
         if (!guild) return 0;
 
-        let level = 0;
-
-        if (guild.ownerId === session.userId) {
-            level = 3;
-        } else {
-            const member = await guild.members.fetch(session.userId).catch(() => null);
-            if (member) {
-                const perms = member.permissions;
-                if (perms.has(PermissionFlagsBits.Administrator) || perms.has(PermissionFlagsBits.ManageGuild)) {
-                    level = 2;
-                }
-            }
-        }
+        const level = await resolveLiveGuildLevel(guild, session.userId);
 
         if (level > 0) {
             // セッションの permissions を更新して次回以降の呼び出しを高速化
@@ -85,7 +74,7 @@ export class SettingsController {
         let level = getSessionGuildPermissionLevel(session, guildId);
         // セッションにギルドの権限情報がない場合、Bot 経由でリアルタイムに確認する
         // （新規サーバー追加後にログインし直していないユーザーへの対応）
-        if (level === 0 && this.botClient) {
+        if (this.botClient) {
             level = await resolveGuildPermissionLevel(session, guildId as string, this.botClient);
         }
         // 権限チェック
@@ -137,11 +126,11 @@ export class SettingsController {
         // サーバーごとの権限を判定
         let level = getSessionGuildPermissionLevel(session, guildId);
         // セッションにギルドの権限情報がない場合、Bot 経由でリアルタイムに確認する
-        if (level === 0 && this.botClient) {
+        if (this.botClient) {
             level = await resolveGuildPermissionLevel(session, guildId as string, this.botClient);
         }
         // 権限チェック
-        const permissionError = PermissionManager.checkPermission(level, 1, '権限がありません');
+        const permissionError = PermissionManager.checkAdminPermission(level, '設定変更には管理者権限が必要です');
         if (permissionError) {
             res.status(permissionError.status).json({ error: permissionError.error });
             return;
@@ -151,10 +140,10 @@ export class SettingsController {
             const existing = await database.get<GuildSettings>(guildId, `Guild/${guildId}/settings`);
             const settings: GuildSettings = {
                 guildId,
-                staffRoleId: staffRoleId || existing?.staffRoleId || undefined,
+                staffRoleId: typeof staffRoleId === 'string' ? (staffRoleId || undefined) : existing?.staffRoleId,
                 // adminRoleId is intentionally preserved from existing settings and cannot be modified here
                 adminRoleId: existing?.adminRoleId || undefined,
-                webAuthRoleId: webAuthRoleId || existing?.webAuthRoleId || undefined,
+                webAuthRoleId: typeof webAuthRoleId === 'string' ? (webAuthRoleId || undefined) : existing?.webAuthRoleId,
                 updatedAt: Date.now(),
             };
             await database.set(guildId, `Guild/${guildId}/settings`, settings);

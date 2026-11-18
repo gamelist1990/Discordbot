@@ -1,4 +1,4 @@
-import { ApplicationCommandType, Client, Collection, GatewayIntentBits, Partials, REST, Routes } from 'discord.js';
+import { getLiveGuildPermissionLevel } from '../../web/middleware/liveGuildAccess.js';
 import { SlashCommand } from '../../types/command.js';
 import { database } from '../persistence/Database.js';
 import { Logger } from '../../utils/Logger.js';
@@ -30,10 +30,15 @@ export class BotClient {
     public eventManager: EventManager;
     private rest: REST;
 
-    constructor(token: string) {
+    constructor(token: string, sessions: Map<string, SettingsSession>) {
         this.token = token;
-        this.commands = new Collection();
+        this.sessions = sessions;
+        this.commands = new Collection<string, SlashCommand>();
         this.rest = new REST({ version: '10' }).setToken(token);
+
+        this.setupGuildLimitHandler();
+        this.setupDiscordEventListeners();
+    }
 
         this.client = new Client({
             intents: [

@@ -1494,6 +1494,7 @@ export class ChatGPTClient {
                 : options?.maxTokens ?? 1024,
             top_p: options?.topP ?? 1,
             stream,
+            ...(options?.reasoningEffort ? { reasoning_effort: options.reasoningEffort } : {}),
             ...(stream && options?.includeUsage ? { stream_options: { include_usage: true } } : {}),
             ...(options?.chatTemplateKwargs ? { chat_template_kwargs: options.chatTemplateKwargs } : {}),
             ...(tools.length > 0 ? { tools, tool_choice: toolChoice } : stalled ? { tool_choice: 'none' as const } : {}),

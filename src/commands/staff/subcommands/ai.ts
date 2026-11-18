@@ -1,3 +1,4 @@
+import { resolveGuildDelegatedLevel } from '../../../core/permissions/GuildAccess.js';
 import { STAFF_FILE_OUTPUT_FLOW } from '../../../core/ai/AIFileOutputPolicy.js';
 // src/commands/staff/subcommands/ai.ts
 import { ChatInputCommandInteraction, Message, MessageFlags, DiscordAPIError } from 'discord.js';
@@ -12,7 +13,7 @@ import { StaffAILiveUpdates } from './StaffAILiveUpdates.js';
 import { isStaffAIContextLimitError } from './StaffAIRequestError.js';
 import { completedStaffAIReply } from './StaffAIProgressPanel.js';
 import { toolResultSummary } from '../../../core/ai/ToolResultSummary.js';
-import { parseStaffReplyTarget, buildStaffVisualReplyContext, discordMessageAuthor, describeDiscordAttachments } from './StaffAIReplyContext.js';
+import { parseStaffReplyTarget, buildStaffVisualReplyContext, resolveStaffReplyChain, discordMessageAuthor, describeDiscordAttachments } from './StaffAIReplyContext.js';
 import { webSearchHandler } from '../../../core/ChatAIChannel/tools/webSearchBing.js';
 import { musicResearchQuery } from './StaffAIResearch.js';
 import { STAFF_AI_SYSTEM_PROMPT, STAFF_AI_DOT_SYSTEM_PROMPT, STAFF_AI_PROMPT_BUDGET } from './StaffAIStyle.js';
@@ -26,9 +27,10 @@ import { selectStaffEmojis, getStaffEmojiImageParts } from './StaffAIEmojiContex
 import { PdfRAGManager } from '../../../core/ai/PdfRAGManager.js';
 import { staffMemoryContext } from '../../../core/ai/StaffAIMemory.js';
 import { registerStaffAITools } from './ai-tools/catalog.js';
-import { isStaffDrawingRequest, buildStaffDrawingMessages } from './StaffAIDrawingIntent.js';
+import { isStaffDrawingRequest, isStaffImageEditRequest, buildStaffDrawingMessages } from './StaffAIDrawingIntent.js';
+import { drawingSourceVisionPart, isSafeDiscordDrawingSource, setDrawingSourceImage } from './ai-tools/drawingSource.js';
 import { protectStaffAnswerFromHistoryLeak } from './StaffAIAnswerIntegrity.js';
-import { completeStaffDrawingTool, drawImageToolDefinition, drawImageToolHandler } from './ai-tools/drawing.js';
+import { completeStaffDrawingTool, drawImageToolDefinition, drawImageToolHandler, drawingNeedsRevision, setDrawingProgressListener, setDrawingUserBrief } from './ai-tools/drawing.js';
 import { resolveStaffModerationPermissions } from './ai-tools/moderation.js';
 import { staffMemoryToolScope } from './ai-tools/staff_memory.js';
 import { database } from '../../../core/persistence/Database.js';
@@ -215,6 +217,7 @@ export const subcommandHandler = {
         }
 
         let explicitReplyContext: Awaited<ReturnType<typeof buildStaffVisualReplyContext>> | null = null;
+        let explicitReplySourceUrl: string | null = null;
         if (replyTo) {
             try {
                 const messageId = parseStaffReplyTarget(replyTo, interaction.guildId, interaction.channelId);
@@ -224,6 +227,10 @@ export const subcommandHandler = {
                 }
                 const target = await channel.messages.fetch(messageId);
                 explicitReplyContext = await buildStaffVisualReplyContext(target);
+                const replyChain = await resolveStaffReplyChain(target);
+                explicitReplySourceUrl = replyChain.flatMap(message => [...message.attachments.values()])
+                    .find(file => (file.contentType?.startsWith('image/') || /\.(png|jpe?g|webp|gif|avif)$/i.test(file.name || ''))
+                        && isSafeDiscordDrawingSource(file.url))?.url ?? null;
                 if (explicitReplyContext.failed > 0 && explicitReplyContext.imageParts.length === 0) {
                     explicitReplyContext.text += '\n[注意: 参照元の画像データを取得できなかった。画像の中身を断定しないこと]';
                 }
@@ -369,14 +376,25 @@ ${reason}` });
         const chatManager = new OpenAIChatManager();
 
         // モデレーションツールは実行者の実権限がある場合のみ提示する（権限が無ければ登録自体しない）。
-        registerStaffAITools(chatManager, resolveStaffModerationPermissions(interaction));
+        registerStaffAITools(chatManager, resolveStaffModerationPermissions(interaction, await resolveGuildDelegatedLevel(interaction.guild, interaction.user.id)));
         const forceTextFileTools = isStaffFileOutputRequest(prompt ?? '');
         const forceChannelSearchTool = !forceTextFileTools
             && /チャンネル|メッセージ|会話|発言|履歴|ログ/.test(prompt ?? '')
             && /検索|探し|調べ|昔|古い|以前|過去/.test(prompt ?? '');
-        // The user asked for an actual picture, not a verbal claim or quoted reply.
+        // Image edits can use the command attachment or a specific reply_to image.
+        const directSourceUrl = attachment &&
+            (attachment.contentType?.startsWith('image/') || /\.(png|jpe?g|webp|gif|avif)$/i.test(attachment.name || ''))
+            && isSafeDiscordDrawingSource(attachment.url) ? attachment.url : null;
+        const sourceImageUrl = directSourceUrl ?? explicitReplySourceUrl;
+        // The attached photo provides the subject, so short instructions such
+        // as '明るくして' are actual edits, not ordinary conversational replies.
+        const imageEditRequested = isStaffImageEditRequest(prompt ?? '', Boolean(sourceImageUrl));
         const forceDrawingTool = !forceTextFileTools && !forceChannelSearchTool
-            && isStaffDrawingRequest(prompt ?? '');
+            && (isStaffDrawingRequest(prompt ?? '') || imageEditRequested);
+        if (forceDrawingTool && imageEditRequested && !sourceImageUrl) {
+            await safeRespond({ content: '🖼️ 画像編集には元写真が必要だよ。/staff ai の attachment に画像を付けるか、画像付き投稿を reply_to に指定してね。' });
+            return;
+        }
         // Tool handlers use the real slash interaction (same guild, actor and channel).
         // File output attaches directly via interaction.followUp and needs no sandbox proxy.
         chatManager.setToolContext(interaction);
@@ -507,11 +525,28 @@ ${reason}` });
             }
         }
 
+        let drawingAttachmentContent = attachmentContent as OpenAIChatCompletionMessage['content'] | null;
+        if (forceDrawingTool && imageEditRequested && sourceImageUrl) {
+            if (!setDrawingSourceImage(interaction, sourceImageUrl)) {
+                await safeRespond({ content: '⚠️ Discord添付画像だけを編集元として使えます。URLを確認してね。' });
+                return;
+            }
+            try {
+                // The model sees actual pixels; the tool composites the unmodified source.
+                const sourcePart = await drawingSourceVisionPart(interaction);
+                drawingAttachmentContent = [{ type: 'text', text: 'ユーザーが提供した元画像。必ずこの写真を活かしてサムネイルや装飾を編集する。画像自体を新しく描き直さない。' }, sourcePart];
+            } catch (error) {
+                await safeRespond({ content: '⚠️ 元画像の読み込みに失敗したよ。Discordに画像を付け直して試してね。' });
+                console.warn('[StaffAI] Could not load photo for editing:', error);
+                return;
+            }
+        }
         const drawingMessages = forceDrawingTool ? buildStaffDrawingMessages({
             userContent: currentUserContent,
             systemPrompt: userSystemPrompt ? sanitizeSystemPrompt(userSystemPrompt) : null,
             reply: visionReplyContext,
-            attachmentContent: attachmentContent as OpenAIChatCompletionMessage['content'] | null,
+            attachmentContent: drawingAttachmentContent,
+            imageEdit: imageEditRequested && !!sourceImageUrl,
         }) : null;
 
         // SSEは受信したまま描画。Discord edit は単一キューで順序を保証する。
@@ -576,6 +611,12 @@ ${reason}` });
         }
 
         let verifiedDrawingOutcome: string | null = null;
+        const drawingFailures = { last: null as string | null };
+        if (forceDrawingTool) setDrawingUserBrief(interaction, prompt ?? '');
+        if (forceDrawingTool) setDrawingProgressListener(interaction, status => {
+            streamState.recordToolProgress('draw_image', status);
+            queuePreview(true);
+        });
         const streamOptions = {
             // Keep enough budget for a final answer after reasoning/tool calls.
             // A smaller limit can end a Responses stream with thinking only.
@@ -590,8 +631,21 @@ ${reason}` });
                     : forceDrawingTool ? { forceToolSequence: ['draw_image'] } : {}),
             ...(forceDrawingTool ? {completeAfterTools: (results: Array<{name: string; output: string}>) => {
                 const reply = completeStaffDrawingTool(results);
-                if (reply !== undefined) verifiedDrawingOutcome = reply;
-                return reply;
+                // An actual Discord attachment is the only success. If the second
+                // render fails, preserve the already-posted first version.
+                if (reply === undefined) return undefined;
+                if (!reply.startsWith('🎨 ')) {
+                    drawingFailures.last = reply;
+                    // A tool error is passed back to the LLM via the standard
+                    // function_call_output so it can correct the SVG/parameters.
+                    // Do not intercept and turn it into a fake finished answer.
+                    return verifiedDrawingOutcome ?? undefined;
+                }
+                drawingFailures.last = null;
+                verifiedDrawingOutcome = reply;
+                // After the first mandatory call, the model decides whether a
+                // reviewed revision warrants another normal tool call.
+                return drawingNeedsRevision(results) ? undefined : reply;
             }} : {}),
             includeUsage: true,
             usageContext: { guildId: interaction.guildId ?? undefined, purpose: 'staff-ai' },
@@ -655,7 +709,11 @@ ${reason}` });
             if (drawingManager && drawingMessages) {
                 const executeDrawing = (input: OpenAIChatCompletionMessage[], think: boolean) =>
                     staffMemoryToolScope.run({ guildId: interaction.guildId || 'global', userId }, () =>
-                        drawingManager.streamResponseText(input, handleResponseDelta, {
+                        drawingManager.streamResponseText(input, (delta) => {
+                            // Premature prose such as "編集するね" isn't a completed
+                            // artifact. Only tool lifecycle/progress is displayed.
+                            if (delta.type !== 'text') handleResponseDelta(delta);
+                        }, {
                             ...streamOptions,
                             reasoningEffort: think ? 'medium' : 'none',
                             chatTemplateKwargs: { enable_thinking: think },
@@ -666,18 +724,23 @@ ${reason}` });
                 } catch (error) {
                     // Retry only when no function call was made. Never retry a tool
                     // that might already have posted a Discord attachment.
-                    if (verifiedDrawingOutcome !== null
-                        || !(error instanceof Error)
+                    if (verifiedDrawingOutcome !== null) {
+                        console.warn('[StaffAI] Drawing refinement stopped; retaining the verified posted image:',
+                            error instanceof Error ? error.message : error);
+                    } else if (!(error instanceof Error)
                         || !error.message.includes('Required tool was not called: draw_image')) throw error;
+                    else {
                     console.warn('[StaffAI] Ornith ignored draw_image tool_choice; retrying isolated draw-only request without Thinking');
                     const retryMessages = buildStaffDrawingMessages({
                         userContent: currentUserContent,
                         systemPrompt: userSystemPrompt ? sanitizeSystemPrompt(userSystemPrompt) : null,
                         reply: visionReplyContext,
-                        attachmentContent: attachmentContent as OpenAIChatCompletionMessage['content'] | null,
+                        attachmentContent: drawingAttachmentContent,
+                        imageEdit: imageEditRequested && !!sourceImageUrl,
                         retry: true,
                     });
                     await executeDrawing(retryMessages, false);
+                    }
                 }
             } else {
                 await staffMemoryToolScope.run({ guildId: interaction.guildId || 'global', userId }, () =>
@@ -687,7 +750,9 @@ ${reason}` });
             // Discard any text generated before the tool call, including hallucinated "描いたよ".
             if (forceDrawingTool) {
                 if (verifiedDrawingOutcome === null) {
-                    throw new Error('Required tool was not called: draw_image');
+                    throw new Error(drawingFailures.last
+                        ? `画像の編集・投稿に失敗しました: ${drawingFailures.last.slice(0, 280)}`
+                        : '画像生成ツールの呼び出しがありませんでした。画像は投稿していません。');
                 }
                 responseContent = verifiedDrawingOutcome;
                 streamState.content = verifiedDrawingOutcome;
@@ -722,6 +787,7 @@ ${reason}` });
                 throw new Error('The model completed without final answer text');
             }
             isCompleted = true;
+            streamState.finalizePendingTools();
             finishPreview();
             const fileResponse = staffFileOutputResponse(interaction, stripDiscordStreamMetadata(responseContent));
             const { cleanedResponse, codeFiles } = fileResponse !== null

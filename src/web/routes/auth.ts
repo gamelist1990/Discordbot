@@ -362,49 +362,32 @@ export function createAuthRoutes(
             // 各guildIdごとにadminRoleId/staffRoleIdを参照し、ユーザーがそのロールを持っていればlevel:2(admin)またはlevel:1(staff)を付与
             const permissions: { guildId: string; level: number }[] = [];
             for (const g of filteredGuilds) {
-                let level = 0;
+                const nativeFlags = parsePermissionBitfield(g.permissions_new ?? g.permissions);
+                let level = g.owner === true ? 3
+                    : userHasAdminOrManageFlag(g) ? 2
+                    : (nativeFlags & (
+                        PermissionFlagsBits.ModerateMembers
+                        | PermissionFlagsBits.ManageMessages
+                        | PermissionFlagsBits.ManageChannels
+                        | PermissionFlagsBits.KickMembers
+                        | PermissionFlagsBits.BanMembers
+                    )) !== 0n ? 1 : 0;
                 try {
-                    // サーバー設定取得
-                    const settings = await database.get(g.id, `Guild/${g.id}/settings`);
-                    // メンバー情報取得
-                    const memberResp = await fetch(`https://discord.com/api/guilds/${g.id}/members/${userData.id}`, {
-                        headers: { Authorization: `Bot ${botClient.token}` }
+                    const settings = await database.get<any>(g.id, 'Guild/' + g.id + '/settings');
+                    const memberResp = await fetch('https://discord.com/api/guilds/' + g.id + '/members/' + userData.id, {
+                        headers: { Authorization: 'Bot ' + botClient.token }
                     });
                     if (memberResp.ok) {
-                        const member = await memberResp.json();
-                        const roles = member.roles || [];
-                        if (settings && settings.adminRoleId && roles.includes(settings.adminRoleId)) {
-                            level = 2;
-                        } else if (settings && settings.staffRoleId && roles.includes(settings.staffRoleId)) {
-                            level = 1;
-                        } else if (userHasAdminOrManageFlag(g)) {
-                            level = 2;
-                        } else {
-                            // Handle permission bitfields which may be string/number/bigint
-                            const perms = parsePermissionBitfield(g.permissions_new ?? g.permissions);
-                            const manageGuildFlag = Number((PermissionFlagsBits as any).ManageGuild || PermissionFlagsBits.ManageGuild || 0);
-                            const adminFlag = Number(PermissionFlagsBits.Administrator);
-                            if (perms & manageGuildFlag) {
-                                level = 3;
-                            } else if (perms & adminFlag) {
-                                level = 1;
-                            }
+                        const member = await memberResp.json() as any;
+                        const roles: string[] = Array.isArray(member.roles) ? member.roles : [];
+                        if (settings?.adminRoleId && roles.includes(settings.adminRoleId)) {
+                            level = Math.max(level, 2);
+                        } else if (settings?.staffRoleId && roles.includes(settings.staffRoleId)) {
+                            level = Math.max(level, 1);
                         }
                     }
-                } catch (e) {
-                    // fallback: owner/権限フラグ
-                    if (userHasAdminOrManageFlag(g)) {
-                        level = 2;
-                    } else {
-                        const perms = parsePermissionBitfield(g.permissions_new ?? g.permissions);
-                        const manageGuildFlag = Number((PermissionFlagsBits as any).ManageGuild || PermissionFlagsBits.ManageGuild || 0);
-                        const adminFlag = Number(PermissionFlagsBits.Administrator);
-                        if (perms & manageGuildFlag) {
-                            level = 3;
-                        } else if (perms & adminFlag) {
-                            level = 1;
-                        }
-                    }
+                } catch {
+                    // Native permissions from OAuth guilds remain available as fallback.
                 }
                 permissions.push({ guildId: g.id, level });
             }

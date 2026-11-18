@@ -1,3 +1,4 @@
+import { getLiveGuildManagementLevel } from '../middleware/liveGuildAccess.js';
 import { Request, Response } from 'express';
 import { rankManager, RankPreset } from '../../core/ranking/RankManager.js';
 import { SettingsSession } from '../types/index.js';
@@ -5,7 +6,7 @@ import { BotClient } from '../../core/platform/BotClient.js';
 import { Logger } from '../../utils/Logger.js';
 import { PermissionManager } from '../../utils/PermissionManager.js';
 import { CacheManager } from '../../utils/CacheManager.js';
-import { getSessionGuildPermissionLevel, isGuildAccessible } from '../middleware/auth.js';
+import { isGuildAccessible } from '../middleware/auth.js';
 
 /**
  * ランク管理コントローラー
@@ -21,8 +22,8 @@ export class RankController {
         return isGuildAccessible(session, guildId);
     }
 
-    private getSessionGuildLevel(session: SettingsSession | undefined, guildId: string): number {
-        return getSessionGuildPermissionLevel(session, guildId);
+    private async getSessionGuildLevel(session: SettingsSession | undefined, guildId: string): Promise<number> {
+        return getLiveGuildManagementLevel(this.botClient, session, guildId);
     }
 
     private buildGuildInfo(guildId: string) {
@@ -63,7 +64,7 @@ export class RankController {
         }
 
         // 権限チェック (STAFF以上)
-        const level = this.getSessionGuildLevel(session, guildId);
+        const level = await this.getSessionGuildLevel(session, guildId);
 
         const permissionError = PermissionManager.checkPermission(level, 1, '権限がありません');
         if (permissionError) {
@@ -106,7 +107,7 @@ export class RankController {
         }
 
         // 権限チェック
-        const level = this.getSessionGuildLevel(session, guildId);
+        const level = await this.getSessionGuildLevel(session, guildId);
 
         const permissionError = PermissionManager.checkPermission(level, 1, '権限がありません');
         if (permissionError) {
@@ -178,7 +179,7 @@ export class RankController {
         }
 
         // 権限チェック
-        const level = this.getSessionGuildLevel(session, guildId);
+        const level = await this.getSessionGuildLevel(session, guildId);
 
         const permissionError = PermissionManager.checkPermission(level, 1, '権限がありません');
         if (permissionError) {
@@ -243,7 +244,7 @@ export class RankController {
         }
 
         // 権限チェック
-        const level = this.getSessionGuildLevel(session, guildId);
+        const level = await this.getSessionGuildLevel(session, guildId);
 
         const permissionError = PermissionManager.checkPermission(level, 1, '権限がありません');
         if (permissionError) {
@@ -298,7 +299,7 @@ export class RankController {
         }
 
         // 権限チェック
-        const level = this.getSessionGuildLevel(session, guildId);
+        const level = await this.getSessionGuildLevel(session, guildId);
 
         const permissionError = PermissionManager.checkPermission(level, 1, '権限がありません');
         if (permissionError) {
@@ -334,7 +335,7 @@ export class RankController {
         }
 
         // 権限チェック
-        const level = this.getSessionGuildLevel(session, guildId);
+        const level = await this.getSessionGuildLevel(session, guildId);
 
         const permissionError = PermissionManager.checkPermission(level, 1, '権限がありません');
         if (permissionError) {
@@ -379,7 +380,7 @@ export class RankController {
         }
 
         // 権限チェック
-        const level = this.getSessionGuildLevel(session, guildId);
+        const level = await this.getSessionGuildLevel(session, guildId);
 
         const permissionError = PermissionManager.checkPermission(level, 1, '権限がありません');
         if (permissionError) {
@@ -414,7 +415,7 @@ export class RankController {
         }
 
         // 権限チェック
-        const level = this.getSessionGuildLevel(session, guildId);
+        const level = await this.getSessionGuildLevel(session, guildId);
 
         const permissionError = PermissionManager.checkPermission(level, 1, '権限がありません');
         if (permissionError) {
@@ -676,7 +677,7 @@ export class RankController {
         }
 
         // 権限チェック
-        const level = this.getSessionGuildLevel(session, guildId);
+        const level = await this.getSessionGuildLevel(session, guildId);
 
         const permissionError = PermissionManager.checkPermission(level, 1, '権限がありません');
         if (permissionError) {
@@ -938,7 +939,7 @@ export class RankController {
         }
 
         // 権限チェック
-        const level = this.getSessionGuildLevel(session, guildId);
+        const level = await this.getSessionGuildLevel(session, guildId);
 
         const permissionError = PermissionManager.checkPermission(level, 2, '権限がありません');
         if (permissionError) {
@@ -986,7 +987,7 @@ export class RankController {
         }
 
         // 権限チェック
-        const level = this.getSessionGuildLevel(session, guildId);
+        const level = await this.getSessionGuildLevel(session, guildId);
 
         const permissionError = PermissionManager.checkPermission(level, 1, '権限がありません');
         if (permissionError) {
@@ -1034,7 +1035,7 @@ export class RankController {
         }
 
         // 権限チェック
-        const level = this.getSessionGuildLevel(session, guildId);
+        const level = await this.getSessionGuildLevel(session, guildId);
 
         const permissionError = PermissionManager.checkPermission(level, 1, '権限がありません');
         if (permissionError) {
@@ -1076,7 +1077,7 @@ export class RankController {
         }
 
         // 権限チェック
-        const level = this.getSessionGuildLevel(session, guildId);
+        const level = await this.getSessionGuildLevel(session, guildId);
 
         const permissionError = PermissionManager.checkPermission(level, 1, '権限がありません');
         if (permissionError) {
@@ -1117,7 +1118,7 @@ export class RankController {
         }
 
         // 権限チェック
-        const level = this.getSessionGuildLevel(session, guildId);
+        const level = await this.getSessionGuildLevel(session, guildId);
 
         const permissionError = PermissionManager.checkPermission(level, 1, '権限がありません');
         if (permissionError) {

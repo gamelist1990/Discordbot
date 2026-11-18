@@ -5,7 +5,7 @@ import {
     EnhancedSlashCommand
 } from '../../types/enhanced-command.js';
 import { SlashCommand } from '../../types/command.js';
-import { database } from '../persistence/Database.js';
+import { resolveGuildPermissionLevel } from '../permissions/GuildAccess.js';
 import { Logger } from '../../utils/Logger.js';
 import { PermissionLevel } from '../../web/types/permission.js';
 
@@ -118,56 +118,7 @@ export class CommandRegistry {
             return false;
         }
 
-        const guildId = interaction.guild.id;
-        const userId = interaction.user.id;
-
-        // Try to get member from cache first, otherwise fetch from API.
-        let member = interaction.guild.members.cache.get(userId);
-        if (!member) {
-            try {
-                member = await interaction.guild.members.fetch(userId);
-            } catch (err) {
-                // couldn't fetch member (not in guild or API error)
-                return false;
-            }
-        }
-
-        // OWNER レベル: サーバーオーナー
-        if (requiredLevel === PermissionLevel.OWNER) {
-            return interaction.guild.ownerId === userId;
-        }
-
-        // ギルド設定を取得
-        const guildSettings = await database.get<any>(guildId, `Guild/${guildId}/settings`, {
-            adminRoleId: null,
-            staffRoleId: null,
-        });
-
-        // ADMIN レベル: 管理者ロールまたは OWNER
-        if (requiredLevel === PermissionLevel.ADMIN) {
-            if (guildSettings.adminRoleId) {
-                const hasAdminRole = member.roles.cache.has(guildSettings.adminRoleId);
-                if (hasAdminRole) return true;
-            }
-            const isOwner = interaction.guild.ownerId === userId;
-            return isOwner;
-        }
-
-        // STAFF レベル: スタッフロール、管理者ロール、または OWNER
-        if (requiredLevel === PermissionLevel.STAFF) {
-            if (guildSettings.staffRoleId) {
-                const hasStaffRole = member.roles.cache.has(guildSettings.staffRoleId);
-                if (hasStaffRole) return true;
-            }
-            if (guildSettings.adminRoleId) {
-                const hasAdminRole = member.roles.cache.has(guildSettings.adminRoleId);
-                if (hasAdminRole) return true;
-            }
-            const isOwner = interaction.guild.ownerId === userId;
-            return isOwner;
-        }
-
-        return false;
+        return (await resolveGuildPermissionLevel(interaction.guild, interaction.user.id)) >= requiredLevel;
     }
 
     /**

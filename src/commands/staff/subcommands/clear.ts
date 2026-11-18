@@ -1,3 +1,4 @@
+import { canExecuteStaffAction } from '../../../core/permissions/GuildAccess.js';
 import { ChatInputCommandInteraction, TextChannel, PermissionFlagsBits } from 'discord.js';
 
 export default {
@@ -29,8 +30,14 @@ export default {
             return;
         }
 
-        if (!interaction.memberPermissions?.has(PermissionFlagsBits.ManageMessages)) {
-            await interaction.reply({ content: '❌ このコマンドを実行する権限がありません（Manage Messages）。', ephemeral: true });
+        if (!(await canExecuteStaffAction(interaction.guild, interaction.user.id, PermissionFlagsBits.ManageMessages))) {
+            await interaction.reply({ content: '❌ スタッフまたはサーバー管理権限が必要です。', ephemeral: true });
+            return;
+        }
+
+        const botMember = interaction.guild.members.me;
+        if (!botMember || !channel.permissionsFor(botMember).has(PermissionFlagsBits.ManageMessages)) {
+            await interaction.reply({ content: '❌ Botに「メッセージ管理」権限がありません。', ephemeral: true });
             return;
         }
 

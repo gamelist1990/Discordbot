@@ -1,3 +1,4 @@
+import { getLiveGuildManagementLevel } from '../../middleware/liveGuildAccess.js';
 import { Request, Response } from 'express';
 import { BotClient } from '../../../core/platform/BotClient.js';
 import { antiCheatManager } from '../../../core/anticheat/AntiCheatManager.js';
@@ -6,7 +7,6 @@ import { GuildAntiCheatSettings, PunishmentAction } from '../../../core/antichea
 import { Logger } from '../../../utils/Logger.js';
 import { TextChannel, PermissionFlagsBits } from 'discord.js';
 import { validateExclusions } from '../../../core/anticheat/ExclusionPolicy.js';
-import { getSessionGuildPermissionLevel } from '../../middleware/auth.js';
 
 /** Runtime state is exposed by dedicated endpoints and must not be echoed into
  * the editable settings document. Apart from leaking history to the browser,
@@ -529,17 +529,7 @@ export class AntiCheatController {
  * permissions array stay bound to their single guild, as before. */
 async function hasGuildMutationAccess(botClient: BotClient, session: any, guildId: string): Promise<boolean> {
     if (!session || !hasAccessToGuild(session, guildId)) return false;
-    if (!Array.isArray(session.permissions)) return true;
-    if (getSessionGuildPermissionLevel(session, guildId) >= 1) return true;
-    try {
-        const guild = botClient.client.guilds.cache.get(guildId)
-            ?? await botClient.client.guilds.fetch(guildId).catch(() => null);
-        if (!guild) return false;
-        if (guild.ownerId === session.userId) return true;
-        const member = await guild.members.fetch(session.userId).catch(() => null);
-        return Boolean(member?.permissions?.has(PermissionFlagsBits.Administrator)
-            || member?.permissions?.has(PermissionFlagsBits.ManageGuild));
-    } catch { return false; }
+    return (await getLiveGuildManagementLevel(botClient, session, guildId)) >= 1;
 }
 
 /**

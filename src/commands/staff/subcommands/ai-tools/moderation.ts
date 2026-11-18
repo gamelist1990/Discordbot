@@ -18,6 +18,8 @@
 import { PermissionFlagsBits } from 'discord.js';
 import type { OpenAITool, ToolHandler } from '../../../../types/openai';
 import { isOwner } from '../../../../config.js';
+import { resolveGuildDelegatedLevel } from '../../../../core/permissions/GuildAccess.js';
+import { PermissionLevel } from '../../../../web/types/permission.js';
 import { Logger } from '../../../../utils/Logger.js';
 
 export const TIMEOUT_MIN_MS = 60_000; // 1分
@@ -38,7 +40,7 @@ type PermissionHolder = {
 export function resolveStaffModerationPermissions(source: {
     memberPermissions?: PermissionHolder;
     user?: { id?: string };
-}): StaffModerationPermissions {
+}, guildLevel: PermissionLevel = PermissionLevel.ANY): StaffModerationPermissions {
     const perms = source?.memberPermissions;
     const has = (flag: bigint): boolean => {
         try { return !!perms?.has?.(flag); } catch { return false; }
@@ -49,13 +51,26 @@ export function resolveStaffModerationPermissions(source: {
     const manageGuild = has(PermissionFlagsBits.ManageGuild);
     const botOwner = !!source?.user?.id && isOwner(source.user.id);
     return {
-        // 削除・タイムアウトは実行者の Discord 実権限のみ（Bot管理者でも代替しない）。
-        deleteMessage: manageMessages || administrator,
-        timeoutMember: moderateMembers || administrator,
-        viewPunishmentScore: manageMessages || moderateMembers || manageGuild || administrator || botOwner,
-        // スコアリセットは ManageGuild / Administrator 級、または Bot管理者のみ。
-        resetPunishmentScore: manageGuild || administrator || botOwner,
+        // Server-configured staff roles delegate ordinary moderation through the bot.
+        deleteMessage: guildLevel >= PermissionLevel.STAFF || manageMessages || administrator,
+        timeoutMember: guildLevel >= PermissionLevel.STAFF || moderateMembers || administrator,
+        viewPunishmentScore: guildLevel >= PermissionLevel.STAFF || manageMessages || moderateMembers || manageGuild || administrator || botOwner,
+        // Destructive score reset still requires ADMIN, never just STAFF.
+        resetPunishmentScore: guildLevel >= PermissionLevel.ADMIN || manageGuild || administrator || botOwner,
     };
+}
+
+/**
+ * Re-derive staff access at invocation time. Tool registration alone is not authorization.
+ */
+async function liveModerationPermissions(context: any): Promise<StaffModerationPermissions> {
+    if (!context?.guild || !context?.user?.id) {
+        return { deleteMessage: false, timeoutMember: false, viewPunishmentScore: false, resetPunishmentScore: false };
+    }
+    const actor = await context.guild.members.fetch(context.user.id).catch(() => null);
+    if (!actor) return { deleteMessage: false, timeoutMember: false, viewPunishmentScore: false, resetPunishmentScore: false };
+    const level = await resolveGuildDelegatedLevel(context.guild, context.user.id);
+    return resolveStaffModerationPermissions({ ...context, memberPermissions: actor.permissions }, level);
 }
 
 /** タイムアウト期間を Discord の範囲 [1分, 28日] にクランプし、クランプした事実を返す。 */
@@ -170,7 +185,7 @@ export const deleteMessageToolDefinition: OpenAITool = {
     type: 'function',
     function: {
         name: 'delete_message',
-        description: '指定したメッセージ1件を削除します（メッセージIDまたはメッセージリンク）。実行者にメッセージ管理権限がある場合のみ使えます。自分・Bot・管理者・上位ロールのメンバーの投稿は削除できません。',
+        description: '指定したメッセージ1件を削除します（メッセージIDまたはメッセージリンク）。実行者がスタッフロールを持つかメッセージ管理権限がある場合のみ使えます。自分・Bot・管理者・上位ロールのメンバーの投稿は削除できません。',
         parameters: {
             type: 'object',
             properties: {
@@ -194,8 +209,8 @@ export const deleteMessageToolHandler: ToolHandler = async (
     try {
         if (!context?.guild) return { error: 'このツールはギルド内でのみ利用できます' };
         // 実行時再チェック（提示制御と二重防御）
-        if (!resolveStaffModerationPermissions(context).deleteMessage) {
-            return denied(base, '実行者にメッセージ管理権限（ManageMessages）が無いため、メッセージ削除は実行できません。その旨をユーザーに伝えてください。');
+        if (!(await liveModerationPermissions(context)).deleteMessage) {
+            return denied(base, '実行者にスタッフ/メッセージ管理権限が無いため、メッセージ削除は実行できません。その旨をユーザーに伝えてください。');
         }
         const guild = context.guild;
         const reference = parseMessageReference(args.message, context.channelId);
@@ -263,7 +278,7 @@ export const timeoutMemberToolDefinition: OpenAITool = {
     type: 'function',
     function: {
         name: 'timeout_member',
-        description: 'メンバーをタイムアウトします。理由は必須です。期間は分単位で指定し、1分未満は1分に、28日超は28日にクランプされます（クランプ時は結果に明示されます）。実行者にメンバー管理（ModerateMembers）権限がある場合のみ使えます。自分・Bot・管理者・オーナー・同位以上のロールは対象にできません。',
+        description: 'メンバーをタイムアウトします。理由は必須です。期間は分単位で指定し、1分未満は1分に、28日超は28日にクランプされます（クランプ時は結果に明示されます）。実行者がスタッフロールを持つかメンバー管理（ModerateMembers）権限がある場合のみ使えます。自分・Bot・管理者・オーナー・同位以上のロールは対象にできません。',
         parameters: {
             type: 'object',
             properties: {
@@ -288,8 +303,8 @@ export const timeoutMemberToolHandler: ToolHandler = async (
     };
     try {
         if (!context?.guild) return { error: 'このツールはギルド内でのみ利用できます' };
-        if (!resolveStaffModerationPermissions(context).timeoutMember) {
-            return denied(base, '実行者にメンバー管理権限（ModerateMembers）が無いため、タイムアウトは実行できません。その旨をユーザーに伝えてください。');
+        if (!(await liveModerationPermissions(context)).timeoutMember) {
+            return denied(base, '実行者にスタッフ/メンバー管理権限が無いため、タイムアウトは実行できません。その旨をユーザーに伝えてください。');
         }
         // 理由必須（入力検証）
         const reason = (args.reason ?? '').trim();
@@ -364,7 +379,7 @@ export const punishmentScoreToolHandler: ToolHandler = async (
 ) => {
     try {
         if (!context?.guild) return { error: 'このツールはギルド内でのみ利用できます' };
-        if (!resolveStaffModerationPermissions(context).viewPunishmentScore) {
+        if (!(await liveModerationPermissions(context)).viewPunishmentScore) {
             return { error: '実行者にモデレーション権限が無いため、罰則スコアの確認はできません。その旨をユーザーに伝えてください。' };
         }
         const userId = normalizeUserId(args.user_id);
@@ -422,7 +437,7 @@ export const resetPunishmentScoreToolHandler: ToolHandler = async (
     };
     try {
         if (!context?.guild) return { error: 'このツールはギルド内でのみ利用できます' };
-        if (!resolveStaffModerationPermissions(context).resetPunishmentScore) {
+        if (!(await liveModerationPermissions(context)).resetPunishmentScore) {
             return denied(base, '実行者にサーバー管理権限（ManageGuild/Administrator）またはBot管理者権限が無いため、スコアリセットは実行できません。その旨をユーザーに伝えてください。');
         }
         const reason = (args.reason ?? '').trim();

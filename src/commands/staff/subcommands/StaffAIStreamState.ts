@@ -234,6 +234,30 @@ export class StaffAIStreamState {
             : step.phase === 'completed' ? '完了' : '失敗';
     }
 
+    /** A tool can remain in progress after the Discord attachment has appeared:
+     * show what is really happening (image visual review) rather than 'executing'.
+     */
+    recordToolProgress(name: string, description: string): void {
+        const tool = [...this.tools].reverse().find(item => item.name === name
+            && (item.phase === '準備中' || item.phase === '実行中'));
+        if (tool) {
+            tool.phase = '実行中';
+            tool.startedAt ??= Date.now();
+            tool.resultSummary = description;
+        }
+    }
+
+    /** No completed response should falsely display a still-running tool. */
+    finalizePendingTools(): void {
+        for (const tool of this.tools) {
+            if (tool.phase === '準備中' || tool.phase === '実行中') {
+                tool.phase = '失敗';
+                tool.endedAt = Date.now();
+                tool.resultSummary = '処理を終了しました（完了イベントを受信できませんでした）';
+            }
+        }
+    }
+
     /** Discord's standard markdown: no embeds or raw tool JSON. */
     render(isComplete = false, answer = this.content): string {
         const speed = this.timedOutputSeconds > 0

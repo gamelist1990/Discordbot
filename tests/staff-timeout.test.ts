@@ -14,7 +14,7 @@ function makeInteraction(duration: string, options: { moderatable?: boolean; rol
         permissions: { has: () => false },
         timeout: async (durationMs: number | null) => { calls.push(durationMs); },
     };
-    const actor = { roles: { highest: {} } };
+    const actor = { id: 'actor', permissions: { has: () => true }, roles: { highest: {}, cache: { has: () => false } } };
     const interaction = {
         guild: {
             ownerId: 'owner',

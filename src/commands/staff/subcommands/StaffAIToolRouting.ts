@@ -39,6 +39,9 @@ export function selectStaffToolNames(prompt: string, recentMessages: string[] = 
     if (/ユーザー情報|ユーザー詳細|メンバー情報|プロフィール|ユーザープロフィール|ロール|役職|アイコン|その人の情報/i.test(text)) {
         chosen.add('get_user_details');
     }
+    if (/(?:ロール|役職).{0,35}(?:誰|だれ|所属|メンバー|一覧|入って|付いて|持って|何人|人数)|(?:誰|だれ|所属|メンバー|一覧|何人).{0,25}(?:ロール|役職)|<@&\d{17,20}>/i.test(text)) {
+        chosen.add('list_role_members');
+    }
     if (/アンチチート|anticheat|anti.?cheat|チート判定|違反履歴|処罰|面接室|ban履歴/i.test(text)) {
         chosen.add('get_anticheat_user_profile');
     }

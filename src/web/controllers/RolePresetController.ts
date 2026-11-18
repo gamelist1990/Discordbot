@@ -1,7 +1,8 @@
+import { getLiveGuildManagementLevel } from '../middleware/liveGuildAccess.js';
 import { Request, Response } from 'express';
 import { RolePresetManager, RolePreset } from '../../core/roles/RolePresetManager.js';
 import { SettingsSession } from '../types/index.js';
-import { getSessionGuildPermissionLevel, isGuildAccessible } from '../middleware/auth.js';
+import { isGuildAccessible } from '../middleware/auth.js';
 import { BotClient } from '../../core/platform/BotClient.js';
 import { Logger } from '../../utils/Logger.js';
 import { PermissionManager } from '../../utils/PermissionManager.js';
@@ -35,7 +36,7 @@ export class RolePresetController {
         }
 
         // 権限チェック
-        const level = getSessionGuildPermissionLevel(session, guildId);
+        const level = await getLiveGuildManagementLevel(this.botClient, session, guildId);
 
         const permissionError = PermissionManager.checkPermission(level, 1, '権限がありません');
         if (permissionError) {
@@ -82,7 +83,7 @@ export class RolePresetController {
         }
 
         // 権限チェック
-        const level = getSessionGuildPermissionLevel(session, guildId);
+        const level = await getLiveGuildManagementLevel(this.botClient, session, guildId);
 
         const permissionError = PermissionManager.checkPermission(level, 1, '権限がありません');
         if (permissionError) {
@@ -153,7 +154,7 @@ export class RolePresetController {
         }
 
         // 権限チェック
-        const level = getSessionGuildPermissionLevel(session, guildId);
+        const level = await getLiveGuildManagementLevel(this.botClient, session, guildId);
 
         const permissionError = PermissionManager.checkPermission(level, 1, '権限がありません');
         if (permissionError) {
@@ -213,7 +214,7 @@ export class RolePresetController {
         }
 
         // 権限チェック
-        const level = getSessionGuildPermissionLevel(session, guildId);
+        const level = await getLiveGuildManagementLevel(this.botClient, session, guildId);
 
         const permissionError = PermissionManager.checkPermission(level, 1, '権限がありません');
         if (permissionError) {
@@ -265,7 +266,7 @@ export class RolePresetController {
         }
 
         // 権限チェック
-        const level = getSessionGuildPermissionLevel(session, guildId);
+        const level = await getLiveGuildManagementLevel(this.botClient, session, guildId);
 
         const permissionError = PermissionManager.checkPermission(level, 1, '権限がありません');
         if (permissionError) {
@@ -312,7 +313,7 @@ export class RolePresetController {
         }
 
         // 権限チェック
-        const level = getSessionGuildPermissionLevel(session, guildId);
+        const level = await getLiveGuildManagementLevel(this.botClient, session, guildId);
 
         const permissionError = PermissionManager.checkPermission(level, 1, '権限がありません');
         if (permissionError) {

@@ -112,3 +112,17 @@ test('reasoningだけの途中表示を完了回答として扱わない', () =>
     assert.doesNotMatch(stream.render(true), /回答を考えています/);
     assert.match(stream.render(true), /（応答なし）/);
 });
+
+test('draw_image shows image review in progress, then closes stale tool status', () => {
+    const state = new StaffAIStreamState(false, false);
+    state.recordToolStep({name:'draw_image', phase:'started', round:1, callId:'draw-1'});
+    state.recordToolProgress('draw_image', '画像を投稿済み · 視覚AIで品質確認中');
+    assert.match(state.render(), /視覚AIで品質確認中/);
+    state.recordToolStep({name:'draw_image', phase:'completed', round:1, callId:'draw-1'});
+    assert.match(state.render(true,'完了'), /✅ 画像生成/);
+    assert.doesNotMatch(state.render(true,'完了'), /実行中/);
+    state.recordToolStep({name:'draw_image', phase:'started', round:2, callId:'draw-2'});
+    state.finalizePendingTools();
+    assert.doesNotMatch(state.render(true,'完了'), /実行中/);
+    assert.match(state.render(true,'完了'), /失敗/);
+});

@@ -13,6 +13,7 @@ const LABELS: Record<string, string> = {
     get_weather: '天気',
     get_time: '時刻',
     get_user_details: 'ユーザー情報',
+    list_role_members: 'ロール所属者',
     get_anticheat_user_profile: 'AntiCheat情報',
     count_phrase_in_channel: 'フレーズ調査',
     collect_channel_history: '会話履歴',
@@ -20,6 +21,7 @@ const LABELS: Record<string, string> = {
     manage_memory: 'メモリー',
     manage_schedule: 'スケジュール',
     output_file: 'ファイル出力',
+    draw_image: '画像生成',
     calculate_bash: '計算',
     fetch_url: 'ページ取得',
     search_channel_messages: '発言検索',
@@ -47,6 +49,7 @@ export function describeStaffTool(tool: StaffToolView): { name: string; value: s
     const subject = (() => {
         switch (tool.name) {
             case 'output_file': return safePreview(args.filename) ? `「${safePreview(args.filename)}」を添付` : 'ファイルを添付';
+            case 'draw_image': return safePreview(args.filename) ? `「${safePreview(args.filename)}」を描画` : '画像を描画';
             case 'web_search': return safePreview(args.query) ? `「${safePreview(args.query)}」を検索` : '検索語句を準備中';
             case 'search_channel_messages': return safePreview(args.query) ? `「${safePreview(args.query)}」を検索` : '発言を検索';
             case 'search_server_episodes': return safePreview(args.query) ? `「${safePreview(args.query)}」の出来事を検索` : '出来事を検索';
@@ -59,6 +62,7 @@ export function describeStaffTool(tool: StaffToolView): { name: string; value: s
                 : args.action === 'cancel' ? '予約を取り消し'
                 : args.mode === 'task' || args.task ? '指定時刻のAI処理を予約' : 'メンション通知を予約';
             case 'get_server_status': return 'サーバーの情報を取得';
+            case 'list_role_members': return safePreview(args.role) ? `「${safePreview(args.role)}」の所属者を取得` : 'ロール所属者一覧を取得';
             case 'collect_channel_history': return '最近の投稿を確認';
             case 'fetch_message_link_context': return '指定メッセージを確認';
             case 'manage_memory': {

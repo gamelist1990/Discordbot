@@ -1,8 +1,9 @@
 import { Router, Request, Response } from 'express';
 import { BotClient } from '../../core/platform/BotClient.js';
-import { verifyAuth, getCurrentUser, getSessionGuildPermissionLevel, isGuildAccessible } from '../middleware/auth.js';
+import { verifyAuth, getCurrentUser, isGuildAccessible } from '../middleware/auth.js';
 import { SettingsSession } from '../types';
 import { database } from '../../core/persistence/Database.js';
+import { resolveGuildPermissionLevel } from '../../core/permissions/GuildAccess.js';
 import { PermissionLevel } from '../types/permission.js';
 
 export function createModRoutes(sessions: Map<string, SettingsSession>, botClient: BotClient) {
@@ -23,24 +24,8 @@ export function createModRoutes(sessions: Map<string, SettingsSession>, botClien
                 return res.status(403).json({ error: 'Forbidden' });
             }
 
-            let allowed = getSessionGuildPermissionLevel(session, guildId) >= PermissionLevel.STAFF;
-            if (!allowed) {
-                try {
-                    const member = await guild.members.fetch(session.userId).catch(() => null);
-                    if (member) {
-                        const settings = await database.get<any>(guildId, `Guild/${guildId}/settings`);
-                        if (settings) {
-                            if (settings.adminRoleId && member.roles.cache.has(settings.adminRoleId)) {
-                                allowed = true;
-                            } else if (settings.staffRoleId && member.roles.cache.has(settings.staffRoleId)) {
-                                allowed = true;
-                            }
-                        }
-                    }
-                } catch (e) {
-                    // keep denied
-                }
-            }
+            // Always verify current guild membership/roles; OAuth session levels may be stale.
+            const allowed = (await resolveGuildPermissionLevel(guild, session.userId)) >= PermissionLevel.STAFF;
 
             if (!allowed) return res.status(403).json({ error: 'Forbidden' });
 
@@ -131,24 +116,7 @@ export function createModRoutes(sessions: Map<string, SettingsSession>, botClien
                 return res.status(403).json({ error: 'Forbidden' });
             }
 
-            let allowedMember = getSessionGuildPermissionLevel(session, guildId) >= PermissionLevel.STAFF;
-            if (!allowedMember) {
-                try {
-                    const m = await guild.members.fetch(session.userId).catch(() => null);
-                    if (m) {
-                        const settings = await database.get<any>(guildId, `Guild/${guildId}/settings`);
-                        if (settings) {
-                            if (settings.adminRoleId && m.roles.cache.has(settings.adminRoleId)) {
-                                allowedMember = true;
-                            } else if (settings.staffRoleId && m.roles.cache.has(settings.staffRoleId)) {
-                                allowedMember = true;
-                            }
-                        }
-                    }
-                } catch (e) {
-                    // keep denied
-                }
-            }
+            const allowedMember = (await resolveGuildPermissionLevel(guild, session.userId)) >= PermissionLevel.STAFF;
 
             if (!allowedMember) return res.status(403).json({ error: 'Forbidden' });
 

@@ -7,6 +7,8 @@ import {
     renderSvgToPng,
     isBlankRender,
     drawImageToolHandler,
+    parseDrawingReview,
+    drawingNeedsRevision,
 } from '../src/commands/staff/subcommands/ai-tools/drawing.ts';
 
 const VALID_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300">'
@@ -42,14 +44,24 @@ test('extractSvgTexts pulls text contents including tspans and entities', () => 
         + '<text x="1" y="3">  ロゴ  </text><text x="1" y="4"></text></svg>';
     assert.deepEqual(extractSvgTexts(svg), ['Hello & World', 'ロゴ']);
     assert.deepEqual(extractSvgTexts('<svg viewBox="0 0 1 1"></svg>'), []);
+    assert.deepEqual(extractSvgTexts('<svg viewBox="0 0 100 100"><g aria-label="オリジナル文字"><path d="M0 0L1 1"/></g></svg>'), ['オリジナル文字']);
 });
 
 test('buildReviewPrompt carries intent, texts and the defect-only checklist', () => {
     const prompt = buildReviewPrompt('猫カフェのタイトルロゴ', ['ねこカフェ']);
     assert.match(prompt, /猫カフェのタイトルロゴ/);
     assert.match(prompt, /「ねこカフェ」/);
-    assert.match(prompt, /問題なし/);
+    assert.match(prompt, /85点以上/);
     assert.match(prompt, /最大5件/);
+    assert.match(prompt, /用途への適合/);
+    assert.match(prompt, /派手さ・不規則さ/);
+    const originalBrief = buildReviewPrompt('料理', ['新作'], true, '元写真は残して右下に小さく「新作」、彩度を少し上げて');
+    assert.match(originalBrief, /ユーザーの依頼: 元写真は残して右下/);
+    const photoReview = buildReviewPrompt('Minecraft建築紹介', ['PEXSERVER'], true);
+    assert.match(photoReview, /元の被写体/);
+    assert.match(photoReview, /既存HUD/);
+    assert.match(photoReview, /架空の文字/);
+    assert.ok(!prompt.includes('既存HUD'));
 });
 
 test('renderSvgToPng rasterizes and blank detection works', async () => {
@@ -124,6 +136,49 @@ test('draw_image handler posts, reviews, edits in place and rejects unchanged SV
         assert.match(String(badName), /DRAW_ERROR: filename/);
         const noContext = await drawImageToolHandler({ svg: VALID_SVG, filename: 'a.png', intent: 'x' }, undefined);
         assert.match(String(noContext), /DRAW_ERROR: Discord/);
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+});
+
+test('visual review needs a new image until quality is approved, at most three renders', async () => {
+    assert.deepEqual(parseDrawingReview('{"score":92,"accepted":true,"issues":[]}'),
+        {verdict:'PASS', score:92, feedback:'品質確認OK（92/100）'});
+    assert.equal(parseDrawingReview('{"score":64,"accepted":false,"issues":["文字が重なる"]}').verdict, 'REVISE');
+    assert.equal(parseDrawingReview('{"score":80,"accepted":true,"issues":[]}').verdict, 'REVISE');
+    assert.equal(parseDrawingReview('問題なし').verdict, 'PASS');
+    assert.equal(parseDrawingReview('').verdict, 'UNAVAILABLE');
+    assert.equal(drawingNeedsRevision([{name:'draw_image',output:
+        'IMAGE_POSTED: {"filename":"logo.png","url":"https://cdn.example/a.png","render":1}\nREVIEW_VERDICT: REVISE'}]), true);
+    assert.equal(drawingNeedsRevision([{name:'draw_image',output:
+        'IMAGE_POSTED: {"filename":"logo.png","url":"https://cdn.example/a.png","render":3}\nREVIEW_VERDICT: REVISE'}]), false);
+    assert.equal(drawingNeedsRevision([{name:'draw_image',output:
+        'IMAGE_POSTED: {"filename":"logo.png","url":"https://cdn.example/a.png","render":2}\nREVIEW_VERDICT: PASS'}]), false);
+    assert.equal(drawingNeedsRevision([{name:'draw_image',output:
+        'DRAW_ERROR: failure\nREVIEW_VERDICT: REVISE'}]), false);
+
+    const originalFetch = globalThis.fetch;
+    let reviews = 0;
+    globalThis.fetch = mock.fn(async () => ({
+        ok: true,
+        json: async () => ({choices:[{message:{content: ++reviews === 1
+            ? '{"score":65,"accepted":false,"issues":["タイトルが小さすぎる"]}'
+            : '{"score":91,"accepted":true,"issues":[]}'}}]}),
+    })) as unknown as typeof fetch;
+    try {
+        const posted = fakeMessage('reviewed.png');
+        let posts = 0;
+        const interaction: any = { guildId: 'g1', channelId: 'c1',
+            followUp: async () => { posts++; return posted; } };
+        const first = String(await drawImageToolHandler({svg:VALID_SVG, filename:'reviewed.png',intent:'ロゴ'}, interaction));
+        assert.match(first, /REVIEW_VERDICT: REVISE/);
+        assert.equal(drawingNeedsRevision([{name:'draw_image', output:first}]), true);
+        const second = String(await drawImageToolHandler({svg:VALID_SVG.replace('#ffcc33','#33ccff'),
+            filename:'reviewed.png',intent:'ロゴ'}, interaction));
+        assert.match(second, /REVIEW_VERDICT: PASS/);
+        assert.equal(drawingNeedsRevision([{name:'draw_image', output:second}]), false);
+        assert.equal(posts, 1);
+        assert.equal(posted.edits.length, 1);
     } finally {
         globalThis.fetch = originalFetch;
     }

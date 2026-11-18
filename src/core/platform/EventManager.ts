@@ -158,6 +158,9 @@ export class EventManager {
             Event.GUILD_DELETE,
             Event.GUILD_MEMBER_ADD,
             Event.GUILD_MEMBER_REMOVE,
+            Event.GUILD_MEMBER_UPDATE,
+            Event.GUILD_ROLE_CREATE,
+            Event.GUILD_ROLE_DELETE,
             Event.CHANNEL_CREATE,
             Event.CHANNEL_DELETE,
             Event.ROLE_CREATE,
@@ -166,6 +169,7 @@ export class EventManager {
             Event.REACTION_ADD,
             Event.REACTION_REMOVE,
             Event.READY,
+        ];
         ];
         return discordEvents.includes(event);
     }

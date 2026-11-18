@@ -1,3 +1,4 @@
+import { refreshSessionGuildPermissionLevel } from '../../middleware/liveGuildAccess.js';
 import { Router } from 'express';
 import type { SettingsSession } from '../../types/index.js';
 import { verifyAuth, isGuildAccessible, getSessionGuildPermissionLevel } from '../../middleware/auth.js';
@@ -62,16 +63,16 @@ export function createServerBuilderRoutes(sessions: Map<string, SettingsSession>
     }
 
     router.use(verifyAuth(sessions));
-    router.use('/:guildId', (req, res, next) => {
-        if (!/^\d{17,20}$/.test(String(req.params.guildId))
-            || !isGuildAccessible((req as any).session, String(req.params.guildId))
-            || getSessionGuildPermissionLevel((req as any).session, String(req.params.guildId)) < 1) {
+    router.use('/:guildId', async (req, res, next) => {
+        const guildId = String(req.params.guildId);
+        const session = (req as any).session as SettingsSession | undefined;
+        if (!/^\d{17,20}$/.test(guildId) || !isGuildAccessible(session, guildId)
+            || await refreshSessionGuildPermissionLevel(botClient, session, guildId) < 1) {
             res.status(403).json({ error: 'このサーバーのStaff権限がありません' });
             return;
         }
         next();
     });
-
     router.get('/:guildId/state', async (req, res) => {
         const guildId = String(req.params.guildId);
         const session = authorize(req, res, guildId);

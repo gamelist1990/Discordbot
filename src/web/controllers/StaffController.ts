@@ -1,9 +1,7 @@
+import { getLiveGuildPermissionLevel, getLiveGuildManagementLevel } from '../middleware/liveGuildAccess.js';
 import { Request, Response } from 'express';
 import { SettingsSession } from '../types/index.js';
 import { BotClient } from '../../core/platform/BotClient.js';
-import { userHasAdminOrManageFlag } from '../routes/permissionsUtils.js';
-import { getSessionGuildPermissionLevel } from '../middleware/auth.js';
-import { PermissionFlagsBits } from 'discord.js';
 import { database } from '../../core/persistence/Database.js';
 
 /**
@@ -26,14 +24,8 @@ export class StaffController {
      * 束縛された発行済みセッションとして従来通り扱う。
      */
     private async hasGuildMutationAccess(session: SettingsSession, guildId: string, guild: any): Promise<boolean> {
-        if (!Array.isArray((session as any).permissions)) return true;
-        if (getSessionGuildPermissionLevel(session, guildId) >= 1) return true;
-        try {
-            if (guild?.ownerId === session.userId) return true;
-            const member = await guild?.members?.fetch(session.userId).catch(() => null);
-            return Boolean(member?.permissions?.has(PermissionFlagsBits.Administrator)
-                || member?.permissions?.has(PermissionFlagsBits.ManageGuild));
-        } catch { return false; }
+        if (!session?.userId || !guild || guild.id !== guildId) return false;
+        return (await getLiveGuildManagementLevel(this.botClient, session, guildId)) >= 1;
     }
 
     /**
@@ -75,7 +67,7 @@ export class StaffController {
                     });
                     if (resp.ok) {
                         const guilds = await resp.json() as Array<any>;
-                        userGuilds = guilds.filter(g => userHasAdminOrManageFlag(g));
+                        userGuilds = guilds;
                     }
                 } catch (e) {
                     console.warn('[StaffController.getAccessibleGuilds] Error fetching user guilds:', e);
@@ -121,8 +113,14 @@ export class StaffController {
                     });
             }
 
-            const filtered = (userGuilds || []).filter(g => botGuildIds.has(g.id))
-                .map(g => ({ id: g.id, name: g.name, icon: (g.icon !== undefined ? g.icon : null) }));
+            const filtered: Array<{ id: string; name: string; icon: string | null }> = [];
+            for (const guildInfo of userGuilds || []) {
+                if (!botGuildIds.has(guildInfo.id)) continue;
+                // Never infer staff status from OAuth's native permissions; server-configured
+                // staff roles are checked against current membership here as well.
+                if ((await getLiveGuildPermissionLevel(this.botClient, session, guildInfo.id)) < 1) continue;
+                filtered.push({ id: guildInfo.id, name: guildInfo.name, icon: guildInfo.icon ?? null });
+            }
 
             res.json({ guilds: filtered });
         } catch (error) {

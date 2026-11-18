@@ -1,5 +1,5 @@
 import { CategoryChannel, ChannelType, Client, Guild, PermissionFlagsBits, Role } from 'discord.js';
-import { database } from '../persistence/Database.js';
+import { canUseStaffAction } from '../permissions/GuildAccess.js';
 import { Logger } from '../../utils/Logger.js';
 
 export async function ensureCategory(guild: Guild, name: string): Promise<CategoryChannel> {
@@ -43,36 +43,7 @@ export async function ensureRole(guild: Guild, roleName: string, reason: string)
 }
 
 export async function isStaffMember(guild: Guild, userId: string): Promise<boolean> {
-    if (guild.ownerId === userId) {
-        return true;
-    }
-
-    const member = guild.members.cache.get(userId) || await guild.members.fetch(userId).catch(() => null);
-    if (!member) {
-        return false;
-    }
-
-    const settings = await database.get<{ adminRoleId: string | null; staffRoleId: string | null } | null>(
-        guild.id,
-        `Guild/${guild.id}/settings`,
-        {
-            adminRoleId: null,
-            staffRoleId: null
-        }
-    ) || {
-        adminRoleId: null,
-        staffRoleId: null
-    };
-
-    if (settings.staffRoleId && member.roles.cache.has(settings.staffRoleId)) {
-        return true;
-    }
-
-    if (settings.adminRoleId && member.roles.cache.has(settings.adminRoleId)) {
-        return true;
-    }
-
-    return false;
+    return canUseStaffAction(guild, userId);
 }
 
 export async function deleteRoom(

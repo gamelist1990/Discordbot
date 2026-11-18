@@ -11,7 +11,7 @@ export function toolResultError(result: unknown): string | undefined {
 
 /** Only metadata needed by the progress UI; never forward memory/file contents. */
 export function toolStepArguments(name: string, raw: string): string | undefined {
-    const keys = name === 'output_file' ? ['filename']
+    const keys = name === 'output_file' || name === 'draw_image' ? ['filename']
         : name === 'manage_memory' ? ['action', 'store', 'type']
         : name === 'manage_schedule' ? ['action', 'mode', 'channel_id']
         : name === 'web_search' || name === 'search_channel_messages' ? ['query']

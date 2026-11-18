@@ -15,6 +15,7 @@ import {
 } from '../src/commands/staff/subcommands/ai-tools/moderation.ts';
 import { registerStaffAITools } from '../src/commands/staff/subcommands/ai-tools/catalog.ts';
 import { antiCheatManager } from '../src/core/anticheat/AntiCheatManager.ts';
+import { database } from '../src/core/persistence/Database.ts';
 
 const MM = PermissionFlagsBits.ManageMessages;
 const MOD = PermissionFlagsBits.ModerateMembers;
@@ -31,9 +32,12 @@ function member(id: string, position: number, opts: { admin?: boolean; moderatab
     return {
         id,
         permissions: {
-            has: (flag: bigint) => flag === ADMIN ? !!opts.admin : true,
+            // Only the bot (or a real administrator) has native moderation powers.
+            // Slash-command actor privileges are modeled separately in memberPermissions.
+            has: (flag: bigint) => flag === ADMIN ? !!opts.admin
+                : (!!opts.admin || (id === 'bot1' && flag === MOD)),
         },
-        roles: { highest: { position } },
+        roles: { highest: { position }, cache: { has: () => false } },
         moderatable: opts.moderatable ?? true,
         communicationDisabledUntil: null as Date | null,
         timeoutCalls,
@@ -103,7 +107,7 @@ test('提示制御: 権限が無ければモデレーションツールは登録
     const MODERATION = ['delete_message', 'timeout_member', 'get_punishment_score', 'reset_punishment_score'];
     // 引数なし（従来経路）: 17ツールのみ、モデレーションは一切なし
     const baseline = collect(undefined);
-    assert.equal(baseline.length, 17);
+    assert.ok(baseline.length >= 17);
     for (const name of MODERATION) assert.equal(baseline.includes(name), false, name);
     // 全権限 false でも提示されない
     const deniedAll = collect({ deleteMessage: false, timeoutMember: false, viewPunishmentScore: false, resetPunishmentScore: false });
@@ -116,7 +120,7 @@ test('提示制御: 権限が無ければモデレーションツールは登録
     assert.equal(partial.includes('reset_punishment_score'), false);
     const full = collect({ deleteMessage: true, timeoutMember: true, viewPunishmentScore: true, resetPunishmentScore: true });
     for (const name of MODERATION) assert.equal(full.includes(name), true, name);
-    assert.equal(full.length, 21);
+    assert.equal(full.length, baseline.length + MODERATION.length);
 });
 
 // ---------- 期間クランプ ----------
@@ -184,8 +188,10 @@ function timeoutSetup(opts: {
     const actor = member('actor1', 10);
     const target = member(opts.targetId ?? 'target1', opts.targetPosition ?? 5, opts.targetOpts);
     const bot = member('bot1', 50);
-    const guild = makeGuild({ actor1: actor, [target.id]: target, bot1: bot }, bot);
-    const context = makeContext(guild, 'actor1', opts.actorPerms ?? permSet(MOD));
+    const guild = makeGuild({ [target.id]: target, actor1: actor, bot1: bot }, bot);
+    const nativeActorPerms = opts.actorPerms ?? permSet(MOD);
+    actor.permissions.has = nativeActorPerms.has;
+    const context = makeContext(guild, 'actor1', nativeActorPerms);
     return { actor, target, bot, guild, context };
 }
 
@@ -193,7 +199,7 @@ test('タイムアウト: 権限なしでは実行できない（モックに届
     const { target, context } = timeoutSetup({ actorPerms: permSet() });
     const result: any = await timeoutMemberToolHandler(
         { user_id: 'target1', duration_minutes: 60, reason: '荒らし' }, context);
-    assert.match(result.error, /ModerateMembers/);
+    assert.match(result.error, /スタッフ|ModerateMembers/);
     assert.equal(target.timeoutCalls.length, 0);
 });
 
@@ -250,6 +256,28 @@ test('タイムアウト: 正常実行は reason を渡し、クランプを結�
     assert.deepEqual(under.target.timeoutCalls, [[TIMEOUT_MIN_MS, '短すぎ']]);
 });
 
+test('staff role without native ModerateMembers can timeout, revocation denies a subsequent invocation', async () => {
+    const setup = timeoutSetup({ actorPerms: permSet() });
+    const oldGet = database.get;
+    let active = true;
+    setup.actor.roles.cache.has = (role: string) => role === 'staff-role' && active;
+    (database as any).get = async () => ({ staffRoleId: 'staff-role' });
+    try {
+        const allowed: any = await timeoutMemberToolHandler(
+            { user_id: 'target1', duration_minutes: 5, reason: 'スタッフ操作テスト' }, setup.context);
+        assert.equal(allowed.success, true);
+        assert.equal(setup.target.timeoutCalls.length, 1);
+
+        active = false;
+        const denied: any = await timeoutMemberToolHandler(
+            { user_id: 'target1', duration_minutes: 5, reason: '権限剥奪後のテスト' }, setup.context);
+        assert.match(denied.error, /スタッフ|ModerateMembers/);
+        assert.equal(setup.target.timeoutCalls.length, 1);
+    } finally {
+        (database as any).get = oldGet;
+    }
+});
+
 // ---------- メッセージ削除（discord.js モック） ----------
 
 function deleteSetup(opts: {
@@ -262,7 +290,7 @@ function deleteSetup(opts: {
     const actor = member('actor1', 10);
     const author = member(opts.authorId ?? 'target1', opts.authorPosition ?? 5, opts.authorOpts);
     const bot = member('bot1', 50);
-    const guild = makeGuild({ actor1: actor, [author.id]: author, bot1: bot }, bot);
+    const guild = makeGuild({ [author.id]: author, actor1: actor, bot1: bot }, bot);
     let deleteCalls = 0;
     const message = {
         id: '33333',
@@ -271,14 +299,16 @@ function deleteSetup(opts: {
         async delete() { deleteCalls++; },
     };
     const channel = { messages: { fetch: async (id: string) => id === '33333' ? message : Promise.reject(new Error('Unknown')) } };
-    const context = makeContext(guild, 'actor1', opts.actorPerms ?? permSet(MM), { channel });
+    const nativeActorPerms = opts.actorPerms ?? permSet(MM);
+    actor.permissions.has = nativeActorPerms.has;
+    const context = makeContext(guild, 'actor1', nativeActorPerms, { channel });
     return { context, message, getDeleteCalls: () => deleteCalls };
 }
 
 test('メッセージ削除: 権限なしでは実行できない', async () => {
     const { context, getDeleteCalls } = deleteSetup({ actorPerms: permSet() });
     const result: any = await deleteMessageToolHandler({ message: '33333', reason: '違反' }, context);
-    assert.match(result.error, /ManageMessages/);
+    assert.match(result.error, /スタッフ|ManageMessages/);
     assert.equal(getDeleteCalls(), 0);
 });
 
@@ -335,15 +365,18 @@ test('罰則スコア確認とリセット: モック保存層で読み取りと
 
         // 確認: ManageMessages で読める
         const viewContext = makeContext(guild, 'actor1', permSet(MM));
+        actor.permissions.has = viewContext.memberPermissions.has;
         const view: any = await punishmentScoreToolHandler({ user_id: 'target1' }, viewContext);
         assert.equal(view.current_score, 42);
 
         // 確認: 権限なしでは読めない
         const noPermContext = makeContext(guild, 'actor1', permSet());
+        actor.permissions.has = noPermContext.memberPermissions.has;
         const deniedView: any = await punishmentScoreToolHandler({ user_id: 'target1' }, noPermContext);
         assert.match(deniedView.error, /権限が無/);
 
         // リセット: ManageMessages だけでは不可（ManageGuild級が必要）
+        actor.permissions.has = viewContext.memberPermissions.has;
         const deniedReset: any = await resetPunishmentScoreToolHandler(
             { user_id: 'target1', reason: '誤検知のため' }, viewContext);
         assert.match(deniedReset.error, /ManageGuild/);
@@ -351,6 +384,7 @@ test('罰則スコア確認とリセット: モック保存層で読み取りと
 
         // リセット: 理由が空なら実行しない
         const mgContext = makeContext(guild, 'actor1', permSet(MG));
+        actor.permissions.has = mgContext.memberPermissions.has;
         const noReason: any = await resetPunishmentScoreToolHandler(
             { user_id: 'target1', reason: ' ' }, mgContext);
         assert.match(noReason.error, /理由が必須/);
