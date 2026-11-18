@@ -1,83 +1,41 @@
-# 🤖 多機能Discordボット (Multifunctional Discord Bot)
+# 🤖 多機能Discordボット - [プロジェクト名/GitHubリンク]
 
-![Node.js](https://img.shields.io/badge/Node.js-18+-green.svg)
-![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue.svg)
-![discord.js](https://img.shields.io/badge/discord.js-v14-blue.svg)
-![React](https://img.shields.io/badge/React-19.x-cyan.svg)
-![Vite](https://img.shields.io/badge/Vite-5.x-purple.svg)
+多機能性と使いやすさを両立させた、高機能なDiscordボットです。サーバー管理、メンバーエンゲージメント、AI連携など、コミュニティ運営に必要なあらゆる機能を一つのボットで提供します。
 
-多機能さと使いやすさを両立させた高機能なDiscordボット。サーバー管理を効率化し、コミュニティを活性化させるための豊富な機能を提供します。
+[![Node.js](https://img.shields.io/badge/Node.js-18+-green.svg)](https://nodejs.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue.svg)](https://www.typescriptlang.org/)
+[![discord.js](https://img.shields.io/badge/discord.js-v14-blue.svg)](https://discord.js.org/)
+[![React](https://img.shields.io/badge/React-19.x-cyan.svg)](https://react.dev/)
+[![Vite](https://img.shields.io/badge/Vite-5.x-purple.svg)](https://vitejs.dev/)
+[![Package Manager](https://img.shields.io/badge/Bun-Latest-orange.svg)](https://bun.sh/)
 
 ## ✨ 主な機能
+このボットは、単なるコマンド実行を超え、コミュニティの成長を支援します。
 
-このボットは、サーバー管理からメンバーエンゲージメントまで、幅広いニーズに対応する多彩な機能を搭載しています。
+*   **🌐 Webダッシュボード**: 直感的なUIで、サーバー設定、権限管理、各種機能の有効/無効化をブラウザからリアルタイムに操作可能。
+*   **🏆 ランキングシステム**: 発言やVC参加に基づきXPを付与。ランクやロール報酬でメンバーの活動を可視化し、コミュニティ活性化を促進します。
+*   **🧠 AIツール連携**: OpenAI API (`gpt-4`など)と連携し、高度な対話やコンテンツ生成を提供します。
+*   **🔄 トリガー機能**: 特定のキーワードに自動反応するカスタム応答を簡単に設定。
+*   **✅ TODO管理**: ユーザーごとのパーソナルなタスク管理機能を提供。
+*   **🔒 スタッフ向けプライベートチャット**: モデレーター・管理者専用の安全なチャット空間。
+*   **🛡️ アンチチート**: 違反行為を検出・処理し、ポリシーに基づいた罰則（`ExclusionPolicy`など）を実行します。
 
-- **🌐 Webダッシュボード**
-  - 直感的なUIでボットの設定をブラウザからリアルタイムに変更可能。
-  - サーバー設定、権限管理、各種機能の有効/無効化などを簡単に行えます。
-
-- **🏆 ランキングシステム**
-  - 発言やVC参加に応じてXPを付与し、メンバーの活動を可視化。
-  - ランクやロール報酬を自由にカスタマイズし、コミュニティの活性化を促進します。
-  - Webダッシュボードからランキングの閲覧や設定変更が可能です。
-
-- **🔄 トリガー機能**
-  - 特定のキーワードやフレーズに自動で反応するカスタムコマンドを作成。
-  - 定型的なアナウンスや面白い自動応答を簡単に設定できます。
-
-- **🧠 AIツール連携**
-  - OpenAI API (`gpt-4`など)と連携し、高度な対話機能やコンテンツ生成を実現。
-  - サーバーにインテリジェントな機能を追加します。
-
-- **✅ TODO管理**
-  - ユーザーごとにTODOリストを管理できるパーソナルなタスク管理機能。
-
-- **🔒 スタッフ用プライベートチャット**
-  - モデレーターや管理者向けの安全なプライベートチャット空間を提供。
-
-- **その他**
-  - ユーザー情報表示、サーバー情報の確認など、多数の便利なコマンドを搭載。
-
-## 🛠️ 技術スタック
-
-- **バックエンド**: Node.js, TypeScript, discord.js, Express
-- **フロントエンド**: React, TypeScript, Vite
-- **パッケージマネージャー**: Bun
-- **データベース**: （設定に応じて）
-
-## 🚀 導入ガイド
-
-### 1. 前提条件
-
-- [Node.js](https://nodejs.org/) (v18以上を推奨)
-- [Bun](https://bun.sh/)
-- Discordボットのトークンとクライアントシークレット
-
-### 2. インストール手順
-
-1.  **リポジトリをクローンします:**
+## 🚀 導入ガイド (クイックスタート)
+1.  **前提条件**: Node.js (v18+), Bun, Discordボットのトークンとクライアントシークレット。
+2.  **インストール**:
     ```bash
     git clone https://github.com/gamelist1990/Discordbot.git
     cd Discordbot
-    ```
-
-2.  **依存関係をインストールします:**
-    ```bash
     bun install
     ```
-
-3.  **設定ファイルを作成します:**
-    プロジェクトのルートディレクトリ（`src`と同じ階層）に`config.json`という名前でファイルを作成し、以下の内容を参考に設定を記述します。
-
+3.  **設定**: プロジェクトルートに `config.json` を作成し、トークン、APIキー、URLなどを設定してください。（詳細はドキュメント参照）
     ```json
     {
       "token": "YOUR_DISCORD_BOT_TOKEN",
       "DISCORD_CLIENT_SECRET": "YOUR_DISCORD_CLIENT_SECRET",
       "BASE_URL": "http://localhost:3000",
       "WEB_BASE_URL": "https://your-public-domain.com",
-      "owner": [
-        "YOUR_DISCORD_USER_ID"
-      ],
+      "owner": ["YOUR_DISCORD_USER_ID"],
       "openai": {
         "apiKey": "YOUR_OPENAI_API_KEY",
         "apiEndpoint": "https://api.openai.com/v1",
@@ -85,49 +43,23 @@
       }
     }
     ```
-    - `token`: あなたのDiscordボットのトークン。
-    - `DISCORD_CLIENT_SECRET`: Discord開発者ポータルのOAuth2ページで取得できるクライアントシークレット。
-    - `BASE_URL`: ボットが内部でリッスンするURL。通常は`http://localhost:3000`のままで問題ありません。
-    - `WEB_BASE_URL`: ユーザーがWebダッシュボードにアクセスするための公開URL。DiscordのOAuth2リダイレクトURLにもこのURLを設定する必要があります。
-    - `owner`: ボットの所有者のDiscordユーザーID（配列形式）。
-    - `openai`: OpenAI APIを使用する場合の設定。
+4.  **起動**:
+    *   **開発**: `bun run dev`
+    *   **本番**: `bun start` (デプロイスクリプトによりGitの最新化を自動実行します)
 
-### 3. ボットの起動
+## 💬 主要コマンド例
+ボットをサーバーに招待後、以下のスラッシュコマンドが利用可能です。
 
-- **通常起動:**
-  以下のコマンドでWebダッシュボードのUIをビルドし、ボットを起動します。
-  ```bash
-  bun start
-  ```
+*   `/help`: 利用可能な全コマンドリストを表示。
+*   `/rank [user]`: ランク、XP、進捗を表示。
+*   `/ping`: ボットの応答時間（レイテンシ）を確認。
+*   `/userinfo [user]`: ユーザー情報（参加日、アカウント作成日など）を表示。
 
-- **開発モード:**
-  ファイルの変更を監視し、自動で再起動する開発モードで起動します。
-  ```bash
-  bun run dev
-  ```
+## 🤝 貢献とドキュメント
+*   **貢献**: プルリクエストやIssueの報告を歓迎します。まずIssueで提案内容を議論してください。
+*   **詳細ドキュメント**: `docs/` ディレクトリに、アンチチートポリシー (`ANTICHEAT.md`)、コンテンツ安全ガイドライン、ランキング実装詳細 (`RANKING_IMPLEMENTATION.md`) などの詳細な仕様がまとめられています。
 
-- **`start.sh`について:**
-  このシェルスクリプトは、Gitリポジトリから最新の変更を取得してボットを起動するためのもので、本番環境でのデプロイを想定しています。ローカルでの開発やテストでは`bun start`の使用を推奨します。
-
-## 💬 コマンド例
-
-ボットをサーバーに招待後、以下のスラッシュコマンドが利用できます。（一部）
-
-- `/help`
-  利用可能な全てのコマンドリストを表示します。
-
-- `/rank [user]`
-  あなたまたは指定したユーザーのランク、XP、次のランクまでの進捗を表示します。
-  `user`を省略した場合は、あなた自身のランクが表示されます。
-
-- `/ping`
-  ボットの応答時間（レイテンシ）を確認します。
-
-- `/userinfo [user]`
-  あなたまたは指定したユーザーのアカウント作成日やサーバー参加日などの情報を表示します。
-
-その他、スタッフや管理者向けのコマンドも多数用意されています。
-
-## 🤝 コントリビュート
-
-プルリクエストやIssueの報告を歓迎します。貢献したい方は、まずIssueを立てて提案内容を議論してください。
+---
+**注記:**
+*   サーバー上限は **50サーバー** に設定されています。上限到達時は自動でサーバーを退出します。
+*   デプロイは `start.sh` スクリプト（または `bun start`）を使用し、Gitリポジトリの最新状態を確実に反映させてください。
