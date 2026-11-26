@@ -16,7 +16,15 @@ export interface IpApiPayload {
     proxy?: boolean;
     hosting?: boolean;
     mobile?: boolean;
+    /** Autonomous system string, e.g. "AS2516 KDDI CORPORATION". */
+    as?: string;
 }
+
+const asnText = (value: unknown): string | null => {
+    if (typeof value !== 'string') return null;
+    const text = value.replace(/[\r\n\t]+/g, ' ').trim().slice(0, 128);
+    return text || null;
+};
 
 export function isPrivateOrLocalIp(value: string): boolean {
     const ip = normalizeIpForHash(value);
@@ -49,6 +57,7 @@ export function mapIpApiResponse(payload: IpApiPayload | null, now: number): IpI
             detail: payload?.status ? `api-${payload.status}` : 'api-invalid'
         };
     }
+    const asn = asnText(payload.as);
     const flags: IntelFlag[] = [];
     if (payload.proxy === true) flags.push('proxy');
     if (payload.hosting === true) flags.push('hosting');
@@ -59,7 +68,8 @@ export function mapIpApiResponse(payload: IpApiPayload | null, now: number): IpI
             source: IP_INTEL_SOURCE,
             checkedAt: now,
             cached: false,
-            detail: `flagged-${flags.join('+')}`
+            detail: `flagged-${flags.join('+')}`,
+            ...(asn ? { asn } : {})
         };
     }
     return {
@@ -67,7 +77,8 @@ export function mapIpApiResponse(payload: IpApiPayload | null, now: number): IpI
         flags: [],
         source: IP_INTEL_SOURCE,
         checkedAt: now,
-        cached: false
+        cached: false,
+        ...(asn ? { asn } : {})
     };
 }
 
@@ -129,7 +140,7 @@ export class IpIntelClient {
         timer.unref?.();
         try {
             const response = await this.fetchImpl(
-                `http://${IP_INTEL_SOURCE}/json/${encodeURIComponent(ip)}?fields=status,message,query,proxy,hosting,mobile`,
+                `http://${IP_INTEL_SOURCE}/json/${encodeURIComponent(ip)}?fields=status,message,query,proxy,hosting,mobile,as`,
                 { signal: controller.signal, headers: { accept: 'application/json' } }
             );
             if (!response.ok) {

@@ -34,7 +34,8 @@ export const WATCH_SIGNAL_LABELS: Record<WatchSignal, string> = {
     'batch-creation': '同一バッチ作成（作成時刻が近接）',
     'shared-avatar': '警戒ユーザーと同一アバター',
     'similar-name': '警戒ユーザーと類似名',
-    'webauth-match': 'Web認証で同一IP/端末を検出'
+    'webauth-match': 'Web認証で同一IP/端末を検出',
+    'graph': '相関グラフで危険アカウントと連結'
 };
 
 export interface WatchJoinRecord {
@@ -251,7 +252,7 @@ export function normalizeWatchUserEntries(value: unknown): Record<string, WatchU
             reason: typeof raw.reason === 'string' ? raw.reason : formatWatchSignals(signals),
             signals,
             since: typeof raw.since === 'string' ? raw.since : new Date(0).toISOString(),
-            source: (['join', 'member-update', 'message', 'webauth-match'].includes(raw.source) ? raw.source : 'join') as WatchUserEntry['source'],
+            source: (['join', 'member-update', 'message', 'webauth-match', 'graph'].includes(raw.source) ? raw.source : 'join') as WatchUserEntry['source'],
             nameSnapshot: typeof raw.nameSnapshot === 'string' ? raw.nameSnapshot : '',
             ...(typeof raw.accountCreatedAt === 'string' || raw.accountCreatedAt === null ? { accountCreatedAt: raw.accountCreatedAt } : {}),
             ...(typeof raw.avatarHash === 'string' || raw.avatarHash === null ? { avatarHash: raw.avatarHash } : {}),

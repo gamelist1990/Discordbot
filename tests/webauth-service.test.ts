@@ -16,6 +16,7 @@ const ENC = Buffer.alloc(32, 12);
 
 const CHROME_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
 const FIREFOX_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0';
+const SAFARI_UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Mobile/15E148 Safari/604.1';
 
 const SIGNALS = {
     userAgent: CHROME_UA,
@@ -78,9 +79,44 @@ function setup(intelVerdict: 'clean' | 'blocked' = 'clean') {
     return { service, tokens, records, data, member, guild, added };
 }
 
+/**
+ * Solves the drag check with a jittered, human-like trajectory so the
+ * submit gate (challengePassed) is satisfied in the flow tests below.
+ */
+async function passChallenge(service: WebAuthService, token: string, userAgent = CHROME_UA): Promise<void> {
+    const challenge = service.issueChallenge(token);
+    assert.ok(challenge, 'challenge issued');
+    const item = challenge!.items.find((entry) => entry.id === challenge!.correctItemId)!;
+    const target = challenge!.target;
+    const dx = target.x - item.x;
+    const dy = target.y - item.y;
+    const length = Math.hypot(dx, dy) || 1;
+    const perpendicularX = -dy / length;
+    const perpendicularY = dx / length;
+    const count = 40;
+    const samples = Array.from({ length: count }, (_value, index) => {
+        const ratio = index / (count - 1);
+        const wobble = Math.sin(ratio * Math.PI * 3) * 5;
+        return {
+            t: Math.round(ratio * 800),
+            x: Number((item.x + dx * ratio + perpendicularX * wobble).toFixed(1)),
+            y: Number((item.y + dy * ratio + perpendicularY * wobble).toFixed(1))
+        };
+    });
+    const result = await service.verifyChallenge({
+        token,
+        itemId: item.id,
+        drop: { x: target.x, y: target.y },
+        samples,
+        userAgent
+    });
+    assert.equal(result.ok, true, 'drag check passes');
+}
+
 test('submit stores hashes + sealed data, consumes the token and never stores raw values', async () => {
     const { service, tokens, records } = setup();
     const { token } = service.createToken({ guildId: GUILD_ID, userId: USER_ID, presetId: 'preset', roleIds: ['role-a'] });
+    await passChallenge(service, token);
 
     const result = await service.submit({
         token, clientIp: IP, socketIp: '10.0.0.97', signals: SIGNALS as any
@@ -115,9 +151,40 @@ test('submit stores hashes + sealed data, consumes the token and never stores ra
     assert.equal((await records.list(GUILD_ID)).length, 1);
 });
 
+test('an iOS Safari submit is stored with browser name safari and degrades gracefully', async () => {
+    const { service, records } = setup();
+    const { token } = service.createToken({ guildId: GUILD_ID, userId: USER_ID });
+    await passChallenge(service, token, SAFARI_UA);
+
+    // Safari-shaped payload: no UA-CH, no deviceMemory, restricted WebGL.
+    const safariSignals = {
+        userAgent: SAFARI_UA,
+        uaCh: {},
+        screen: { width: 390, height: 844, colorDepth: 24, pixelDepth: 24 },
+        timezone: 'Asia/Tokyo',
+        languages: ['ja-JP'],
+        hardwareConcurrency: 4,
+        deviceMemory: 0,
+        canvasHash: 'safari-canvas',
+        webglVendor: '',
+        webglRenderer: '',
+        touch: { maxTouchPoints: 5, touchEvent: true }
+    };
+    const result = await service.submit({ token, clientIp: IP, socketIp: '10.0.0.97', signals: safariSignals as any });
+    assert.equal(result.ok, true);
+    const record = (await records.list(GUILD_ID))[0];
+    assert.equal(record.browser.name, 'safari');
+    assert.ok(record.signalHashes, 'component hashes stored');
+    assert.equal(record.signalHashes.webgl, undefined, 'missing WebGL is simply absent');
+    assert.ok(record.signalHashes.platform, 'the platform component survives without UA-CH');
+    assert.equal(JSON.stringify(record).includes(SAFARI_UA), false);
+});
+
 test('VPN-flagged IPs and non-Chromium browsers are refused and the token stays usable', async () => {
     const { service, tokens } = setup('blocked');
     const { token } = service.createToken({ guildId: GUILD_ID, userId: USER_ID });
+
+    await passChallenge(service, token);
 
     const vpn = await service.submit({ token, clientIp: IP, socketIp: '10.0.0.97', signals: SIGNALS as any });
     assert.equal(vpn.ok, false);
@@ -159,6 +226,7 @@ test('a correlated risk match flags the new user and logs once', async () => {
     (antiCheatManager as any).sendWebAuthCorrelationLog = async (...args: any[]) => { logCalls.push(args); };
     try {
         const { token } = service.createToken({ guildId: GUILD_ID, userId: USER_ID });
+        await passChallenge(service, token);
         const result = await service.submit({ token, clientIp: IP, socketIp: '10.0.0.97', signals: SIGNALS as any });
         assert.equal(result.ok, true);
         if (!result.ok) return;
@@ -180,6 +248,7 @@ test('intel unavailable still verifies and records the unverified verdict', asyn
     });
     (service as any).annotateRisks = async () => [];
     const { token } = service.createToken({ guildId: GUILD_ID, userId: USER_ID });
+    await passChallenge(service, token);
     const result = await service.submit({ token, clientIp: IP, socketIp: '10.0.0.97', signals: SIGNALS as any });
     assert.equal(result.ok, true);
     const record = (await records.list(GUILD_ID))[0];

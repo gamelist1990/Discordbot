@@ -1,6 +1,9 @@
 import crypto from 'node:crypto';
 import { database } from '../persistence/Database.js';
+import { scoreFingerprintSimilarity, type FingerprintFuzzyConfig } from './fingerprint.js';
 import type {
+    FingerprintComponentKey,
+    FingerprintSignalHashes,
     WebAuthBrowserName,
     WebAuthBrowserReason,
     WebAuthMatch,
@@ -13,16 +16,36 @@ import type {
 export const WEBAUTH_RECORD_TTL_MS = 365 * 24 * 60 * 60 * 1000;
 export const WEBAUTH_MAX_RECORDS = 2000;
 export const WEBAUTH_RECORDS_KEY = 'webauth/records';
+const FINGERPRINT_COMPONENT_KEYS: FingerprintComponentKey[] = [
+    'canvas', 'webgl', 'screen', 'platform', 'locale', 'hardware', 'audio'
+];
 
-const BROWSER_NAMES: WebAuthBrowserName[] = ['chrome', 'edge'];
+const BROWSER_NAMES: WebAuthBrowserName[] = ['chrome', 'edge', 'safari'];
 const BROWSER_REASONS: Array<WebAuthBrowserReason | 'staff'> = [
     'ok', 'missing-user-agent', 'firefox', 'safari', 'ios-chrome',
-    'in-app-webview', 'headless', 'unsupported-chromium', 'brand-mismatch', 'staff'
+    'in-app-webview', 'headless', 'unsupported-chromium', 'unsupported-webkit', 'brand-mismatch', 'staff'
 ];
 const INTEL_VERDICTS = ['clean', 'blocked', 'unavailable', 'staff'];
 
 const isHash = (value: unknown): value is string => typeof value === 'string' && /^[0-9a-f]{64}$/.test(value);
 const isSealed = (value: unknown): value is string => typeof value === 'string' && /^[0-9a-f]{60,}$/.test(value);
+
+/** Keeps only well-formed component hashes; returns null when none remain. */
+export function normalizeSignalHashes(value: unknown): FingerprintSignalHashes | null {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+    const source = value as Record<string, unknown>;
+    const hashes: FingerprintSignalHashes = {};
+    for (const key of FINGERPRINT_COMPONENT_KEYS) {
+        if (isHash(source[key])) hashes[key] = source[key] as string;
+    }
+    return Object.keys(hashes).length ? hashes : null;
+}
+
+const asnText = (value: unknown): string | null => {
+    if (typeof value !== 'string') return null;
+    const text = value.replace(/[\r\n\t]+/g, ' ').trim().slice(0, 128);
+    return text || null;
+};
 
 export interface WebAuthRecordInput {
     guildId: string;
@@ -32,6 +55,9 @@ export interface WebAuthRecordInput {
     intel: WebAuthRecord['intel'];
     ipHash: string | null;
     fpHash: string | null;
+    signalHashes?: FingerprintSignalHashes | null;
+    asn?: string | null;
+    subnetHash?: string | null;
     sealed: string | null;
     presetId?: string | null;
     note?: string | null;
@@ -70,6 +96,9 @@ export function createWebAuthRecord(input: WebAuthRecordInput): WebAuthRecord {
         },
         ipHash: isHash(input.ipHash) ? input.ipHash : null,
         fpHash: isHash(input.fpHash) ? input.fpHash : null,
+        signalHashes: normalizeSignalHashes(input.signalHashes),
+        asn: asnText(input.asn),
+        subnetHash: isHash(input.subnetHash) ? input.subnetHash : null,
         sealed: isSealed(input.sealed) ? input.sealed : null,
         presetId: typeof input.presetId === 'string' && input.presetId ? input.presetId : null,
         note: typeof input.note === 'string' && input.note.trim() ? input.note.trim().slice(0, 500) : null,
@@ -97,6 +126,9 @@ function normalizeRecord(raw: unknown): WebAuthRecord | null {
         intel: entry.intel as WebAuthRecord['intel'],
         ipHash: entry.ipHash ?? null,
         fpHash: entry.fpHash ?? null,
+        signalHashes: entry.signalHashes ?? null,
+        asn: entry.asn ?? null,
+        subnetHash: entry.subnetHash ?? null,
         sealed: entry.sealed ?? null,
         presetId: entry.presetId ?? null,
         note: entry.note ?? null,
@@ -129,29 +161,63 @@ export function normalizeWebAuthRecords(value: unknown, now: number): WebAuthRec
 }
 
 /**
- * Matches by IP hash and/or fingerprint hash against the guild's other
- * records. Returned peer IDs are distinct users, so one person with several
- * records counts once. Raw values never leave the store.
+ * Matches by IP hash, exact fingerprint hash, or fuzzy fingerprint similarity
+ * against the guild's other records. Returned peer IDs are distinct users, so
+ * one person with several records counts once. Raw values never leave the
+ * store. Records without `signalHashes` (created before fuzzy matching, and
+ * staff records) only ever match exactly.
  */
+export interface WebAuthCorrelationOptions {
+    /** Overrides for the fuzzy weights/threshold (tests, future tuning). */
+    fuzzy?: Partial<FingerprintFuzzyConfig>;
+}
+
 export function correlateWebAuthRecord(
     records: WebAuthRecord[],
-    record: WebAuthRecord
+    record: WebAuthRecord,
+    options: WebAuthCorrelationOptions = {}
 ): { matches: WebAuthMatch[]; matchCount: number } {
-    const byUser = new Map<string, { ip: number; fp: number }>();
+    const fuzzyConfig = options.fuzzy || {};
+    const byUser = new Map<string, {
+        ip: number;
+        fp: number;
+        fpFuzzy: number;
+        fpScore: number;
+        hasExactFp: boolean;
+    }>();
     for (const other of records) {
         if (!other || other.guildId !== record.guildId || other.userId === record.userId) continue;
-        const current = byUser.get(other.userId) || { ip: 0, fp: 0 };
+        const current = byUser.get(other.userId) || { ip: 0, fp: 0, fpFuzzy: 0, fpScore: 0, hasExactFp: false };
         if (record.ipHash && other.ipHash === record.ipHash) current.ip += 1;
-        if (record.fpHash && other.fpHash === record.fpHash) current.fp += 1;
+
+        const exactFp = !!(record.fpHash && other.fpHash === record.fpHash);
+        if (exactFp) {
+            current.fp += 1;
+            current.hasExactFp = true;
+            current.fpScore = 1;
+        } else if (record.signalHashes && other.signalHashes) {
+            const fuzzy = scoreFingerprintSimilarity(record.signalHashes, other.signalHashes, fuzzyConfig);
+            if (fuzzy.comparable && fuzzy.matches) {
+                current.fpFuzzy += 1;
+                current.fpScore = Math.max(current.fpScore, fuzzy.ratio);
+            }
+        }
         byUser.set(other.userId, current);
     }
     const matches: WebAuthMatch[] = [];
     for (const [userId, counts] of byUser.entries()) {
-        if (!counts.ip && !counts.fp) continue;
-        const hashTypes: Array<'ip' | 'fp'> = [];
+        if (!counts.ip && !counts.fp && !counts.fpFuzzy) continue;
+        const hashTypes: WebAuthMatch['hashTypes'] = [];
         if (counts.ip) hashTypes.push('ip');
         if (counts.fp) hashTypes.push('fp');
-        matches.push({ userId, hashTypes, risks: [], hashCount: counts.ip + counts.fp });
+        if (counts.fpFuzzy && !counts.hasExactFp) hashTypes.push('fp-fuzzy');
+        matches.push({
+            userId,
+            hashTypes,
+            risks: [],
+            hashCount: counts.ip + counts.fp + counts.fpFuzzy,
+            fpScore: counts.fpScore
+        });
     }
     matches.sort((left, right) => right.hashCount - left.hashCount || left.userId.localeCompare(right.userId));
     return { matches, matchCount: matches.length };
@@ -163,10 +229,13 @@ export interface WebAuthRecordView extends WebAuthRecord {
 }
 
 /** Adds the "同一IP/端末アカウント数" count to each staff-facing record. */
-export function withWebAuthMatchCounts(records: WebAuthRecord[]): WebAuthRecordView[] {
+export function withWebAuthMatchCounts(
+    records: WebAuthRecord[],
+    options: WebAuthCorrelationOptions = {}
+): WebAuthRecordView[] {
     return records
         .map((record) => {
-            const { matches } = correlateWebAuthRecord(records, record);
+            const { matches } = correlateWebAuthRecord(records, record, options);
             return {
                 ...record,
                 matchCount: matches.length,
@@ -219,3 +288,6 @@ export class WebAuthRecordStore {
         return userId ? records.filter((record) => record.userId === userId) : records;
     }
 }
+
+/** Shared store used by the WebAuth flow and the correlation graph. */
+export const webAuthRecordStore = new WebAuthRecordStore();

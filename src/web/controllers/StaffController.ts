@@ -1,8 +1,7 @@
-import { getLiveGuildPermissionLevel, getLiveGuildManagementLevel } from '../middleware/liveGuildAccess.js';
+import { listLiveStaffGuilds, getLiveGuildPermissionLevel, getLiveGuildManagementLevel } from '../middleware/liveGuildAccess.js';
 import { Request, Response } from 'express';
 import { SettingsSession } from '../types/index.js';
 import { BotClient } from '../../core/platform/BotClient.js';
-import { database } from '../../core/persistence/Database.js';
 
 /**
  * スタッフコントローラー
@@ -29,7 +28,23 @@ export class StaffController {
     }
 
     /**
-     * セッションユーザーがアクセス可能なギルド一覧を返す
+     * ギルドの読み取り系（チャンネル/ロール/絵文字）用のガード。
+     * OAuthログイン時のスナップショット所属ではなく、Botが参加しているギルドで
+     * あること＋Discord上の実権限がSTAFF以上であることを毎回確認する
+     * （新規参加サーバーも再ログインなしで許可、降格・退出は即座に拒否）。
+     */
+    private async canReadGuild(session: SettingsSession, guildId: string): Promise<boolean> {
+        if (!session?.userId || !guildId) return false;
+        return (await getLiveGuildPermissionLevel(this.botClient, session, guildId)) >= 1;
+    }
+
+    /**
+     * セッションユーザーがアクセス可能なギルド一覧を返す。
+     *
+     * OAuthログイン時のスナップショット（session.guildIds/permissions）ではなく、
+     * Botが現在参加しているギルドを列挙し、その場でDiscord上の実権限を解決する。
+     * 解決結果は session.permissions にも書き戻すため、スナップショット基準の
+     * アクセス判定ヘルパーも再ログインなしで追従する。
      */
     async getAccessibleGuilds(req: Request, res: Response): Promise<void> {
         const session = (req as any).session as SettingsSession;
@@ -40,89 +55,8 @@ export class StaffController {
                 return;
             }
 
-            const botGuilds = this.botClient.getGuildList();
-
-            // Try to read persisted OAuth sessions to get user's access token
-            const fs = await import('fs');
-            const path = await import('path');
-            const authPersistPath = path.join(database.getDataDir(), 'system', 'auth', 'sessions.json');
-            let userOauth: any = null;
-            try {
-                if (fs.existsSync(authPersistPath)) {
-                    const raw = fs.readFileSync(authPersistPath, 'utf8') || '{}';
-                    const obj = JSON.parse(raw) as Record<string, any>;
-                    userOauth = obj[session.userId];
-                }
-            } catch (e) {
-                console.warn('[StaffController.getAccessibleGuilds] Failed to read OAuth sessions from disk:', e);
-            }
-
-            let userGuilds: any[] = [];
-            if (userOauth && userOauth.accessToken) {
-                try {
-                    const resp = await fetch('https://discord.com/api/users/@me/guilds', {
-                        headers: {
-                            Authorization: `Bearer ${userOauth.accessToken}`
-                        }
-                    });
-                    if (resp.ok) {
-                        const guilds = await resp.json() as Array<any>;
-                        userGuilds = guilds;
-                    }
-                } catch (e) {
-                    console.warn('[StaffController.getAccessibleGuilds] Error fetching user guilds:', e);
-                }
-            }
-
-            const botGuildIds = new Set(botGuilds.map(g => g.id));
-
-            // If OAuth-based guild fetch failed or returned empty, fall back to the session guild list
-            if ((!userGuilds || userGuilds.length === 0) && session) {
-                console.warn('[StaffController.getAccessibleGuilds] OAuth guilds fetch returned empty - falling back to session data');
-                const sessionGuildIds: string[] = [];
-                if (session.guildIds && session.guildIds.length > 0) {
-                    sessionGuildIds.push(...session.guildIds);
-                } else if (session.guildId) {
-                    sessionGuildIds.push(session.guildId);
-                }
-
-                const sessionPermissionsMap = new Map<string, number>();
-                (session.permissions || []).forEach(p => {
-                    if (p && p.guildId) sessionPermissionsMap.set(p.guildId, p.level);
-                });
-
-                userGuilds = sessionGuildIds
-                    .filter(gid => botGuildIds.has(gid))
-                    .filter(gid => {
-                        const lvl = sessionPermissionsMap.get(gid) ?? session.permission ?? 0;
-                        return typeof lvl === 'number' ? lvl >= 1 : Number(lvl) >= 1;
-                    })
-                    .map(gid => {
-                        const botGuild = botGuilds.find(g => g.id === gid);
-                        if (botGuild) {
-                            return {
-                                id: botGuild.id,
-                                name: botGuild.name,
-                                icon: botGuild.icon,
-                                memberCount: botGuild.memberCount,
-                                permissionLevel: sessionPermissionsMap.get(gid) ?? session.permission ?? ((session.permissions || []).some(p => p.level >= 3) ? 3 : 0)
-                            };
-                        }
-                        // If bot doesn't have cache info for guild, still include a minimal object
-                        return { id: gid, name: gid, icon: undefined, permissionLevel: sessionPermissionsMap.get(gid) ?? session.permission ?? ((session.permissions || []).some(p => p.level >= 3) ? 3 : 0) };
-                    });
-            }
-
-            const filtered: Array<{ id: string; name: string; icon: string | null }> = [];
-            for (const guildInfo of userGuilds || []) {
-                if (!botGuildIds.has(guildInfo.id)) continue;
-                // Never infer staff status from OAuth's native permissions; server-configured
-                // staff roles are checked against current membership here as well.
-                if ((await getLiveGuildPermissionLevel(this.botClient, session, guildInfo.id)) < 1) continue;
-                filtered.push({ id: guildInfo.id, name: guildInfo.name, icon: guildInfo.icon ?? null });
-            }
-
-            res.json({ guilds: filtered });
+            const guilds = await listLiveStaffGuilds(this.botClient, session);
+            res.json({ guilds });
         } catch (error) {
             console.error('getAccessibleGuilds failed:', error);
             res.status(500).json({ error: 'Internal server error' });
@@ -863,12 +797,8 @@ export class StaffController {
         }
 
         try {
-            // Check if user has access to this guild
-            const allowed = (session.guildIds || []).length === 0 
-                ? (session.guildId === guildId) 
-                : (session.guildIds || []).includes(guildId);
-            
-            if (!allowed) {
+            // Snapshot membership plus the user's LIVE level in this guild.
+            if (!(await this.canReadGuild(session, guildId))) {
                 res.status(403).json({ error: 'Forbidden: session does not have access to this guild' });
                 return;
             }
@@ -915,12 +845,8 @@ export class StaffController {
         }
 
         try {
-            // Check if user has access to this guild
-            const allowed = (session.guildIds || []).length === 0 
-                ? (session.guildId === guildId) 
-                : (session.guildIds || []).includes(guildId);
-            
-            if (!allowed) {
+            // Snapshot membership plus the user's LIVE level in this guild.
+            if (!(await this.canReadGuild(session, guildId))) {
                 res.status(403).json({ error: 'Forbidden: session does not have access to this guild' });
                 return;
             }
@@ -963,12 +889,8 @@ export class StaffController {
         }
 
         try {
-            // Check if user has access to this guild
-            const allowed = (session.guildIds || []).length === 0
-                ? (session.guildId === guildId)
-                : (session.guildIds || []).includes(guildId);
-
-            if (!allowed) {
+            // Snapshot membership plus the user's LIVE level in this guild.
+            if (!(await this.canReadGuild(session, guildId))) {
                 res.status(403).json({ error: 'Forbidden: session does not have access to this guild' });
                 return;
             }

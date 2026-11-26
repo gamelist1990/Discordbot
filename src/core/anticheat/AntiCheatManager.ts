@@ -77,9 +77,28 @@ import {
     type WatchJoinRecord,
     type WatchPeerCandidate
 } from './WatchUsers.js';
-import type { WatchDangerPoint, WatchSettings, WatchSource, WatchUserEntry } from './types.js';
-import { recordRiskKicksSafely } from './RiskKicks.js';
-import type { WebAuthMatch } from '../webauth/types.js';
+import type {
+    WatchDangerPoint,
+    WatchSettings,
+    WatchSource,
+    WatchUserEntry
+} from './types.js';
+import { riskKickLedger, recordRiskKicksSafely, type RiskKickEntry } from './RiskKicks.js';
+import {
+    ALT_GRAPH_BAD_LABELS,
+    ALT_GRAPH_EDGE_LABELS,
+    buildAltGraph,
+    evaluateGraphPropagation,
+    readAltGraphSettings,
+    type AltGraphPropagation
+} from './AltGraph.js';
+import {
+    computeJoinEntropy,
+    formatJoinEntropyMetric,
+    type JoinEntropyResult
+} from './JoinEntropy.js';
+import { webAuthRecordStore } from '../webauth/records.js';
+import type { WebAuthMatch, WebAuthRecord } from '../webauth/types.js';
 
 type Detection = { detector: string; result: DetectionResult };
 type MessageWork = { revision: string; timestamp: number; task: Promise<boolean>; current: boolean };
@@ -112,6 +131,9 @@ export class AntiCheatManager {
     private watchChecks = new Map<string, number>();
     // One danger-kick pipeline per user; later detections ride on it.
     private watchDangerTasks = new Map<string, Promise<void>>();
+    // Alt-graph evaluation is event-driven; this stops a join from building the
+    // same graph twice (watch evaluation + the raid join branch).
+    private graphChecks = new Map<string, number>();
 
     private settingsCache: Map<string, GuildAntiCheatSettings> = new Map();
     private settingsLoads: Map<string, Promise<GuildAntiCheatSettings>> = new Map();
@@ -433,23 +455,34 @@ export class AntiCheatManager {
 
         const joinsLastHour = joins.length;
         const joinsBurst = joins.filter((record) => now - record.ts <= config.burstWindowSeconds * 1000).length;
+        const entropy = computeJoinEntropy(joins.map((record) => record.ts), config.automation);
 
         if (settings.raidMode.active) {
             settings.raidMode.recentJoinCount = Math.max(joinsLastHour, joinsBurst);
             settings.raidMode.lastJoinAt = new Date(now).toISOString();
             await this.setSettings(guild.id, settings);
+            // A join during raid mode is an alt-graph evaluation point.
+            if (settings.watch.enabled) {
+                await this.evaluateAltGraphForUser(guild.id, member.id, 'raid-join').catch((error) => {
+                    Logger.warn(`[AltGraph] raid-join evaluation failed for ${member.id}: ${String(error)}`);
+                });
+            }
             if (config.autoKick) await this.enforceRaidKick(guild, [member], settings);
             return;
         }
 
-        const shouldActivate = joinsLastHour >= config.joinsPerHour || joinsBurst >= config.burstCount;
+        const shouldActivate = joinsLastHour >= config.joinsPerHour
+            || joinsBurst >= config.burstCount
+            || entropy.automated;
         if (!shouldActivate) {
             return;
         }
 
-        const reason = joinsBurst >= config.burstCount
-            ? `${config.burstWindowSeconds}秒以内に ${joinsBurst} 件の参加を検知`
-            : `1時間以内に ${joinsLastHour} 件の参加を検知`;
+        const reason = entropy.automated
+            ? `${entropy.reason}（1時間に ${joinsLastHour} 件）`
+            : joinsBurst >= config.burstCount
+                ? `${config.burstWindowSeconds}秒以内に ${joinsBurst} 件の参加を検知`
+                : `1時間以内に ${joinsLastHour} 件の参加を検知`;
 
         settings.raidMode = {
             active: true,
@@ -460,7 +493,7 @@ export class AntiCheatManager {
         };
 
         await this.setSettings(guild.id, settings);
-        await this.sendRaidActivationLog(guild, settings, config, reason, joinsLastHour, joinsBurst, member);
+        await this.sendRaidActivationLog(guild, settings, config, reason, joinsLastHour, joinsBurst, member, entropy);
 
         if (!config.autoKick) {
             return;
@@ -479,13 +512,15 @@ export class AntiCheatManager {
         reason: string,
         joinsLastHour: number,
         joinsBurst: number,
-        member: GuildMember
+        member: GuildMember,
+        entropy: JoinEntropyResult
     ): Promise<void> {
         const logChannel = await this.fetchLogChannel(guild, settings.logChannelId);
         if (!logChannel) {
             return;
         }
 
+        const entropyMetric = formatJoinEntropyMetric(entropy);
         const embed = new EmbedBuilder()
             .setTitle('🚨 AntiCheat レイドモードを有効化')
             .setColor(Colors.Red)
@@ -495,6 +530,11 @@ export class AntiCheatManager {
                 { name: '理由', value: reason, inline: false },
                 { name: '参加数 (1時間)', value: `${joinsLastHour}`, inline: true },
                 { name: '参加数 (短時間)', value: `${joinsBurst}`, inline: true },
+                {
+                    name: '参加間隔',
+                    value: entropyMetric || '算出不可（参加数不足）',
+                    inline: true
+                },
                 { name: '最後の参加', value: `${member.user.tag}`, inline: true },
                 {
                     name: '自動キック',
@@ -824,16 +864,18 @@ export class AntiCheatManager {
         const latest = this.settingsCache.get(guild.id) || settings;
         const existing = latest.watchUsers?.[member.id] || null;
 
-        // A WebAuth IP/device match is a hard correlation signal: keep it until
-        // staff explicitly dismisses the entry, even if none of the heuristic
-        // signals match on this re-evaluation.
-        if (
-            existing
-            && !existing.dismissed
-            && (existing.source === 'webauth-match' || existing.signals?.includes('webauth-match'))
-            && !signals.includes('webauth-match')
-        ) {
-            signals.push('webauth-match');
+        // Correlation flags (WebAuth IP/device match, alt-graph link) are hard
+        // signals: keep them until staff explicitly dismisses the entry, even
+        // if none of the heuristic signals match on this re-evaluation.
+        for (const sticky of ['webauth-match', 'graph'] as const) {
+            if (
+                existing
+                && !existing.dismissed
+                && (existing.source === sticky || existing.signals?.includes(sticky))
+                && !signals.includes(sticky)
+            ) {
+                signals.push(sticky);
+            }
         }
 
         // Nothing matches any more: the auto entry ages out, like the name
@@ -842,6 +884,16 @@ export class AntiCheatManager {
             if (existing) {
                 delete latest.watchUsers[member.id];
                 await this.setSettings(guild.id, latest);
+            } else {
+                // Alt-account graph propagation: a clean-looking member is
+                // still flagged when their weighted links to bad nodes reach
+                // the threshold (evaluated on this event, no daemon).
+                const graphFlagged = await this.evaluateAltGraphForUser(guild.id, member.id, 'watch')
+                    .catch((error) => {
+                        Logger.warn(`[AltGraph] watch evaluation failed for ${member.id}: ${String(error)}`);
+                        return false;
+                    });
+                if (graphFlagged) return;
             }
             this.watchChecks.delete(`${guild.id}:${member.id}`);
             return;
@@ -851,8 +903,12 @@ export class AntiCheatManager {
         if (existing?.dismissed && existing.dismissed === displayName) return;
 
         const previouslyFlagged = !!existing && !existing.dismissed;
+        // Hard correlations keep their machine reason (`graph` / `webauth-match`)
+        // while they are the only signal; staff labels are generated in the UI.
+        const hardOnly = signals.length > 0
+            && signals.every((signal) => signal === 'graph' || signal === 'webauth-match');
         const nextEntry: WatchUserEntry = {
-            reason: formatWatchSignals(signals),
+            reason: previouslyFlagged && hardOnly ? existing!.reason : formatWatchSignals(signals),
             signals,
             since: previouslyFlagged ? existing!.since : new Date(now).toISOString(),
             source: previouslyFlagged ? existing!.source : source,
@@ -1132,6 +1188,168 @@ export class AntiCheatManager {
     }
 
     /**
+     * Alt-account graph propagation. Called from the event points the brief
+     * allows (WebAuth success, watch classification, a join during raid mode).
+     * Builds the graph in memory, sums the target's weighted edges toward bad
+     * nodes and writes a sticky `graph` watch entry when the threshold is met.
+     */
+    async evaluateAltGraphForUser(
+        guildId: string,
+        userId: string,
+        trigger: 'watch' | 'raid-join' | 'webauth',
+        options: { webAuthRecords?: WebAuthRecord[]; riskKicks?: RiskKickEntry[] } = {}
+    ): Promise<boolean> {
+        // Without a Discord client there is nothing to resolve and unit tests
+        // should not touch the live stores; the pure graph is tested directly.
+        if (!this.client) return false;
+
+        const now = Date.now();
+        // WebAuth carries a brand-new record, so it always re-evaluates. Other
+        // triggers share a short throttle (watch evaluation + raid branch).
+        if (trigger !== 'webauth') {
+            const checkKey = `${guildId}:${userId}`;
+            const last = this.graphChecks.get(checkKey) || 0;
+            if (now - last < 60_000) return false;
+            if (this.graphChecks.size >= 10_000) this.graphChecks.clear();
+            this.graphChecks.set(checkKey, now);
+        }
+
+        const settings = this.settingsCache.get(guildId) || await this.getSettings(guildId);
+        if (!settings.enabled || !settings.watch.enabled) return false;
+        const graphSettings = readAltGraphSettings(settings.altGraph);
+        if (!graphSettings.enabled) return false;
+        const existing = settings.watchUsers?.[userId];
+        if (existing && !existing.dismissed) return false;
+
+        const [records, kicks] = await Promise.all([
+            options.webAuthRecords
+                ? Promise.resolve(options.webAuthRecords)
+                : webAuthRecordStore.list(guildId).catch(() => [] as WebAuthRecord[]),
+            options.riskKicks
+                ? Promise.resolve(options.riskKicks)
+                : riskKickLedger.list(guildId).catch(() => [] as RiskKickEntry[])
+        ]);
+
+        const graph = buildAltGraph({
+            watchEntries: Object.entries(settings.watchUsers || {})
+                .map(([id, entry]) => ({ userId: id, entry })),
+            webAuthRecords: records,
+            riskKicks: kicks
+        }, graphSettings);
+        const result = evaluateGraphPropagation(graph, userId, graphSettings);
+        if (!result.flagged) return false;
+
+        return this.flagWatchUserFromGraph(guildId, userId, result, trigger);
+    }
+
+    /** Writes the sticky `graph` watch entry and sends exactly one embed. */
+    private async flagWatchUserFromGraph(
+        guildId: string,
+        userId: string,
+        result: AltGraphPropagation,
+        trigger: 'watch' | 'raid-join' | 'webauth'
+    ): Promise<boolean> {
+        const settings = this.settingsCache.get(guildId) || await this.getSettings(guildId);
+        if (!settings.enabled || !settings.watch.enabled) return false;
+
+        const guild = this.client
+            ? (this.client.guilds.cache.get(guildId) || await this.client.guilds.fetch(guildId).catch(() => null))
+            : null;
+        const member = guild
+            ? (guild.members.cache.get(userId) || await guild.members.fetch(userId).catch(() => null))
+            : null;
+
+        if (member) {
+            if (member.user?.bot) return false;
+            const ownerId = guild
+                ? (guild.ownerId || await guild.fetchOwner().then((owner) => owner.id).catch(() => null))
+                : null;
+            if (ownerId && userId === ownerId) return false;
+            if (member.permissions?.has(PermissionFlagsBits.Administrator)
+                || member.permissions?.has(PermissionFlagsBits.ManageGuild)) return false;
+            if (settings.excludedRoles.some((roleId) => member.roles?.cache?.has(roleId))) return false;
+        }
+
+        const latest = this.settingsCache.get(guildId) || settings;
+        const existing = latest.watchUsers?.[userId] || null;
+        if (existing && !existing.dismissed) return false;
+
+        const now = Date.now();
+        const displayName = (member?.displayName || existing?.nameSnapshot || '').trim();
+        const createdAt = Number(member?.user?.createdTimestamp) || 0;
+        latest.watchUsers[userId] = {
+            reason: 'graph',
+            signals: ['graph'],
+            since: existing && !existing.dismissed ? existing.since : new Date(now).toISOString(),
+            source: 'graph',
+            nameSnapshot: displayName,
+            accountCreatedAt: createdAt ? new Date(createdAt).toISOString() : (existing?.accountCreatedAt ?? null),
+            avatarHash: member?.user?.avatar ?? existing?.avatarHash ?? null,
+            normalizedName: normalizeWatchName(displayName)
+                || normalizeWatchName(member?.user?.username)
+                || existing?.normalizedName
+                || '',
+            dismissed: null,
+            dangerPoints: existing?.dangerPoints || [],
+            lastDangerAt: existing?.lastDangerAt ?? null
+        };
+        await this.setSettings(guildId, latest);
+        Logger.info(`[AltGraph] flagged ${userId} in ${guildId} via graph (${result.total}/${result.threshold}, ${trigger})`);
+
+        if (settings.watch.notifyOnFlag && guild) {
+            await this.sendAltGraphFlagLog(guild, latest, member, userId, result, trigger);
+        }
+        return true;
+    }
+
+    /** One log embed: top edge types and the bad node each links to. */
+    private async sendAltGraphFlagLog(
+        guild: Guild,
+        settings: GuildAntiCheatSettings,
+        member: GuildMember | null,
+        userId: string,
+        result: AltGraphPropagation,
+        trigger: 'watch' | 'raid-join' | 'webauth'
+    ): Promise<void> {
+        const logChannel = await this.fetchLogChannel(guild, settings.logChannelId);
+        if (!logChannel) return;
+
+        const triggerLabels: Record<string, string> = {
+            watch: '通常の警戒判定',
+            'raid-join': 'レイドモード中の参加',
+            webauth: 'Web認証成功'
+        };
+        const lines = result.contributions
+            .slice(0, 8)
+            .map((entry) => {
+                const other = guild.members.cache.get(entry.otherUserId);
+                const tag = other?.user?.tag || other?.user?.username || entry.otherUserId;
+                const reasons = entry.badTags.map((bad) => ALT_GRAPH_BAD_LABELS[bad] || bad).join(' / ');
+                const detail = entry.detail ? `（${entry.detail}）` : '';
+                return `• ${ALT_GRAPH_EDGE_LABELS[entry.type]} +${entry.weight}${detail} → ${tag} (${entry.otherUserId}) [${reasons}]`;
+            })
+            .join('\n');
+
+        const embed = new EmbedBuilder()
+            .setTitle('🚨 相関グラフで危険アカウントと連結')
+            .setColor(Colors.Orange)
+            .setTimestamp()
+            .setDescription('キック済み・警戒中のアカウントとの相関がしきい値に達したため、警戒ユーザーとして監視します。')
+            .addFields(
+                { name: 'ユーザー', value: `${member?.user?.tag || userId}\n${userId}`.slice(0, 1024), inline: true },
+                { name: '相関スコア', value: `${result.total} / ${result.threshold}`, inline: true },
+                { name: '判定の由来', value: triggerLabels[trigger] || trigger, inline: true },
+                {
+                    name: '一致種別',
+                    value: (result.topTypes.map((type) => ALT_GRAPH_EDGE_LABELS[type] || type).join(' / ') || 'なし').slice(0, 1024),
+                    inline: false
+                },
+                { name: '主要リンク', value: (lines || 'なし').slice(0, 1024), inline: false }
+            );
+        await logChannel.send({ embeds: [embed], allowedMentions: { parse: [] } }).catch(() => null);
+    }
+
+    /**
      * Correlation flag from the WebAuth flow. Sticky until staff dismisses it
      * (see the webauth-match preservation in evaluateWatchMember).
      */
@@ -1203,7 +1421,10 @@ export class AntiCheatManager {
             const label = member?.user?.tag || member?.user?.username || match.userId;
             const hashes = [
                 match.hashTypes.includes('ip') ? 'IP' : '',
-                match.hashTypes.includes('fp') ? '端末' : ''
+                match.hashTypes.includes('fp') ? '端末(完全 1.00)' : '',
+                match.hashTypes.includes('fp-fuzzy')
+                    ? `端末(類似 ${(match.fpScore ?? 0).toFixed(2)})`
+                    : ''
             ].filter(Boolean).join('・');
             const risks = match.risks.map((risk) => riskLabels[risk] || risk).join(' / ');
             lines.push(`• ${label} (${match.userId})\n  一致: ${hashes || '不明'} / 理由: ${risks || '不明'}`);
@@ -2127,6 +2348,7 @@ export class AntiCheatManager {
                 ...(settings?.raidMode || {})
             },
             watch: readWatchSettings(settings?.watch, DEFAULT_ANTICHEAT_SETTINGS.watch),
+            altGraph: readAltGraphSettings(settings?.altGraph),
             userTrust: settings?.userTrust || {},
             watchUsers: normalizeWatchUserEntries(settings?.watchUsers),
             recentLogs: Array.isArray(settings?.recentLogs) ? settings.recentLogs.slice(-this.MAX_LOGS) : []

@@ -830,7 +830,11 @@ function Activity(p: AntiCheatViewProps) {
   const detectorName = (key: string) =>
     p.detectors.find((def) => def.key === key)?.title || key;
   const watchReasonLabel = (reason: string) =>
-    reason === "webauth-match" ? "Web認証で同一IP/端末を検出" : reason;
+    reason === "webauth-match"
+      ? "Web認証で同一IP/端末を検出"
+      : reason === "graph"
+        ? "相関グラフで危険アカウントと連結"
+        : reason;
   const browserLabel = (record: (typeof p.webAuthRecords)[number]) =>
     record.source === "staff"
       ? "スタッフ認証"

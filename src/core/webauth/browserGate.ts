@@ -29,35 +29,45 @@ function normalizeBrands(value: BrowserGateInput['brands']): BrowserBrand[] {
     });
 }
 
-const hasBrand = (brands: BrowserBrand[], needle: string): boolean =>
-    brands.some((brand) => brand.brand.toLowerCase().includes(needle));
-
 /**
- * Chrome/Edge-only browser gate.
+ * The one browser decision used by both the server gate and the auth page.
  *
- * Both the UA string and, when present, the UA-CH brands (posted
- * `navigator.userAgentData.brands` or the `Sec-CH-UA` request header) must
- * agree. Firefox, Safari, iOS WebKit shells, in-app webviews and other
- * Chromium browsers are rejected.
+ * Kept deliberately self-contained (no imports, no module-scope helpers) so
+ * `page.ts` can embed its source with `Function.prototype.toString()` into the
+ * page script. Client and server therefore cannot drift apart.
+ *
+ * Allowed:
+ * - Chromium desktop: Google Chrome or Microsoft Edge. When UA-CH brands are
+ *   present they must name Chrome/Edge only (Brave/Opera/Vivaldi/… stay out).
+ * - Safari family: desktop Safari (`Version/… Safari/`, no Chrome/Chromium/
+ *   Android tokens) and iOS WebKit browsers (Safari, CriOS, FxiOS, EdgiOS).
+ *   Safari sends no UA-CH, so this branch ignores brands entirely and decides
+ *   from the UA alone.
+ *
+ * Everything else (desktop Firefox, in-app webviews, unknown WebKit shells,
+ * other Chromium browsers, automation) is rejected.
  */
-export function evaluateBrowserGate(input: BrowserGateInput): BrowserGateResult {
-    const userAgent = String(input?.userAgent || '').trim();
+export function evaluateBrowserUserAgent(
+    userAgentInput: unknown,
+    brandsInput?: BrowserBrand[] | null
+): BrowserGateResult {
+    const userAgent = String(userAgentInput == null ? '' : userAgentInput).trim();
     if (!userAgent) {
         return { allowed: false, browser: null, reason: 'missing-user-agent' };
     }
     const ua = userAgent.toLowerCase();
-    const postedBrands = normalizeBrands(input?.brands);
-    const hintBrands = parseBrandHeader(input?.clientHint);
-    const brands = [...postedBrands, ...hintBrands];
+    const brands = Array.isArray(brandsInput) ? brandsInput : [];
     const brandsPresent = brands.length > 0;
+    const brandNames = brands.map((entry) => String((entry && entry.brand) || '').trim().toLowerCase());
+    const hasBrand = (needle: string): boolean => brandNames.some((name) => name.includes(needle));
 
     if (ua.includes('headlesschrome') || ua.includes('phantomjs')) {
         return { allowed: false, browser: null, reason: 'headless' };
     }
 
     // In-app webviews identify themselves with these tokens. They are
-    // Chromium-based on Android but the automation/consent surface is not the
-    // Chrome browser the auth flow requires.
+    // Chromium-based on Android / WebKit on iOS, but the automation/consent
+    // surface is not a browser the auth flow can rely on.
     if (
         /;\s*wv\)/.test(ua)
         || ua.includes('; wv')
@@ -70,10 +80,36 @@ export function evaluateBrowserGate(input: BrowserGateInput): BrowserGateResult 
         return { allowed: false, browser: null, reason: 'in-app-webview' };
     }
 
-    // iOS browsers are WebKit shells, including "Chrome" (CriOS) and Firefox
-    // (FxiOS); neither is the real Chromium engine.
-    if (/crios\//.test(ua) || /fxios\//.test(ua) || /edgios\//.test(ua)) {
-        return { allowed: false, browser: null, reason: 'ios-chrome' };
+    const android = ua.includes('android');
+    const appleWebKit = ua.includes('applewebkit/');
+    // iOS and iPadOS (desktop-mode iPad reports a Macintosh UA with Mobile/).
+    const iosDevice = /iphone|ipad|ipod/.test(ua)
+        || (ua.includes('macintosh') && ua.includes('mobile/'));
+
+    // iOS browsers are all WebKit. Safari, Chrome (CriOS), Firefox (FxiOS) and
+    // Edge (EdgiOS) are accepted; other shells (Google app, DuckDuckGo, …)
+    // are not the browser the member can trust for the fingerprint flow.
+    if (!android && appleWebKit && iosDevice) {
+        const namedIosBrowser = /crios\/|fxios\/|edgios\//.test(ua);
+        const plainSafari = /version\/[0-9.]+/.test(ua)
+            && ua.includes('safari/')
+            && !/(?:chrome\/|chromium\/|opios|gsa|duckduckgo|mercury|yandex|brave|firefox|samsungbrowser|opr\/)/.test(ua);
+        if (namedIosBrowser || plainSafari) {
+            return { allowed: true, browser: 'safari', reason: 'ok' };
+        }
+        return { allowed: false, browser: null, reason: 'unsupported-webkit' };
+    }
+
+    // Desktop Safari: Version/… followed by Safari/, and none of the
+    // Chromium/Gecko/other-browser tokens. Safari sends no Sec-CH-UA, so this
+    // path does not look at brands at all.
+    if (!android && appleWebKit && !iosDevice) {
+        const desktopSafari = /version\/[0-9.]+/.test(ua)
+            && ua.includes('safari/')
+            && !/(?:chrome\/|chromium\/|opr\/|opera|edg(?:a|e)?\/|firefox|fxios|crios|edgios|samsungbrowser|vivaldi|yabrowser|brave)/.test(ua);
+        if (desktopSafari) {
+            return { allowed: true, browser: 'safari', reason: 'ok' };
+        }
     }
 
     if (/firefox\//.test(ua)) {
@@ -86,7 +122,7 @@ export function evaluateBrowserGate(input: BrowserGateInput): BrowserGateResult 
 
     if (!edgeUa && !chromeUa) {
         if (ua.includes('safari/')) {
-            return { allowed: false, browser: null, reason: 'safari' };
+            return { allowed: false, browser: null, reason: 'unsupported-webkit' };
         }
         return { allowed: false, browser: null, reason: 'unsupported-chromium' };
     }
@@ -95,9 +131,9 @@ export function evaluateBrowserGate(input: BrowserGateInput): BrowserGateResult 
         return { allowed: false, browser: null, reason: 'unsupported-chromium' };
     }
 
-    const edgeBrand = hasBrand(brands, 'microsoft edge');
-    const chromeBrand = hasBrand(brands, 'google chrome');
-    const chromiumBrand = hasBrand(brands, 'chromium');
+    const edgeBrand = hasBrand('microsoft edge');
+    const chromeBrand = hasBrand('google chrome');
+    const chromiumBrand = hasBrand('chromium');
 
     if (brandsPresent && !edgeBrand && !chromeBrand && !chromiumBrand) {
         return { allowed: false, browser: null, reason: 'brand-mismatch' };
@@ -105,8 +141,8 @@ export function evaluateBrowserGate(input: BrowserGateInput): BrowserGateResult 
 
     // A Chromium-based browser that advertises its own brand (Brave, Opera,
     // Vivaldi, Arc, …) is not Google Chrome or Microsoft Edge.
-    const foreignBrand = brands.some((brand) => (
-        !/google chrome|microsoft edge|chromium|^not.*brand$/i.test(brand.brand.trim())
+    const foreignBrand = brandNames.some((name) => (
+        !/google chrome|microsoft edge|chromium|^not.*brand$/.test(name)
     ));
     if (brandsPresent && foreignBrand) {
         return { allowed: false, browser: null, reason: 'unsupported-chromium' };
@@ -130,4 +166,14 @@ export function evaluateBrowserGate(input: BrowserGateInput): BrowserGateResult 
     }
 
     return { allowed: true, browser: 'chrome', reason: 'ok' };
+}
+
+/**
+ * Server entry point: normalizes the posted brands and the `Sec-CH-UA` header,
+ * then applies the shared decision.
+ */
+export function evaluateBrowserGate(input: BrowserGateInput): BrowserGateResult {
+    const postedBrands = normalizeBrands(input?.brands);
+    const hintBrands = parseBrandHeader(input?.clientHint);
+    return evaluateBrowserUserAgent(input?.userAgent, [...postedBrands, ...hintBrands]);
 }

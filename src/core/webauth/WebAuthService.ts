@@ -8,8 +8,16 @@ import { antiCheatManager } from '../anticheat/AntiCheatManager.js';
 import { riskKickLedger } from '../anticheat/RiskKicks.js';
 import { evaluateBrowserGate } from './browserGate.js';
 import {
+    describeDragFailure,
+    DRAG_CHALLENGE_CONFIG,
+    createDragChallenge,
+    evaluateDragChallenge
+} from './challenge.js';
+import {
     hashFingerprint,
+    hashFingerprintSignalComponents,
     hashIp,
+    hashSubnet,
     normalizeFingerprintSignals
 } from './fingerprint.js';
 import { IpIntelClient } from './ipIntel.js';
@@ -24,6 +32,9 @@ import { loadWebAuthKeys, sealPayload, type WebAuthKeys } from './secrets.js';
 import { WebAuthTokenStore } from './tokens.js';
 import type {
     BrowserGateResult,
+    DragChallenge,
+    DragChallengeFailReason,
+    DragTrajectorySample,
     FingerprintSignals,
     IpIntelResult,
     SealedWebAuthPayload,
@@ -45,6 +56,11 @@ export interface WebAuthPageData {
     intel: IpIntelResult | null;
     vpnBlocked: boolean;
     message: string | null;
+    /** Pending drag check, null when already passed or the page is not ready. */
+    challenge: DragChallenge | null;
+    challengePassed: boolean;
+    /** Remaining drag attempts before the token is invalidated. */
+    attemptsLeft: number;
 }
 
 export interface WebAuthSubmitInput {
@@ -66,9 +82,25 @@ export type WebAuthSubmitResult =
     }
     | {
         ok: false;
-        status: 'invalid' | 'expired' | 'in-use' | 'browser' | 'vpn' | 'error';
+        status: 'invalid' | 'expired' | 'in-use' | 'browser' | 'vpn' | 'challenge' | 'error';
         message: string;
         browser?: BrowserGateResult;
+    };
+
+export type WebAuthChallengeStatus = 'failed' | 'invalid' | 'expired' | 'browser' | 'locked';
+
+export type WebAuthChallengeResult =
+    | { ok: true }
+    | {
+        ok: false;
+        status: WebAuthChallengeStatus;
+        message: string;
+        /** Remaining attempts after this failure (not present on locked). */
+        attemptsLeft?: number;
+        /** Replacement challenge for the next attempt. */
+        challenge?: DragChallenge | null;
+        /** Machine reason of the failed validation (no raw samples). */
+        reason?: DragChallengeFailReason | null;
     };
 
 export interface WebAuthRoleGrantResult {
@@ -162,7 +194,10 @@ export class WebAuthService {
                 browser,
                 intel: null,
                 vpnBlocked: false,
-                message: null
+                message: null,
+                challenge: null,
+                challengePassed: false,
+                attemptsLeft: DRAG_CHALLENGE_CONFIG.maxAttempts
             };
         }
 
@@ -179,11 +214,15 @@ export class WebAuthService {
                 browser,
                 intel: null,
                 vpnBlocked: false,
-                message: 'サーバーまたはメンバー情報を取得できませんでした。'
+                message: 'サーバーまたはメンバー情報を取得できませんでした。',
+                challenge: null,
+                challengePassed: token.challengePassed,
+                attemptsLeft: Math.max(0, DRAG_CHALLENGE_CONFIG.maxAttempts - token.challengeAttempts)
             };
         }
 
         const intel = await this.intel.lookup(input.clientIp);
+        const challenge = token.challengePassed ? null : this.issueChallenge(input.token);
         return {
             status: 'ready',
             token: input.token,
@@ -194,7 +233,112 @@ export class WebAuthService {
             browser,
             intel,
             vpnBlocked: intel.verdict === 'blocked',
-            message: null
+            message: null,
+            challenge,
+            challengePassed: token.challengePassed,
+            attemptsLeft: Math.max(0, DRAG_CHALLENGE_CONFIG.maxAttempts - token.challengeAttempts)
+        };
+    }
+
+    /**
+     * Returns the pending drag check for a token, creating one on first use.
+     * A page reload reuses the pending geometry (positions stay stable); a
+     * failed attempt replaces it (see `verifyChallenge`).
+     */
+    issueChallenge(token: string): DragChallenge | null {
+        const lookup = this.tokens.peek(token);
+        if (!lookup.record || lookup.record.challengePassed) return null;
+        if (lookup.record.challenge) return lookup.record.challenge;
+        const challenge = createDragChallenge();
+        this.tokens.setChallenge(token, challenge);
+        return challenge;
+    }
+
+    /**
+     * Validates one posted drag attempt against the stored challenge. Passing
+     * flips the token's `challengePassed` flag (the only thing the submit
+     * endpoint trusts); failing issues a fresh arrangement or, after
+     * `maxAttempts`, burns the token.
+     */
+    async verifyChallenge(input: {
+        token: string;
+        itemId: unknown;
+        drop: { x: number; y: number } | null | undefined;
+        samples: DragTrajectorySample[] | null | undefined;
+        pointerType?: string | null;
+        userAgent: string;
+        clientHint?: string | null;
+    }): Promise<WebAuthChallengeResult> {
+        const browser = evaluateBrowserGate({
+            userAgent: String(input.userAgent || ''),
+            clientHint: input.clientHint || null
+        });
+        if (!browser.allowed) {
+            return {
+                ok: false,
+                status: 'browser',
+                message: 'Chrome・Edge・Safari でのみ認証できます。'
+            };
+        }
+
+        const lookup = this.tokens.peek(input.token);
+        if (!lookup.record) {
+            return {
+                ok: false,
+                status: lookup.status === 'expired' ? 'expired' : 'invalid',
+                message: lookup.status === 'expired'
+                    ? 'この認証リンクは期限切れです。Discordのパネルからもう一度発行してください。'
+                    : 'この認証リンクは無効です。Discordのパネルからもう一度発行してください。'
+            };
+        }
+        if (lookup.record.challengePassed) return { ok: true };
+
+        const challenge = this.issueChallenge(input.token);
+        if (!challenge) {
+            return {
+                ok: false,
+                status: 'invalid',
+                message: 'この認証リンクは無効です。Discordのパネルからもう一度発行してください。'
+            };
+        }
+
+        const verdict = evaluateDragChallenge({
+            challenge,
+            itemId: input.itemId,
+            drop: input.drop ?? null,
+            samples: input.samples ?? null,
+            pointerType: input.pointerType ?? null
+        });
+        if (verdict.ok) {
+            this.tokens.markChallengePassed(input.token);
+            return { ok: true };
+        }
+
+        const failure = this.tokens.registerChallengeFailure(input.token, DRAG_CHALLENGE_CONFIG.maxAttempts);
+        if (!failure) {
+            return {
+                ok: false,
+                status: 'invalid',
+                message: 'この認証リンクは無効です。Discordのパネルからもう一度発行してください。'
+            };
+        }
+        if (failure.locked) {
+            return {
+                ok: false,
+                status: 'locked',
+                message: `試行回数が上限（${DRAG_CHALLENGE_CONFIG.maxAttempts}回）に達しました。認証リンクは無効になりました。Discordのパネルから新しいリンクを発行してください。`
+            };
+        }
+
+        const next = createDragChallenge();
+        this.tokens.setChallenge(input.token, next);
+        return {
+            ok: false,
+            status: 'failed',
+            message: describeDragFailure(verdict.reason),
+            attemptsLeft: Math.max(0, DRAG_CHALLENGE_CONFIG.maxAttempts - failure.attempts),
+            challenge: next,
+            reason: verdict.reason
         };
     }
 
@@ -213,6 +357,17 @@ export class WebAuthService {
         }
         const token = claim.record;
 
+        // The drag check is server-side state. A client flag is never trusted,
+        // so a script that skips the page cannot reach the record/role steps.
+        if (!token.challengePassed) {
+            this.tokens.release(input.token);
+            return {
+                ok: false,
+                status: 'challenge',
+                message: '操作チェック（ドラッグ）が完了していません。ページを再読み込みしてやり直してください。'
+            };
+        }
+
         const browser = evaluateBrowserGate({
             userAgent: String(input.signals?.userAgent || ''),
             brands: input.signals?.uaCh?.brands || null,
@@ -223,7 +378,7 @@ export class WebAuthService {
             return {
                 ok: false,
                 status: 'browser',
-                message: 'Chrome または Edge でのみ認証できます。他のブラウザでは認証できません。',
+                message: 'Chrome・Edge・Safari でのみ認証できます。他のブラウザでは認証できません。',
                 browser
             };
         }
@@ -253,6 +408,8 @@ export class WebAuthService {
             const normalized = normalizeFingerprintSignals(input.signals);
             const ipHash = hashIp(keys.hmacSecret, input.clientIp);
             const fpHash = hashFingerprint(keys.hmacSecret, normalized);
+            const signalHashes = hashFingerprintSignalComponents(keys.hmacSecret, normalized);
+            const subnetHash = hashSubnet(keys.hmacSecret, input.clientIp);
             const createdAt = new Date().toISOString();
             const sealedPayload: SealedWebAuthPayload = {
                 version: 1,
@@ -294,6 +451,9 @@ export class WebAuthService {
                 },
                 ipHash,
                 fpHash,
+                signalHashes,
+                asn: intel.asn ?? null,
+                subnetHash,
                 sealed,
                 presetId: token.presetId,
                 roleGranted,
@@ -321,6 +481,20 @@ export class WebAuthService {
                 // best-effort follow-up and must not burn the token.
                 warnings.push('相関チェックに失敗しました（記録は保存済み）');
                 Logger.warn(`[WebAuth] correlation failed for ${token.userId} in ${token.guildId}: ${String(error)}`);
+            }
+
+            // Alt-account graph propagation: the new record joins the graph and
+            // is auto-flagged when its total edge weight toward bad nodes meets
+            // the threshold. Best effort; the verification already succeeded.
+            try {
+                await antiCheatManager.evaluateAltGraphForUser(
+                    token.guildId,
+                    token.userId,
+                    'webauth',
+                    { webAuthRecords: stored }
+                );
+            } catch (error) {
+                Logger.warn(`[WebAuth] graph evaluation failed for ${token.userId} in ${token.guildId}: ${String(error)}`);
             }
 
             this.tokens.consume(input.token);

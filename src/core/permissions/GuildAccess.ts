@@ -21,11 +21,28 @@ export type GuildAccessSettings = {
 export type GuildAccessSource = {
     id: string;
     ownerId: string;
-    members: { fetch: (userId: string) => Promise<GuildAccessMember> };
+    members: {
+        fetch: (userId: string) => Promise<GuildAccessMember>;
+        /** discord.js member cache. When present it is consulted before `fetch`. */
+        cache?: { get: (userId: string) => GuildAccessMember | undefined };
+    };
 };
 
 function hasPermission(member: GuildAccessMember, flag: bigint): boolean {
     try { return !!member.permissions?.has(flag); } catch { return false; }
+}
+
+/**
+ * Cache-first member lookup: list-style live resolution may touch dozens of
+ * guilds, so never spend a gateway request when the member is already cached.
+ */
+async function fetchGuildMember(
+    guild: GuildAccessSource,
+    userId: string,
+): Promise<GuildAccessMember | null> {
+    const cached = guild.members?.cache?.get?.(userId);
+    if (cached) return cached;
+    return guild.members.fetch(userId).catch(() => null);
 }
 
 /**
@@ -77,7 +94,7 @@ export async function resolveGuildPermissionLevel(
     userId: string,
 ): Promise<PermissionLevel> {
     if (!guild || !userId) return PermissionLevel.ANY;
-    const member = await guild.members.fetch(userId).catch(() => null);
+    const member = await fetchGuildMember(guild, userId);
     if (!member) return PermissionLevel.ANY; // fail closed on missing membership
     const settings = await database.get<GuildAccessSettings | null>(
         guild.id, 'Guild/' + guild.id + '/settings', null,
@@ -90,7 +107,7 @@ export async function resolveGuildDelegatedLevel(
     userId: string,
 ): Promise<PermissionLevel> {
     if (!guild || !userId) return PermissionLevel.ANY;
-    const member = await guild.members.fetch(userId).catch(() => null);
+    const member = await fetchGuildMember(guild, userId);
     if (!member) return PermissionLevel.ANY;
     const settings = await database.get<GuildAccessSettings | null>(
         guild.id, 'Guild/' + guild.id + '/settings', null,
@@ -106,7 +123,7 @@ export async function canExecuteStaffAction(
 ): Promise<boolean> {
     if (!guild || !userId) return false;
     if ((await resolveGuildDelegatedLevel(guild, userId)) >= PermissionLevel.STAFF) return true;
-    const member = await guild.members.fetch(userId).catch(() => null);
+    const member = await fetchGuildMember(guild, userId);
     return !!member && member.id === userId && hasPermission(member, requiredNativeFlag);
 }
 
