@@ -103,6 +103,15 @@ export function evaluateBrowserGate(input: BrowserGateInput): BrowserGateResult 
         return { allowed: false, browser: null, reason: 'brand-mismatch' };
     }
 
+    // A Chromium-based browser that advertises its own brand (Brave, Opera,
+    // Vivaldi, Arc, …) is not Google Chrome or Microsoft Edge.
+    const foreignBrand = brands.some((brand) => (
+        !/google chrome|microsoft edge|chromium|^not.*brand$/i.test(brand.brand.trim())
+    ));
+    if (brandsPresent && foreignBrand) {
+        return { allowed: false, browser: null, reason: 'unsupported-chromium' };
+    }
+
     // UA-CH is more specific than the UA for Chromium-family detection.
     if (edgeUa) {
         if (brandsPresent && !edgeBrand) {

@@ -57,6 +57,15 @@ test('in-app webviews and other Chromium browsers are rejected', () => {
     assert.equal(evaluateBrowserGate({ userAgent: opera }).reason, 'unsupported-chromium');
     const samsung = 'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) SamsungBrowser/25.0 Chrome/131.0.0.0 Mobile Safari/537.36';
     assert.equal(evaluateBrowserGate({ userAgent: samsung }).reason, 'unsupported-chromium');
+    // Brave keeps the Chrome UA but advertises its own brand.
+    assert.equal(evaluateBrowserGate({
+        userAgent: CHROME_UA,
+        brands: [
+            { brand: 'Brave', version: '131' },
+            { brand: 'Chromium', version: '131' },
+            { brand: 'Not_A Brand', version: '24' }
+        ]
+    }).reason, 'unsupported-chromium');
 });
 
 test('headless and missing UA are rejected', () => {
