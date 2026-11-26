@@ -7,6 +7,7 @@ import {
   useAntiCheatSettings,
   useDetectionLogs,
   useUserTrust,
+  useWatchUsers,
 } from "./hooks";
 import SettingsWorkspace from "./components/SettingsWorkspace";
 import {
@@ -23,6 +24,7 @@ import type {
   PunishmentAction,
   PunishmentThreshold,
   UserTrustDataWithUser,
+  WatchUserEntryView,
   WordFilterRule,
 } from "./types";
 import type { AntiCheatViewProps } from "./viewTypes";
@@ -59,6 +61,13 @@ export default function AntiCheatPage() {
     error: timeoutsError,
     refetch: refetchTimeouts,
   } = useActiveTimeouts(guildId);
+  const {
+    watchUsers,
+    loading: watchLoading,
+    error: watchError,
+    refetch: refetchWatch,
+    dismiss: dismissWatch,
+  } = useWatchUsers(guildId);
   const {
     revokeTimeout,
     resetTrust,
@@ -325,6 +334,16 @@ export default function AntiCheatPage() {
     }
   };
 
+  const onDismissWatch = async (entry: WatchUserEntryView) => {
+    if (
+      !window.confirm(
+        `${entry.displayName || entry.username}の警戒ユーザー登録を解除しますか？\n名前が変わらない限り再登録されません。`,
+      )
+    )
+      return;
+    await dismissWatch(entry.userId);
+  };
+
   const onRevokeLogTimeout = async (log: DetectionLog) => {
     if (!window.confirm("このタイムアウトを解除しますか？")) return;
     if (await revokeTimeout(log.userId, false, log.messageId)) {
@@ -389,12 +408,15 @@ export default function AntiCheatPage() {
     logs,
     trustEntries,
     activeTimeouts,
+    watchUsers,
     logsLoading,
     trustLoading,
     timeoutsLoading,
+    watchLoading,
     logsError,
     trustError,
     timeoutsError,
+    watchError,
     actionError: error || actionError,
     saveNotice,
     excludedRolesText,
@@ -418,6 +440,12 @@ export default function AntiCheatPage() {
     },
     onRefreshTimeouts: () => {
       void refetchTimeouts();
+    },
+    onRefreshWatch: () => {
+      void refetchWatch();
+    },
+    onDismissWatch: (entry) => {
+      void onDismissWatch(entry);
     },
     onRevokeLogTimeout: (log) => {
       void onRevokeLogTimeout(log);

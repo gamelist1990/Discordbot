@@ -60,6 +60,24 @@ import {
     type RaidJoinRecord,
     type RaidKickReport
 } from './RaidEnforcement.js';
+import {
+    WATCH_JOIN_WINDOW_MS,
+    WATCH_KICK_REASON,
+    WATCH_SIGNAL_LABELS,
+    formatWatchSignals,
+    isWatchBurst,
+    matchWatchSignals,
+    normalizeWatchName,
+    normalizeWatchUserEntries,
+    pruneWatchDangerPoints,
+    readWatchJoinRecords,
+    readWatchSettings,
+    selectWatchPeers,
+    watchDangerPointTotal,
+    type WatchJoinRecord,
+    type WatchPeerCandidate
+} from './WatchUsers.js';
+import type { WatchDangerPoint, WatchSettings, WatchSource, WatchUserEntry } from './types.js';
 
 type Detection = { detector: string; result: DetectionResult };
 type MessageWork = { revision: string; timestamp: number; task: Promise<boolean>; current: boolean };
@@ -87,6 +105,11 @@ export class AntiCheatManager {
     // Transient moderation failures must re-run the entire message handling path.
     // A cached verdict alone would never apply the original moderation action.
     private contentRetries = new Map<string, { attempts: number; timer?: ReturnType<typeof setTimeout> }>();
+    // 警戒ユーザー: lazy re-checks are throttled per member so ordinary chat
+    // does not rescan the 24 h join set on every message.
+    private watchChecks = new Map<string, number>();
+    // One danger-kick pipeline per user; later detections ride on it.
+    private watchDangerTasks = new Map<string, Promise<void>>();
 
     private settingsCache: Map<string, GuildAntiCheatSettings> = new Map();
     private settingsLoads: Map<string, Promise<GuildAntiCheatSettings>> = new Map();
@@ -242,10 +265,15 @@ export class AntiCheatManager {
                 ...normalizedBase.raidMode,
                 ...(updates.raidMode || {})
             },
+            watch: {
+                ...normalizedBase.watch,
+                ...(updates.watch || {})
+            },
             punishments: updates.punishments !== undefined ? updates.punishments : normalizedBase.punishments,
             excludedRoles: updates.excludedRoles !== undefined ? updates.excludedRoles : normalizedBase.excludedRoles,
             excludedChannels: updates.excludedChannels !== undefined ? updates.excludedChannels : normalizedBase.excludedChannels,
             userTrust: updates.userTrust !== undefined ? updates.userTrust : normalizedBase.userTrust,
+            watchUsers: updates.watchUsers !== undefined ? updates.watchUsers : normalizedBase.watchUsers,
             recentLogs: updates.recentLogs !== undefined ? updates.recentLogs : normalizedBase.recentLogs
         });
     }
@@ -281,7 +309,7 @@ export class AntiCheatManager {
     private async processIncomingMessage(message: Message, work: MessageWork, contentOnly: boolean): Promise<boolean> {
         const { revision, timestamp: receivedAt } = work;
         const guildId = message.guild!.id;
-        const settings = await this.getSettings(guildId);
+        let settings = await this.getSettings(guildId);
         const forgetSkipped = () => {
             if (this.messageVersions.get(message.id)?.revision === revision) this.messageVersions.delete(message.id);
         };
@@ -301,6 +329,19 @@ export class AntiCheatManager {
                 forgetSkipped();
                 return false;
             }
+        }
+
+        // Lazy 警戒ユーザー evaluation covers members that existed before the
+        // feature was enabled. Throttled per member, and it never blocks on the
+        // flag log embed (that is detached inside evaluateWatchMember). Watch
+        // evaluation must never break message processing.
+        if (settings.watch.enabled) {
+            try {
+                await this.evaluateWatchOnMessage(message, settings);
+            } catch (error) {
+                Logger.debug(`[WatchUsers] lazy evaluation skipped for ${message.id}: ${String(error)}`);
+            }
+            settings = this.settingsCache.get(guildId) || settings;
         }
 
         if (![...this.detectors.keys()].some(name => (!contentOnly || name === 'contentSafety')
@@ -348,6 +389,15 @@ export class AntiCheatManager {
         }
         // Excluded-role members are never counted, kicked or reported.
         if (settings.excludedRoles.some(id => member.roles.cache.has(id))) return;
+
+        // 警戒ユーザー tier runs before (and independently of) raid detection.
+        const joinedAt = Date.now();
+        if (settings.watch.enabled && !member.user.bot) {
+            this.recordWatchJoin(guild.id, member, joinedAt);
+            await this.evaluateWatchMember(member, settings, 'join', joinedAt).catch((error) => {
+                Logger.warn(`[WatchUsers] evaluation failed for ${member.id} in ${guild.id}: ${String(error)}`);
+            });
+        }
 
         const detectorConfig = settings.detectors.raidDetection;
         if (!detectorConfig?.enabled) {
@@ -616,13 +666,463 @@ export class AntiCheatManager {
         await logChannel.send({ embeds: [embed], allowedMentions: { parse: [] } }).catch(() => null);
     }
 
-    async onGuildMemberUpdate(oldMember: GuildMember, newMember: GuildMember): Promise<void> {
-        if (oldMember.avatar === newMember.avatar) {
+    // ---------------------------------------------------------------------
+    // 警戒ユーザー (watch tier)
+    // ---------------------------------------------------------------------
+
+    /** Watch entries that staff have not dismissed. */
+    private activeWatchEntry(settings: GuildAntiCheatSettings, userId: string): WatchUserEntry | null {
+        if (!settings.watch?.enabled) return null;
+        const entry = settings.watchUsers?.[userId];
+        if (!entry || entry.dismissed) return null;
+        return entry;
+    }
+
+    private watchJoinCacheKey(guildId: string): string {
+        return `anticheat:watch-joins:${guildId}`;
+    }
+
+    private readWatchJoins(guildId: string, now: number): WatchJoinRecord[] {
+        return readWatchJoinRecords(CacheManager.get(this.watchJoinCacheKey(guildId)), now);
+    }
+
+    /** Join cache entry: name + custom-avatar hash are needed for correlation. */
+    private recordWatchJoin(guildId: string, member: GuildMember, now: number): void {
+        // Bounded: a very large raid must not grow this list without limit.
+        const records = this.readWatchJoins(guildId, now)
+            .filter((record) => record.userId !== member.id)
+            .slice(-2000);
+        const displayName = member.displayName || member.user?.username || member.id;
+        records.push({
+            userId: member.id,
+            ts: now,
+            displayName,
+            normalizedName: normalizeWatchName(displayName) || normalizeWatchName(member.user?.username),
+            avatarHash: member.user?.avatar || null,
+            accountCreatedAt: Number(member.user?.createdTimestamp) || 0
+        });
+        CacheManager.set(this.watchJoinCacheKey(guildId), records, WATCH_JOIN_WINDOW_MS);
+    }
+
+    /**
+     * Comparison set for batch-creation / shared-avatar / similar-name:
+     * joins and watch entries from the last 24 h. Clean joiners only qualify
+     * while a join burst is in progress (see selectWatchPeers).
+     */
+    private buildWatchPeers(
+        settings: GuildAntiCheatSettings,
+        guildId: string,
+        excludeUserId: string,
+        now: number
+    ): ReturnType<typeof selectWatchPeers> {
+        const joins = this.readWatchJoins(guildId, now);
+        const burstActive = isWatchBurst(joins, now);
+        const candidates = new Map<string, WatchPeerCandidate>();
+
+        for (const join of joins) {
+            if (join.userId === excludeUserId) continue;
+            candidates.set(join.userId, {
+                userId: join.userId,
+                normalizedName: join.normalizedName || normalizeWatchName(join.displayName),
+                avatarHash: join.avatarHash ?? null,
+                accountCreatedAt: join.accountCreatedAt || 0,
+                joinedAt: join.ts,
+                flagged: false
+            });
+        }
+
+        for (const [userId, entry] of Object.entries(settings.watchUsers || {})) {
+            if (userId === excludeUserId || entry.dismissed) continue;
+            const since = Date.parse(entry.since || '');
+            if (!Number.isFinite(since) || now - since > WATCH_JOIN_WINDOW_MS) continue;
+            const createdAt = Date.parse(entry.accountCreatedAt || '');
+            const existing = candidates.get(userId);
+            candidates.set(userId, {
+                userId,
+                normalizedName: entry.normalizedName || existing?.normalizedName || '',
+                avatarHash: entry.avatarHash ?? existing?.avatarHash ?? null,
+                accountCreatedAt: Number.isFinite(createdAt) ? createdAt : (existing?.accountCreatedAt || 0),
+                joinedAt: existing?.joinedAt,
+                flagged: true
+            });
+        }
+
+        return selectWatchPeers([...candidates.values()], burstActive);
+    }
+
+    /** Lazy check from a member's first processed message (throttled). */
+    private async evaluateWatchOnMessage(message: Message, settings: GuildAntiCheatSettings): Promise<void> {
+        const guild = message.guild;
+        const userId = message.author.id;
+        if (!guild || message.author.bot) return;
+
+        const now = Date.now();
+        const key = `${guild.id}:${userId}`;
+        const existing = settings.watchUsers?.[userId];
+        if (!existing) {
+            const last = this.watchChecks.get(key) || 0;
+            if (now - last < 10 * 60_000) return;
+            if (this.watchChecks.size >= 10_000) this.watchChecks.clear();
+            this.watchChecks.set(key, now);
+        }
+
+        const member = message.member
+            || (typeof (guild.members as any)?.fetch === 'function'
+                ? await guild.members.fetch(userId).catch(() => null)
+                : null);
+        if (!member) return;
+        await this.evaluateWatchMember(member, this.settingsCache.get(guild.id) || settings, 'message', now);
+    }
+
+    /**
+     * Classifies a member against the watch signals. Flags, refreshes, or
+     * removes the entry, and notifies the log channel when notifyOnFlag is on.
+     */
+    private async evaluateWatchMember(
+        member: GuildMember,
+        settings: GuildAntiCheatSettings,
+        source: WatchSource,
+        now: number = Date.now()
+    ): Promise<void> {
+        const guild = member.guild;
+        if (!guild) return;
+        if (!settings.enabled || !settings.watch.enabled) return;
+        // Never flag: bots, owner, Administrator/ManageGuild, excluded roles.
+        if (member.user?.bot) return;
+        if (settings.excludedRoles.some((roleId) => member.roles?.cache?.has(roleId))) return;
+        if (member.permissions?.has(PermissionFlagsBits.Administrator)
+            || member.permissions?.has(PermissionFlagsBits.ManageGuild)) return;
+        const ownerId = guild.ownerId
+            || await guild.fetchOwner().then((owner) => owner.id).catch(() => null);
+        if (ownerId && member.id === ownerId) return;
+
+        const config = readWatchSettings(settings.watch, DEFAULT_ANTICHEAT_SETTINGS.watch);
+        const username = member.user?.username || '';
+        const displayName = (member.displayName || member.user?.globalName || username || member.id).trim();
+        const accountCreatedAt = Number(member.user?.createdTimestamp) || 0;
+        const avatarHash = member.user?.avatar || null;
+        const peers = this.buildWatchPeers(settings, guild.id, member.id, now);
+        const signals = matchWatchSignals({
+            userId: member.id,
+            username,
+            displayName,
+            accountCreatedAt,
+            avatarHash,
+            now,
+            newAccountDays: config.newAccountDays,
+            peers
+        });
+
+        const latest = this.settingsCache.get(guild.id) || settings;
+        const existing = latest.watchUsers?.[member.id] || null;
+
+        // Nothing matches any more: the auto entry ages out, like the name
+        // signals. Dismissed tombstones are dropped as well once clean.
+        if (!signals.length) {
+            if (existing) {
+                delete latest.watchUsers[member.id];
+                await this.setSettings(guild.id, latest);
+            }
+            this.watchChecks.delete(`${guild.id}:${member.id}`);
             return;
         }
 
+        // Staff dismissal holds while the name snapshot is unchanged.
+        if (existing?.dismissed && existing.dismissed === displayName) return;
+
+        const previouslyFlagged = !!existing && !existing.dismissed;
+        const nextEntry: WatchUserEntry = {
+            reason: formatWatchSignals(signals),
+            signals,
+            since: previouslyFlagged ? existing!.since : new Date(now).toISOString(),
+            source: previouslyFlagged ? existing!.source : source,
+            nameSnapshot: displayName,
+            accountCreatedAt: accountCreatedAt ? new Date(accountCreatedAt).toISOString() : null,
+            avatarHash,
+            normalizedName: normalizeWatchName(displayName) || normalizeWatchName(username),
+            dismissed: null,
+            dangerPoints: pruneWatchDangerPoints(existing?.dangerPoints, now),
+            lastDangerAt: existing?.lastDangerAt ?? null
+        };
+
+        const changed = !previouslyFlagged || JSON.stringify(existing) !== JSON.stringify(nextEntry);
+        latest.watchUsers[member.id] = nextEntry;
+        if (changed) {
+            await this.setSettings(guild.id, latest);
+        }
+        if (!previouslyFlagged && config.notifyOnFlag) {
+            await this.sendWatchFlagLog(guild, latest, member, nextEntry);
+        }
+        Logger.info(`[WatchUsers] flagged ${member.id} in ${guild.id}: ${nextEntry.reason}`);
+    }
+
+    private async sendWatchFlagLog(
+        guild: Guild,
+        settings: GuildAntiCheatSettings,
+        member: GuildMember,
+        entry: WatchUserEntry
+    ): Promise<void> {
+        const logChannel = await this.fetchLogChannel(guild, settings.logChannelId);
+        if (!logChannel) return;
+
+        const created = entry.accountCreatedAt ? new Date(entry.accountCreatedAt) : null;
+        const ageDays = created ? Math.floor((Date.now() - created.getTime()) / (24 * 60 * 60 * 1000)) : null;
+        const signalLines = entry.signals
+            .map((signal) => `• ${WATCH_SIGNAL_LABELS[signal as keyof typeof WATCH_SIGNAL_LABELS] || signal} (${signal})`)
+            .join('\n');
+
+        const embed = new EmbedBuilder()
+            .setTitle('🚨 警戒ユーザーを検出')
+            .setColor(Colors.Orange)
+            .setTimestamp()
+            .setDescription('捨てアカウント／一斉作成アカウントの特徴に一致したため、警戒ユーザーとして監視します。')
+            .addFields(
+                { name: 'ユーザー', value: `${member.user?.tag || member.id}\n${member.id}`, inline: true },
+                { name: '表示名 / ユーザー名', value: `${entry.nameSnapshot} / ${member.user?.username || '不明'}`.slice(0, 1024), inline: true },
+                { name: 'シグナル', value: (signalLines || entry.reason).slice(0, 1024), inline: false },
+                {
+                    name: 'アカウント作成日',
+                    value: created
+                        ? `${created.toISOString()}${ageDays !== null ? `（${ageDays}日前）` : ''}`
+                        : '不明',
+                    inline: true
+                },
+                { name: '評価の由来', value: entry.source, inline: true }
+            );
+
+        await logChannel.send({ embeds: [embed], allowedMentions: { parse: [] } }).catch(() => null);
+    }
+
+    /**
+     * Folds applied detection points into the watch entry's rolling 24 h
+     * counter. Returns true when the danger-kick pipeline was started (the
+     * caller then skips the normal autoTimeout, which the pipeline owns).
+     */
+    private recordWatchDangerPoints(
+        guild: Guild,
+        settings: GuildAntiCheatSettings,
+        userId: string,
+        points: number,
+        detections: Detection[],
+        messageId?: string
+    ): boolean {
+        const current = this.settingsCache.get(guild.id) || settings;
+        const entry = this.activeWatchEntry(current, userId);
+        if (!entry) return false;
+
+        const config = readWatchSettings(current.watch, DEFAULT_ANTICHEAT_SETTINGS.watch);
+        const now = Date.now();
+        const pruned = pruneWatchDangerPoints(entry.dangerPoints, now);
+        pruned.push({
+            ts: now,
+            points,
+            detector: detections.map(({ detector }) => detector).join(','),
+            reason: detections
+                .flatMap(({ detector, result }) => result.reasons.length ? result.reasons : [detector])
+                .join('; ')
+                .slice(0, 300)
+        });
+        current.watchUsers[userId] = { ...current.watchUsers[userId], dangerPoints: pruned };
+
+        const total = watchDangerPointTotal(pruned);
+        if (total < config.kickThresholdPoints) {
+            this.runDetached(this.setSettings(guild.id, current), `watch-points:${guild.id}:${userId}`);
+            return false;
+        }
+
+        const key = `${guild.id}:${userId}`;
+        if (this.watchDangerTasks.has(key)) return true;
+        const snapshotEntry = { ...current.watchUsers[userId], dangerPoints: [...pruned] };
+        const task = this.executeWatchDanger(guild, current, userId, snapshotEntry, config, total, messageId)
+            .catch((error) => {
+                Logger.error(`[WatchUsers] danger handling failed for ${userId} in ${guild.id}:`, error);
+            })
+            .finally(() => this.watchDangerTasks.delete(key));
+        this.watchDangerTasks.set(key, task);
+        return true;
+    }
+
+    /**
+     * Danger rule: purge messages, then kick (unless disabled/protected), then
+     * one log embed. A skipped kick falls back to the normal punishment path.
+     */
+    private async executeWatchDanger(
+        guild: Guild,
+        settings: GuildAntiCheatSettings,
+        userId: string,
+        entry: WatchUserEntry,
+        config: WatchSettings,
+        total: number,
+        messageId?: string
+    ): Promise<void> {
+        const latest = this.settingsCache.get(guild.id) || settings;
+        // Staff dismissal / removal cancels the escalation.
+        if (!latest.watchUsers?.[userId] || latest.watchUsers[userId].dismissed) return;
+
+        const member = guild.members.cache?.get(userId)
+            || await guild.members.fetch(userId).catch(() => null);
+        const tag = member?.user?.tag || member?.user?.username || userId;
+
+        // 1. Purge the user's recent messages (runs even when the kick is skipped).
+        let purged = 0;
+        let purgeError: string | undefined;
+        try {
+            purged = await this.deleteRecentMessages(guild, userId, config.purgeWindowHours * 3600);
+        } catch (error) {
+            purgeError = error instanceof Error ? error.message : String(error);
+            Logger.warn(`[WatchUsers] purge failed for ${userId} in ${guild.id}: ${purgeError}`);
+        }
+
+        // 2. Kick unless gated off or protected.
+        let kicked = false;
+        let skipReason: string | null = null;
+        if (!config.autoKickOnDanger) {
+            skipReason = '自動キックが無効（watch.autoKickOnDanger）';
+        } else if (!member) {
+            skipReason = 'メンバーを取得できない（退出済み）';
+        } else {
+            const ownerId = guild.ownerId
+                || await guild.fetchOwner().then((owner) => owner.id).catch(() => null);
+            skipReason = raidKickSkipReason(member, ownerId, latest.excludedRoles);
+            if (!skipReason) {
+                try {
+                    await member.kick(WATCH_KICK_REASON);
+                    kicked = true;
+                } catch (error: any) {
+                    // Already gone by the time the pipeline ran: treat as kicked.
+                    if (error?.code === 10007 || error?.code === 10013) kicked = true;
+                    else skipReason = `キック失敗: ${error instanceof Error ? error.message : String(error)}`;
+                }
+            }
+        }
+
+        // 3. State: a successful kick removes the entry; a skip restarts the
+        // counter so the next threshold window can act again.
+        const after = this.settingsCache.get(guild.id) || latest;
+        if (kicked) {
+            delete after.watchUsers[userId];
+            delete after.userTrust[userId];
+            after.recentLogs = after.recentLogs.filter((log) => log.userId !== userId);
+        } else if (after.watchUsers?.[userId]) {
+            after.watchUsers[userId] = {
+                ...after.watchUsers[userId],
+                dangerPoints: [],
+                lastDangerAt: new Date().toISOString()
+            };
+        }
+        if (!kicked) {
+            const autoApplied = after.autoTimeout.enabled
+                ? await this.executeAutoTimeout(guild, userId, after, messageId).catch(() => false)
+                : false;
+            await this.setSettings(guild.id, after);
+            await this.sendWatchDangerLog(guild, after, {
+                userId, tag, entry, points: entry.dangerPoints || [], total, config,
+                purged, purgeError, kicked, skipReason, autoApplied
+            });
+            return;
+        }
+
+        await this.setSettings(guild.id, after);
+        await this.sendWatchDangerLog(guild, after, {
+            userId, tag, entry, points: entry.dangerPoints || [], total, config,
+            purged, purgeError, kicked, skipReason: null, autoApplied: false
+        });
+    }
+
+    private async sendWatchDangerLog(
+        guild: Guild,
+        settings: GuildAntiCheatSettings,
+        report: {
+            userId: string;
+            tag: string;
+            entry: WatchUserEntry;
+            points: WatchDangerPoint[];
+            total: number;
+            config: WatchSettings;
+            purged: number;
+            purgeError?: string;
+            kicked: boolean;
+            skipReason: string | null;
+            autoApplied: boolean;
+        }
+    ): Promise<void> {
+        const logChannel = await this.fetchLogChannel(guild, settings.logChannelId);
+        if (!logChannel) return;
+
+        const pointLines = report.points
+            .slice(-8)
+            .map((point) => `• ${point.points}点 ${point.detector || '検知'}: ${point.reason || '詳細なし'}`)
+            .join('\n');
+        const created = report.entry.accountCreatedAt ? new Date(report.entry.accountCreatedAt) : null;
+        const resultLine = report.kicked
+            ? `キックしました（${WATCH_KICK_REASON}）`
+            : `キックをスキップ: ${report.skipReason || '理由不明'}${report.autoApplied ? '\n通常の自動タイムアウトを適用しました。' : ''}`;
+
+        const embed = new EmbedBuilder()
+            .setTitle(report.kicked ? '🚨 警戒ユーザーを危険判定によりキック' : '🚨 警戒ユーザーの危険判定（キックなし）')
+            .setColor(report.kicked ? Colors.Red : Colors.Orange)
+            .setTimestamp()
+            .setDescription(`${report.purged} 件のメッセージを削除しました（${report.config.purgeWindowHours}時間以内）。`)
+            .addFields(
+                { name: 'ユーザー', value: `${report.tag}\n${report.userId}`, inline: true },
+                { name: '警戒理由', value: report.entry.reason.slice(0, 1024), inline: false },
+                { name: `蓄積ポイント（24時間）`, value: `${report.total} / ${report.config.kickThresholdPoints}`, inline: true },
+                { name: 'アカウント作成日', value: created ? created.toISOString() : '不明', inline: true },
+                { name: 'メッセージ削除', value: `${report.purged} 件${report.purgeError ? `（一部失敗: ${report.purgeError}）` : ''}`, inline: false },
+                { name: 'トリガー検知', value: (pointLines || '記録なし').slice(0, 1024), inline: false },
+                { name: '結果', value: resultLine.slice(0, 1024), inline: false }
+            );
+
+        await logChannel.send({ embeds: [embed], allowedMentions: { parse: [] } }).catch(() => null);
+    }
+
+    /** Entries for the Staff 警戒ユーザー section (dismissed ones excluded). */
+    async getWatchUsers(guildId: string): Promise<Array<WatchUserEntry & { userId: string; dangerPoints24h: number }>> {
+        const settings = await this.getSettings(guildId);
+        const now = Date.now();
+        return Object.entries(settings.watchUsers || {})
+            .filter(([, entry]) => !entry.dismissed)
+            .map(([userId, entry]) => {
+                const dangerPoints = pruneWatchDangerPoints(entry.dangerPoints, now);
+                return {
+                    userId,
+                    ...entry,
+                    dangerPoints,
+                    dangerPoints24h: watchDangerPointTotal(dangerPoints)
+                };
+            })
+            .sort((left, right) => new Date(right.since).getTime() - new Date(left.since).getTime());
+    }
+
+    /** Staff dismissal: the current name snapshot is not re-flagged. */
+    async dismissWatchUser(guildId: string, userId: string, nameSnapshot?: string): Promise<boolean> {
+        const settings = await this.getSettings(guildId);
+        if (!settings.watchUsers?.[userId]) return false;
+        const latest = this.settingsCache.get(guildId) || settings;
+        latest.watchUsers[userId] = {
+            ...latest.watchUsers[userId],
+            dismissed: nameSnapshot || latest.watchUsers[userId].nameSnapshot
+        };
+        await this.setSettings(guildId, latest);
+        Logger.info(`[WatchUsers] dismissed ${userId} in ${guildId}`);
+        return true;
+    }
+
+    async onGuildMemberUpdate(oldMember: GuildMember, newMember: GuildMember): Promise<void> {
+        // Nickname / display-name changes are a 警戒ユーザー re-evaluation point:
+        // an auto flag is removed once none of the signals match any more, and a
+        // dismissed flag re-applies when the name changes and still matches.
+        const nameChanged = oldMember.displayName !== newMember.displayName
+            || oldMember.user?.username !== newMember.user?.username;
+        const avatarChanged = oldMember.avatar !== newMember.avatar;
         const settings = await this.getSettings(newMember.guild.id);
-        if (!settings.avatarLogChannelId) {
+        if ((nameChanged || avatarChanged) && settings.enabled && settings.watch.enabled && !newMember.user?.bot) {
+            await this.evaluateWatchMember(newMember, settings, 'member-update').catch((error) => {
+                Logger.warn(`[WatchUsers] re-evaluation failed for ${newMember.id}: ${String(error)}`);
+            });
+        }
+
+        if (!avatarChanged || !settings.avatarLogChannelId) {
             return;
         }
 
@@ -755,11 +1255,13 @@ export class AntiCheatManager {
             lastUpdated: new Date().toISOString(),
             history: []
         };
+        // 警戒ユーザー never get trust-based leniency in detector context.
+        const watched = this.activeWatchEntry(settings, userId);
         const context = {
             guildId,
             userId,
             channelId: message.channel.id,
-            userTrustScore: currentTrust.score,
+            userTrustScore: watched ? 0 : currentTrust.score,
             settings,
             receivedAt,
             isMessageDeleted: () => !isCurrent()
@@ -895,14 +1397,17 @@ export class AntiCheatManager {
         const detectionLatencyMs = Date.now() - detectionStartedAt;
         // Other detections can commit while this message's DELETE is pending.
         settings = this.settingsCache.get(guildId) || settings;
+        const watchEntry = this.activeWatchEntry(settings, userId);
+        const watchMarker = watchEntry ? `【🚨警戒ユーザー】${watchEntry.reason}` : null;
 
         for (const { detector, result } of detectionResults) {
+            const reason = [...result.reasons, ...(result.aiExplanation ? [`AI理由：${result.aiExplanation}`] : [])].join('; ') || '検知';
             this.appendLog(settings, {
                 userId,
                 messageId: message.id,
                 detector,
                 scoreDelta: result.scoreDelta,
-                reason: [...result.reasons, ...(result.aiExplanation ? [`AI理由：${result.aiExplanation}`] : [])].join('; ') || '検知',
+                reason: watchMarker ? `${watchMarker} / ${reason}` : reason,
                 timestamp: detectedAt,
                 status: 'active',
                 metadata: {
@@ -915,6 +1420,7 @@ export class AntiCheatManager {
                     ...(contentDeletion ? { contentDeleted, contentDeleteError } : {}),
                     ...(repost ? { replacementId, replacementError } : {}),
                     detectionLatencyMs,
+                    ...(watchEntry ? { watchUser: true, watchReason: watchEntry.reason, watchSignals: watchEntry.signals } : {}),
                     ...(result.metadata || {})
                 }
             });
@@ -924,6 +1430,12 @@ export class AntiCheatManager {
                 this.runDetached(noticeTask, `public-notice:${guildId}:${message.id}:${detector}`);
             }
         }
+
+        // Rolling watch counter uses the APPLIED points (same total as the
+        // trust adjustment below) and can escalate to the danger kick.
+        const watchDanger = totalScoreDelta > 0 && watchEntry
+            ? this.recordWatchDangerPoints(message.guild!, settings, userId, totalScoreDelta, detectionResults, message.id)
+            : false;
 
         if (totalScoreDelta > 0) {
             const trustTask = this.applyTrustAdjustment(
@@ -935,7 +1447,8 @@ export class AntiCheatManager {
                     .flatMap(({ detector, result }) => result.reasons.length ? result.reasons : [detector])
                     .join('; ')
             );
-            if (settings.autoTimeout.enabled) {
+            // On a danger event the kick pipeline owns the fallback punishment.
+            if (settings.autoTimeout.enabled && !watchDanger) {
                 const key = `${guildId}:${userId}`;
                 if (!this.timeoutTasks.has(key)) {
                     const task = this.executeAutoTimeout(message.guild!, userId, settings, message.id)
@@ -1001,6 +1514,14 @@ export class AntiCheatManager {
             );
 
         const explanation = detections.find(({ detector, result }) => detector === 'contentSafety' && result.aiExplanation)?.result.aiExplanation;
+        const watchEntry = this.activeWatchEntry(settings, message.author.id);
+        if (watchEntry) {
+            embed.addFields({
+                name: '🚨警戒ユーザー',
+                value: `${watchEntry.reason}\n登録: ${new Date(watchEntry.since).toISOString()} / 由来: ${watchEntry.source}`.slice(0, 1024),
+                inline: false
+            });
+        }
         if (explanation) embed.addFields({ name: 'AIの判定理由（参考）', value: displayContentExplanation(explanation).slice(0, 1024) });
         if (message.content) {
             embed.addFields({
@@ -1295,7 +1816,10 @@ export class AntiCheatManager {
         };
 
         const previousScore = currentTrust.score || 0;
-        const nextScore = Math.max(0, previousScore + delta);
+        // 警戒ユーザー gain no positive trust; penalties still apply.
+        const watched = this.activeWatchEntry(settings, userId);
+        const appliedDelta = watched ? Math.min(0, delta) : delta;
+        const nextScore = Math.max(0, previousScore + appliedDelta);
 
         settings.userTrust[userId] = {
             score: nextScore,
@@ -1303,8 +1827,8 @@ export class AntiCheatManager {
             history: [
                 ...currentTrust.history,
                 {
-                    delta,
-                    reason,
+                    delta: appliedDelta,
+                    reason: watched && delta > 0 ? `${reason}（警戒ユーザーのため加点停止）` : reason,
                     timestamp: new Date().toISOString()
                 }
             ].slice(-50)
@@ -1483,7 +2007,9 @@ export class AntiCheatManager {
                 ...DEFAULT_ANTICHEAT_SETTINGS.raidMode,
                 ...(settings?.raidMode || {})
             },
+            watch: readWatchSettings(settings?.watch, DEFAULT_ANTICHEAT_SETTINGS.watch),
             userTrust: settings?.userTrust || {},
+            watchUsers: normalizeWatchUserEntries(settings?.watchUsers),
             recentLogs: Array.isArray(settings?.recentLogs) ? settings.recentLogs.slice(-this.MAX_LOGS) : []
         };
 

@@ -11,8 +11,10 @@ import { validateExclusions } from '../../../core/anticheat/ExclusionPolicy.js';
 /** Runtime state is exposed by dedicated endpoints and must not be echoed into
  * the editable settings document. Apart from leaking history to the browser,
  * echoing it made subsequent saves grow past Express' request-body limit. */
-function editableSettings(settings: GuildAntiCheatSettings): Omit<GuildAntiCheatSettings, 'userTrust' | 'recentLogs'> {
-    const { userTrust: _userTrust, recentLogs: _recentLogs, ...editable } = settings;
+function editableSettings(
+    settings: GuildAntiCheatSettings
+): Omit<GuildAntiCheatSettings, 'userTrust' | 'recentLogs' | 'watchUsers'> {
+    const { userTrust: _userTrust, recentLogs: _recentLogs, watchUsers: _watchUsers, ...editable } = settings;
     return editable;
 }
 
@@ -143,6 +145,7 @@ export class AntiCheatController {
             const newSettings: GuildAntiCheatSettings = antiCheatManager.mergeSettings(currentSettings, {
                 ...updates,
                 userTrust: currentSettings.userTrust,
+                watchUsers: currentSettings.watchUsers,
                 recentLogs: currentSettings.recentLogs
             });
 
@@ -460,6 +463,73 @@ export class AntiCheatController {
             res.status(500).json({ error: 'Failed to get active timeouts' });
         }
     };
+
+    /**
+     * GET /api/staff/anticheat/:guildId/watch-users
+     * 警戒ユーザー (watch tier) entries with the resolving member names.
+     */
+    getWatchUsers = async (req: Request, res: Response): Promise<void> => {
+        try {
+            const { guildId } = req.params;
+            const session = (req as any).session;
+            if (!session || !hasAccessToGuild(session, guildId)) {
+                res.status(403).json({ error: 'Access denied to this guild' });
+                return;
+            }
+
+            const entries = await antiCheatManager.getWatchUsers(guildId);
+            const guild = await this.botClient.client.guilds.fetch(guildId).catch(() => null);
+            const watchUsers: Array<Record<string, unknown>> = [];
+            for (const entry of entries) {
+                const member = guild?.members.cache?.get(entry.userId)
+                    || (guild ? await guild.members.fetch(entry.userId).catch(() => null) : null);
+                watchUsers.push({
+                    ...entry,
+                    username: member?.user.username || '不明',
+                    displayName: member?.displayName || entry.nameSnapshot || '不明',
+                    avatar: member?.user.avatarURL() || null
+                });
+            }
+
+            res.json({ watchUsers });
+        } catch (error) {
+            Logger.error('Error getting watch users:', error);
+            res.status(500).json({ error: 'Failed to get watch users' });
+        }
+    };
+
+    /**
+     * POST /api/staff/anticheat/:guildId/watch-users/:userId/dismiss
+     * Staff dismissal: the current name snapshot is not re-flagged.
+     */
+    dismissWatchUser = async (req: Request, res: Response): Promise<void> => {
+        try {
+            const { guildId, userId } = req.params;
+            const session = (req as any).session;
+            if (!session || !(await hasGuildMutationAccess(this.botClient, session, guildId))) {
+                res.status(403).json({ error: 'Access denied to this guild' });
+                return;
+            }
+            if (!/^[1-9]\d{0,19}$/.test(String(userId))) {
+                res.status(400).json({ error: 'IDが不正です。' });
+                return;
+            }
+
+            const guild = await this.botClient.client.guilds.fetch(guildId).catch(() => null);
+            const member = guild ? await guild.members.fetch(userId).catch(() => null) : null;
+            const dismissed = await antiCheatManager.dismissWatchUser(guildId, userId, member?.displayName);
+            if (!dismissed) {
+                res.status(404).json({ error: '警戒ユーザーが見つかりません。' });
+                return;
+            }
+
+            res.json({ success: true });
+        } catch (error) {
+            Logger.error('Error dismissing watch user:', error);
+            res.status(500).json({ error: 'Failed to dismiss watch user' });
+        }
+    };
+
     getUserTrust = async (req: Request, res: Response): Promise<void> => {
         try {
             const { guildId } = req.params;

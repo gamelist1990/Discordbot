@@ -122,6 +122,54 @@ export interface RaidDetectionConfig {
     kickWindowSeconds: number;
 }
 
+/** Signals used to auto-classify a member as a 警戒 (watch) user. */
+export type WatchSignal =
+    | 'name-match'
+    | 'id-like-name'
+    | 'new-account'
+    | 'batch-creation'
+    | 'shared-avatar'
+    | 'similar-name';
+
+/** Where the classification was triggered from. */
+export type WatchSource = 'join' | 'member-update' | 'message';
+
+/** One applied detection-point event inside the rolling watch window. */
+export interface WatchDangerPoint {
+    ts: number;
+    points: number;
+    detector?: string;
+    reason?: string;
+}
+
+export interface WatchUserEntry {
+    /** Human readable flag reason (joined signal labels). */
+    reason: string;
+    /** Machine readable signals that matched at flag time. */
+    signals: string[];
+    since: string;
+    source: WatchSource;
+    /** Display name at flag time; staff dismissal compares against it. */
+    nameSnapshot: string;
+    accountCreatedAt?: string | null;
+    avatarHash?: string | null;
+    normalizedName?: string;
+    /** Name snapshot the staff dismissed. Same name is never re-flagged. */
+    dismissed?: string | null;
+    /** Rolling 24 h applied-point events. Pruned on read/write. */
+    dangerPoints?: WatchDangerPoint[];
+    lastDangerAt?: string | null;
+}
+
+export interface WatchSettings {
+    enabled: boolean;
+    notifyOnFlag: boolean;
+    newAccountDays: number;
+    kickThresholdPoints: number;
+    autoKickOnDanger: boolean;
+    purgeWindowHours: number;
+}
+
 export interface GuildAntiCheatSettings {
     enabled: boolean;
     detectors: Record<string, DetectorConfig>;
@@ -142,7 +190,9 @@ export interface GuildAntiCheatSettings {
         windowSeconds: number;
     };
     raidMode: RaidModeState;
+    watch: WatchSettings;
     userTrust: Record<string, UserTrustData>;
+    watchUsers: Record<string, WatchUserEntry>;
     recentLogs: DetectionLog[];
 }
 
@@ -349,6 +399,15 @@ export const DEFAULT_ANTICHEAT_SETTINGS: GuildAntiCheatSettings = {
         recentJoinCount: 0,
         lastJoinAt: null
     },
+    watch: {
+        enabled: true,
+        notifyOnFlag: true,
+        newAccountDays: 7,
+        kickThresholdPoints: 5,
+        autoKickOnDanger: true,
+        purgeWindowHours: 24
+    },
     userTrust: {},
+    watchUsers: {},
     recentLogs: []
 };
