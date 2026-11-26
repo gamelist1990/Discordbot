@@ -793,8 +793,10 @@ function NotificationSettings(p: AntiCheatViewProps) {
 
 function Activity(p: AntiCheatViewProps) {
   const [tab, setTab] = useState<
-    "timeouts" | "logs" | "trust" | "watch"
+    "timeouts" | "logs" | "trust" | "watch" | "webAuth"
   >("timeouts");
+  const [webAuthUserId, setWebAuthUserId] = useState("");
+  const [webAuthNote, setWebAuthNote] = useState("");
   const loading =
     tab === "timeouts"
       ? p.timeoutsLoading
@@ -802,7 +804,9 @@ function Activity(p: AntiCheatViewProps) {
         ? p.logsLoading
         : tab === "trust"
           ? p.trustLoading
-          : p.watchLoading;
+          : tab === "watch"
+            ? p.watchLoading
+            : p.webAuthLoading;
   const error =
     tab === "timeouts"
       ? p.timeoutsError
@@ -810,7 +814,9 @@ function Activity(p: AntiCheatViewProps) {
         ? p.logsError
         : tab === "trust"
           ? p.trustError
-          : p.watchError;
+          : tab === "watch"
+            ? p.watchError
+            : p.webAuthError;
   const refresh =
     tab === "timeouts"
       ? p.onRefreshTimeouts
@@ -818,9 +824,33 @@ function Activity(p: AntiCheatViewProps) {
         ? p.onRefreshLogs
         : tab === "trust"
           ? p.onRefreshTrust
-          : p.onRefreshWatch;
+          : tab === "watch"
+            ? p.onRefreshWatch
+            : p.onRefreshWebAuth;
   const detectorName = (key: string) =>
     p.detectors.find((def) => def.key === key)?.title || key;
+  const watchReasonLabel = (reason: string) =>
+    reason === "webauth-match" ? "Web認証で同一IP/端末を検出" : reason;
+  const browserLabel = (record: (typeof p.webAuthRecords)[number]) =>
+    record.source === "staff"
+      ? "スタッフ認証"
+      : record.browser.name === "chrome"
+        ? "Chrome"
+        : record.browser.name === "edge"
+          ? "Edge"
+          : "不明";
+  const intelLabel = (record: (typeof p.webAuthRecords)[number]) => {
+    if (record.source === "staff" || record.intel.verdict === "staff") {
+      return "スタッフ上書き";
+    }
+    if (record.intel.verdict === "blocked") {
+      return `VPN・プロキシ検出${record.intel.flags.length ? `（${record.intel.flags.join(", ")}）` : ""}`;
+    }
+    if (record.intel.verdict === "unavailable") {
+      return "未検証（IP評価を取得できず）";
+    }
+    return "正常";
+  };
   return (
     <div className={styles.stack}>
       <div className={styles.activityToolbar}>
@@ -831,6 +861,7 @@ function Activity(p: AntiCheatViewProps) {
               ["logs", "検知ログ"],
               ["trust", "信頼スコア"],
               ["watch", `警戒ユーザー${p.watchUsers.length ? ` (${p.watchUsers.length})` : ""}`],
+              ["webAuth", `Web認証${p.webAuthRecords.length ? ` (${p.webAuthRecords.length})` : ""}`],
             ] as const
           ).map(([id, title]) => (
             <button
@@ -931,7 +962,7 @@ function Activity(p: AntiCheatViewProps) {
                   <div>
                     <strong>{entry.displayName || entry.username}</strong>
                     <small>{entry.userId}</small>
-                    <p>{entry.reason}</p>
+                    <p>{watchReasonLabel(entry.reason)}</p>
                     <small>
                       登録 {formatDate(entry.since)} · アカウント作成{" "}
                       {formatDate(entry.accountCreatedAt)} · 24時間の加点{" "}
@@ -953,6 +984,86 @@ function Activity(p: AntiCheatViewProps) {
                 警戒ユーザーとして分類されたメンバーはいません。
               </div>
             ))}
+          {tab === "webAuth" && (
+            <>
+              <div className={styles.cardHeading}>
+                <h3>Web認証の記録</h3>
+                <p>
+                  Web認証ページで取得したIP・端末指紋の記録です。値はハッシュと暗号化でのみ保存され、この画面には表示されません。
+                  VPNの誤検知やChrome/Edgeを使えないメンバーは、ユーザーIDを指定してスタッフ認証を記録できます。
+                </p>
+              </div>
+              <form
+                className={styles.formGrid}
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  const userId = webAuthUserId.trim();
+                  if (!/^[1-9]\d{0,19}$/.test(userId)) {
+                    window.alert("数値のDiscordユーザーIDを入力してください。");
+                    return;
+                  }
+                  p.onForceVerifyWebAuth(userId, webAuthNote.trim());
+                  setWebAuthUserId("");
+                  setWebAuthNote("");
+                }}
+              >
+                <label>
+                  ユーザーID
+                  <input
+                    value={webAuthUserId}
+                    onChange={(event) => setWebAuthUserId(event.target.value)}
+                    placeholder="123456789012345678"
+                    inputMode="numeric"
+                  />
+                </label>
+                <label>
+                  メモ（任意）
+                  <input
+                    value={webAuthNote}
+                    onChange={(event) => setWebAuthNote(event.target.value)}
+                    maxLength={500}
+                    placeholder="VPN誤検知のためスタッフ確認済み"
+                  />
+                </label>
+                <div className={styles.wide}>
+                  <button type="submit" className={styles.secondary}>
+                    スタッフ認証を記録
+                  </button>
+                </div>
+              </form>
+              {p.webAuthRecords.length ? (
+                p.webAuthRecords.map((record) => (
+                  <div className={styles.activityEntry} key={record.id}>
+                    <div>
+                      <strong>{record.displayName || record.username}</strong>
+                      <small>
+                        {record.userId} · {formatDate(record.createdAt)} ·{" "}
+                        {browserLabel(record)}
+                      </small>
+                      <p>
+                        IP判定: {intelLabel(record)} · 同一IP/端末アカウント数:{" "}
+                        {record.matchCount} 件
+                        {record.roleGranted ? "" : " · ロール付与失敗"}
+                      </p>
+                      {record.note && <small>メモ: {record.note}</small>}
+                    </div>
+                    <span
+                      className={
+                        record.verified ? styles.statusOn : styles.statusOff
+                      }
+                    >
+                      <i />
+                      {record.verified ? "認証済み" : "未認証"}
+                    </span>
+                  </div>
+                ))
+              ) : (
+                <div className={styles.empty}>
+                  まだWeb認証の記録はありません。
+                </div>
+              )}
+            </>
+          )}
           {tab === "trust" &&
             (p.trustEntries.length ? (
               p.trustEntries.map((entry) => (

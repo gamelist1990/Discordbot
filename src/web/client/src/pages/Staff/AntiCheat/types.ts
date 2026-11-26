@@ -46,10 +46,36 @@ export interface WatchUserEntryView {
     reason: string;
     signals: string[];
     since: string;
-    source: 'join' | 'member-update' | 'message';
+    source: 'join' | 'member-update' | 'message' | 'webauth-match';
     nameSnapshot: string;
     accountCreatedAt?: string | null;
     dangerPoints24h: number;
+    username: string;
+    displayName: string;
+    avatar: string | null;
+}
+
+/** Web認証 record as returned by GET /anticheat/:guildId/webauth. */
+export interface WebAuthRecordView {
+    id: string;
+    userId: string;
+    createdAt: string;
+    source: 'web' | 'staff';
+    verified: boolean;
+    browser: {
+        name: 'chrome' | 'edge' | null;
+        reason: string;
+    };
+    intel: {
+        verdict: 'clean' | 'blocked' | 'unavailable' | 'staff';
+        flags: string[];
+        source: string;
+    };
+    presetId: string | null;
+    note: string | null;
+    roleGranted: boolean;
+    matchCount: number;
+    matchedUserIds: string[];
     username: string;
     displayName: string;
     avatar: string | null;

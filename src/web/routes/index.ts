@@ -14,3 +14,4 @@ export * from './staff/anticheat.js';
 export * from './staff/corepanel.js';
 export * from './staff/todo.js';
 export * from './staff/join-log.js';
+export * from './webauth.js';

@@ -7,6 +7,7 @@ import type {
   PunishmentThreshold,
   UserTrustDataWithUser,
   WatchUserEntryView,
+  WebAuthRecordView,
   WordFilterRule,
 } from "./types";
 
@@ -43,14 +44,17 @@ export interface AntiCheatViewProps {
   trustEntries: TrustEntry[];
   activeTimeouts: ActiveTimeoutEntry[];
   watchUsers: WatchUserEntryView[];
+  webAuthRecords: WebAuthRecordView[];
   logsLoading: boolean;
   trustLoading: boolean;
   timeoutsLoading: boolean;
   watchLoading: boolean;
+  webAuthLoading: boolean;
   logsError: string | null;
   trustError: string | null;
   timeoutsError: string | null;
   watchError: string | null;
+  webAuthError: string | null;
   actionError: string | null;
   saveNotice: string | null;
   excludedRolesText: string;
@@ -64,6 +68,8 @@ export interface AntiCheatViewProps {
   onRefreshTrust: () => void;
   onRefreshTimeouts: () => void;
   onRefreshWatch: () => void;
+  onRefreshWebAuth: () => void;
+  onForceVerifyWebAuth: (userId: string, note: string) => void;
   onDismissWatch: (entry: WatchUserEntryView) => void;
   onRevokeLogTimeout: (log: DetectionLog) => void;
   onRevokeActiveTimeout: (entry: ActiveTimeoutEntry) => void;

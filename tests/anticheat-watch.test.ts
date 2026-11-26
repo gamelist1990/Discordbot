@@ -334,3 +334,37 @@ test('flagged users keep no positive trust and are not skipped for trust lenienc
     const penalty = await (manager as any).applyTrustAdjustment(settings, 'guild', 'watched', -3, '検知');
     assert.equal(penalty, 37, 'penalties still apply');
 });
+
+test('a WebAuth IP/device match flags the account and stays until dismissed', async () => {
+    const { manager, settings, member } = setup();
+    const target = member('910000000000000001', {
+        displayName: 'Clean User',
+        user: {
+            id: '910000000000000001', bot: false, tag: 'cleanuser#0001',
+            username: 'cleanuser', globalName: null, avatar: null,
+            createdTimestamp: Date.now() - 365 * DAY
+        }
+    });
+
+    const flagged = await manager.flagWatchUserFromWebAuth('guild', target.id, {
+        matchCount: 1,
+        matches: [{ userId: 'kicked-alt', hashTypes: ['ip'], risks: ['raid-kick'], hashCount: 1 }]
+    });
+    assert.equal(flagged, true);
+    const entry = settings.watchUsers[target.id];
+    assert.equal(entry.reason, 'webauth-match');
+    assert.deepEqual(entry.signals, ['webauth-match']);
+    assert.equal(entry.source, 'webauth-match');
+    assert.equal(entry.dismissed, null);
+
+    // A clean heuristic re-evaluation (no name/id/age signal) must keep the
+    // correlation flag: it is a hard signal, not a heuristic.
+    await (manager as any).evaluateWatchMember(target, settings, 'message');
+    assert.ok(settings.watchUsers[target.id], 'sticky through clean re-evaluation');
+    assert.deepEqual(settings.watchUsers[target.id].signals, ['webauth-match']);
+
+    // Staff dismissal ends it on the next evaluation.
+    await manager.dismissWatchUser('guild', target.id, target.displayName);
+    await (manager as any).evaluateWatchMember(target, settings, 'message');
+    assert.equal(settings.watchUsers[target.id], undefined);
+});

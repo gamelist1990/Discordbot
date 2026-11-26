@@ -20,7 +20,7 @@ import { Logger } from '../utils/Logger.js';
 import { BotClient } from '../core/platform/BotClient.js';
 import { SessionService } from './services/SessionService.js';
 import { ProfileService } from './services/ProfileService.js';
-import { createStatusRoutes, createSessionRoutes, createSettingsRoutes, createStaffRoutes, createAuthRoutes, createUserRoutes, createModRoutes, createRolePresetRoutes, createRankRoutes, createWebRankRoutes, createPublicRankRoutes, createGameRankingRoutes, createAntiCheatRoutes, createCorePanelRoutes, createTodoRoutes, createJoinLogRoutes } from './routes/index.js';
+import { createStatusRoutes, createSessionRoutes, createSettingsRoutes, createStaffRoutes, createAuthRoutes, createUserRoutes, createModRoutes, createRolePresetRoutes, createRankRoutes, createWebRankRoutes, createPublicRankRoutes, createGameRankingRoutes, createAntiCheatRoutes, createCorePanelRoutes, createTodoRoutes, createJoinLogRoutes, createWebAuthPageRoutes, createWebAuthApiRoutes } from './routes/index.js';
 import { createGuildRoutes } from './routes/guild.js';
 import { createProfileController } from './controllers/ProfileController.js';
 import { setupWebSocketServer } from './routes/websocket.js';
@@ -162,6 +162,11 @@ export class SettingsServer {
         this.app.use('/api/staff/corepanel', createCorePanelRoutes(sessions, this.botClient));
         this.app.use('/api/staff/todo', createTodoRoutes(sessions, this.botClient));
         this.app.use('/api/staff/join-log', createJoinLogRoutes(sessions, this.botClient));
+
+        // Public WebAuth page + submit endpoint. The page is intentionally not
+        // part of the staff SPA and validates its one-time token per request.
+        this.app.use('/webauth', createWebAuthPageRoutes());
+        this.app.use('/api/webauth', createWebAuthApiRoutes());
 
     // Temporary debug route to inspect StatsManager buffer
         this.app.get('/__debug/stats-buffer', (_req, res) => {

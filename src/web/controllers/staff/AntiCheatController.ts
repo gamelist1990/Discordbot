@@ -597,7 +597,7 @@ export class AntiCheatController {
  * with a live Discord fallback (owner / Administrator / ManageGuild) for
  * sessions whose stored level undercounts. Legacy token sessions without a
  * permissions array stay bound to their single guild, as before. */
-async function hasGuildMutationAccess(botClient: BotClient, session: any, guildId: string): Promise<boolean> {
+export async function hasGuildMutationAccess(botClient: BotClient, session: any, guildId: string): Promise<boolean> {
     if (!session || !hasAccessToGuild(session, guildId)) return false;
     return (await getLiveGuildManagementLevel(botClient, session, guildId)) >= 1;
 }
@@ -607,7 +607,7 @@ async function hasGuildMutationAccess(botClient: BotClient, session: any, guildI
  * Accepts older debug sessions (session.guildId), array of IDs (session.guildIds),
  * or the richer session.guilds array (objects with `id` property) produced by OAuth.
  */
-function hasAccessToGuild(session: any, guildId: string): boolean {
+export function hasAccessToGuild(session: any, guildId: string): boolean {
     try {
         if (!guildId) return false;
         if (session.guildId && session.guildId === guildId) return true;
