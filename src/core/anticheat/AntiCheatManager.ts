@@ -98,6 +98,8 @@ import {
     type JoinEntropyResult
 } from './JoinEntropy.js';
 import { webAuthRecordStore } from '../webauth/records.js';
+import { readWebAuthBlockSettings, WEB_AUTH_BLOCK_RULE_LABELS } from '../webauth/authBlock.js';
+import type { WebAuthBlockDecision } from '../webauth/authBlock.js';
 import type { WebAuthMatch, WebAuthRecord } from '../webauth/types.js';
 
 type Detection = { detector: string; result: DetectionResult };
@@ -292,6 +294,10 @@ export class AntiCheatManager {
             watch: {
                 ...normalizedBase.watch,
                 ...(updates.watch || {})
+            },
+            webAuthBlock: {
+                ...normalizedBase.webAuthBlock,
+                ...(updates.webAuthBlock || {})
             },
             punishments: updates.punishments !== undefined ? updates.punishments : normalizedBase.punishments,
             excludedRoles: updates.excludedRoles !== undefined ? updates.excludedRoles : normalizedBase.excludedRoles,
@@ -1448,6 +1454,64 @@ export class AntiCheatManager {
         await logChannel.send({ embeds: [embed], allowedMentions: { parse: [] } }).catch(() => null);
     }
 
+    /**
+     * One embed per auth-point block (brief 8): who tried, in which guild,
+     * which rule(s) hit (rule names only) and which bad account matched.
+     * Raw hashes/IPs and the sealed payload never appear here.
+     */
+    async sendWebAuthBlockLog(
+        guildId: string,
+        userId: string,
+        decision: WebAuthBlockDecision
+    ): Promise<void> {
+        const guild = this.client
+            ? (this.client.guilds.cache.get(guildId) || await this.client.guilds.fetch(guildId).catch(() => null))
+            : null;
+        if (!guild) return;
+        const settings = this.settingsCache.get(guildId) || await this.getSettings(guildId);
+        const logChannel = await this.fetchLogChannel(guild, settings.logChannelId);
+        if (!logChannel) return;
+
+        const selfMember = guild.members.cache.get(userId)
+            || await guild.members.fetch(userId).catch(() => null);
+
+        const lines: string[] = [];
+        for (const match of decision.matches.slice(0, 10)) {
+            const member = guild.members.cache.get(match.userId)
+                || await guild.members.fetch(match.userId).catch(() => null);
+            const label = member?.user?.tag || member?.user?.username || match.userId;
+            const reasons = match.badTags.map((tag) => ALT_GRAPH_BAD_LABELS[tag] || tag).join(' / ');
+            lines.push(`• ${label} (${match.userId})${reasons ? `\n  ${reasons}` : ''}`);
+        }
+
+        const embed = new EmbedBuilder()
+            .setTitle('🚫 Web認証をブロックしました（キック済みアカウントと一致）')
+            .setColor(Colors.Red)
+            .setTimestamp()
+            .setDescription(
+                'キック済みアカウントとの相関がブロック条件に一致したため、認証時点で拒否しました。'
+                + 'ロールは付与されておらず、認証済みとしても記録していません。'
+                + '誤検知の場合はスタッフの手動認証（force-verify）で解除できます。'
+            )
+            .addFields(
+                {
+                    name: 'ユーザー',
+                    value: `${selfMember?.user?.tag || userId}\n${userId}`.slice(0, 1024),
+                    inline: true
+                },
+                { name: 'サーバー', value: `${guild.name}\n${guild.id}`.slice(0, 1024), inline: true },
+                {
+                    name: '判定ルール',
+                    value: (decision.rules.map((rule) => WEB_AUTH_BLOCK_RULE_LABELS[rule] || rule).join(' / ') || '不明')
+                        .slice(0, 1024),
+                    inline: false
+                },
+                { name: '一致したアカウント', value: (lines.join('\n') || '不明').slice(0, 1024), inline: false }
+            );
+
+        await logChannel.send({ embeds: [embed], allowedMentions: { parse: [] } }).catch(() => null);
+    }
+
     async onGuildMemberUpdate(oldMember: GuildMember, newMember: GuildMember): Promise<void> {
         // Nickname / display-name changes are a 警戒ユーザー re-evaluation point:
         // an auto flag is removed once none of the signals match any more, and a
@@ -2349,6 +2413,7 @@ export class AntiCheatManager {
             },
             watch: readWatchSettings(settings?.watch, DEFAULT_ANTICHEAT_SETTINGS.watch),
             altGraph: readAltGraphSettings(settings?.altGraph),
+            webAuthBlock: readWebAuthBlockSettings(settings?.webAuthBlock),
             userTrust: settings?.userTrust || {},
             watchUsers: normalizeWatchUserEntries(settings?.watchUsers),
             recentLogs: Array.isArray(settings?.recentLogs) ? settings.recentLogs.slice(-this.MAX_LOGS) : []

@@ -147,6 +147,25 @@ export interface NormalizedFingerprintSignals {
 
 export type WebAuthRecordSource = 'web' | 'staff';
 
+/** Auth-point block rules (brief 8). */
+export type WebAuthBlockRule = 'exact' | 'fuzzy' | 'graph';
+
+/**
+ * Evidence kept on an attempt that was refused at the auth point. Only ids,
+ * rule names and scores are stored; no raw signal ever reaches this mark.
+ */
+export interface WebAuthBlockMark {
+    rules: WebAuthBlockRule[];
+    /** Bad accounts the attempt matched (kicked, or flagged with danger points). */
+    matchedUserIds: string[];
+    /** Best fuzzy fingerprint ratio when the fuzzy rule hit. */
+    fpScore?: number;
+    /** Alt-graph weight toward bad nodes and its threshold when the graph rule hit. */
+    graphScore?: number;
+    graphThreshold?: number;
+    at: string;
+}
+
 export interface WebAuthRecord {
     id: string;
     guildId: string;
@@ -180,6 +199,12 @@ export interface WebAuthRecord {
     presetId: string | null;
     note: string | null;
     roleGranted: boolean;
+    /**
+     * Set when the attempt was refused at the auth point (brief 8). The
+     * record is then `verified: false` and granted no roles; null on every
+     * other record.
+     */
+    blocked: WebAuthBlockMark | null;
 }
 
 export interface WebAuthRecordDocument {

@@ -187,6 +187,7 @@ export function createWebAuthApiRoutes(): Router {
             }
 
             const status = result.status === 'browser' || result.status === 'vpn' || result.status === 'challenge'
+                || result.status === 'risk'
                 ? 403
                 : result.status === 'invalid'
                     ? 404

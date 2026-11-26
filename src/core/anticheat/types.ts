@@ -229,6 +229,26 @@ export const DEFAULT_ALT_GRAPH_SETTINGS: AltGraphSettings = {
     }
 };
 
+/**
+ * Auth-point block rules for the WebAuth flow (brief 8). Each rule is a
+ * separate switch so staff can soften one rule without losing the others.
+ * A user who is merely watch-flagged is never blocked by these rules alone.
+ */
+export interface WebAuthBlockSettings {
+    /** Block when the device/IP exactly matches a kicked user's record. */
+    exact: boolean;
+    /** Block when the fuzzy device score meets the 4A threshold against a kicked user. */
+    fuzzy: boolean;
+    /** Block when the alt-graph weight toward bad nodes meets the 4A threshold. */
+    graph: boolean;
+}
+
+export const DEFAULT_WEBAUTH_BLOCK_SETTINGS: WebAuthBlockSettings = {
+    exact: true,
+    fuzzy: true,
+    graph: true
+};
+
 export interface GuildAntiCheatSettings {
     enabled: boolean;
     detectors: Record<string, DetectorConfig>;
@@ -251,6 +271,8 @@ export interface GuildAntiCheatSettings {
     raidMode: RaidModeState;
     watch: WatchSettings;
     altGraph: AltGraphSettings;
+    /** Auth-point block rules for WebAuth (brief 8). */
+    webAuthBlock: WebAuthBlockSettings;
     userTrust: Record<string, UserTrustData>;
     watchUsers: Record<string, WatchUserEntry>;
     recentLogs: DetectionLog[];
@@ -483,6 +505,7 @@ export const DEFAULT_ANTICHEAT_SETTINGS: GuildAntiCheatSettings = {
             similarName: 1
         }
     },
+    webAuthBlock: { ...DEFAULT_WEBAUTH_BLOCK_SETTINGS },
     userTrust: {},
     watchUsers: {},
     recentLogs: []

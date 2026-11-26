@@ -128,7 +128,7 @@ export class WebAuthTokenStore {
         return { attempts, locked: false };
     }
 
-    /** Deletes the token. Only called after a successful submit. */
+    /** Deletes the token. Called after a successful submit or an auth-point block. */
     consume(token: string): WebAuthTokenRecord | null {
         const key = hashWebAuthToken(token);
         const record = this.entries.get(key) || null;

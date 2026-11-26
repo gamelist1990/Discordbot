@@ -4,6 +4,8 @@ import { scoreFingerprintSimilarity, type FingerprintFuzzyConfig } from './finge
 import type {
     FingerprintComponentKey,
     FingerprintSignalHashes,
+    WebAuthBlockMark,
+    WebAuthBlockRule,
     WebAuthBrowserName,
     WebAuthBrowserReason,
     WebAuthMatch,
@@ -47,6 +49,29 @@ const asnText = (value: unknown): string | null => {
     return text || null;
 };
 
+const BLOCK_RULES: WebAuthBlockRule[] = ['exact', 'fuzzy', 'graph'];
+
+/** Keeps only well-formed block evidence; null when nothing usable remains. */
+export function normalizeBlockMark(value: unknown): WebAuthBlockMark | null {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+    const source = value as Partial<WebAuthBlockMark>;
+    const rules = Array.isArray(source.rules)
+        ? BLOCK_RULES.filter((rule) => (source.rules as WebAuthBlockRule[]).includes(rule))
+        : [];
+    if (!rules.length) return null;
+    const matchedUserIds = Array.isArray(source.matchedUserIds)
+        ? [...new Set(source.matchedUserIds.filter((id): id is string => typeof id === 'string' && !!id))].slice(0, 50)
+        : [];
+    const at = typeof source.at === 'string' && Number.isFinite(Date.parse(source.at))
+        ? source.at
+        : new Date(0).toISOString();
+    const mark: WebAuthBlockMark = { rules, matchedUserIds, at };
+    if (Number.isFinite(source.fpScore)) mark.fpScore = Math.min(1, Math.max(0, Number(source.fpScore)));
+    if (Number.isFinite(source.graphScore)) mark.graphScore = Math.max(0, Number(source.graphScore));
+    if (Number.isFinite(source.graphThreshold)) mark.graphThreshold = Math.max(0, Number(source.graphThreshold));
+    return mark;
+}
+
 export interface WebAuthRecordInput {
     guildId: string;
     userId: string;
@@ -63,6 +88,7 @@ export interface WebAuthRecordInput {
     note?: string | null;
     roleGranted?: boolean;
     verified?: boolean;
+    blocked?: WebAuthBlockMark | null;
     createdAt?: string;
     id?: string;
     now?: number;
@@ -102,7 +128,8 @@ export function createWebAuthRecord(input: WebAuthRecordInput): WebAuthRecord {
         sealed: isSealed(input.sealed) ? input.sealed : null,
         presetId: typeof input.presetId === 'string' && input.presetId ? input.presetId : null,
         note: typeof input.note === 'string' && input.note.trim() ? input.note.trim().slice(0, 500) : null,
-        roleGranted: input.roleGranted === true
+        roleGranted: input.roleGranted === true,
+        blocked: normalizeBlockMark(input.blocked)
     };
 }
 
@@ -132,7 +159,8 @@ function normalizeRecord(raw: unknown): WebAuthRecord | null {
         sealed: entry.sealed ?? null,
         presetId: entry.presetId ?? null,
         note: entry.note ?? null,
-        roleGranted: entry.roleGranted === true
+        roleGranted: entry.roleGranted === true,
+        blocked: entry.blocked ?? null
     });
 }
 

@@ -5,7 +5,9 @@ import { database } from '../persistence/Database.js';
 import { RolePresetManager } from '../roles/RolePresetManager.js';
 import { Logger } from '../../utils/Logger.js';
 import { antiCheatManager } from '../anticheat/AntiCheatManager.js';
-import { riskKickLedger } from '../anticheat/RiskKicks.js';
+import { riskKickLedger, type RiskKickEntry } from '../anticheat/RiskKicks.js';
+import type { AltGraphSettings, WatchUserEntry, WebAuthBlockSettings } from '../anticheat/types.js';
+import { evaluateWebAuthBlock, type WebAuthBlockDecision } from './authBlock.js';
 import { evaluateBrowserGate } from './browserGate.js';
 import {
     describeDragFailure,
@@ -45,6 +47,14 @@ import type {
 
 export type WebAuthPageStatus = 'ready' | 'invalid' | 'expired' | 'in-use' | 'error';
 
+/**
+ * Refusal at the auth point. Deliberately generic: it never names the
+ * matched account or which device/IP signal matched.
+ */
+export const WEB_AUTH_BLOCK_MESSAGE =
+    'この端末または接続は、以前にキックされたアカウントと一致するため、認証を続行できません。'
+    + '心当たりがない場合はスタッフにお問い合わせください。';
+
 export interface WebAuthPageData {
     status: WebAuthPageStatus;
     token: string;
@@ -82,7 +92,7 @@ export type WebAuthSubmitResult =
     }
     | {
         ok: false;
-        status: 'invalid' | 'expired' | 'in-use' | 'browser' | 'vpn' | 'challenge' | 'error';
+        status: 'invalid' | 'expired' | 'in-use' | 'browser' | 'vpn' | 'challenge' | 'risk' | 'error';
         message: string;
         browser?: BrowserGateResult;
     };
@@ -429,20 +439,10 @@ export class WebAuthService {
             };
             const sealed = sealPayload(JSON.stringify(sealedPayload), keys.encryptionKey);
 
-            const grant = await this.grantVerifiedRoles(token.guildId, token.userId, token.roleIds, token.presetId);
-            const warnings: string[] = [];
-            if (grant.errors.length) {
-                warnings.push(`ロール付与に失敗: ${grant.errors.join(' / ')}`);
-            }
-            const roleGranted = roleGrantSucceeded(grant);
-            if (!roleGranted) {
-                warnings.push(`ロール付与なし: ${grant.skipped.join(' / ') || '対象ロールなし'}`);
-            }
-
-            const record = createWebAuthRecord({
+            const recordFields = {
                 guildId: token.guildId,
                 userId: token.userId,
-                source: 'web',
+                source: 'web' as const,
                 browser: { name: browser.browser, reason: browser.reason },
                 intel: {
                     verdict: intel.verdict,
@@ -456,9 +456,71 @@ export class WebAuthService {
                 subnetHash,
                 sealed,
                 presetId: token.presetId,
-                roleGranted,
                 createdAt
-            });
+            };
+            const warnings: string[] = [];
+
+            // Auth-point block (brief 8): the correlation and the alt-graph
+            // propagation run BEFORE any role is granted. Any enabled rule
+            // that hits refuses the attempt; the token is then consumed (not
+            // released) and the attempt is recorded as a blocked record.
+            let blocked: WebAuthBlockDecision | null = null;
+            try {
+                const context = await this.loadBlockContext(token.guildId);
+                blocked = evaluateWebAuthBlock({
+                    record: createWebAuthRecord({ ...recordFields, verified: true, roleGranted: false }),
+                    records: await this.records.list(token.guildId),
+                    riskKicks: context.riskKicks,
+                    watchEntries: context.watchEntries,
+                    settings: context.settings,
+                    altGraph: context.altGraph
+                });
+            } catch (error) {
+                // A broken look-up must not lock every member out; fall back
+                // to the normal (post-grant) detection flow.
+                warnings.push('認証時のブロック判定に失敗しました（通常の認証を継続）');
+                Logger.warn(`[WebAuth] block evaluation failed for ${token.userId} in ${token.guildId}: ${String(error)}`);
+            }
+
+            if (blocked?.blocked) {
+                const at = new Date().toISOString();
+                const blockedRecord = createWebAuthRecord({
+                    ...recordFields,
+                    verified: false,
+                    roleGranted: false,
+                    blocked: {
+                        rules: blocked.rules,
+                        matchedUserIds: blocked.matches.map((match) => match.userId),
+                        fpScore: blocked.rules.includes('fuzzy') ? blocked.fpScore : undefined,
+                        graphScore: blocked.rules.includes('graph') ? blocked.graphScore : undefined,
+                        graphThreshold: blocked.rules.includes('graph') ? blocked.graphThreshold : undefined,
+                        at
+                    }
+                });
+                await this.records.add(token.guildId, blockedRecord);
+                // Not released: a refused device cannot retry with the same link.
+                this.tokens.consume(input.token);
+                try {
+                    await antiCheatManager.sendWebAuthBlockLog(token.guildId, token.userId, blocked);
+                } catch (error) {
+                    Logger.warn(`[WebAuth] block log failed for ${token.userId} in ${token.guildId}: ${String(error)}`);
+                }
+                Logger.info(
+                    `[WebAuth] blocked ${token.userId} in guild ${token.guildId} (rules=${blocked.rules.join(',')}, matches=${blocked.matches.length})`
+                );
+                return { ok: false, status: 'risk', message: WEB_AUTH_BLOCK_MESSAGE };
+            }
+
+            const grant = await this.grantVerifiedRoles(token.guildId, token.userId, token.roleIds, token.presetId);
+            if (grant.errors.length) {
+                warnings.push(`ロール付与に失敗: ${grant.errors.join(' / ')}`);
+            }
+            const roleGranted = roleGrantSucceeded(grant);
+            if (!roleGranted) {
+                warnings.push(`ロール付与なし: ${grant.skipped.join(' / ') || '対象ロールなし'}`);
+            }
+
+            const record = createWebAuthRecord({ ...recordFields, roleGranted });
             const stored = await this.records.add(token.guildId, record);
             let flagged = false;
             let matchCount = 0;
@@ -516,6 +578,30 @@ export class WebAuthService {
                 message: '認証情報を保存できませんでした。時間をおいて再試行してください。'
             };
         }
+    }
+
+    /**
+     * Data the auth-point block needs. AntiCheat settings carry the rule
+     * switches and the alt-graph weights; the watch entries and the kick
+     * ledger are the same two sources the auto-flag flow uses.
+     */
+    private async loadBlockContext(guildId: string): Promise<{
+        settings: Partial<WebAuthBlockSettings> | null;
+        altGraph: Partial<AltGraphSettings> | null;
+        riskKicks: RiskKickEntry[];
+        watchEntries: Array<{ userId: string; entry: WatchUserEntry }>;
+    }> {
+        const [settings, watchUsers, riskKicks] = await Promise.all([
+            antiCheatManager.getSettings(guildId),
+            antiCheatManager.getWatchUsers(guildId).catch(() => []),
+            riskKickLedger.list(guildId).catch(() => [] as RiskKickEntry[])
+        ]);
+        return {
+            settings: settings.webAuthBlock ?? null,
+            altGraph: settings.altGraph ?? null,
+            riskKicks,
+            watchEntries: watchUsers.map((entry) => ({ userId: entry.userId, entry }))
+        };
     }
 
     /** Staff override for VPN false positives / non-Chromium members. */

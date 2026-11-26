@@ -1,12 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { WebAuthService } from '../src/core/webauth/WebAuthService.ts';
+import { WEB_AUTH_BLOCK_MESSAGE } from '../src/core/webauth/WebAuthService.ts';
 import { WebAuthTokenStore } from '../src/core/webauth/tokens.ts';
 import { WebAuthRecordStore } from '../src/core/webauth/records.ts';
 import { IpIntelClient } from '../src/core/webauth/ipIntel.ts';
 import { hashFingerprint, hashIp, normalizeFingerprintSignals } from '../src/core/webauth/fingerprint.ts';
 import { createWebAuthRecord } from '../src/core/webauth/records.ts';
 import { antiCheatManager } from '../src/core/anticheat/AntiCheatManager.ts';
+import { DEFAULT_ALT_GRAPH_SETTINGS } from '../src/core/anticheat/types.ts';
 
 const GUILD_ID = 'guild-service';
 const USER_ID = '900000000000000123';
@@ -75,6 +77,14 @@ function setup(intelVerdict: 'clean' | 'blocked' = 'clean') {
         hmacSource: 'env', encryptionSource: 'env', dataDir: ''
     });
     (service as any).grantVerifiedRoles = async () => ({ granted: ['verified'], errors: [], skipped: [] });
+    // Auth-point block inputs are storage/anti-cheat reads; each test that
+    // exercises the block overrides this with the data it needs.
+    (service as any).loadBlockContext = async () => ({
+        settings: { exact: true, fuzzy: true, graph: true },
+        altGraph: { ...DEFAULT_ALT_GRAPH_SETTINGS },
+        riskKicks: [],
+        watchEntries: []
+    });
 
     return { service, tokens, records, data, member, guild, added };
 }
@@ -253,4 +263,102 @@ test('intel unavailable still verifies and records the unverified verdict', asyn
     assert.equal(result.ok, true);
     const record = (await records.list(GUILD_ID))[0];
     assert.equal(record.intel.verdict, 'unavailable');
+});
+
+test('a kicked-device match blocks the auth before any role grant and consumes the token', async () => {
+    const { service, tokens, records } = setup();
+    const fpHash = hashFingerprint(SECRET, normalizeFingerprintSignals(SIGNALS as any));
+    await records.add(GUILD_ID, createWebAuthRecord({
+        guildId: GUILD_ID,
+        userId: 'kicked-peer',
+        source: 'web',
+        browser: { name: 'chrome', reason: 'ok' },
+        intel: { verdict: 'clean', flags: [], source: 'ip-api.com' },
+        ipHash: hashIp(SECRET, IP),
+        fpHash,
+        sealed: null
+    }));
+    (service as any).loadBlockContext = async () => ({
+        settings: { exact: true, fuzzy: true, graph: true },
+        altGraph: { ...DEFAULT_ALT_GRAPH_SETTINGS },
+        riskKicks: [{ userId: 'kicked-peer', ts: Date.now(), source: 'raid', reason: 'raid' }],
+        watchEntries: []
+    });
+
+    let grants = 0;
+    (service as any).grantVerifiedRoles = async () => {
+        grants += 1;
+        return { granted: ['verified'], errors: [], skipped: [] };
+    };
+    const flagCalls: any[] = [];
+    const blockLogs: any[] = [];
+    const originalFlag = antiCheatManager.flagWatchUserFromWebAuth;
+    const originalBlockLog = antiCheatManager.sendWebAuthBlockLog;
+    (antiCheatManager as any).flagWatchUserFromWebAuth = async (...args: any[]) => { flagCalls.push(args); return true; };
+    (antiCheatManager as any).sendWebAuthBlockLog = async (...args: any[]) => { blockLogs.push(args); };
+    try {
+        const { token } = service.createToken({ guildId: GUILD_ID, userId: USER_ID });
+        await passChallenge(service, token);
+        const result = await service.submit({ token, clientIp: IP, socketIp: '10.0.0.97', signals: SIGNALS as any });
+
+        assert.equal(result.ok, false);
+        if (result.ok) return;
+        assert.equal(result.status, 'risk');
+        assert.equal(result.message, WEB_AUTH_BLOCK_MESSAGE);
+        // No role and no verification.
+        assert.equal(grants, 0, 'roles are never granted on a block');
+        assert.equal(flagCalls.length, 0, 'a blocked attempt is not also watch-flagged');
+        assert.equal(blockLogs.length, 1, 'exactly one staff block embed');
+        assert.equal(blockLogs[0][1], USER_ID);
+        assert.deepEqual(blockLogs[0][2].rules, ['exact', 'graph']);
+
+        // The token is burned, not released for a retry.
+        assert.equal(tokens.peek(token).status, 'missing');
+        const replay = await service.submit({ token, clientIp: IP, socketIp: '10.0.0.97', signals: SIGNALS as any });
+        assert.equal(replay.ok, false);
+        if (!replay.ok) assert.equal(replay.status, 'invalid');
+
+        // The attempt is recorded as blocked, with the evidence kept.
+        const blocked = (await records.list(GUILD_ID)).find((entry) => entry.userId === USER_ID);
+        assert.ok(blocked);
+        assert.equal(blocked!.verified, false);
+        assert.equal(blocked!.roleGranted, false);
+        assert.deepEqual(blocked!.blocked?.rules, ['exact', 'graph']);
+        assert.deepEqual(blocked!.blocked?.matchedUserIds, ['kicked-peer']);
+        assert.equal(JSON.stringify(blocked).includes(IP), false, 'no raw IP in the blocked record');
+    } finally {
+        (antiCheatManager as any).flagWatchUserFromWebAuth = originalFlag;
+        (antiCheatManager as any).sendWebAuthBlockLog = originalBlockLog;
+    }
+});
+
+test('staff force-verify still grants roles to a blocked user (false-positive escape hatch)', async () => {
+    const { service, records } = setup();
+    await records.add(GUILD_ID, createWebAuthRecord({
+        guildId: GUILD_ID,
+        userId: USER_ID,
+        source: 'web',
+        browser: { name: 'chrome', reason: 'ok' },
+        intel: { verdict: 'clean', flags: [], source: 'ip-api.com' },
+        ipHash: hashIp(SECRET, IP),
+        fpHash: null,
+        sealed: null,
+        verified: false,
+        blocked: {
+            rules: ['exact'],
+            matchedUserIds: ['kicked-peer'],
+            at: new Date().toISOString()
+        }
+    }));
+
+    const result = await service.forceVerify({ guildId: GUILD_ID, userId: USER_ID, note: 'shared PC' });
+    assert.equal('error' in result, false);
+    if ('error' in result) return;
+    assert.equal(result.record.source, 'staff');
+    assert.equal(result.record.verified, true);
+    assert.deepEqual(result.grant.granted, ['verified']);
+
+    const staffRecord = (await records.list(GUILD_ID)).find((entry) => entry.source === 'staff');
+    assert.ok(staffRecord, 'force-verify writes its own verified staff record');
+    assert.equal(staffRecord!.blocked, null);
 });
