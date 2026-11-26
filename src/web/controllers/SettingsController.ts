@@ -4,49 +4,16 @@ import { database } from '../../core/persistence/Database.js';
 import { PermissionManager } from '../../utils/PermissionManager.js';
 import { CacheManager } from '../../utils/CacheManager.js';
 import { BotClient } from '../../core/platform/BotClient.js';
-import { Guild } from 'discord.js';
-import { resolveGuildPermissionLevel as resolveLiveGuildLevel } from '../../core/permissions/GuildAccess.js';
 import { getSessionGuildPermissionLevel } from '../middleware/auth.js';
+import { getLiveGuildPermissionLevel } from '../middleware/liveGuildAccess.js';
 
-/**
- * セッションの permissions 配列に含まれていないギルドについて、Bot 経由でリアルタイムに
- * 権限を確認し、セッションを更新したうえで権限レベルを返す。
- */
+/** セッションの権限をDiscord上の実権限へ同期しつつ、その実効レベルを返す。 */
 async function resolveGuildPermissionLevel(
     session: SettingsSession,
     guildId: string,
     botClient: BotClient
 ): Promise<number> {
-    try {
-        let guild: Guild | null = botClient.client.guilds.cache.get(guildId) ?? null;
-        if (!guild) {
-            guild = await botClient.client.guilds.fetch(guildId).catch(() => null);
-        }
-        if (!guild) return 0;
-
-        const level = await resolveLiveGuildLevel(guild, session.userId);
-
-        if (level > 0) {
-            // セッションの permissions を更新して次回以降の呼び出しを高速化
-            if (!Array.isArray(session.permissions)) {
-                session.permissions = [];
-            }
-            const existing = session.permissions.find(p => p.guildId === guildId);
-            if (existing) {
-                existing.level = Math.max(existing.level, level);
-            } else {
-                session.permissions.push({ guildId, level });
-            }
-            if (!session.guildIds) session.guildIds = [];
-            if (!session.guildIds.includes(guildId)) {
-                session.guildIds.push(guildId);
-            }
-        }
-
-        return level;
-    } catch {
-        return 0;
-    }
+    return getLiveGuildPermissionLevel(botClient, session, guildId);
 }
 
 /**
