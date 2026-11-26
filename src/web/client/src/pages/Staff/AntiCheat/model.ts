@@ -91,11 +91,13 @@ export const DETECTORS: DetectorDefinition[] = [
     { kind: 'number', key: 'maxLines', label: '最大行数', defaultValue: 10, min: 1 },
   ] },
   { key: 'wordFilter', title: 'ワードフィルター', description: 'NGワードをルールごとに設定します。', icon: 'filter_alt' },
-  { key: 'raidDetection', title: '自動アンチレイド', description: '参加急増時に保護を強化します。', icon: 'security', fields: [
-    { kind: 'number', key: 'joinsPerHour', label: '1時間の参加数', defaultValue: 25, min: 1 },
-    { kind: 'number', key: 'burstCount', label: '短時間参加数', defaultValue: 10, min: 1 },
-    { kind: 'number', key: 'burstWindowSeconds', label: '監視秒数', defaultValue: 10, min: 1 },
-    { kind: 'number', key: 'cooldownMinutes', label: '再発動待機(分)', defaultValue: 60, min: 1 },
+  { key: 'raidDetection', title: '自動アンチレイド', description: '参加急増時に保護を強化します。自動キックを有効にすると、発動時に直近の参加者をキックし、発動中は新しい参加者を即時キックします（BOT・サーバー所有者・管理者・除外ロール・キック不可のメンバーは対象外）。', icon: 'security', fields: [
+    { kind: 'number', key: 'joinsPerHour', label: '1時間の参加数', defaultValue: 20, min: 1 },
+    { kind: 'number', key: 'burstCount', label: '短時間参加数', defaultValue: 8, min: 1 },
+    { kind: 'number', key: 'burstWindowSeconds', label: '監視秒数', defaultValue: 60, min: 1 },
+    { kind: 'number', key: 'cooldownMinutes', label: '自動解除までの無参加時間(分)', defaultValue: 60, min: 1 },
+    { kind: 'toggle', key: 'autoKick', label: 'レイド発動時に参加者を自動キック', defaultValue: 1 },
+    { kind: 'number', key: 'kickWindowSeconds', label: '自動キック対象にする直近参加の秒数', defaultValue: 60, min: 1, max: 3600 },
   ] },
 ];
 

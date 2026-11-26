@@ -49,6 +49,17 @@ import { DuplicateImageDetector } from './detectors/DuplicateImageDetector.js';
 import { PunishmentExecutor } from './PunishmentExecutor.js';
 import { hasMeaningfulDetection } from './utils.js';
 import { messageRevision, snapshotMessage } from './MessageSnapshot.js';
+import {
+    RAID_JOIN_WINDOW_MS,
+    RAID_KICK_LOG_WINDOW_MS,
+    RAID_KICK_REASON,
+    formatRaidKickLines,
+    raidKickSkipReason,
+    readRaidDetectionConfig,
+    readRaidJoinRecords,
+    type RaidJoinRecord,
+    type RaidKickReport
+} from './RaidEnforcement.js';
 
 type Detection = { detector: string; result: DetectionResult };
 type MessageWork = { revision: string; timestamp: number; task: Promise<boolean>; current: boolean };
@@ -66,6 +77,13 @@ export class AntiCheatManager {
     private moderationClaims = new Map<string, string>();
     private recentDeletionTasks = new Map<string, Promise<number>>();
     private timeoutTasks = new Map<string, Promise<boolean>>();
+    // Kicks from consecutive raid joins are merged into one log embed per batch.
+    private raidKickBatches = new Map<string, {
+        guild: Guild;
+        logChannelId: string | null;
+        report: RaidKickReport;
+        timer?: ReturnType<typeof setTimeout>;
+    }>();
     // Transient moderation failures must re-run the entire message handling path.
     // A cached verdict alone would never apply the original moderation action.
     private contentRetries = new Map<string, { attempts: number; timer?: ReturnType<typeof setTimeout> }>();
@@ -323,10 +341,12 @@ export class AntiCheatManager {
     }
 
     async onGuildMemberAdd(member: GuildMember): Promise<void> {
-        const settings = await this.getSettings(member.guild.id);
+        const guild = member.guild;
+        const settings = await this.getSettings(guild.id);
         if (!settings.enabled) {
             return;
         }
+        // Excluded-role members are never counted, kicked or reported.
         if (settings.excludedRoles.some(id => member.roles.cache.has(id))) return;
 
         const detectorConfig = settings.detectors.raidDetection;
@@ -334,34 +354,49 @@ export class AntiCheatManager {
             return;
         }
 
-        const config = detectorConfig.config || {};
-        const joinsPerHour = Number(config.joinsPerHour) || 25;
-        const burstCount = Number(config.burstCount) || 10;
-        const burstWindowSeconds = Number(config.burstWindowSeconds) || 10;
-        const cooldownMinutes = Number(config.cooldownMinutes) || 60;
-        const cacheKey = `anticheat:joins:${member.guild.id}`;
+        const config = readRaidDetectionConfig(detectorConfig.config);
         const now = Date.now();
-        const previous = (CacheManager.get<number[]>(cacheKey) || []).filter((timestamp) => now - timestamp <= 3600 * 1000);
-        const next = [...previous, now];
-        CacheManager.set(cacheKey, next, 3600 * 1000);
+        const cacheKey = `anticheat:joins:${guild.id}`;
 
-        const joinsLastHour = next.length;
-        const joinsBurst = next.filter((timestamp) => now - timestamp <= burstWindowSeconds * 1000).length;
-        const shouldActivate = joinsLastHour >= joinsPerHour || joinsBurst >= burstCount;
+        // Lazy expiry: any join that arrives after cooldownMinutes of silence
+        // ends the previous raid before this join is evaluated.
+        if (settings.raidMode.active) {
+            const lastActivity = new Date(settings.raidMode.lastJoinAt || settings.raidMode.activatedAt || 0).getTime() || 0;
+            if (now - lastActivity >= config.cooldownMinutes * 60 * 1000) {
+                settings.raidMode = {
+                    active: false,
+                    activatedAt: null,
+                    reason: null,
+                    recentJoinCount: 0,
+                    lastJoinAt: null
+                };
+                await this.setSettings(guild.id, settings);
+                await this.logRaidDeactivation(guild, settings, config.cooldownMinutes);
+            }
+        }
+
+        const previous = readRaidJoinRecords(CacheManager.get(cacheKey), now);
+        const joins: RaidJoinRecord[] = [...previous, { userId: member.id, ts: now }];
+        CacheManager.set(cacheKey, joins, RAID_JOIN_WINDOW_MS);
+
+        const joinsLastHour = joins.length;
+        const joinsBurst = joins.filter((record) => now - record.ts <= config.burstWindowSeconds * 1000).length;
+
+        if (settings.raidMode.active) {
+            settings.raidMode.recentJoinCount = Math.max(joinsLastHour, joinsBurst);
+            settings.raidMode.lastJoinAt = new Date(now).toISOString();
+            await this.setSettings(guild.id, settings);
+            if (config.autoKick) await this.enforceRaidKick(guild, [member], settings);
+            return;
+        }
+
+        const shouldActivate = joinsLastHour >= config.joinsPerHour || joinsBurst >= config.burstCount;
         if (!shouldActivate) {
             return;
         }
 
-        const activeAt = settings.raidMode.activatedAt ? new Date(settings.raidMode.activatedAt).getTime() : 0;
-        if (settings.raidMode.active && now - activeAt < cooldownMinutes * 60 * 1000) {
-            settings.raidMode.recentJoinCount = Math.max(joinsLastHour, joinsBurst);
-            settings.raidMode.lastJoinAt = new Date(now).toISOString();
-            await this.setSettings(member.guild.id, settings);
-            return;
-        }
-
-        const reason = joinsBurst >= burstCount
-            ? `${burstWindowSeconds}秒以内に ${joinsBurst} 件の参加を検知`
+        const reason = joinsBurst >= config.burstCount
+            ? `${config.burstWindowSeconds}秒以内に ${joinsBurst} 件の参加を検知`
             : `1時間以内に ${joinsLastHour} 件の参加を検知`;
 
         settings.raidMode = {
@@ -372,23 +407,213 @@ export class AntiCheatManager {
             lastJoinAt: new Date(now).toISOString()
         };
 
-        await this.setSettings(member.guild.id, settings);
+        await this.setSettings(guild.id, settings);
+        await this.sendRaidActivationLog(guild, settings, config, reason, joinsLastHour, joinsBurst, member);
 
-        const logChannel = await this.fetchLogChannel(member.guild, settings.logChannelId);
-        if (logChannel) {
-            const embed = new EmbedBuilder()
-                .setTitle('🚨 AntiCheat レイドモードを有効化')
-                .setColor(Colors.Red)
-                .setTimestamp()
-                .setDescription('自動アンチレイドモードが発動しました。参加頻度を確認してください。')
-                .addFields(
-                    { name: '理由', value: reason, inline: false },
-                    { name: '参加数 (1時間)', value: `${joinsLastHour}`, inline: true },
-                    { name: '参加数 (短時間)', value: `${joinsBurst}`, inline: true },
-                    { name: '最後の参加', value: `${member.user.tag}`, inline: true }
-                );
-            await logChannel.send({ embeds: [embed] }).catch(() => null);
+        if (!config.autoKick) {
+            return;
         }
+
+        const candidates = await this.collectRaidKickCandidates(guild, joins, config.kickWindowSeconds * 1000, now);
+        await this.enforceRaidKick(guild, candidates, settings);
+        // Activation must not wait for the coalescing window.
+        await this.flushRaidKickBatch(guild.id);
+    }
+
+    private async sendRaidActivationLog(
+        guild: Guild,
+        settings: GuildAntiCheatSettings,
+        config: ReturnType<typeof readRaidDetectionConfig>,
+        reason: string,
+        joinsLastHour: number,
+        joinsBurst: number,
+        member: GuildMember
+    ): Promise<void> {
+        const logChannel = await this.fetchLogChannel(guild, settings.logChannelId);
+        if (!logChannel) {
+            return;
+        }
+
+        const embed = new EmbedBuilder()
+            .setTitle('🚨 AntiCheat レイドモードを有効化')
+            .setColor(Colors.Red)
+            .setTimestamp()
+            .setDescription('自動アンチレイドモードが発動しました。参加頻度を確認してください。')
+            .addFields(
+                { name: '理由', value: reason, inline: false },
+                { name: '参加数 (1時間)', value: `${joinsLastHour}`, inline: true },
+                { name: '参加数 (短時間)', value: `${joinsBurst}`, inline: true },
+                { name: '最後の参加', value: `${member.user.tag}`, inline: true },
+                {
+                    name: '自動キック',
+                    value: config.autoKick
+                        ? `有効（直近 ${config.kickWindowSeconds} 秒の参加者が対象）`
+                        : '無効（ログのみ）',
+                    inline: false
+                }
+            );
+        await logChannel.send({ embeds: [embed], allowedMentions: { parse: [] } }).catch(() => null);
+    }
+
+    private async logRaidDeactivation(guild: Guild, settings: GuildAntiCheatSettings, cooldownMinutes: number): Promise<void> {
+        const logChannel = await this.fetchLogChannel(guild, settings.logChannelId);
+        if (!logChannel) {
+            return;
+        }
+
+        const embed = new EmbedBuilder()
+            .setTitle('🛡️ AntiCheat レイドモードを解除')
+            .setColor(Colors.Green)
+            .setTimestamp()
+            .setDescription(`${cooldownMinutes}分間 新しい参加がなかったため、レイドモードを自動解除しました。`);
+        await logChannel.send({ embeds: [embed], allowedMentions: { parse: [] } }).catch(() => null);
+    }
+
+    /**
+     * Members to kick on activation. The join cache only covers the current
+     * process, so members whose join timestamp is recent are included as well.
+     */
+    private async collectRaidKickCandidates(
+        guild: Guild,
+        joins: RaidJoinRecord[],
+        windowMs: number,
+        now: number
+    ): Promise<GuildMember[]> {
+        const ids = new Set(
+            joins.filter((record) => now - record.ts <= windowMs).map((record) => record.userId)
+        );
+        for (const cached of guild.members.cache.values()) {
+            const joinedAt = cached.joinedTimestamp;
+            if (typeof joinedAt === 'number' && now - joinedAt <= windowMs) {
+                ids.add(cached.id);
+            }
+        }
+
+        const members: GuildMember[] = [];
+        for (const id of ids) {
+            const member = guild.members.cache.get(id)
+                || await guild.members.fetch(id).catch(() => null);
+            if (member) members.push(member);
+        }
+        return members;
+    }
+
+    private async enforceRaidKick(
+        guild: Guild,
+        members: GuildMember[],
+        settings: GuildAntiCheatSettings
+    ): Promise<void> {
+        const report = await this.kickRaidJoiners(guild, members, settings);
+        if (!report.kicked.length && !report.skipped.length) {
+            return;
+        }
+        this.queueRaidKickReport(guild, settings, report);
+    }
+
+    /** Kick without DMs. Every non-kick is recorded with its reason. */
+    private async kickRaidJoiners(
+        guild: Guild,
+        members: GuildMember[],
+        settings: GuildAntiCheatSettings
+    ): Promise<RaidKickReport> {
+        const report: RaidKickReport = { kicked: [], skipped: [] };
+        if (!members.length) {
+            return report;
+        }
+
+        const ownerId = guild.ownerId
+            || await guild.fetchOwner().then((owner) => owner.id).catch(() => null);
+        const seen = new Set<string>();
+        for (const member of members) {
+            if (seen.has(member.id)) continue;
+            seen.add(member.id);
+
+            const tag = member.user?.tag || member.user?.username || member.id;
+            const skipReason = raidKickSkipReason(member, ownerId, settings.excludedRoles);
+            if (skipReason) {
+                report.skipped.push({ id: member.id, tag, reason: skipReason });
+                continue;
+            }
+
+            try {
+                await member.kick(RAID_KICK_REASON);
+                report.kicked.push({ id: member.id, tag });
+                Logger.info(`[AntiRaid] kicked ${tag} (${member.id}) in guild ${guild.id}`);
+            } catch (error: any) {
+                // Already gone by the time the batch ran: not a failure.
+                if (error?.code === 10007 || error?.code === 10013) continue;
+                const reason = error instanceof Error ? error.message : String(error);
+                report.skipped.push({ id: member.id, tag, reason: `キック失敗: ${reason}` });
+                Logger.warn(`[AntiRaid] kick failed for ${member.id} in guild ${guild.id}: ${reason}`);
+            }
+        }
+        return report;
+    }
+
+    private queueRaidKickReport(
+        guild: Guild,
+        settings: GuildAntiCheatSettings,
+        report: RaidKickReport
+    ): void {
+        const existing = this.raidKickBatches.get(guild.id);
+        const batch = existing || {
+            guild,
+            logChannelId: settings.logChannelId,
+            report: { kicked: [], skipped: [] } as RaidKickReport
+        };
+        batch.guild = guild;
+        batch.logChannelId = settings.logChannelId;
+        batch.report.kicked.push(...report.kicked);
+        batch.report.skipped.push(...report.skipped);
+        if (!batch.timer) {
+            // One embed per kick batch instead of one message per kick.
+            batch.timer = setTimeout(() => {
+                batch.timer = undefined;
+                this.runDetached(this.flushRaidKickBatch(guild.id), `raid-kick-summary:${guild.id}`);
+            }, RAID_KICK_LOG_WINDOW_MS);
+            batch.timer.unref?.();
+        }
+        this.raidKickBatches.set(guild.id, batch);
+    }
+
+    private async flushRaidKickBatch(guildId: string): Promise<void> {
+        const batch = this.raidKickBatches.get(guildId);
+        if (!batch) return;
+        this.raidKickBatches.delete(guildId);
+        if (batch.timer) clearTimeout(batch.timer);
+        batch.timer = undefined;
+        await this.sendRaidKickSummary(batch.guild, batch.logChannelId, batch.report);
+    }
+
+    private async sendRaidKickSummary(
+        guild: Guild,
+        logChannelId: string | null,
+        report: RaidKickReport
+    ): Promise<void> {
+        if (!report.kicked.length && !report.skipped.length) return;
+        const logChannel = await this.fetchLogChannel(guild, logChannelId);
+        if (!logChannel) return;
+
+        const embed = new EmbedBuilder()
+            .setTitle('🚨 AntiRaid 自動キック')
+            .setColor(report.kicked.length ? Colors.Red : Colors.Orange)
+            .setTimestamp()
+            .setDescription(`レイド検知により ${report.kicked.length} 人をキックしました。`);
+        if (report.kicked.length) {
+            embed.addFields({
+                name: `キック (${report.kicked.length})`,
+                value: formatRaidKickLines(report.kicked),
+                inline: false
+            });
+        }
+        if (report.skipped.length) {
+            embed.addFields({
+                name: `スキップ (${report.skipped.length})`,
+                value: formatRaidKickLines(report.skipped),
+                inline: false
+            });
+        }
+        await logChannel.send({ embeds: [embed], allowedMentions: { parse: [] } }).catch(() => null);
     }
 
     async onGuildMemberUpdate(oldMember: GuildMember, newMember: GuildMember): Promise<void> {

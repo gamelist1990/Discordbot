@@ -108,6 +108,20 @@ export interface RaidModeState {
     lastJoinAt: string | null;
 }
 
+export interface RaidDetectionConfig {
+    /** Joins within one hour that activate raid mode. */
+    joinsPerHour: number;
+    /** Joins within burstWindowSeconds that activate raid mode. */
+    burstCount: number;
+    burstWindowSeconds: number;
+    /** Inactivity after which raid mode deactivates itself. */
+    cooldownMinutes: number;
+    /** When false, raid mode only activates and logs (legacy behavior). */
+    autoKick: boolean;
+    /** On activation, kick members who joined within this many seconds. */
+    kickWindowSeconds: number;
+}
+
 export interface GuildAntiCheatSettings {
     enabled: boolean;
     detectors: Record<string, DetectorConfig>;
@@ -303,10 +317,12 @@ export const DEFAULT_ANTICHEAT_SETTINGS: GuildAntiCheatSettings = {
             deleteMessage: false,
             notifyChannel: true,
             config: {
-                joinsPerHour: 25,
-                burstCount: 10,
-                burstWindowSeconds: 10,
-                cooldownMinutes: 60
+                joinsPerHour: 20,
+                burstCount: 8,
+                burstWindowSeconds: 60,
+                cooldownMinutes: 60,
+                autoKick: 1,
+                kickWindowSeconds: 60
             }
         }
     },
