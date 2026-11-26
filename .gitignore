@@ -24,3 +24,4 @@ assets/youtube/youtube-cookies.json
 *.backup-*
 config.json.backup-*
 test-results/
+node_modules
