@@ -7,17 +7,21 @@
  * the local decryption script.
  */
 
-export type WebAuthBrowserName = 'chrome' | 'edge';
+export type WebAuthBrowserName = 'chrome' | 'edge' | 'safari';
 
 export type WebAuthBrowserReason =
     | 'ok'
     | 'missing-user-agent'
     | 'firefox'
+    /** Legacy reason for Safari rejections; Safari is accepted now. */
     | 'safari'
+    /** Legacy reason for CriOS/FxiOS/EdgiOS rejections; they are accepted now. */
     | 'ios-chrome'
     | 'in-app-webview'
     | 'headless'
     | 'unsupported-chromium'
+    /** WebKit without a recognised Safari-family signature (app shells, …). */
+    | 'unsupported-webkit'
     | 'brand-mismatch';
 
 export interface BrowserBrand {
@@ -261,6 +265,12 @@ export interface DragChallengeConfig {
     dropGapPx: number;
     fieldMarginPx: number;
     maxAttempts: number;
+    /** iOS Safari delivers sparser pointer events than a mouse. */
+    minSamplesTouch: number;
+    /** Touch drags are quick; keep a floor that still rejects flicks. */
+    minDurationMsTouch: number;
+    /** Sparse touch samples undersample the wobble, so allow a little less. */
+    minLineDeviationPxTouch: number;
     /** Layout in the logical 320x220 field. */
     fieldWidth: number;
     fieldHeight: number;

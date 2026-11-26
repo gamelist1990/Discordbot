@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+    browserRequirementMessage,
     escapeHtml,
     jsonForScript,
     renderWebAuthErrorPage,
@@ -92,12 +93,41 @@ test('a VPN-blocked page disables the button and explains why', () => {
     assert.ok(html.includes('disabled'));
 });
 
-test('an unsupported browser page shows the Chrome/Edge requirement', () => {
+test('an unsupported browser page shows the Chrome/Edge/Safari requirement', () => {
     const html = renderWebAuthPage({
         ...READY,
         browser: { allowed: false, browser: null, reason: 'firefox' }
     }, 'n');
     assert.ok(html.includes('Firefox は非対応'));
+    assert.ok(html.includes('Safari'));
+});
+
+test('Safari is a supported browser on the auth page', () => {
+    const html = renderWebAuthPage({
+        ...READY,
+        browser: { allowed: true, browser: 'safari', reason: 'ok' }
+    }, 'n');
+    assert.equal(/id="auth-button"[^>]*disabled/.test(html), true, 'the drag gate still disables submit');
+    assert.ok(html.includes('Chrome・Edge・Safari'));
+    assert.equal(html.includes('Firefox は非対応'), false);
+    assert.equal(browserRequirementMessage({ allowed: false, browser: null, reason: 'unsupported-webkit' }).includes('Safari'), true);
+});
+
+test('the page embeds the shared browser gate and messages', () => {
+    const html = renderWebAuthPage(READY, 'n');
+    assert.ok(html.includes('evaluateBrowserUserAgent'));
+    assert.ok(html.includes('browserRequirementMessage'));
+});
+
+test('the page is styled with the staff theme and a Safari-safe font stack', () => {
+    const html = renderWebAuthPage(READY, 'n');
+    assert.ok(html.includes('#faf9f6'), 'site background');
+    assert.ok(html.includes('#59534b'), 'site accent');
+    assert.ok(html.includes('#302e2b'), 'site ink');
+    assert.ok(html.includes('IBM Plex Sans JP'));
+    assert.ok(html.includes('fonts.googleapis.com'));
+    assert.ok(html.includes('prefers-color-scheme:dark'), 'dark scheme mirrors global.css');
+    assert.ok(html.includes('touch-action:none'));
 });
 
 test('error pages do not render the auth script', () => {

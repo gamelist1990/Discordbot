@@ -20,10 +20,10 @@ const FINGERPRINT_COMPONENT_KEYS: FingerprintComponentKey[] = [
     'canvas', 'webgl', 'screen', 'platform', 'locale', 'hardware', 'audio'
 ];
 
-const BROWSER_NAMES: WebAuthBrowserName[] = ['chrome', 'edge'];
+const BROWSER_NAMES: WebAuthBrowserName[] = ['chrome', 'edge', 'safari'];
 const BROWSER_REASONS: Array<WebAuthBrowserReason | 'staff'> = [
     'ok', 'missing-user-agent', 'firefox', 'safari', 'ios-chrome',
-    'in-app-webview', 'headless', 'unsupported-chromium', 'brand-mismatch', 'staff'
+    'in-app-webview', 'headless', 'unsupported-chromium', 'unsupported-webkit', 'brand-mismatch', 'staff'
 ];
 const INTEL_VERDICTS = ['clean', 'blocked', 'unavailable', 'staff'];
 

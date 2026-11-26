@@ -1,4 +1,5 @@
 import type { WebAuthPageData } from '../../core/webauth/WebAuthService.js';
+import { evaluateBrowserUserAgent } from '../../core/webauth/browserGate.js';
 import type { BrowserGateResult } from '../../core/webauth/types.js';
 
 /** HTML-escapes untrusted Discord names before they are interpolated. */
@@ -23,54 +24,101 @@ export function jsonForScript(value: unknown): string {
 }
 
 const PAGE_STYLE = `
-:root{color-scheme:dark}
+:root{
+color-scheme:light;
+--bg:#faf9f6;--surface:#ffffff;--surface-soft:#f7f5f1;
+--border:rgba(58,48,33,.10);--border-strong:rgba(58,48,33,.18);
+--ink:#302e2b;--ink-soft:#69655f;--ink-muted:#79736c;
+--accent:#59534b;--accent-strong:#39352f;--accent-soft:#ede9e2;--on-accent:#ffffff;
+--success:#127a5a;--warn:#c07b15;--danger:#c43d42;
+--success-bg:#eff7f3;--success-border:#cfe8dc;--success-ink:#0f5f46;
+--warn-bg:#fdf6e8;--warn-border:#efe0bf;--warn-ink:#8a5a11;
+--danger-bg:#fdf2f2;--danger-border:#f0cdce;--danger-ink:#a83237;
+--shadow-md:0 4px 16px rgba(20,30,50,.05);
+--radius-lg:16px;--radius-md:12px;
+}
+@media (prefers-color-scheme:dark){
+:root{
+color-scheme:dark;
+--bg:#1b1a18;--surface:#27241f;--surface-soft:#302d27;
+--border:rgba(148,163,184,.16);--border-strong:rgba(148,163,184,.28);
+--ink:#f4f0e9;--ink-soft:#c2bcb2;--ink-muted:#a29a8e;
+--accent:#ddd3c3;--accent-strong:#e7dece;--accent-soft:rgba(221,211,195,.12);--on-accent:#28231c;
+--success:#4bc694;--warn:#e3a64a;--danger:#ef6b73;
+--success-bg:#1b2a24;--success-border:#2c4b3f;--success-ink:#8fd9bb;
+--warn-bg:#2f2819;--warn-border:#524426;--warn-ink:#e8c07d;
+--danger-bg:#33211f;--danger-border:#5a2f2f;--danger-ink:#f0a5a8;
+--shadow-md:0 14px 32px rgba(0,0,0,.32);
+}
+}
 *{box-sizing:border-box}
-body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
-background:radial-gradient(1200px 600px at 50% -10%,#1e2545,#0b0d16 60%);color:#e8ecf8;
-font-family:system-ui,-apple-system,"Segoe UI","Hiragino Sans","Noto Sans JP",sans-serif;padding:24px}
-.card{width:min(560px,100%);background:rgba(19,23,38,.92);border:1px solid #2b3352;border-radius:20px;
-padding:32px;box-shadow:0 24px 80px rgba(0,0,0,.45)}
-.eyebrow{font-size:12px;letter-spacing:.14em;color:#8b9bd6;font-weight:700}
-h1{margin:8px 0 4px;font-size:26px}
-.sub{margin:0;color:#a6b0d0;font-size:14px}
-.target{margin:22px 0;padding:16px;border-radius:14px;background:#111528;border:1px solid #262e4c}
-.target div{display:flex;justify-content:space-between;gap:12px;padding:6px 0;font-size:14px}
-.target span:first-child{color:#8f9ac0}
-.target span:last-child{font-weight:600;text-align:right;word-break:break-all}
-.status{margin:16px 0;padding:12px 14px;border-radius:12px;font-size:14px;line-height:1.55;
-background:#172038;border:1px solid #2a3866;color:#c9d3f5}
-.status.bad{background:#2a1420;border-color:#6b2540;color:#ffc4d5}
-.status.warn{background:#2a2210;border-color:#6b5520;color:#ffe1a3}
-.status.ok{background:#0f2a1c;border-color:#1f6b45;color:#b9f5d3}
-.features{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0 0;font-size:12px;color:#95a2c9}
-.features span{padding:4px 9px;border-radius:999px;background:#151b2e;border:1px solid #293255}
-button{width:100%;margin-top:20px;padding:15px 20px;border-radius:14px;border:0;font-size:16px;font-weight:700;
-color:#fff;background:linear-gradient(180deg,#5669f5,#4353d8);cursor:pointer}
-button:disabled{background:#2a3050;color:#7d88ab;cursor:not-allowed}
-button:focus-visible{outline:2px solid #93a4ff;outline-offset:2px}
-.note{margin-top:16px;font-size:12px;line-height:1.6;color:#8590b4}
-.challenge{margin:18px 0 0;padding:14px;border-radius:14px;background:#111528;border:1px solid #262e4c}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;min-height:100vh;min-height:100svh;display:flex;align-items:center;justify-content:center;
+background:var(--bg);color:var(--ink);
+font-family:'IBM Plex Sans JP','IBM Plex Sans',system-ui,-apple-system,'Hiragino Sans','Noto Sans JP',sans-serif;
+font-size:16px;line-height:1.6;padding:24px;-webkit-font-smoothing:antialiased}
+.card{width:100%;max-width:560px;background:var(--surface);border:1px solid var(--border);
+border-radius:var(--radius-lg);padding:32px;box-shadow:var(--shadow-md);overflow-wrap:anywhere}
+.eyebrow{font-size:11px;letter-spacing:.16em;color:var(--ink-muted);font-weight:700;text-transform:uppercase}
+h1{margin:6px 0 4px;font-size:26px;line-height:1.3;font-weight:700;letter-spacing:-.01em}
+.sub{margin:0;color:var(--ink-soft);font-size:14px}
+.target{margin:20px 0;padding:6px 16px;border-radius:var(--radius-md);background:var(--surface-soft);border:1px solid var(--border)}
+.target div{display:flex;justify-content:space-between;gap:12px;padding:9px 0;font-size:14px;border-bottom:1px solid var(--border)}
+.target div:last-child{border-bottom:0}
+.target span:first-child{color:var(--ink-soft);flex:none}
+.target span:last-child{font-weight:600;text-align:right;word-break:break-word}
+.status{margin:16px 0;padding:12px 14px;border-radius:var(--radius-md);font-size:14px;line-height:1.6;
+background:var(--surface-soft);border:1px solid var(--border);color:var(--ink-soft)}
+.status.bad{background:var(--danger-bg);border-color:var(--danger-border);color:var(--danger-ink)}
+.status.warn{background:var(--warn-bg);border-color:var(--warn-border);color:var(--warn-ink)}
+.status.ok{background:var(--success-bg);border-color:var(--success-border);color:var(--success-ink)}
+.features{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0 0;font-size:12px;color:var(--ink-soft)}
+.features span{padding:4px 10px;border-radius:999px;background:var(--surface-soft);border:1px solid var(--border)}
+button{width:100%;margin-top:20px;padding:15px 20px;border-radius:var(--radius-md);border:1px solid transparent;
+font-family:inherit;font-size:16px;font-weight:700;color:var(--on-accent);background:var(--accent);cursor:pointer;
+min-height:52px;touch-action:manipulation;
+transition:background .18s ease,border-color .18s ease,color .18s ease,opacity .18s ease}
+button:hover:not(:disabled){background:var(--accent-strong)}
+button:disabled{background:var(--surface-soft);border-color:var(--border);color:var(--ink-muted);opacity:.7;cursor:not-allowed}
+button:focus-visible{outline:3px solid var(--accent);outline-offset:3px}
+.note{margin-top:16px;font-size:12px;line-height:1.7;color:var(--ink-muted)}
+.challenge{margin:18px 0 0;padding:14px;border-radius:var(--radius-md);background:var(--surface-soft);border:1px solid var(--border)}
 .challenge-head{display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:12px;
-letter-spacing:.08em;color:#8b9bd6;font-weight:700}
-.challenge-instruction{margin:10px 0;font-size:15px;font-weight:700;line-height:1.5}
-.challenge-note{margin:8px 0 0;font-size:12px;line-height:1.6;color:#8590b4}
-.field{position:relative;width:100%;aspect-ratio:320/220;border-radius:12px;overflow:hidden;
-background-color:#0d1122;
-background-image:linear-gradient(#151b30 1px,transparent 1px),linear-gradient(90deg,#151b30 1px,transparent 1px);
-background-size:25% 33.333%;border:1px dashed #2f3a63;touch-action:none;
+letter-spacing:.08em;color:var(--ink-soft);font-weight:700}
+.challenge-instruction{margin:10px 0;font-size:15px;font-weight:700;line-height:1.5;color:var(--ink)}
+.challenge-note{margin:8px 0 0;font-size:12px;line-height:1.6;color:var(--ink-muted)}
+.field{position:relative;width:100%;aspect-ratio:320/220;border-radius:var(--radius-md);overflow:hidden;
+background-color:var(--surface);
+background-image:linear-gradient(var(--border) 1px,transparent 1px),linear-gradient(90deg,var(--border) 1px,transparent 1px);
+background-size:25% 33.333%;border:1px dashed var(--border-strong);touch-action:none;
 user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
-.field.disabled{opacity:.45}
-.field.passed{border-color:#1f6b45;background-color:#0d1a14}
+.field.disabled{opacity:.5}
+.field.passed{border-color:var(--success-border);background-color:var(--success-bg)}
 .ch-item{position:absolute;display:flex;align-items:center;justify-content:center;border-radius:10px;
-background:#1b2340;border:1px solid #36426d;color:#dfe6ff;font-size:18px;line-height:1;
-cursor:grab;touch-action:none;transform:translate(-50%,-50%);will-change:left,top}
-.ch-item:hover{background:#232d52}
-.ch-item.dragging{cursor:grabbing;background:#2b3766;border-color:#5c6fe0;box-shadow:0 8px 20px rgba(0,0,0,.45)}
-.ch-target{position:absolute;transform:translate(-50%,-50%);border-radius:12px;border:2px dashed #4a5bb5;
-background:rgba(74,91,181,.14);display:flex;align-items:center;justify-content:center;
-color:#a9b8ff;font-size:11px;font-weight:700;pointer-events:none}
-.challenge.done .challenge-instruction{color:#b9f5d3}
-a{color:#9db0ff}
+background:var(--surface);border:1px solid var(--border-strong);color:var(--ink);font-size:18px;line-height:1;
+cursor:grab;touch-action:none;transform:translate(-50%,-50%);will-change:left,top;
+box-shadow:0 1px 3px rgba(20,30,50,.06)}
+.ch-item:hover{background:var(--accent-soft)}
+.ch-item.dragging{cursor:grabbing;background:var(--accent-soft);border-color:var(--accent);box-shadow:var(--shadow-md)}
+.ch-target{position:absolute;transform:translate(-50%,-50%);border-radius:12px;border:2px dashed var(--accent);
+background:var(--accent-soft);display:flex;align-items:center;justify-content:center;
+color:var(--ink-soft);font-size:11px;font-weight:700;pointer-events:none}
+.challenge.done .challenge-instruction{color:var(--success-ink)}
+a{color:var(--accent);text-underline-offset:2px}
+@media (max-width:420px){
+body{padding:10px}
+.card{padding:14px}
+.challenge{padding:8px}
+h1{font-size:22px}
+button{padding:14px 16px}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+`;
+
+const FONT_LINKS = `
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Sans+JP:wght@400;500;600;700&display=swap" rel="stylesheet">
 `;
 
 function shell(body: string, script: string, nonce: string): string {
@@ -79,8 +127,10 @@ function shell(body: string, script: string, nonce: string): string {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light dark">
 <meta name="robots" content="noindex,nofollow">
 <title>Web認証</title>
+${FONT_LINKS}
 <style nonce="${escapeHtml(nonce)}">${PAGE_STYLE}</style>
 </head>
 <body>
@@ -97,14 +147,15 @@ ${script ? `<script nonce="${escapeHtml(nonce)}">${script}</script>` : ''}
 export function browserRequirementMessage(browser: BrowserGateResult): string {
     switch (browser.reason) {
         case 'ok': return '';
-        case 'firefox': return 'Firefox は非対応です。Google Chrome または Microsoft Edge で開いてください。';
-        case 'safari': return 'Safari は非対応です。Google Chrome または Microsoft Edge で開いてください。';
-        case 'ios-chrome': return 'iOS版のブラウザは非対応です。パソコンの Google Chrome または Microsoft Edge で開いてください。';
-        case 'in-app-webview': return 'アプリ内ブラウザは非対応です。Google Chrome または Microsoft Edge で開いてください。';
-        case 'headless': return '自動化ブラウザでは認証できません。Google Chrome または Microsoft Edge で開いてください。';
-        case 'missing-user-agent': return 'ブラウザ情報を取得できません。Google Chrome または Microsoft Edge で開いてください。';
-        case 'brand-mismatch': return 'ブラウザ情報が一致しません。Google Chrome または Microsoft Edge で開いてください。';
-        default: return 'Google Chrome または Microsoft Edge のみ認証できます。';
+        case 'firefox': return 'Firefox は非対応です。Google Chrome・Microsoft Edge・Safari で開いてください。';
+        case 'safari': return 'このSafariでは認証できません。最新のSafari、Google Chrome、Microsoft Edge で開いてください。';
+        case 'ios-chrome': return 'このアプリ内ブラウザは非対応です。Safari で開いてください。';
+        case 'in-app-webview': return 'アプリ内ブラウザは非対応です。Safari、Google Chrome、Microsoft Edge で開いてください。';
+        case 'headless': return '自動化ブラウザでは認証できません。Google Chrome・Microsoft Edge・Safari で開いてください。';
+        case 'missing-user-agent': return 'ブラウザ情報を取得できません。Google Chrome・Microsoft Edge・Safari で開いてください。';
+        case 'unsupported-webkit': return 'このブラウザは非対応です。Safari、Google Chrome、Microsoft Edge で開いてください。';
+        case 'brand-mismatch': return 'ブラウザ情報が一致しません。Google Chrome・Microsoft Edge・Safari で開いてください。';
+        default: return 'Google Chrome・Microsoft Edge・Safari のみ認証できます。';
     }
 }
 
@@ -205,6 +256,9 @@ export function renderWebAuthPage(data: WebAuthPageData, nonce: string): string 
 (function(){
 "use strict";
 var S=${jsonForScript(serverState)};
+/* Shared with the server gate (single source of truth). */
+var browserGate=(${evaluateBrowserUserAgent.toString()});
+var browserMessage=(${browserRequirementMessage.toString()});
 var btn=document.getElementById('auth-button');
 var status=document.getElementById('auth-status');
 var chBox=document.getElementById('ch-challenge');
@@ -213,6 +267,7 @@ var instr=document.getElementById('ch-instruction');
 var chNote=document.getElementById('ch-note');
 var attemptsEl=document.getElementById('ch-attempts');
 var blocked=!S.browserOk||S.vpnBlocked;
+var clientOk=true;
 var passed=!!S.challengePassed;
 var ch=S.challenge||null;
 
@@ -223,7 +278,7 @@ function setAttempts(n){
   attemptsEl.textContent=n>0?('残り '+n+' 回'):'再試行不可';
 }
 function refreshButton(){
-  if(blocked){btn.disabled=true;btn.textContent='認証できません';return;}
+  if(blocked||!clientOk){btn.disabled=true;btn.textContent='認証できません';return;}
   if(!passed){btn.disabled=true;btn.textContent='認証する';return;}
   btn.disabled=false;btn.textContent='認証する';
 }
@@ -233,20 +288,14 @@ function brandsNow(){
   return null;
 }
 function clientBrowserCheck(){
-  var ua=navigator.userAgent||'';
-  var brands=brandsNow();
-  var edgeBrand=!!brands&&brands.some(function(b){return /microsoft edge/i.test(String(b.brand||''));});
-  var chromeBrand=!!brands&&brands.some(function(b){return /google chrome/i.test(String(b.brand||''));});
-  var chromiumBrand=!!brands&&brands.some(function(b){return /chromium/i.test(String(b.brand||''));});
-  var edgeUa=/\\bEdg(A|\\/)/.test(ua);
-  var chromeUa=/Chrome\\//.test(ua);
-  var bad=/(Firefox\\/|FxiOS\\/|CriOS\\/|EdgiOS\\/|OPR\\/|SamsungBrowser|Vivaldi|;\\s*wv\\)|HeadlessChrome)/i.test(ua);
-  if(bad)return {ok:false,reason:'このブラウザは非対応です。Google Chrome または Microsoft Edge で開いてください。'};
-  if(edgeUa){ if(brands&&!edgeBrand)return {ok:false,reason:'ブラウザ情報が一致しません。Google Chrome または Microsoft Edge で開いてください。'}; return {ok:true}; }
-  if(!chromeUa)return {ok:false,reason:'Google Chrome または Microsoft Edge のみ認証できます。'};
-  if(brands&&!chromeBrand&&!chromiumBrand)return {ok:false,reason:'ブラウザ情報が一致しません。Google Chrome または Microsoft Edge で開いてください。'};
-  if(brands&&edgeBrand)return {ok:false,reason:'ブラウザ情報が一致しません。Google Chrome または Microsoft Edge で開いてください。'};
-  return {ok:true};
+  try{
+    var result=browserGate(navigator.userAgent||'',brandsNow()||[]);
+    if(result&&result.allowed)return {ok:true};
+    return {ok:false,reason:browserMessage(result||{reason:'unsupported-chromium'})||'Google Chrome・Microsoft Edge・Safari で開いてください。'};
+  }catch(e){
+    /* A client-side failure must not block a browser the server may accept. */
+    return {ok:true};
+  }
 }
 
 function sha256Hex(buffer){
@@ -296,25 +345,46 @@ function uaCh(){
     }).catch(function(){return {brands:brandsNow()||[],mobile:false};});
   }catch(e){return Promise.resolve({brands:[],mobile:false});}
 }
+function safeNumber(value){
+  var n=Number(value);
+  return isFinite(n)?n:0;
+}
 function collect(){
   var gl=webglInfo();
   return Promise.all([canvasHash(),uaCh()]).then(function(res){
-    var touch={};
-    try{touch={maxTouchPoints:navigator.maxTouchPoints||0,touchEvent:('ontouchstart' in window)};}catch(e){}
-    var tz='';
+    var touch={maxTouchPoints:0,touchEvent:false};
+    var scr={width:0,height:0,colorDepth:0,pixelDepth:0};
+    var tz='',langs=[],cores=0,mem=0;
+    /* Every group is optional: Safari exposes no UA-CH, may omit
+       deviceMemory and can restrict WebGL. A missing group is simply
+       absent, never a submit blocker. */
+    try{touch={maxTouchPoints:safeNumber(navigator.maxTouchPoints),touchEvent:('ontouchstart' in window)};}catch(e){}
     try{tz=Intl.DateTimeFormat().resolvedOptions().timeZone||'';}catch(e){}
+    try{scr={width:safeNumber(screen.width),height:safeNumber(screen.height),colorDepth:safeNumber(screen.colorDepth),pixelDepth:safeNumber(screen.pixelDepth)};}catch(e){}
+    try{langs=Array.isArray(navigator.languages)?navigator.languages.slice(0,20):[];}catch(e){}
+    try{cores=safeNumber(navigator.hardwareConcurrency);}catch(e){}
+    try{mem=safeNumber(navigator.deviceMemory);}catch(e){}
     return {
       userAgent:String(navigator.userAgent||''),
-      uaCh:res[1]||{},
-      screen:{width:screen.width,height:screen.height,colorDepth:screen.colorDepth,pixelDepth:screen.pixelDepth},
+      uaCh:res[1]||{brands:[],mobile:false},
+      screen:scr,
       timezone:tz,
-      languages:Array.isArray(navigator.languages)?navigator.languages.slice(0,20):[],
-      hardwareConcurrency:navigator.hardwareConcurrency||0,
-      deviceMemory:navigator.deviceMemory||0,
-      canvasHash:res[0]||'',
-      webglVendor:gl.vendor,
-      webglRenderer:gl.renderer,
+      languages:langs,
+      hardwareConcurrency:cores,
+      deviceMemory:mem,
+      canvasHash:(res&&res[0])||'',
+      webglVendor:(gl&&gl.vendor)||'',
+      webglRenderer:(gl&&gl.renderer)||'',
       touch:touch
+    };
+  }).catch(function(){
+    return {
+      userAgent:String(navigator.userAgent||''),
+      uaCh:{brands:[],mobile:false},
+      screen:{width:0,height:0,colorDepth:0,pixelDepth:0},
+      timezone:'',languages:[],hardwareConcurrency:0,deviceMemory:0,
+      canvasHash:'',webglVendor:'',webglRenderer:'',
+      touch:{maxTouchPoints:0,touchEvent:false}
     };
   });
 }
@@ -381,11 +451,11 @@ function markPassed(){
   setStatus('操作チェック完了。認証するボタンが有効になりました。','ok');
   refreshButton();
 }
-function submitAttempt(itemId,drop,samples,el){
+function submitAttempt(itemId,drop,samples,pointerType,el){
   setStatus('操作を確認しています…','');
   fetch(S.challengeUrl,{
     method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({itemId:itemId,drop:{x:drop.x,y:drop.y},samples:samples})
+    body:JSON.stringify({itemId:itemId,drop:{x:drop.x,y:drop.y},samples:samples,pointerType:pointerType})
   }).then(function(response){
     return response.json().catch(function(){return {};}).then(function(body){return {status:response.status,body:body};});
   }).then(function(result){
@@ -423,12 +493,14 @@ if(field&&!blocked&&!passed){
     if(!el||!field.contains(el))return;
     evt.preventDefault();
     var itemId=el.dataset.itemId;
+    var pointerType=evt.pointerType||'mouse';
     var t0=null,lastT=-1,samples=[],lastPoint=logical(evt);
     function sample(point){
       var now=performance.now();
       if(t0===null)t0=now;
       var t=now-t0;
-      if(samples.length&&t-lastT<12)return;
+      /* Touch events are already sparse on iOS; never drop one. */
+      if(samples.length&&t-lastT<(pointerType==='touch'?0:12))return;
       samples.push({t:Math.round(t),x:Math.round(point.x*10)/10,y:Math.round(point.y*10)/10});
       lastT=t;
     }
@@ -457,7 +529,7 @@ if(field&&!blocked&&!passed){
       if(t<lastT)t=lastT;
       samples.push({t:Math.round(t),x:Math.round(point.x*10)/10,y:Math.round(point.y*10)/10});
       el.classList.remove('dragging');
-      submitAttempt(itemId,point,samples,el);
+      submitAttempt(itemId,point,samples,pointerType,el);
     }
     function cancel(){
       detach();
@@ -479,7 +551,7 @@ if(field&&!blocked&&!passed){
 }
 
 var check=clientBrowserCheck();
-if(!check.ok){btn.disabled=true;btn.textContent='認証できません';setStatus(check.reason,'bad');}
+if(!check.ok){clientOk=false;btn.disabled=true;btn.textContent='認証できません';setStatus(check.reason,'bad');}
 else if(S.vpnBlocked){btn.disabled=true;btn.textContent='認証できません';setStatus('VPN・プロキシ経由では認証できません。VPNを切断してから再読み込みしてください。','bad');}
 else{refreshButton();}
 if(blocked&&field)field.classList.add('disabled');
@@ -515,7 +587,7 @@ btn.addEventListener('click',function(){
 <div id="auth-status" class="status ${statusClass}" role="status">${escapeHtml(initialStatus)}</div>
 ${renderChallengeBlock(data, blocked)}
 <div class="features">
-<span>Chrome / Edge のみ</span><span>IPはハッシュ化</span><span>端末情報は暗号化</span>
+<span>Chrome・Edge・Safari</span><span>IPはハッシュ化</span><span>端末情報は暗号化</span>
 </div>
 <button id="auth-button" type="button"${blocked || !data.challengePassed ? ' disabled' : ''}>認証する</button>
 <p class="note">

@@ -168,6 +168,22 @@ export const FINGERPRINT_FUZZY_CONFIG: FingerprintFuzzyConfig = {
 };
 
 /**
+ * Coarse OS label derived from the UA. Safari exposes no UA-CH platform, so
+ * the `platform` fuzzy component falls back to this; Chromium keeps using the
+ * higher-fidelity UA-CH value.
+ */
+export function platformFromUserAgent(userAgent: string): string {
+    const ua = String(userAgent || '');
+    if (/iPhone|iPad|iPod/i.test(ua) || (/Macintosh/i.test(ua) && /Mobile\//.test(ua))) return 'iOS';
+    if (/Android/i.test(ua)) return 'Android';
+    if (/Windows/i.test(ua)) return 'Windows';
+    if (/CrOS/i.test(ua)) return 'Chrome OS';
+    if (/Macintosh|Mac OS X/i.test(ua)) return 'macOS';
+    if (/Linux/i.test(ua)) return 'Linux';
+    return '';
+}
+
+/**
  * Splits the canonical fingerprint back into independent component values.
  * Empty components are omitted from the stored hashes so two missing values
  * never look like a match.
@@ -178,7 +194,7 @@ export function fingerprintComponentValues(input: NormalizedFingerprintSignals):
         .join('|');
     const platform = [
         input.userAgent,
-        input.uaCh.platform,
+        input.uaCh.platform || platformFromUserAgent(input.userAgent),
         input.uaCh.platformVersion,
         input.uaCh.model,
         input.uaCh.mobile ? 'mobile' : '',
@@ -236,11 +252,19 @@ export interface FingerprintFuzzyScore {
 
 /**
  * Weighted component similarity. `ratio` is matched weight divided by the
- * weight of the components that could be compared: a group missing on BOTH
+ * weight of the components observed on either side: a group missing on BOTH
  * sides (e.g. audio, which the page does not collect yet) is not held against
  * the pair, while a group present on only one side counts as unconfirmed.
- * `0.75` therefore means "three quarters of the observable fingerprint
- * agrees", with canvas and webgl dominating.
+ *
+ * The denominator is therefore never the full configured weight, only what
+ * the two records actually expose. A Safari record — no UA-CH platform
+ * detail, no `deviceMemory`, a generic/restricted WebGL renderer — scores
+ * 1.00 against itself, so the ratio is not systematically deflated by
+ * components the browser cannot provide.
+ *
+ * One-sided groups stay in the denominator on purpose: dropping them
+ * (intersection semantics) would let a client omit canvas + WebGL and match
+ * on the remaining low-entropy groups alone.
  */
 export function scoreFingerprintSimilarity(
     left: FingerprintSignalHashes | null | undefined,

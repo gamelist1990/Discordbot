@@ -181,6 +181,72 @@ test('a too-fast drag fails the duration floor', () => {
     assert.equal(result.reason, 'duration');
 });
 
+test('a normal short touch drag passes while touch bot patterns still fail', () => {
+    const challenge = testChallenge();
+    // iOS Safari delivers sparser pointer events: 8 samples over 350 ms is a
+    // realistic short finger drag and must pass on the touch profile.
+    const short = trajectory(challenge, { count: 8, durationMs: 350, wobble: 5 });
+    assert.equal(evaluateDragChallenge({ challenge, ...short, pointerType: 'touch' }).ok, true);
+    // The same trajectory is below the mouse floor (15 samples).
+    assert.equal(
+        evaluateDragChallenge({ challenge, ...short, pointerType: 'mouse' }).reason,
+        'too-few-samples'
+    );
+    assert.equal(
+        evaluateDragChallenge({ challenge, ...short, pointerType: null }).reason,
+        'too-few-samples'
+    );
+    // 5 samples are still too few even on touch.
+    assert.equal(
+        evaluateDragChallenge({
+            challenge,
+            ...trajectory(challenge, { count: 5, durationMs: 400 }),
+            pointerType: 'touch'
+        }).reason,
+        'too-few-samples'
+    );
+    // A scripted straight line fails on touch too (the touch deviation floor
+    // is 2 px, a synthetic path is ~0).
+    assert.equal(
+        evaluateDragChallenge({
+            challenge,
+            ...trajectory(challenge, { count: 9, durationMs: 400, wobble: 0 }),
+            pointerType: 'touch'
+        }).reason,
+        'too-straight'
+    );
+    // A flick below the touch duration floor fails.
+    assert.equal(
+        evaluateDragChallenge({
+            challenge,
+            ...trajectory(challenge, { count: 8, durationMs: 200 }),
+            pointerType: 'touch'
+        }).reason,
+        'duration'
+    );
+    // Teleporting still fails on touch.
+    const teleportChallenge = testChallenge({ item: { x: 20, y: 20 }, target: { x: 300, y: 200 } });
+    const start = teleportChallenge.items.find((item) => item.id === teleportChallenge.correctItemId)!;
+    const teleport = [
+        { t: 0, x: start.x, y: start.y },
+        ...Array.from({ length: 8 }, (_value, index) => ({
+            t: (index + 1) * 50,
+            x: teleportChallenge.target.x,
+            y: teleportChallenge.target.y
+        }))
+    ];
+    assert.equal(
+        evaluateDragChallenge({
+            challenge: teleportChallenge,
+            itemId: start.id,
+            drop: { x: teleportChallenge.target.x, y: teleportChallenge.target.y },
+            samples: teleport,
+            pointerType: 'touch'
+        }).reason,
+        'step-too-long'
+    );
+});
+
 test('a drag slower than the 30 s ceiling fails', () => {
     const challenge = testChallenge();
     const path = trajectory(challenge, { durationMs: 31_000 });
@@ -296,6 +362,9 @@ test('thresholds come from the single config object and can be overridden', () =
 
     const defaults = readDragChallengeConfig({});
     assert.equal(defaults.minSamples, 15);
+    assert.equal(defaults.minSamplesTouch, 8);
+    assert.equal(defaults.minDurationMsTouch, 250);
+    assert.equal(defaults.minLineDeviationPxTouch, 2);
     assert.equal(defaults.minPathLengthPx, 80);
     assert.equal(defaults.maxStepPx, 250);
     assert.equal(defaults.minLineDeviationPx, 3);

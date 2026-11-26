@@ -14,7 +14,8 @@ import {
 const PAGE_CSP = (nonce: string): string => [
     "default-src 'none'",
     `script-src 'nonce-${nonce}'`,
-    `style-src 'nonce-${nonce}'`,
+    `style-src 'nonce-${nonce}' https://fonts.googleapis.com`,
+    'font-src https://fonts.gstatic.com',
     "connect-src 'self'",
     "img-src 'none'",
     "base-uri 'none'",
@@ -89,6 +90,7 @@ type ChallengeBody = {
     itemId?: unknown;
     drop?: { x?: unknown; y?: unknown } | null;
     samples?: Array<{ t?: unknown; x?: unknown; y?: unknown }>;
+    pointerType?: unknown;
 };
 
 export function createWebAuthApiRoutes(): Router {
@@ -122,6 +124,7 @@ export function createWebAuthApiRoutes(): Router {
                         y: Number(sample?.y)
                     }))
                     : null,
+                pointerType: typeof body.pointerType === 'string' ? body.pointerType : null,
                 userAgent: String(req.headers['user-agent'] || ''),
                 clientHint: typeof req.headers['sec-ch-ua'] === 'string' ? req.headers['sec-ch-ua'] : null
             });

@@ -6,6 +6,7 @@ import {
     hashFingerprint,
     hashFingerprintSignalComponents,
     normalizeFingerprintSignals,
+    platformFromUserAgent,
     scoreFingerprintSimilarity
 } from '../src/core/webauth/fingerprint.ts';
 import { correlateWebAuthRecord, createWebAuthRecord } from '../src/core/webauth/records.ts';
@@ -128,6 +129,81 @@ test('legacy records without component hashes are not comparable', () => {
     assert.equal(score.comparable, false);
     assert.equal(score.matches, false);
     assert.equal(score.ratio, 0);
+});
+
+/**
+ * What the auth page actually posts from iOS Safari: no
+ * `navigator.userAgentData` (so no platform/model/brands detail), no
+ * `navigator.deviceMemory`, and a generic/restricted WebGL renderer.
+ */
+const SAFARI_SIGNALS = {
+    userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Mobile/15E148 Safari/604.1',
+    uaCh: {},
+    screen: { width: 390, height: 844, colorDepth: 24, pixelDepth: 24 },
+    timezone: 'Asia/Tokyo',
+    languages: ['ja-JP'],
+    hardwareConcurrency: 4,
+    deviceMemory: 0,
+    canvasHash: 'safari-canvas',
+    webglVendor: '',
+    webglRenderer: 'Apple GPU',
+    touch: { maxTouchPoints: 5, touchEvent: true }
+};
+
+test('a Safari-shaped record matches itself (no UA-CH, no deviceMemory, generic WebGL)', () => {
+    const safari = normalizeFingerprintSignals(SAFARI_SIGNALS as any);
+    const hashes = hashFingerprintSignalComponents(SECRET, safari);
+    assert.deepEqual(Object.keys(hashes).sort(), [
+        'canvas', 'hardware', 'locale', 'platform', 'screen', 'webgl'
+    ]);
+
+    const self = scoreFingerprintSimilarity(hashes, hashes);
+    assert.equal(self.comparable, true);
+    assert.equal(self.ratio, 1);
+    assert.equal(self.matches, true);
+    // The denominator is the weight the record actually exposes (12), not the
+    // full configured weight (14, audio is never collected by the page).
+    const fullWeight = Object.values(FINGERPRINT_FUZZY_CONFIG.weights).reduce((sum, weight) => sum + weight, 0);
+    assert.equal(fullWeight, 14);
+    assert.equal(self.totalWeight, 12);
+    assert.equal(self.matchedWeight, 12);
+});
+
+test('Safari platform falls back to a UA-derived value and stays matchable', () => {
+    const safari = normalizeFingerprintSignals(SAFARI_SIGNALS as any);
+    assert.equal(safari.uaCh.platform, '');
+    assert.equal(platformFromUserAgent(safari.userAgent), 'iOS');
+    const values = fingerprintComponentValues(safari);
+    assert.ok(values.platform.includes('iOS'));
+    assert.ok(values.platform.includes('Version/18.1'), 'the UA itself stays in the platform component');
+    assert.equal(values.hardware, '4|0', 'hardwareConcurrency alone still forms the hardware group');
+
+    // Two records from the same Safari device still match at the threshold.
+    const peer = normalizeFingerprintSignals({
+        ...SAFARI_SIGNALS,
+        // Same device, but this visit could not expose a renderer at all.
+        webglVendor: '',
+        webglRenderer: ''
+    } as any);
+    const score = scoreFingerprintSimilarity(
+        hashFingerprintSignalComponents(SECRET, safari),
+        hashFingerprintSignalComponents(SECRET, peer)
+    );
+    // webgl is unconfirmed on one side (weight 3) and the other 9 agree.
+    assert.equal(score.totalWeight, 12);
+    assert.equal(score.matchedWeight, 9);
+    assert.equal(score.ratio, 0.75);
+    assert.equal(score.matches, true);
+});
+
+test('two Safari devices correlate fuzzily', () => {
+    const signals = hashFingerprintSignalComponents(SECRET, normalizeFingerprintSignals(SAFARI_SIGNALS as any));
+    const target = record('safari-new', { fpHash: 'c'.repeat(64), signalHashes: signals });
+    const peer = record('safari-peer', { fpHash: 'd'.repeat(64), signalHashes: signals });
+    const { matches } = correlateWebAuthRecord([target, peer], target);
+    assert.equal(matches.length, 1);
+    assert.deepEqual(matches[0].hashTypes, ['fp-fuzzy']);
+    assert.equal(matches[0].fpScore, 1);
 });
 
 function record(userId: string, overrides: Record<string, unknown> = {}) {

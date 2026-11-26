@@ -40,6 +40,13 @@ export const DRAG_CHALLENGE_CONFIG: DragChallengeConfig = {
     dropGapPx: 60,
     fieldMarginPx: 40,
     maxAttempts: 5,
+    // Touch pointers deliver fewer move events per second (iOS Safari in
+    // particular), so a short, deliberate finger drag can carry ~8 samples
+    // where a mouse drag carries 30+. The other checks (teleport step, exact
+    // straight line, too fast) are unchanged and still apply on touch.
+    minSamplesTouch: 8,
+    minDurationMsTouch: 250,
+    minLineDeviationPxTouch: 2,
     fieldWidth: 320,
     fieldHeight: 220,
     itemSize: 44,
@@ -230,10 +237,16 @@ export function evaluateDragChallenge(
         itemId: unknown;
         drop: { x: number; y: number } | null | undefined;
         samples: DragTrajectorySample[] | null | undefined;
+        /** Pointer type that produced the trajectory (`touch` relaxes a few thresholds). */
+        pointerType?: string | null;
     },
     configValue: Partial<DragChallengeConfig> = {}
 ): DragChallengeResult {
     const config = readDragChallengeConfig(configValue);
+    const touch = String(input?.pointerType || '').toLowerCase() === 'touch';
+    const minSamples = touch ? config.minSamplesTouch : config.minSamples;
+    const minDuration = touch ? config.minDurationMsTouch : config.minDurationMs;
+    const minDeviation = touch ? config.minLineDeviationPxTouch : config.minLineDeviationPx;
     const metrics = emptyMetrics();
     const challenge = input?.challenge || null;
     if (!challenge) return fail('no-challenge', metrics);
@@ -253,7 +266,7 @@ export function evaluateDragChallenge(
 
     const rawSamples = Array.isArray(input.samples) ? input.samples : [];
     metrics.samples = rawSamples.length;
-    if (rawSamples.length < config.minSamples) return fail('too-few-samples', metrics);
+    if (rawSamples.length < minSamples) return fail('too-few-samples', metrics);
     if (rawSamples.length > config.maxSamples) return fail('too-many-samples', metrics);
 
     const samples: DragTrajectorySample[] = [];
@@ -274,7 +287,7 @@ export function evaluateDragChallenge(
     const first = samples[0];
     const last = samples[samples.length - 1];
     metrics.durationMs = last.t - first.t;
-    if (metrics.durationMs < config.minDurationMs || metrics.durationMs > config.maxDurationMs) {
+    if (metrics.durationMs < minDuration || metrics.durationMs > config.maxDurationMs) {
         return fail('duration', metrics);
     }
 
@@ -325,7 +338,7 @@ export function evaluateDragChallenge(
         }
     }
     metrics.maxLineDeviationPx = deviation;
-    if (deviation <= config.minLineDeviationPx) return fail('too-straight', metrics);
+    if (deviation <= minDeviation) return fail('too-straight', metrics);
 
     return { ok: true, reason: null, metrics };
 }

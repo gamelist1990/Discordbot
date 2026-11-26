@@ -265,6 +265,7 @@ export class WebAuthService {
         itemId: unknown;
         drop: { x: number; y: number } | null | undefined;
         samples: DragTrajectorySample[] | null | undefined;
+        pointerType?: string | null;
         userAgent: string;
         clientHint?: string | null;
     }): Promise<WebAuthChallengeResult> {
@@ -276,7 +277,7 @@ export class WebAuthService {
             return {
                 ok: false,
                 status: 'browser',
-                message: 'Chrome または Edge でのみ認証できます。'
+                message: 'Chrome・Edge・Safari でのみ認証できます。'
             };
         }
 
@@ -305,7 +306,8 @@ export class WebAuthService {
             challenge,
             itemId: input.itemId,
             drop: input.drop ?? null,
-            samples: input.samples ?? null
+            samples: input.samples ?? null,
+            pointerType: input.pointerType ?? null
         });
         if (verdict.ok) {
             this.tokens.markChallengePassed(input.token);
@@ -376,7 +378,7 @@ export class WebAuthService {
             return {
                 ok: false,
                 status: 'browser',
-                message: 'Chrome または Edge でのみ認証できます。他のブラウザでは認証できません。',
+                message: 'Chrome・Edge・Safari でのみ認証できます。他のブラウザでは認証できません。',
                 browser
             };
         }
