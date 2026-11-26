@@ -108,7 +108,7 @@ test('Safari is a supported browser on the auth page', () => {
         browser: { allowed: true, browser: 'safari', reason: 'ok' }
     }, 'n');
     assert.equal(/id="auth-button"[^>]*disabled/.test(html), true, 'the drag gate still disables submit');
-    assert.ok(html.includes('Chrome・Edge・Safari'));
+    assert.equal(html.includes('class="features"'), false, 'no keyword chips above the button');
     assert.equal(html.includes('Firefox は非対応'), false);
     assert.equal(browserRequirementMessage({ allowed: false, browser: null, reason: 'unsupported-webkit' }).includes('Safari'), true);
 });

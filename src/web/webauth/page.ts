@@ -72,8 +72,6 @@ background:var(--surface-soft);border:1px solid var(--border);color:var(--ink-so
 .status.bad{background:var(--danger-bg);border-color:var(--danger-border);color:var(--danger-ink)}
 .status.warn{background:var(--warn-bg);border-color:var(--warn-border);color:var(--warn-ink)}
 .status.ok{background:var(--success-bg);border-color:var(--success-border);color:var(--success-ink)}
-.features{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0 0;font-size:12px;color:var(--ink-soft)}
-.features span{padding:4px 10px;border-radius:999px;background:var(--surface-soft);border:1px solid var(--border)}
 button{width:100%;margin-top:20px;padding:15px 20px;border-radius:var(--radius-md);border:1px solid transparent;
 font-family:inherit;font-size:16px;font-weight:700;color:var(--on-accent);background:var(--accent);cursor:pointer;
 min-height:52px;touch-action:manipulation;
@@ -586,9 +584,6 @@ btn.addEventListener('click',function(){
 </div>
 <div id="auth-status" class="status ${statusClass}" role="status">${escapeHtml(initialStatus)}</div>
 ${renderChallengeBlock(data, blocked)}
-<div class="features">
-<span>Chrome・Edge・Safari</span><span>IPはハッシュ化</span><span>端末情報は暗号化</span>
-</div>
 <button id="auth-button" type="button"${blocked || !data.challengePassed ? ' disabled' : ''}>認証する</button>
 <p class="note">
 取得したIPアドレスとブラウザ・端末の指紋は、HMACハッシュと暗号化（AES-256-GCM）で保存されます。
