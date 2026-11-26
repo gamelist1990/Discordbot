@@ -21,6 +21,9 @@ function setup(config: Record<string, any> = {}) {
     const manager = new AntiCheatManager();
     const settings = structuredClone(DEFAULT_ANTICHEAT_SETTINGS);
     settings.enabled = true;
+    // Raid behaviour only: the 警戒ユーザー tier has its own test file and
+    // would add flag embeds to this setup's mock log channel.
+    settings.watch.enabled = false;
     settings.logChannelId = 'log-channel';
     settings.detectors.raidDetection.enabled = true;
     settings.detectors.raidDetection.config = {

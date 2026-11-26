@@ -6,6 +6,7 @@ import type {
   PunishmentAction,
   PunishmentThreshold,
   UserTrustDataWithUser,
+  WatchUserEntryView,
   WordFilterRule,
 } from "./types";
 
@@ -41,12 +42,15 @@ export interface AntiCheatViewProps {
   logs: DetectionLog[];
   trustEntries: TrustEntry[];
   activeTimeouts: ActiveTimeoutEntry[];
+  watchUsers: WatchUserEntryView[];
   logsLoading: boolean;
   trustLoading: boolean;
   timeoutsLoading: boolean;
+  watchLoading: boolean;
   logsError: string | null;
   trustError: string | null;
   timeoutsError: string | null;
+  watchError: string | null;
   actionError: string | null;
   saveNotice: string | null;
   excludedRolesText: string;
@@ -59,6 +63,8 @@ export interface AntiCheatViewProps {
   onRefreshLogs: () => void;
   onRefreshTrust: () => void;
   onRefreshTimeouts: () => void;
+  onRefreshWatch: () => void;
+  onDismissWatch: (entry: WatchUserEntryView) => void;
   onRevokeLogTimeout: (log: DetectionLog) => void;
   onRevokeActiveTimeout: (entry: ActiveTimeoutEntry) => void;
   onResetTrust: (userId: string) => void;

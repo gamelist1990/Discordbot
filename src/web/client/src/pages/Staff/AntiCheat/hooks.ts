@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { ActiveTimeoutEntry, AntiCheatSettings, DetectionLog, UserTrustDataWithUser, PunishmentAction } from './types';
+import { ActiveTimeoutEntry, AntiCheatSettings, DetectionLog, UserTrustDataWithUser, PunishmentAction, WatchUserEntryView } from './types';
 
 const API_BASE = '/api/staff/anticheat';
 
@@ -225,8 +225,7 @@ export function useUserTrust(guildId: string, userId?: string) {
     return { trust, loading, error, refetch: fetchTrust };
 }
 
-export function useActiveTimeouts(guildId: string) {
-    const [activeTimeouts, setActiveTimeouts] = useState<ActiveTimeoutEntry[]>([]);
+export function useActiveTimeouts(guildId: string) {    const [activeTimeouts, setActiveTimeouts] = useState<ActiveTimeoutEntry[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
@@ -256,4 +255,61 @@ export function useActiveTimeouts(guildId: string) {
     }, [fetchActiveTimeouts]);
 
     return { activeTimeouts, loading, error, refetch: fetchActiveTimeouts };
+}
+
+/**
+ * Hook for the 警戒ユーザー (watch tier) list
+ */
+export function useWatchUsers(guildId: string) {
+    const [watchUsers, setWatchUsers] = useState<WatchUserEntryView[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+
+    const fetchWatchUsers = useCallback(async () => {
+        try {
+            setLoading(true);
+            const response = await fetch(`${API_BASE}/${guildId}/watch-users`, {
+                credentials: 'include'
+            });
+
+            if (!response.ok) {
+                throw new Error(`Failed to fetch watch users: ${response.statusText}`);
+            }
+
+            const data = await response.json();
+            setWatchUsers(data.watchUsers || []);
+            setError(null);
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Unknown error');
+        } finally {
+            setLoading(false);
+        }
+    }, [guildId]);
+
+    const dismiss = useCallback(async (userId: string) => {
+        try {
+            const response = await fetch(`${API_BASE}/${guildId}/watch-users/${encodeURIComponent(userId)}/dismiss`, {
+                method: 'POST',
+                credentials: 'include'
+            });
+
+            if (!response.ok) {
+                const detail = await response.json().catch(() => ({}));
+                throw new Error(detail.error || `Failed to dismiss watch user: ${response.statusText}`);
+            }
+
+            setError(null);
+            await fetchWatchUsers();
+            return true;
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Unknown error');
+            return false;
+        }
+    }, [guildId, fetchWatchUsers]);
+
+    useEffect(() => {
+        fetchWatchUsers();
+    }, [fetchWatchUsers]);
+
+    return { watchUsers, loading, error, refetch: fetchWatchUsers, dismiss };
 }

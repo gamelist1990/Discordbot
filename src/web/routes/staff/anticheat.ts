@@ -44,5 +44,9 @@ export function createAntiCheatRoutes(
     // Get user trust scores
     router.get('/:guildId/trust', verifyAuth(sessions), controller.getUserTrust.bind(controller));
 
+    // 警戒ユーザー (watch tier)
+    router.get('/:guildId/watch-users', verifyAuth(sessions), controller.getWatchUsers.bind(controller));
+    router.post('/:guildId/watch-users/:userId/dismiss', verifyAuth(sessions), controller.dismissWatchUser.bind(controller));
+
     return router;
 }

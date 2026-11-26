@@ -517,6 +517,124 @@ function BasicSettings(p: AntiCheatViewProps) {
           </label>
         </div>
       </article>
+      <article className={styles.card}>
+        <div className={styles.cardHeading}>
+          <h3>警戒ユーザー（監視）</h3>
+          <p>
+            捨てアカウント・一斉作成アカウントの特徴に一致したメンバーを「警戒」として分類し、通常より厳しく監視します。現在 {p.watchUsers.length} 人を警戒中です。
+          </p>
+        </div>
+        <div className={styles.automaticRow}>
+          <div>
+            <h4>警戒ユーザーの自動分類</h4>
+            <p>
+              表示名がユーザー名と同一、数字だけの表示名、新規アカウント、同一バッチ作成、共通アバター、類似名から判定します。
+            </p>
+          </div>
+          <SettingSwitch
+            label="警戒ユーザーの自動分類"
+            checked={d.watch.enabled}
+            onChange={(enabled) =>
+              p.updateDraft((c) => ({
+                ...c,
+                watch: { ...c.watch, enabled },
+              }))
+            }
+          />
+          <label className={styles.duration}>
+            新規アカウントの日数
+            <input
+              type="number"
+              min={1}
+              max={90}
+              required
+              value={d.watch.newAccountDays}
+              disabled={!d.watch.enabled}
+              onChange={(event) =>
+                p.updateDraft((c) => ({
+                  ...c,
+                  watch: {
+                    ...c.watch,
+                    newAccountDays: Number(event.target.value),
+                  },
+                }))
+              }
+            />
+          </label>
+        </div>
+        <div className={styles.automaticRow}>
+          <div>
+            <h4>検出時にログへ通知</h4>
+            <p>新たに警戒ユーザーとして分類したとき、ログチャンネルへ1件通知します（本人へのDMは送りません）。</p>
+          </div>
+          <SettingSwitch
+            label="警戒ユーザー検出の通知"
+            checked={d.watch.notifyOnFlag}
+            onChange={(enabled) =>
+              p.updateDraft((c) => ({
+                ...c,
+                watch: { ...c.watch, notifyOnFlag: enabled },
+              }))
+            }
+          />
+        </div>
+        <div className={styles.automaticRow}>
+          <div>
+            <h4>危険判定による自動キック</h4>
+            <p>
+              警戒ユーザーが24時間以内に加算した検知ポイントがしきい値に達すると、投稿を削除してキックします。キックできない場合は通常の自動タイムアウトに切り替えます。
+            </p>
+          </div>
+          <SettingSwitch
+            label="警戒ユーザーの危険判定でキック"
+            checked={d.watch.autoKickOnDanger}
+            onChange={(enabled) =>
+              p.updateDraft((c) => ({
+                ...c,
+                watch: { ...c.watch, autoKickOnDanger: enabled },
+              }))
+            }
+          />
+          <label className={styles.duration}>
+            キックのしきい値（点）
+            <input
+              type="number"
+              min={1}
+              max={100}
+              required
+              value={d.watch.kickThresholdPoints}
+              onChange={(event) =>
+                p.updateDraft((c) => ({
+                  ...c,
+                  watch: {
+                    ...c.watch,
+                    kickThresholdPoints: Number(event.target.value),
+                  },
+                }))
+              }
+            />
+          </label>
+          <label className={styles.duration}>
+            キック時の削除（時間）
+            <input
+              type="number"
+              min={1}
+              max={336}
+              required
+              value={d.watch.purgeWindowHours}
+              onChange={(event) =>
+                p.updateDraft((c) => ({
+                  ...c,
+                  watch: {
+                    ...c.watch,
+                    purgeWindowHours: Number(event.target.value),
+                  },
+                }))
+              }
+            />
+          </label>
+        </div>
+      </article>
       <div className={styles.hint}>
         <strong>アンチレイド：{d.raidMode.active ? "発動中" : "待機中"}</strong>
         <p>
@@ -674,25 +792,33 @@ function NotificationSettings(p: AntiCheatViewProps) {
 }
 
 function Activity(p: AntiCheatViewProps) {
-  const [tab, setTab] = useState<"timeouts" | "logs" | "trust">("timeouts");
+  const [tab, setTab] = useState<
+    "timeouts" | "logs" | "trust" | "watch"
+  >("timeouts");
   const loading =
     tab === "timeouts"
       ? p.timeoutsLoading
       : tab === "logs"
         ? p.logsLoading
-        : p.trustLoading;
+        : tab === "trust"
+          ? p.trustLoading
+          : p.watchLoading;
   const error =
     tab === "timeouts"
       ? p.timeoutsError
       : tab === "logs"
         ? p.logsError
-        : p.trustError;
+        : tab === "trust"
+          ? p.trustError
+          : p.watchError;
   const refresh =
     tab === "timeouts"
       ? p.onRefreshTimeouts
       : tab === "logs"
         ? p.onRefreshLogs
-        : p.onRefreshTrust;
+        : tab === "trust"
+          ? p.onRefreshTrust
+          : p.onRefreshWatch;
   const detectorName = (key: string) =>
     p.detectors.find((def) => def.key === key)?.title || key;
   return (
@@ -704,6 +830,7 @@ function Activity(p: AntiCheatViewProps) {
               ["timeouts", "タイムアウト"],
               ["logs", "検知ログ"],
               ["trust", "信頼スコア"],
+              ["watch", `警戒ユーザー${p.watchUsers.length ? ` (${p.watchUsers.length})` : ""}`],
             ] as const
           ).map(([id, title]) => (
             <button
@@ -796,6 +923,35 @@ function Activity(p: AntiCheatViewProps) {
               ))
             ) : (
               <div className={styles.empty}>検知ログはありません。</div>
+            ))}
+          {tab === "watch" &&
+            (p.watchUsers.length ? (
+              p.watchUsers.map((entry) => (
+                <div className={styles.activityEntry} key={entry.userId}>
+                  <div>
+                    <strong>{entry.displayName || entry.username}</strong>
+                    <small>{entry.userId}</small>
+                    <p>{entry.reason}</p>
+                    <small>
+                      登録 {formatDate(entry.since)} · アカウント作成{" "}
+                      {formatDate(entry.accountCreatedAt)} · 24時間の加点{" "}
+                      {entry.dangerPoints24h}
+                    </small>
+                  </div>
+                  <button
+                    type="button"
+                    className={styles.danger}
+                    disabled={p.executing}
+                    onClick={() => p.onDismissWatch(entry)}
+                  >
+                    解除
+                  </button>
+                </div>
+              ))
+            ) : (
+              <div className={styles.empty}>
+                警戒ユーザーとして分類されたメンバーはいません。
+              </div>
             ))}
           {tab === "trust" &&
             (p.trustEntries.length ? (

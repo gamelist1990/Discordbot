@@ -28,6 +28,31 @@ export interface AntiCheatSettings {
         windowSeconds: number;
     };
     raidMode: RaidModeState;
+    watch: WatchSettings;
+}
+
+export interface WatchSettings {
+    enabled: boolean;
+    notifyOnFlag: boolean;
+    newAccountDays: number;
+    kickThresholdPoints: number;
+    autoKickOnDanger: boolean;
+    purgeWindowHours: number;
+}
+
+/** 警戒ユーザー entry as returned by GET /anticheat/:guildId/watch-users. */
+export interface WatchUserEntryView {
+    userId: string;
+    reason: string;
+    signals: string[];
+    since: string;
+    source: 'join' | 'member-update' | 'message';
+    nameSnapshot: string;
+    accountCreatedAt?: string | null;
+    dangerPoints24h: number;
+    username: string;
+    displayName: string;
+    avatar: string | null;
 }
 
 export interface DetectorConfig {
