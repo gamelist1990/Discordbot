@@ -12,6 +12,31 @@ export const FINGERPRINT_CANONICAL_VERSION = 'webauth-fp-v1';
 /** Version tag for the per-component hashes (independent of the canonical hash). */
 export const FINGERPRINT_SIGNAL_HASH_VERSION = 'webauth-fp-sig-v1';
 export const FINGERPRINT_SUBNET_HASH_VERSION = 'webauth-subnet-v1';
+
+/**
+ * Generation of the per-component signal set a record was collected with.
+ *
+ * - 1: the six groups collected before brief 9 (canvas, webgl, screen,
+ *   platform, locale, hardware). The `audio` group already existed in the
+ *   weights but the page never collected it, so pre-brief-9 records never
+ *   carry it.
+ * - 2: brief 9 additionally collects audio, fonts, webgl2 and display.
+ *
+ * The generation is written to the record by the server (never by the
+ * client) and is what `legacyFingerprintGroups` uses to decide whether a
+ * stored record can be relaxed against a newer candidate.
+ */
+export const FINGERPRINT_SIGNAL_SCHEMA = 2;
+
+/**
+ * Groups introduced by each generation. Only generation 2+ groups relax for
+ * records collected by an older generation; the six base groups are present
+ * (or legitimately absent, e.g. no WebGL) in every generation.
+ */
+const FINGERPRINT_GENERATION_GROUPS: Readonly<Record<number, readonly FingerprintComponentKey[]>> = {
+    2: ['audio', 'fonts', 'webgl2', 'display']
+};
+
 const MAX_TEXT = 512;
 const MAX_ARRAY = 20;
 
@@ -255,6 +280,46 @@ export const FINGERPRINT_FUZZY_CONFIG: FingerprintFuzzyConfig = {
 };
 
 /**
+ * Normalizes the record's stored signal generation. An explicit, well-formed
+ * value always wins (the server writes it on every new record). Records from
+ * before the marker existed infer their generation from the hashes they
+ * carry: a record that reports any generation-2 group was demonstrably
+ * written by a generation-2 collector, everything else is generation 1.
+ *
+ * Only the server writes this field, so a submitted candidate cannot choose
+ * it; inference from hashes is likewise evaluated on the stored record.
+ */
+export function normalizeSignalSchema(
+    value: unknown,
+    hashes: FingerprintSignalHashes | null | undefined
+): number {
+    const parsed = Number(value);
+    if (Number.isInteger(parsed) && parsed >= 1) return Math.min(parsed, 1000);
+    const generationGroups = FINGERPRINT_GENERATION_GROUPS[FINGERPRINT_SIGNAL_SCHEMA] || [];
+    const reportsNewGroup = generationGroups.some((key) => !!hashes?.[key]);
+    return reportsNewGroup ? FINGERPRINT_SIGNAL_SCHEMA : 1;
+}
+
+/**
+ * Groups a stored record predates. Such a record was collected before the
+ * group existed, so its absence there is a property of the collector, not a
+ * signal about the device. A group the record demonstrably reports is never
+ * returned (a generation-2 record is never legacy for anything).
+ *
+ * This is used one-directionally: only a *stored* record's list may relax a
+ * score. A candidate that omits a group keeps paying its weight.
+ */
+export function legacyFingerprintGroups(
+    signalSchema: number | null | undefined,
+    hashes: FingerprintSignalHashes | null | undefined
+): FingerprintComponentKey[] {
+    const schema = Number.isInteger(Number(signalSchema)) ? Math.max(1, Number(signalSchema)) : 1;
+    if (schema >= FINGERPRINT_SIGNAL_SCHEMA) return [];
+    const generationGroups = FINGERPRINT_GENERATION_GROUPS[FINGERPRINT_SIGNAL_SCHEMA] || [];
+    return generationGroups.filter((key) => !hashes || !hashes[key]);
+}
+
+/**
  * Coarse OS label derived from the UA. Safari exposes no UA-CH platform, so
  * the `platform` fuzzy component falls back to this; Chromium keeps using the
  * higher-fidelity UA-CH value.
@@ -355,7 +420,24 @@ export interface FingerprintFuzzyScore {
     ratio: number;
     threshold: number;
     matchedKeys: FingerprintComponentKey[];
+    /** Groups dropped because the peer predates them (see below). */
+    relaxedKeys: FingerprintComponentKey[];
     matches: boolean;
+}
+
+export interface FingerprintSimilarityOptions extends Partial<FingerprintFuzzyConfig> {
+    /**
+     * Groups the *peer* record predates (brief 9R). Listed groups are removed
+     * from the numerator and the denominator, so a stored record collected
+     * before a group existed is not penalised for it.
+     *
+     * One-directional by contract: callers may only derive this from a
+     * server-written record marker (`signalSchema`) on the stored side. Never
+     * derive it from the submitted candidate — a candidate that omits a
+     * group the stored record has must keep paying that group's weight, or a
+     * crafted client could lower its own matching bar.
+     */
+    peerLegacyGroups?: readonly FingerprintComponentKey[];
 }
 
 /**
@@ -373,24 +455,36 @@ export interface FingerprintFuzzyScore {
  * One-sided groups stay in the denominator on purpose: dropping them
  * (intersection semantics) would let a client omit canvas + WebGL and match
  * on the remaining low-entropy groups alone.
+ *
+ * `peerLegacyGroups` is the single deliberate exception, and it applies to
+ * the stored side only: a record collected before brief 9 has no
+ * audio/fonts/webgl2/display at all, so those groups are excluded from both
+ * sides instead of counting the new candidate's values as unconfirmed.
  */
 export function scoreFingerprintSimilarity(
     left: FingerprintSignalHashes | null | undefined,
     right: FingerprintSignalHashes | null | undefined,
-    config: Partial<FingerprintFuzzyConfig> = {}
+    config: FingerprintSimilarityOptions = {}
 ): FingerprintFuzzyScore {
     const weights = { ...FINGERPRINT_FUZZY_CONFIG.weights, ...(config.weights || {}) };
     const threshold = Number.isFinite(config.threshold) ? Number(config.threshold) : FINGERPRINT_FUZZY_CONFIG.threshold;
+    const relaxedKeys = new Set<FingerprintComponentKey>(config.peerLegacyGroups || []);
     if (!left || !right) {
         return {
             comparable: false, matchedWeight: 0, totalWeight: 0,
-            ratio: 0, threshold, matchedKeys: [], matches: false
+            ratio: 0, threshold, matchedKeys: [], relaxedKeys: [], matches: false
         };
     }
     let matchedWeight = 0;
     let totalWeight = 0;
     const matchedKeys: FingerprintComponentKey[] = [];
+    const relaxed: FingerprintComponentKey[] = [];
     for (const key of Object.keys(weights) as FingerprintComponentKey[]) {
+        // The peer predates this group: no evidence either way, no weight.
+        if (relaxedKeys.has(key)) {
+            relaxed.push(key);
+            continue;
+        }
         const a = left[key];
         const b = right[key];
         // Unobserved on both sides: no evidence either way, no weight.
@@ -408,6 +502,7 @@ export function scoreFingerprintSimilarity(
         ratio,
         threshold,
         matchedKeys,
+        relaxedKeys: relaxed,
         matches: totalWeight > 0 && ratio >= threshold
     };
 }

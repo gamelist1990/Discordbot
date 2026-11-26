@@ -109,6 +109,32 @@ test('a fuzzy fingerprint match at the 4A threshold against a kicked user blocks
     assert.equal(decision.fpScore, 0.75);
 });
 
+test('a legacy stored record still blocks a full new candidate at the auth point', () => {
+    // The stored peer predates brief 9: six groups, no schema marker.
+    const peer = record('kicked-peer', { signalHashes: SIGNAL_HASHES });
+    const candidate = record('new-user', {
+        signalSchema: 2,
+        signalHashes: {
+            ...SIGNAL_HASHES,
+            audio: H('a'),
+            fonts: H('b'),
+            webgl2: H('c'),
+            display: H('d')
+        }
+    });
+
+    const decision = evaluateWebAuthBlock({
+        record: candidate,
+        records: [peer],
+        riskKicks: [kick('kicked-peer')],
+        settings: { graph: false }
+    });
+
+    assert.equal(decision.blocked, true);
+    assert.deepEqual(decision.rules, ['fuzzy']);
+    assert.ok(decision.fpScore >= 0.75, 'the legacy peer cannot deflate the score to 12/18');
+});
+
 test('a fuzzy score below the threshold does not block', () => {
     // canvas + webgl changed: 6/12 = 0.50, below 0.75.
     const candidate = record('new-user', {

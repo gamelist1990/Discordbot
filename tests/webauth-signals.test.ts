@@ -5,13 +5,15 @@ import {
     fingerprintComponentValues,
     hashFingerprint,
     hashFingerprintSignalComponents,
+    legacyFingerprintGroups,
     normalizeFingerprintSignals,
     scoreFingerprintSimilarity
 } from '../src/core/webauth/fingerprint.ts';
 import {
     correlateWebAuthRecord,
     createWebAuthRecord,
-    normalizeWebAuthRecords
+    normalizeWebAuthRecords,
+    withWebAuthMatchCounts
 } from '../src/core/webauth/records.ts';
 import { evaluateWebAuthBlock, readWebAuthBlockSettings } from '../src/core/webauth/authBlock.ts';
 import { isSoftwareRenderer, SOFTWARE_RENDERER_PATTERNS } from '../src/core/webauth/renderer.ts';
@@ -483,4 +485,178 @@ test('old and new records still match exactly on IP/whole fingerprint', () => {
     const { matches } = correlateWebAuthRecord([newRecord, oldRecord], newRecord);
     assert.equal(matches.length, 1);
     assert.deepEqual(matches[0].hashTypes, ['fp']);
+});
+
+// ---------------------------------------------------------------------------
+// 7. Cross-generation fuzzy scoring (brief 9R)
+// ---------------------------------------------------------------------------
+
+/** Stored JSON, as an older record would be written (no schema marker). */
+function storedJson(overrides: Record<string, unknown> = {}) {
+    return {
+        guildId: 'guild-signals',
+        userId: 'stored-user',
+        createdAt: new Date(NOW).toISOString(),
+        source: 'web',
+        verified: true,
+        browser: { name: 'chrome', reason: 'ok' },
+        intel: { verdict: 'clean', flags: [], source: 'ip-api.com' },
+        ipHash: null,
+        fpHash: H('9'),
+        signalHashes: null,
+        asn: null,
+        subnetHash: null,
+        sealed: null,
+        presetId: null,
+        note: null,
+        roleGranted: true,
+        blocked: null,
+        ...overrides
+    };
+}
+
+test('the stored signal generation is explicit, with inference for pre-marker rows', () => {
+    const legacyHashes = hashFingerprintSignalComponents(SECRET, norm());
+    const newHashes = hashFingerprintSignalComponents(SECRET, full());
+
+    // Records written by this build carry the server marker.
+    assert.equal(record('new-marked', { signalHashes: newHashes, signalSchema: 2 }).signalSchema, 2);
+    // A record without a marker is inferred from the groups it reports.
+    assert.equal(record('legacy', { signalHashes: legacyHashes }).signalSchema, 1);
+    assert.equal(record('new-unmarked', { signalHashes: newHashes }).signalSchema, 2);
+    // An explicit server-written marker always wins over inference.
+    assert.equal(record('explicit', { signalHashes: newHashes, signalSchema: 1 }).signalSchema, 1);
+
+    const [storedLegacy] = normalizeWebAuthRecords([storedJson({ signalHashes: legacyHashes })], NOW);
+    assert.equal(storedLegacy.signalSchema, 1);
+    assert.deepEqual(legacyFingerprintGroups(storedLegacy.signalSchema, storedLegacy.signalHashes).sort(), [
+        'audio', 'display', 'fonts', 'webgl2'
+    ]);
+
+    const [storedMarked] = normalizeWebAuthRecords([
+        storedJson({ signalHashes: newHashes, signalSchema: 2 })
+    ], NOW);
+    assert.equal(storedMarked.signalSchema, 2);
+    assert.deepEqual(legacyFingerprintGroups(storedMarked.signalSchema, storedMarked.signalHashes), []);
+});
+
+test('a legacy stored record does not penalise a full new candidate (same device)', () => {
+    const legacyHashes = hashFingerprintSignalComponents(SECRET, norm());
+    const newHashes = hashFingerprintSignalComponents(SECRET, full());
+    const legacyStored = record('legacy-stored', { fpHash: H('e'), signalHashes: legacyHashes });
+    const candidate = record('candidate', { fpHash: H('f'), signalHashes: newHashes, signalSchema: 2 });
+
+    // Without the marker this is today's rule: 12 / 18 = 0.667, below 0.75.
+    const raw = scoreFingerprintSimilarity(newHashes, legacyHashes);
+    assert.equal(raw.totalWeight, 18);
+    assert.equal(raw.matchedWeight, 12);
+    assert.equal(Number(raw.ratio.toFixed(3)), 0.667);
+    assert.equal(raw.matches, false);
+
+    // With the stored side marked legacy, the four new groups leave both
+    // numerator and denominator: 12 / 12.
+    const peerGroups = legacyFingerprintGroups(legacyStored.signalSchema, legacyStored.signalHashes);
+    const relaxed = scoreFingerprintSimilarity(newHashes, legacyHashes, { peerLegacyGroups: peerGroups });
+    assert.equal(relaxed.totalWeight, 12);
+    assert.equal(relaxed.matchedWeight, 12);
+    assert.equal(relaxed.ratio, 1);
+    assert.deepEqual([...relaxed.relaxedKeys].sort(), ['audio', 'display', 'fonts', 'webgl2']);
+
+    // The auth-path correlation fires for the same device.
+    const { matches } = correlateWebAuthRecord([legacyStored, candidate], candidate);
+    assert.equal(matches.length, 1);
+    assert.deepEqual(matches[0].hashTypes, ['fp-fuzzy']);
+    assert.ok(matches[0].fpScore >= FINGERPRINT_FUZZY_CONFIG.threshold);
+});
+
+test('a legacy stored record is still penalised for the groups it did share', () => {
+    const legacyHashes = hashFingerprintSignalComponents(SECRET, norm());
+    const legacyStored = record('legacy-stored', { fpHash: H('a'), signalHashes: legacyHashes });
+    const moved = record('moved', {
+        fpHash: H('b'),
+        signalSchema: 2,
+        signalHashes: hashFingerprintSignalComponents(SECRET, norm({
+            canvasHash: 'other-canvas',
+            webglRenderer: 'Other GPU'
+        }))
+    });
+
+    const score = scoreFingerprintSimilarity(moved.signalHashes, legacyStored.signalHashes, {
+        peerLegacyGroups: legacyFingerprintGroups(legacyStored.signalSchema, legacyStored.signalHashes)
+    });
+    assert.equal(score.totalWeight, 12);
+    assert.equal(score.matchedWeight, 6, 'canvas (3) and webgl (3) still miss');
+    assert.equal(score.ratio, 0.5);
+    assert.equal(score.matches, false);
+
+    const { matches } = correlateWebAuthRecord([legacyStored, moved], moved);
+    assert.equal(matches.length, 0, 'a different device does not become a match');
+});
+
+test('a candidate that omits groups the stored record has still pays for them', () => {
+    const newHashes = hashFingerprintSignalComponents(SECRET, full());
+    const newStored = record('new-stored', { fpHash: H('c'), signalHashes: newHashes, signalSchema: 2 });
+    const omitting = record('omitting', {
+        fpHash: H('d'),
+        signalHashes: hashFingerprintSignalComponents(SECRET, norm()),
+        signalSchema: 2
+    });
+
+    // Stored side is current generation: nothing is relaxed.
+    assert.deepEqual(legacyFingerprintGroups(newStored.signalSchema, newStored.signalHashes), []);
+    const score = scoreFingerprintSimilarity(omitting.signalHashes, newStored.signalHashes, {
+        peerLegacyGroups: legacyFingerprintGroups(newStored.signalSchema, newStored.signalHashes)
+    });
+    assert.equal(score.totalWeight, 18);
+    assert.equal(score.matchedWeight, 12);
+    assert.equal(Number(score.ratio.toFixed(3)), 0.667);
+    assert.equal(score.matches, false);
+
+    const { matches } = correlateWebAuthRecord([newStored, omitting], omitting);
+    assert.equal(matches.length, 0);
+
+    // The relaxation is one-directional: a candidate claiming to be legacy
+    // gains nothing while the stored record is current.
+    const legacyClaiming = record('claiming', {
+        fpHash: H('1'),
+        signalHashes: hashFingerprintSignalComponents(SECRET, norm()),
+        signalSchema: 1
+    });
+    const claimScore = scoreFingerprintSimilarity(legacyClaiming.signalHashes, newStored.signalHashes, {
+        peerLegacyGroups: legacyFingerprintGroups(newStored.signalSchema, newStored.signalHashes)
+    });
+    assert.equal(claimScore.totalWeight, 18);
+    assert.equal(claimScore.matches, false);
+});
+
+test('same-generation scoring is unchanged and staff counts stay symmetric', () => {
+    const fullHashes = hashFingerprintSignalComponents(SECRET, full());
+    const self = scoreFingerprintSimilarity(fullHashes, fullHashes);
+    assert.equal(self.totalWeight, 18);
+    assert.equal(self.ratio, 1);
+    assert.deepEqual(self.relaxedKeys, []);
+
+    // Omitting one group against a same-generation record still costs it.
+    const noAudio = hashFingerprintSignalComponents(SECRET, norm({ ...fullSignals, audioHash: '' }));
+    const omission = scoreFingerprintSimilarity(noAudio, fullHashes, {
+        peerLegacyGroups: legacyFingerprintGroups(2, fullHashes)
+    });
+    assert.equal(omission.totalWeight, 18);
+    assert.equal(omission.matchedWeight, 16);
+    assert.equal(Number(omission.ratio.toFixed(3)), 0.889);
+
+    // Legacy + new stored records link both ways in the staff view.
+    const legacyStored = record('legacy-stored', {
+        fpHash: H('2'),
+        signalHashes: hashFingerprintSignalComponents(SECRET, norm())
+    });
+    const newStored = record('new-stored', {
+        fpHash: H('3'),
+        signalHashes: fullHashes,
+        signalSchema: 2
+    });
+    const views = withWebAuthMatchCounts([legacyStored, newStored]);
+    assert.deepEqual(views.map((view) => view.matchCount), [1, 1]);
+    assert.deepEqual(views[0].matchedUserIds, ['new-stored']);
+    assert.deepEqual(views[1].matchedUserIds, ['legacy-stored']);
 });

@@ -1,4 +1,4 @@
-import { scoreFingerprintSimilarity } from '../webauth/fingerprint.js';
+import { legacyFingerprintGroups, scoreFingerprintSimilarity } from '../webauth/fingerprint.js';
 import type { FingerprintSignalHashes, WebAuthRecord } from '../webauth/types.js';
 import type { RiskKickEntry } from './RiskKicks.js';
 import { readToggle } from './RaidEnforcement.js';
@@ -55,6 +55,8 @@ export interface AltGraphNode {
     fingerprints: Array<{
         fpHash: string | null;
         signalHashes: FingerprintSignalHashes | null;
+        /** Stored signal generation (brief 9R); absent means generation 1. */
+        signalSchema?: number;
     }>;
     /** Apparent-IP subnet hash paired with the ASN it was resolved under. */
     subnetPairs: Array<{ subnetHash: string; asn: string }>;
@@ -179,7 +181,8 @@ export function buildAltGraph(input: AltGraphInput, settings: AltGraphSettings =
         if (record.fpHash || record.signalHashes) {
             node.fingerprints.push({
                 fpHash: record.fpHash || null,
-                signalHashes: record.signalHashes || null
+                signalHashes: record.signalHashes || null,
+                signalSchema: record.signalSchema
             });
         }
         if (record.subnetHash && record.asn) {
@@ -240,8 +243,14 @@ export function linkAltGraphNodes(
             if (!left.signalHashes) continue;
             for (const right of b.fingerprints) {
                 if (!right.signalHashes) continue;
+                // Both sides are stored records, so a group either one
+                // predates is excluded from the score (brief 9R).
                 const score = scoreFingerprintSimilarity(left.signalHashes, right.signalHashes, {
-                    threshold: settings.fuzzyThreshold
+                    threshold: settings.fuzzyThreshold,
+                    peerLegacyGroups: [...new Set([
+                        ...legacyFingerprintGroups(left.signalSchema, left.signalHashes),
+                        ...legacyFingerprintGroups(right.signalSchema, right.signalHashes)
+                    ])]
                 });
                 if (score.matches && score.ratio > best.ratio) {
                     best = { matches: true, ratio: score.ratio };

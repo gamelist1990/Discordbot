@@ -1,7 +1,9 @@
 import crypto from 'node:crypto';
 import { database } from '../persistence/Database.js';
 import {
+    legacyFingerprintGroups,
     normalizeAutomation,
+    normalizeSignalSchema,
     scoreFingerprintSimilarity,
     type FingerprintFuzzyConfig
 } from './fingerprint.js';
@@ -95,6 +97,12 @@ export interface WebAuthRecordInput {
     ipHash: string | null;
     fpHash: string | null;
     signalHashes?: FingerprintSignalHashes | null;
+    /**
+     * Signal generation of the record (see `WebAuthRecord.signalSchema`).
+     * Omitted when normalizing a stored record that predates the marker; it
+     * is then inferred from the groups the record carries.
+     */
+    signalSchema?: number | null;
     asn?: string | null;
     subnetHash?: string | null;
     automation?: NormalizedFingerprintSignals['automation'] | null;
@@ -114,6 +122,7 @@ export interface WebAuthRecordInput {
 
 export function createWebAuthRecord(input: WebAuthRecordInput): WebAuthRecord {
     const now = input.now ?? Date.now();
+    const signalHashes = normalizeSignalHashes(input.signalHashes);
     return {
         id: input.id || crypto.randomUUID(),
         guildId: input.guildId,
@@ -140,7 +149,8 @@ export function createWebAuthRecord(input: WebAuthRecordInput): WebAuthRecord {
         },
         ipHash: isHash(input.ipHash) ? input.ipHash : null,
         fpHash: isHash(input.fpHash) ? input.fpHash : null,
-        signalHashes: normalizeSignalHashes(input.signalHashes),
+        signalHashes,
+        signalSchema: normalizeSignalSchema(input.signalSchema, signalHashes),
         asn: asnText(input.asn),
         subnetHash: isHash(input.subnetHash) ? input.subnetHash : null,
         automation: input.automation ? normalizeAutomation(input.automation) : null,
@@ -178,6 +188,7 @@ function normalizeRecord(raw: unknown): WebAuthRecord | null {
         ipHash: entry.ipHash ?? null,
         fpHash: entry.fpHash ?? null,
         signalHashes: entry.signalHashes ?? null,
+        signalSchema: entry.signalSchema ?? null,
         asn: entry.asn ?? null,
         subnetHash: entry.subnetHash ?? null,
         automation: entry.automation ?? null,
@@ -226,6 +237,35 @@ export function normalizeWebAuthRecords(value: unknown, now: number): WebAuthRec
 export interface WebAuthCorrelationOptions {
     /** Overrides for the fuzzy weights/threshold (tests, future tuning). */
     fuzzy?: Partial<FingerprintFuzzyConfig>;
+    /**
+     * True (default) when `record` is a freshly submitted candidate, i.e. the
+     * auth path. Only the stored peer's legacy groups then relax the score.
+     *
+     * Set false for stored↔stored comparisons (staff match counts): both
+     * sides are server-written records, so groups either side predates are
+     * excluded and the result stays symmetric whichever record is the
+     * subject.
+     */
+    candidateIsLive?: boolean;
+}
+
+/**
+ * Groups the stored side predates, for the fuzzy relaxation of brief 9R.
+ *
+ * A live candidate never contributes its own legacy groups: its omissions
+ * must keep costing weight (anti-lowering guard). Only records read back from
+ * the store may relax, and only for groups their `signalSchema` proves they
+ * never collected.
+ */
+function correlationLegacyGroups(
+    record: WebAuthRecord,
+    other: WebAuthRecord,
+    candidateIsLive: boolean
+): FingerprintComponentKey[] {
+    const peerGroups = legacyFingerprintGroups(other.signalSchema, other.signalHashes);
+    if (candidateIsLive) return peerGroups;
+    const subjectGroups = legacyFingerprintGroups(record.signalSchema, record.signalHashes);
+    return [...new Set([...subjectGroups, ...peerGroups])];
 }
 
 export function correlateWebAuthRecord(
@@ -234,6 +274,7 @@ export function correlateWebAuthRecord(
     options: WebAuthCorrelationOptions = {}
 ): { matches: WebAuthMatch[]; matchCount: number } {
     const fuzzyConfig = options.fuzzy || {};
+    const candidateIsLive = options.candidateIsLive !== false;
     const byUser = new Map<string, {
         ip: number;
         fp: number;
@@ -252,7 +293,10 @@ export function correlateWebAuthRecord(
             current.hasExactFp = true;
             current.fpScore = 1;
         } else if (record.signalHashes && other.signalHashes) {
-            const fuzzy = scoreFingerprintSimilarity(record.signalHashes, other.signalHashes, fuzzyConfig);
+            const fuzzy = scoreFingerprintSimilarity(record.signalHashes, other.signalHashes, {
+                ...fuzzyConfig,
+                peerLegacyGroups: correlationLegacyGroups(record, other, candidateIsLive)
+            });
             if (fuzzy.comparable && fuzzy.matches) {
                 current.fpFuzzy += 1;
                 current.fpScore = Math.max(current.fpScore, fuzzy.ratio);
@@ -289,9 +333,12 @@ export function withWebAuthMatchCounts(
     records: WebAuthRecord[],
     options: WebAuthCorrelationOptions = {}
 ): WebAuthRecordView[] {
+    // Both sides are stored records here, so the relaxation applies to groups
+    // either side predates (symmetric counts in the staff view).
+    const stored: WebAuthCorrelationOptions = { ...options, candidateIsLive: false };
     return records
         .map((record) => {
-            const { matches } = correlateWebAuthRecord(records, record, options);
+            const { matches } = correlateWebAuthRecord(records, record, stored);
             return {
                 ...record,
                 matchCount: matches.length,

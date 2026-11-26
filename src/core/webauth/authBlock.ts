@@ -13,7 +13,11 @@ import {
     type WebAuthBlockSettings
 } from '../anticheat/types.js';
 import { correlateWebAuthRecord } from './records.js';
-import { FINGERPRINT_FUZZY_CONFIG, scoreFingerprintSimilarity } from './fingerprint.js';
+import {
+    FINGERPRINT_FUZZY_CONFIG,
+    legacyFingerprintGroups,
+    scoreFingerprintSimilarity
+} from './fingerprint.js';
 import type { WebAuthBlockRule, WebAuthMatch, WebAuthRecord } from './types.js';
 
 /**
@@ -187,7 +191,11 @@ export function evaluateWebAuthBlock(input: WebAuthBlockInput): WebAuthBlockDeci
                 continue;
             }
             if (!settings.fuzzy || !record.signalHashes || !other.signalHashes) continue;
-            const own = scoreFingerprintSimilarity(record.signalHashes, other.signalHashes);
+            // `record` is the live candidate and `other` a stored record: only
+            // the stored peer's pre-brief-9 groups may relax (brief 9R).
+            const own = scoreFingerprintSimilarity(record.signalHashes, other.signalHashes, {
+                peerLegacyGroups: legacyFingerprintGroups(other.signalSchema, other.signalHashes)
+            });
             if (own.comparable && own.matches) {
                 if (!rules.includes('fuzzy')) rules.push('fuzzy');
                 attach(record.userId, 'fuzzy', [ownTag]);

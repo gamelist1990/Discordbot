@@ -18,6 +18,7 @@ import {
     evaluateDragChallenge
 } from './challenge.js';
 import {
+    FINGERPRINT_SIGNAL_SCHEMA,
     hashFingerprint,
     hashFingerprintSignalComponents,
     hashIp,
@@ -454,6 +455,10 @@ export class WebAuthService {
                 ipHash,
                 fpHash,
                 signalHashes,
+                // Generation marker for fuzzy scoring (brief 9R): this page
+                // reports the full brief-9 group set, so records written from
+                // here on are never treated as legacy.
+                signalSchema: FINGERPRINT_SIGNAL_SCHEMA,
                 asn: intel.asn ?? null,
                 subnetHash,
                 // Brief-9 signal summary: webdriver can block (rule A); the

@@ -264,6 +264,15 @@ export interface WebAuthRecord {
      * does not apply to those.
      */
     signalHashes: FingerprintSignalHashes | null;
+    /**
+     * Generation of the per-component signal set this record was collected
+     * with (brief 9R). 1 = the six pre-brief-9 groups; 2 = audio, fonts,
+     * webgl2 and display are also collected. Written by the server at
+     * creation and normalized to 1 when an older record has no marker, so a
+     * legacy stored record's missing groups can be excluded from fuzzy
+     * scoring instead of counting against a newer candidate.
+     */
+    signalSchema: number;
     /** ip-api `as` string (plain text, not personal). */
     asn: string | null;
     /** HMAC hex of the /24 (IPv4) or /48 (IPv6) prefix of the client IP. */
