@@ -1,5 +1,6 @@
 import { PermissionFlagsBits } from 'discord.js';
 import type { RaidDetectionConfig } from './types.js';
+import { readJoinEntropyConfig } from './JoinEntropy.js';
 
 /** Reason attached to every anti-raid kick. */
 export const RAID_KICK_REASON = 'AntiRaid: レイド検知による自動キック';
@@ -64,7 +65,8 @@ export function readRaidDetectionConfig(config: Record<string, any> | null | und
         burstWindowSeconds: Math.max(1, Math.floor(positiveNumber(config?.burstWindowSeconds, 60))),
         cooldownMinutes: Math.max(1, Math.floor(positiveNumber(config?.cooldownMinutes, 60))),
         autoKick: readToggle(config?.autoKick, true),
-        kickWindowSeconds: Math.max(1, Math.floor(positiveNumber(config?.kickWindowSeconds, 60)))
+        kickWindowSeconds: Math.max(1, Math.floor(positiveNumber(config?.kickWindowSeconds, 60))),
+        automation: readJoinEntropyConfig(config?.automation)
     };
 }
 

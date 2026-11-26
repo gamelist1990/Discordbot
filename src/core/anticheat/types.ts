@@ -120,7 +120,26 @@ export interface RaidDetectionConfig {
     autoKick: boolean;
     /** On activation, kick members who joined within this many seconds. */
     kickWindowSeconds: number;
+    /** Join-interval entropy (regular cadence) activation condition. */
+    automation: RaidJoinEntropyConfig;
 }
+
+/** Parameters of the pure join-interval entropy check (see JoinEntropy.ts). */
+export interface RaidJoinEntropyConfig {
+    /** Minimum joins in the window before the metric is considered. */
+    minJoins: number;
+    /** Mechanical cadence: mean inter-arrival gap must be below this. */
+    meanGapSeconds: number;
+    /** Coefficient of variation (std/mean) must be below this. */
+    cvThreshold: number;
+}
+
+/** Defaults from brief 4A: 8 joins, 60 s mean gap, CV < 0.35. */
+export const DEFAULT_RAID_JOIN_ENTROPY: RaidJoinEntropyConfig = {
+    minJoins: 8,
+    meanGapSeconds: 60,
+    cvThreshold: 0.35
+};
 
 /** Signals used to auto-classify a member as a 警戒 (watch) user. */
 export type WatchSignal =
@@ -130,10 +149,11 @@ export type WatchSignal =
     | 'batch-creation'
     | 'shared-avatar'
     | 'similar-name'
-    | 'webauth-match';
+    | 'webauth-match'
+    | 'graph';
 
 /** Where the classification was triggered from. */
-export type WatchSource = 'join' | 'member-update' | 'message' | 'webauth-match';
+export type WatchSource = 'join' | 'member-update' | 'message' | 'webauth-match' | 'graph';
 
 /** One applied detection-point event inside the rolling watch window. */
 export interface WatchDangerPoint {
@@ -171,6 +191,44 @@ export interface WatchSettings {
     purgeWindowHours: number;
 }
 
+/** Edge weights of the alt-account graph (brief 4A §4). */
+export interface AltGraphWeights {
+    ipHash: number;
+    fpHash: number;
+    fuzzyFingerprint: number;
+    subnetAsn: number;
+    avatarHash: number;
+    creationCluster: number;
+    similarName: number;
+}
+
+export interface AltGraphSettings {
+    enabled: boolean;
+    /** Total edge weight toward bad nodes required to auto-flag. */
+    flagThreshold: number;
+    /** Fuzzy fingerprint ratio (0..1) required for a fuzzy edge. */
+    fuzzyThreshold: number;
+    /** Accounts created within this distance form one creation cluster. */
+    creationClusterSeconds: number;
+    weights: AltGraphWeights;
+}
+
+export const DEFAULT_ALT_GRAPH_SETTINGS: AltGraphSettings = {
+    enabled: true,
+    flagThreshold: 5,
+    fuzzyThreshold: 0.75,
+    creationClusterSeconds: 10 * 60,
+    weights: {
+        ipHash: 5,
+        fpHash: 5,
+        fuzzyFingerprint: 3,
+        subnetAsn: 2,
+        avatarHash: 2,
+        creationCluster: 2,
+        similarName: 1
+    }
+};
+
 export interface GuildAntiCheatSettings {
     enabled: boolean;
     detectors: Record<string, DetectorConfig>;
@@ -192,6 +250,7 @@ export interface GuildAntiCheatSettings {
     };
     raidMode: RaidModeState;
     watch: WatchSettings;
+    altGraph: AltGraphSettings;
     userTrust: Record<string, UserTrustData>;
     watchUsers: Record<string, WatchUserEntry>;
     recentLogs: DetectionLog[];
@@ -373,7 +432,8 @@ export const DEFAULT_ANTICHEAT_SETTINGS: GuildAntiCheatSettings = {
                 burstWindowSeconds: 60,
                 cooldownMinutes: 60,
                 autoKick: 1,
-                kickWindowSeconds: 60
+                kickWindowSeconds: 60,
+                automation: { ...DEFAULT_RAID_JOIN_ENTROPY }
             }
         }
     },
@@ -407,6 +467,21 @@ export const DEFAULT_ANTICHEAT_SETTINGS: GuildAntiCheatSettings = {
         kickThresholdPoints: 5,
         autoKickOnDanger: true,
         purgeWindowHours: 24
+    },
+    altGraph: {
+        enabled: true,
+        flagThreshold: 5,
+        fuzzyThreshold: 0.75,
+        creationClusterSeconds: 10 * 60,
+        weights: {
+            ipHash: 5,
+            fpHash: 5,
+            fuzzyFingerprint: 3,
+            subnetAsn: 2,
+            avatarHash: 2,
+            creationCluster: 2,
+            similarName: 1
+        }
     },
     userTrust: {},
     watchUsers: {},

@@ -9,7 +9,9 @@ import { riskKickLedger } from '../anticheat/RiskKicks.js';
 import { evaluateBrowserGate } from './browserGate.js';
 import {
     hashFingerprint,
+    hashFingerprintSignalComponents,
     hashIp,
+    hashSubnet,
     normalizeFingerprintSignals
 } from './fingerprint.js';
 import { IpIntelClient } from './ipIntel.js';
@@ -253,6 +255,8 @@ export class WebAuthService {
             const normalized = normalizeFingerprintSignals(input.signals);
             const ipHash = hashIp(keys.hmacSecret, input.clientIp);
             const fpHash = hashFingerprint(keys.hmacSecret, normalized);
+            const signalHashes = hashFingerprintSignalComponents(keys.hmacSecret, normalized);
+            const subnetHash = hashSubnet(keys.hmacSecret, input.clientIp);
             const createdAt = new Date().toISOString();
             const sealedPayload: SealedWebAuthPayload = {
                 version: 1,
@@ -294,6 +298,9 @@ export class WebAuthService {
                 },
                 ipHash,
                 fpHash,
+                signalHashes,
+                asn: intel.asn ?? null,
+                subnetHash,
                 sealed,
                 presetId: token.presetId,
                 roleGranted,
@@ -321,6 +328,20 @@ export class WebAuthService {
                 // best-effort follow-up and must not burn the token.
                 warnings.push('相関チェックに失敗しました（記録は保存済み）');
                 Logger.warn(`[WebAuth] correlation failed for ${token.userId} in ${token.guildId}: ${String(error)}`);
+            }
+
+            // Alt-account graph propagation: the new record joins the graph and
+            // is auto-flagged when its total edge weight toward bad nodes meets
+            // the threshold. Best effort; the verification already succeeded.
+            try {
+                await antiCheatManager.evaluateAltGraphForUser(
+                    token.guildId,
+                    token.userId,
+                    'webauth',
+                    { webAuthRecords: stored }
+                );
+            } catch (error) {
+                Logger.warn(`[WebAuth] graph evaluation failed for ${token.userId} in ${token.guildId}: ${String(error)}`);
             }
 
             this.tokens.consume(input.token);

@@ -50,6 +50,12 @@ export interface IpIntelResult {
     cached: boolean;
     /** Short machine-readable detail; never contains the IP. */
     detail?: string;
+    /**
+     * Autonomous-system string reported by ip-api (`as`, e.g.
+     * "AS2516 KDDI CORPORATION"). Plain text, not personal data; stored on
+     * the WebAuth record next to `subnetHash`.
+     */
+    asn?: string | null;
 }
 
 export interface FingerprintUaCh {
@@ -72,6 +78,22 @@ export interface FingerprintTouch {
     touchEvent?: boolean;
 }
 
+/**
+ * Components the canonical fingerprint is split into for fuzzy matching.
+ * Each one is hashed separately so a single changed component does not lose
+ * the whole device match.
+ */
+export type FingerprintComponentKey =
+    | 'canvas'
+    | 'webgl'
+    | 'screen'
+    | 'platform'
+    | 'locale'
+    | 'hardware'
+    | 'audio';
+
+export type FingerprintSignalHashes = Partial<Record<FingerprintComponentKey, string>>;
+
 /** Raw signals posted by the auth page. Always encrypted before storage. */
 export interface FingerprintSignals {
     userAgent?: string;
@@ -84,6 +106,8 @@ export interface FingerprintSignals {
     canvasHash?: string;
     webglVendor?: string;
     webglRenderer?: string;
+    /** Optional; the current page does not collect it yet. */
+    audioHash?: string;
     touch?: FingerprintTouch;
 }
 
@@ -110,6 +134,7 @@ export interface NormalizedFingerprintSignals {
     canvasHash: string;
     webglVendor: string;
     webglRenderer: string;
+    audioHash: string;
     touch: {
         maxTouchPoints: number;
         touchEvent: boolean;
@@ -136,6 +161,16 @@ export interface WebAuthRecord {
     };
     ipHash: string | null;
     fpHash: string | null;
+    /**
+     * Per-component HMAC hashes of the fingerprint. Null on records created
+     * before fuzzy matching (and on staff records); fuzzy matching simply
+     * does not apply to those.
+     */
+    signalHashes: FingerprintSignalHashes | null;
+    /** ip-api `as` string (plain text, not personal). */
+    asn: string | null;
+    /** HMAC hex of the /24 (IPv4) or /48 (IPv6) prefix of the client IP. */
+    subnetHash: string | null;
     /** hex(iv + auth tag + ciphertext); null for staff records. */
     sealed: string | null;
     presetId: string | null;
@@ -180,8 +215,13 @@ export interface WebAuthTokenRecord {
 
 export interface WebAuthMatch {
     userId: string;
-    hashTypes: Array<'ip' | 'fp'>;
+    hashTypes: Array<'ip' | 'fp' | 'fp-fuzzy'>;
     /** Why the matched account is considered risky. */
     risks: Array<'raid-kick' | 'watch-danger-kick' | 'watch-flagged'>;
     hashCount: number;
+    /**
+     * Best fuzzy fingerprint similarity (0..1). 0 when only exact or IP
+     * hashes matched. Lets the correlation log state the score.
+     */
+    fpScore?: number;
 }

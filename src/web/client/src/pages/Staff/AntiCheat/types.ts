@@ -46,7 +46,7 @@ export interface WatchUserEntryView {
     reason: string;
     signals: string[];
     since: string;
-    source: 'join' | 'member-update' | 'message' | 'webauth-match';
+    source: 'join' | 'member-update' | 'message' | 'webauth-match' | 'graph';
     nameSnapshot: string;
     accountCreatedAt?: string | null;
     dangerPoints24h: number;

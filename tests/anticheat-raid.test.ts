@@ -259,6 +259,57 @@ test('stored raid configs keep their thresholds and only gain the new keys', () 
     assert.equal(config.kickWindowSeconds, 60);
 });
 
+test('regular join cadence alone activates raid mode and reports CV / mean gap', async () => {
+    const { manager, settings, sent, member } = setup({
+        joinsPerHour: 100,
+        burstCount: 100,
+        autoKick: 0,
+        automation: { minJoins: 8, meanGapSeconds: 60, cvThreshold: 0.35 }
+    });
+    const now = Date.now();
+    // Seven prior joins exactly 10 s apart; the eighth arrives with this test.
+    const seeded = [0, 1, 2, 3, 4, 5, 6].map((index) => ({
+        userId: `seed${index}`,
+        ts: now - (7 - index) * 10_000
+    }));
+    CacheManager.set('anticheat:joins:guild', seeded, 60 * 60 * 1000);
+
+    await manager.onGuildMemberAdd(member('m1'));
+
+    assert.equal(settings.raidMode.active, true);
+    assert.match(settings.raidMode.reason || '', /CV=0\.\d+/);
+    assert.match(settings.raidMode.reason || '', /平均間隔=/);
+    assert.equal(sent.length, 1);
+    const activation = sent[0].embeds[0];
+    assert.match(activation.data.title, /レイドモードを有効化/);
+    const metric = (activation.data.fields || []).find((field: any) => field.name === '参加間隔');
+    assert.ok(metric);
+    assert.match(metric.value, /平均 .*秒 \/ CV 0\.\d+/);
+});
+
+test('human-like irregular joins do not activate through the entropy rule', async () => {
+    const { manager, settings, sent, member } = setup({
+        joinsPerHour: 100,
+        burstCount: 100,
+        autoKick: 0,
+        automation: { minJoins: 8, meanGapSeconds: 60, cvThreshold: 0.35 }
+    });
+    const now = Date.now();
+    const gaps = [1, 3, 8, 2, 12, 4, 6];
+    let offset = gaps.reduce((sum, gap) => sum + gap, 0) * 1000;
+    const seeded = gaps.map((gap, index) => {
+        const record = { userId: `seed${index}`, ts: now - offset };
+        offset -= gap * 1000;
+        return record;
+    });
+    CacheManager.set('anticheat:joins:guild', seeded, 60 * 60 * 1000);
+
+    await manager.onGuildMemberAdd(member('m1'));
+
+    assert.equal(settings.raidMode.active, false);
+    assert.equal(sent.length, 0);
+});
+
 test('kick decisions exempt bots, owner, admins, excluded roles and unkickable members', () => {
     const base = { id: 'u1', user: { bot: false }, roles: { cache: new Set<string>() }, permissions: { has: () => false }, kickable: true };
     assert.equal(raidKickSkipReason(base, 'owner', []), null);
