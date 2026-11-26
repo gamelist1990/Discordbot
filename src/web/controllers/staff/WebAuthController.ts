@@ -26,6 +26,10 @@ function safeRecord(record: WebAuthRecordView, identity: MemberIdentity | null):
         roleGranted: record.roleGranted,
         matchCount: record.matchCount,
         matchedUserIds: record.matchedUserIds,
+        automation: record.automation,
+        softwareRenderer: record.softwareRenderer,
+        countryCode: record.countryCode,
+        geoMismatch: record.geoMismatch,
         username: identity?.username || '不明',
         displayName: identity?.displayName || '不明',
         avatar: identity?.avatar || null

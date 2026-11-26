@@ -326,13 +326,36 @@ function webglInfo(){
   try{
     var c=document.createElement('canvas');
     var gl=c.getContext('webgl')||c.getContext('experimental-webgl');
-    if(!gl)return {vendor:'',renderer:''};
+    if(!gl)return {vendor:'',renderer:'',detail:{extensions:[],maxTextureSize:0,maxViewportWidth:0,maxViewportHeight:0,fragmentHighp:''}};
     var ext=gl.getExtension('WEBGL_debug_renderer_info');
+    var extensions=[];
+    try{extensions=(gl.getSupportedExtensions()||[]).slice(0,64);}catch(e){}
+    var viewport=[0,0];
+    try{
+      var dims=gl.getParameter(gl.MAX_VIEWPORT_DIMS);
+      if(dims&&dims.length>=2)viewport=[safeNumber(dims[0]),safeNumber(dims[1])];
+    }catch(e){}
+    var highp='';
+    try{
+      var precision=gl.getShaderPrecisionFormat(gl.FRAGMENT_SHADER,gl.HIGH_FLOAT);
+      if(precision){
+        highp=safeNumber(precision.rangeMin)+'/'+safeNumber(precision.rangeMax)+'/'+safeNumber(precision.precision);
+      }
+    }catch(e){}
     return {
       vendor:ext?String(gl.getParameter(ext.UNMASKED_VENDOR_WEBGL)||''):'',
-      renderer:ext?String(gl.getParameter(ext.UNMASKED_RENDERER_WEBGL)||''):''
+      renderer:ext?String(gl.getParameter(ext.UNMASKED_RENDERER_WEBGL)||''):'',
+      detail:{
+        extensions:extensions,
+        maxTextureSize:safeNumber(gl.getParameter(gl.MAX_TEXTURE_SIZE)),
+        maxViewportWidth:viewport[0],
+        maxViewportHeight:viewport[1],
+        fragmentHighp:highp
+      }
     };
-  }catch(e){return {vendor:'',renderer:''};}
+  }catch(e){
+    return {vendor:'',renderer:'',detail:{extensions:[],maxTextureSize:0,maxViewportWidth:0,maxViewportHeight:0,fragmentHighp:''}};
+  }
 }
 function uaCh(){
   try{
@@ -347,21 +370,184 @@ function safeNumber(value){
   var n=Number(value);
   return isFinite(n)?n:0;
 }
+/* ---- brief 9: audio, fonts, display extras, automation ---- */
+function hashText(value){
+  var text=String(value||'');
+  if(window.crypto&&window.crypto.subtle&&window.crypto.subtle.digest){
+    try{return sha256Hex(new TextEncoder().encode(text)).catch(function(){return fnv1a(text);});}catch(e){}
+  }
+  return Promise.resolve(fnv1a(text));
+}
+var audioCtx=null;
+function unlockAudio(){
+  /* Called from a real user gesture (drag pointerdown / submit click) so the
+     browser's autoplay policy lets the audio graph run. Best effort only. */
+  try{
+    var AC=window.AudioContext||window.webkitAudioContext;
+    if(!AC)return;
+    if(!audioCtx)audioCtx=new AC();
+    if(audioCtx.state==='suspended'&&typeof audioCtx.resume==='function'){
+      audioCtx.resume().catch(function(){});
+    }
+  }catch(e){}
+}
+function audioSignature(buffer){
+  /* Deterministic summary of the rendered samples: the same browser+machine
+     reproduces the same compressor output, a different audio stack does not.
+     sum|energy|zero-crossings|mean-energy is stable and compact. */
+  var data=buffer&&buffer.getChannelData?buffer.getChannelData(0):null;
+  if(!data||!data.length)return '';
+  var sum=0,energy=0,crossings=0,prev=0;
+  for(var i=0;i<data.length;i++){
+    var v=data[i];
+    sum+=Math.abs(v);
+    energy+=v*v;
+    if(i>0&&((v>=0)!==(prev>=0)))crossings++;
+    prev=v;
+  }
+  return [sum.toFixed(3),energy.toFixed(3),crossings,(energy/(data.length||1)).toFixed(6)].join('|');
+}
+function audioHash(){  return new Promise(function(resolve){
+    try{
+      var OAC=window.OfflineAudioContext||window.webkitOfflineAudioContext;
+      if(!OAC)return resolve('');
+      var ctx=new OAC(1,44100*2,44100);
+      var osc=ctx.createOscillator();
+      osc.type='triangle';
+      osc.frequency.value=10000;
+      var compressor=ctx.createDynamicsCompressor();
+      compressor.threshold.value=-50;
+      compressor.knee.value=40;
+      compressor.ratio.value=12;
+      compressor.attack.value=0;
+      compressor.release.value=0.25;
+      osc.connect(compressor);
+      compressor.connect(ctx.destination);
+      osc.start(0);
+      var rendered=ctx.startRendering();
+      if(rendered&&typeof rendered.then==='function'){
+        rendered.then(function(buffer){
+          var signature=audioSignature(buffer);
+          return signature?hashText(signature):'';
+        }).then(resolve).catch(function(){resolve('');});
+        return;
+      }
+      ctx.oncomplete=function(event){
+        try{
+          var signature=audioSignature(event.renderedBuffer);
+          if(!signature)return resolve('');
+          hashText(signature).then(resolve).catch(function(){resolve('');});
+        }catch(e){resolve('');}
+      };
+    }catch(e){resolve('');}
+  });
+}
+var FONT_CANDIDATES=[
+  'Arial','Arial Black','Calibri','Cambria','Candara','Comic Sans MS','Consolas',
+  'Courier New','Georgia','Helvetica','Helvetica Neue','Impact','Lucida Console',
+  'Lucida Sans Unicode','Meiryo','MS Gothic','MS PGothic','MS Mincho','Segoe UI',
+  'Tahoma','Times New Roman','Trebuchet MS','Verdana','Yu Gothic','Yu Gothic UI',
+  'Yu Mincho','Hiragino Sans','Hiragino Kaku Gothic ProN','Hiragino Mincho ProN',
+  'Noto Sans JP','Noto Sans CJK JP','BIZ UDPGothic','BIZ UDGothic','IPAGothic',
+  'IPAPGothic','Osaka','TakaoGothic','VL PGothic'
+];
+function fontList(){
+  try{
+    var c=document.createElement('canvas');
+    var ctx=c.getContext('2d');
+    if(!ctx)return [];
+    var probe='mmmwwwiilll日本語あ漢字';
+    var baselines=['monospace','serif','sans-serif'];
+    var baseWidths={};
+    var i,b;
+    for(b=0;b<baselines.length;b++){
+      ctx.font='72px '+baselines[b];
+      baseWidths[baselines[b]]=ctx.measureText(probe).width;
+    }
+    var present=[];
+    for(i=0;i<FONT_CANDIDATES.length;i++){
+      var name=FONT_CANDIDATES[i];
+      var found=false;
+      for(b=0;b<baselines.length&&!found;b++){
+        var base=baselines[b];
+        ctx.font='72px "'+name+'", '+base;
+        if(Math.abs(ctx.measureText(probe).width-baseWidths[base])>0.5)found=true;
+      }
+      if(found)present.push(name);
+    }
+    return present;
+  }catch(e){return [];}
+}
+function automationSummary(){
+  var summary={webdriver:false,pluginCount:0,outerWidth:0,outerHeight:0,
+    notificationPermission:'',notificationApiState:'',notificationMismatch:false};
+  try{summary.webdriver=navigator.webdriver===true;}catch(e){}
+  try{summary.pluginCount=safeNumber(navigator.plugins&&navigator.plugins.length);}catch(e){}
+  try{summary.outerWidth=safeNumber(window.outerWidth);}catch(e){}
+  try{summary.outerHeight=safeNumber(window.outerHeight);}catch(e){}
+  try{if(window.Notification&&typeof Notification.permission==='string')summary.notificationPermission=Notification.permission;}catch(e){}
+  return summary;
+}
+function notificationApiState(){
+  try{
+    if(!navigator.permissions||typeof navigator.permissions.query!=='function')return Promise.resolve('');
+    return navigator.permissions.query({name:'notifications'}).then(function(status){
+      return status&&typeof status.state==='string'?status.state:'';
+    }).catch(function(){return '';});
+  }catch(e){return Promise.resolve('');}
+}
+function displayExtras(){
+  var extras={devicePixelRatio:0,colorGamut:'',orientation:''};
+  try{extras.devicePixelRatio=safeNumber(window.devicePixelRatio);}catch(e){}
+  try{
+    if(window.matchMedia){
+      if(window.matchMedia('(color-gamut: rec2020)').matches)extras.colorGamut='rec2020';
+      else if(window.matchMedia('(color-gamut: p3)').matches)extras.colorGamut='p3';
+      else if(window.matchMedia('(color-gamut: srgb)').matches)extras.colorGamut='srgb';
+    }
+  }catch(e){}
+  try{
+    if(screen.orientation&&typeof screen.orientation.type==='string')extras.orientation=screen.orientation.type;
+    else extras.orientation=(window.innerWidth>window.innerHeight)?'landscape':'portrait';
+  }catch(e){}
+  return extras;
+}
+function settleWithin(promise,ms,fallback){
+  /* Best-effort guard: a hung signal must never hold up the submit. */
+  return new Promise(function(resolve){
+    var timer=window.setTimeout(function(){resolve(fallback);},ms);
+    Promise.resolve(promise).then(function(value){
+      window.clearTimeout(timer);
+      resolve(value);
+    },function(){
+      window.clearTimeout(timer);
+      resolve(fallback);
+    });
+  });
+}
 function collect(){
   var gl=webglInfo();
-  return Promise.all([canvasHash(),uaCh()]).then(function(res){
+  return Promise.all([canvasHash(),uaCh(),settleWithin(audioHash(),2000,''),settleWithin(notificationApiState(),1000,'')]).then(function(res){
     var touch={maxTouchPoints:0,touchEvent:false};
     var scr={width:0,height:0,colorDepth:0,pixelDepth:0};
     var tz='',langs=[],cores=0,mem=0;
     /* Every group is optional: Safari exposes no UA-CH, may omit
-       deviceMemory and can restrict WebGL. A missing group is simply
-       absent, never a submit blocker. */
+       deviceMemory, can restrict WebGL and may refuse an audio context.
+       A missing group is simply absent, never a submit blocker. */
     try{touch={maxTouchPoints:safeNumber(navigator.maxTouchPoints),touchEvent:('ontouchstart' in window)};}catch(e){}
     try{tz=Intl.DateTimeFormat().resolvedOptions().timeZone||'';}catch(e){}
     try{scr={width:safeNumber(screen.width),height:safeNumber(screen.height),colorDepth:safeNumber(screen.colorDepth),pixelDepth:safeNumber(screen.pixelDepth)};}catch(e){}
     try{langs=Array.isArray(navigator.languages)?navigator.languages.slice(0,20):[];}catch(e){}
     try{cores=safeNumber(navigator.hardwareConcurrency);}catch(e){}
     try{mem=safeNumber(navigator.deviceMemory);}catch(e){}
+    var extras=displayExtras();
+    scr.devicePixelRatio=extras.devicePixelRatio;
+    scr.colorGamut=extras.colorGamut;
+    scr.orientation=extras.orientation;
+    var automation=automationSummary();
+    automation.notificationApiState=res[3]||'';
+    automation.notificationMismatch=!!automation.notificationPermission&&!!automation.notificationApiState
+      &&automation.notificationPermission!==automation.notificationApiState;
     return {
       userAgent:String(navigator.userAgent||''),
       uaCh:res[1]||{brands:[],mobile:false},
@@ -373,15 +559,23 @@ function collect(){
       canvasHash:(res&&res[0])||'',
       webglVendor:(gl&&gl.vendor)||'',
       webglRenderer:(gl&&gl.renderer)||'',
+      webglDetail:(gl&&gl.detail)||{extensions:[],maxTextureSize:0,maxViewportWidth:0,maxViewportHeight:0,fragmentHighp:''},
+      audioHash:(res&&res[2])||'',
+      fonts:fontList(),
+      automation:automation,
       touch:touch
     };
   }).catch(function(){
     return {
       userAgent:String(navigator.userAgent||''),
       uaCh:{brands:[],mobile:false},
-      screen:{width:0,height:0,colorDepth:0,pixelDepth:0},
+      screen:{width:0,height:0,colorDepth:0,pixelDepth:0,devicePixelRatio:0,colorGamut:'',orientation:''},
       timezone:'',languages:[],hardwareConcurrency:0,deviceMemory:0,
       canvasHash:'',webglVendor:'',webglRenderer:'',
+      webglDetail:{extensions:[],maxTextureSize:0,maxViewportWidth:0,maxViewportHeight:0,fragmentHighp:''},
+      audioHash:'',fonts:[],
+      automation:{webdriver:false,pluginCount:0,outerWidth:0,outerHeight:0,
+        notificationPermission:'',notificationApiState:'',notificationMismatch:false},
       touch:{maxTouchPoints:0,touchEvent:false}
     };
   });
@@ -483,6 +677,8 @@ function submitAttempt(itemId,drop,samples,pointerType,el){
 if(ch&&!passed)renderChallenge();
 if(field&&!blocked&&!passed){
   field.addEventListener('pointerdown',function(evt){
+    /* A real gesture: unlock audio here so the submit-time render is allowed. */
+    unlockAudio();
     if(passed||!ch)return;
     if(!evt.isPrimary)return;
     if(evt.pointerType==='mouse'&&evt.button!==0)return;
@@ -558,6 +754,8 @@ if(S.intelUnavailable&&!S.vpnBlocked&&!passed){setStatus('IP評価を取得で�
 btn.addEventListener('click',function(){
   if(btn.disabled)return;
   if(!passed){setStatus('先に操作チェックを完了してください。','bad');return;}
+  /* Inside the gesture: resume the audio context before rendering. */
+  unlockAudio();
   btn.disabled=true;btn.textContent='認証中…';
   setStatus('端末情報を収集しています…','');
   collect().then(function(signals){

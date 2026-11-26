@@ -1,9 +1,15 @@
 import crypto from 'node:crypto';
 import { database } from '../persistence/Database.js';
-import { scoreFingerprintSimilarity, type FingerprintFuzzyConfig } from './fingerprint.js';
+import {
+    normalizeAutomation,
+    scoreFingerprintSimilarity,
+    type FingerprintFuzzyConfig
+} from './fingerprint.js';
 import type {
     FingerprintComponentKey,
     FingerprintSignalHashes,
+    GeoMismatch,
+    NormalizedFingerprintSignals,
     WebAuthBlockMark,
     WebAuthBlockRule,
     WebAuthBrowserName,
@@ -19,7 +25,8 @@ export const WEBAUTH_RECORD_TTL_MS = 365 * 24 * 60 * 60 * 1000;
 export const WEBAUTH_MAX_RECORDS = 2000;
 export const WEBAUTH_RECORDS_KEY = 'webauth/records';
 const FINGERPRINT_COMPONENT_KEYS: FingerprintComponentKey[] = [
-    'canvas', 'webgl', 'screen', 'platform', 'locale', 'hardware', 'audio'
+    'canvas', 'webgl', 'screen', 'platform', 'locale', 'hardware', 'audio',
+    'fonts', 'webgl2', 'display'
 ];
 
 const BROWSER_NAMES: WebAuthBrowserName[] = ['chrome', 'edge', 'safari'];
@@ -49,7 +56,14 @@ const asnText = (value: unknown): string | null => {
     return text || null;
 };
 
-const BLOCK_RULES: WebAuthBlockRule[] = ['exact', 'fuzzy', 'graph'];
+const BLOCK_RULES: WebAuthBlockRule[] = ['automation', 'exact', 'fuzzy', 'graph'];
+
+const GEO_MISMATCHES: GeoMismatch[] = ['none', 'tz', 'lang', 'both'];
+
+const countryCodeText = (value: unknown): string | null => {
+    const code = typeof value === 'string' ? value.trim().toUpperCase() : '';
+    return /^[A-Z]{2}$/.test(code) ? code : null;
+};
 
 /** Keeps only well-formed block evidence; null when nothing usable remains. */
 export function normalizeBlockMark(value: unknown): WebAuthBlockMark | null {
@@ -83,6 +97,10 @@ export interface WebAuthRecordInput {
     signalHashes?: FingerprintSignalHashes | null;
     asn?: string | null;
     subnetHash?: string | null;
+    automation?: NormalizedFingerprintSignals['automation'] | null;
+    softwareRenderer?: boolean;
+    countryCode?: string | null;
+    geoMismatch?: GeoMismatch | null;
     sealed: string | null;
     presetId?: string | null;
     note?: string | null;
@@ -125,6 +143,12 @@ export function createWebAuthRecord(input: WebAuthRecordInput): WebAuthRecord {
         signalHashes: normalizeSignalHashes(input.signalHashes),
         asn: asnText(input.asn),
         subnetHash: isHash(input.subnetHash) ? input.subnetHash : null,
+        automation: input.automation ? normalizeAutomation(input.automation) : null,
+        softwareRenderer: input.softwareRenderer === true,
+        countryCode: countryCodeText(input.countryCode),
+        geoMismatch: GEO_MISMATCHES.includes(input.geoMismatch as GeoMismatch)
+            ? input.geoMismatch as GeoMismatch
+            : 'none',
         sealed: isSealed(input.sealed) ? input.sealed : null,
         presetId: typeof input.presetId === 'string' && input.presetId ? input.presetId : null,
         note: typeof input.note === 'string' && input.note.trim() ? input.note.trim().slice(0, 500) : null,
@@ -156,6 +180,10 @@ function normalizeRecord(raw: unknown): WebAuthRecord | null {
         signalHashes: entry.signalHashes ?? null,
         asn: entry.asn ?? null,
         subnetHash: entry.subnetHash ?? null,
+        automation: entry.automation ?? null,
+        softwareRenderer: entry.softwareRenderer === true,
+        countryCode: entry.countryCode ?? null,
+        geoMismatch: entry.geoMismatch ?? null,
         sealed: entry.sealed ?? null,
         presetId: entry.presetId ?? null,
         note: entry.note ?? null,

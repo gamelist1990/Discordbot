@@ -26,6 +26,8 @@ import type { WebAuthBlockRule, WebAuthMatch, WebAuthRecord } from './types.js';
  * reads beyond the values handed in, so the whole policy is unit-testable.
  *
  * Decision order (after the token / challenge / browser / VPN gates):
+ *   0. automation — the page reported `navigator.webdriver === true`
+ *                  (brief 9). A normally browsed browser never reports it.
  *   1. exact  — `ipHash` or `fpHash` equals a record of a user kicked by
  *               anti-raid or by the watch danger pipeline.
  *   2. fuzzy  — the 4A fuzzy fingerprint score against a kicked user's
@@ -44,6 +46,7 @@ export type { WebAuthBlockRule };
 
 /** Staff-facing rule names; never contains a matched account or signal. */
 export const WEB_AUTH_BLOCK_RULE_LABELS: Record<WebAuthBlockRule, string> = {
+    automation: '自動化ブラウザの検出',
     exact: 'IP・端末の完全一致',
     fuzzy: '端末の類似一致',
     graph: '相関グラフの危険アカウント連結'
@@ -91,6 +94,7 @@ export function readWebAuthBlockSettings(
     const source = value || {};
     const base = DEFAULT_WEBAUTH_BLOCK_SETTINGS;
     return {
+        automation: readToggle(source.automation, base.automation),
         exact: readToggle(source.exact, base.exact),
         fuzzy: readToggle(source.fuzzy, base.fuzzy),
         graph: readToggle(source.graph, base.graph)
@@ -114,6 +118,15 @@ export function evaluateWebAuthBlock(input: WebAuthBlockInput): WebAuthBlockDeci
         .filter((entry) => !!entry?.userId && !!entry.entry);
 
     const rules: WebAuthBlockRule[] = [];
+
+    // Rule A (brief 9): the page reported navigator.webdriver=true. Chromium
+    // sets it for automation-controlled sessions; normal browsing never does.
+    // It is its own switch because it is an environment property, not a
+    // correlation result, and staff may want to soften it for kiosk setups.
+    if (settings.automation && record.automation?.webdriver === true) {
+        rules.push('automation');
+    }
+
     const byUser = new Map<string, WebAuthBlockMatch>();
     const attach = (userId: string, rule: WebAuthBlockRule, badTags: AltGraphBadTag[]): void => {
         let match = byUser.get(userId);

@@ -63,7 +63,7 @@ export interface WebAuthRecordView {
     source: 'web' | 'staff';
     verified: boolean;
     browser: {
-        name: 'chrome' | 'edge' | null;
+        name: 'chrome' | 'edge' | 'safari' | null;
         reason: string;
     };
     intel: {
@@ -71,6 +71,22 @@ export interface WebAuthRecordView {
         flags: string[];
         source: string;
     };
+    /** Automation/headless summary (brief 9); null on old/staff records. */
+    automation: {
+        webdriver: boolean;
+        pluginCount: number;
+        outerWidth: number;
+        outerHeight: number;
+        notificationPermission: string;
+        notificationApiState: string;
+        notificationMismatch: boolean;
+    } | null;
+    /** Software rasterizer (SwiftShader/llvmpipe/…) detected. */
+    softwareRenderer: boolean;
+    /** ISO 3166-1 alpha-2 country from ip-api. */
+    countryCode: string | null;
+    /** IP country vs browser timezone/language consistency. */
+    geoMismatch: 'none' | 'tz' | 'lang' | 'both';
     presetId: string | null;
     note: string | null;
     roleGranted: boolean;

@@ -842,7 +842,39 @@ function Activity(p: AntiCheatViewProps) {
         ? "Chrome"
         : record.browser.name === "edge"
           ? "Edge"
-          : "不明";
+          : record.browser.name === "safari"
+            ? "Safari"
+            : "不明";
+  const geoLabel = (record: (typeof p.webAuthRecords)[number]) =>
+    record.geoMismatch === "tz"
+      ? "タイムゾーン"
+      : record.geoMismatch === "lang"
+        ? "言語"
+        : record.geoMismatch === "both"
+          ? "タイムゾーン・言語"
+          : "なし";
+  /** Brief-9 signal summary; block rules are separate from these signals. */
+  const signalSummary = (record: (typeof p.webAuthRecords)[number]) => {
+    const notes: string[] = [];
+    if (record.automation?.webdriver) {
+      notes.push("自動化ブラウザ（webdriver=true）");
+    } else if (record.automation) {
+      const traits: string[] = [];
+      if (record.automation.pluginCount === 0) traits.push("プラグイン0");
+      if (record.automation.outerWidth === 0 || record.automation.outerHeight === 0) {
+        traits.push("ウィンドウ外寸0");
+      }
+      if (record.automation.notificationMismatch) traits.push("通知権限の不整合");
+      if (traits.length) notes.push(`自動化の兆候: ${traits.join("・")}`);
+    }
+    if (record.softwareRenderer) notes.push("ソフトウェア描画（仮想GPU）");
+    if (record.geoMismatch !== "none") {
+      notes.push(
+        `地理不整合: ${geoLabel(record)}${record.countryCode ? `（IP国 ${record.countryCode}）` : ""}`,
+      );
+    }
+    return notes.join(" · ");
+  };
   const intelLabel = (record: (typeof p.webAuthRecords)[number]) => {
     if (record.source === "staff" || record.intel.verdict === "staff") {
       return "スタッフ上書き";
@@ -994,7 +1026,7 @@ function Activity(p: AntiCheatViewProps) {
                 <h3>Web認証の記録</h3>
                 <p>
                   Web認証ページで取得したIP・端末指紋の記録です。値はハッシュと暗号化でのみ保存され、この画面には表示されません。
-                  VPNの誤検知やChrome/Edgeを使えないメンバーは、ユーザーIDを指定してスタッフ認証を記録できます。
+                  VPNの誤検知やChrome/Edge/Safariを使えないメンバーは、ユーザーIDを指定してスタッフ認証を記録できます。
                 </p>
               </div>
               <form
@@ -1049,6 +1081,9 @@ function Activity(p: AntiCheatViewProps) {
                         {record.matchCount} 件
                         {record.roleGranted ? "" : " · ロール付与失敗"}
                       </p>
+                      {signalSummary(record) && (
+                        <p>端末シグナル: {signalSummary(record)}</p>
+                      )}
                       {record.note && <small>メモ: {record.note}</small>}
                     </div>
                     <span

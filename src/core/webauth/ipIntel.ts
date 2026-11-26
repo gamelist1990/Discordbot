@@ -18,12 +18,19 @@ export interface IpApiPayload {
     mobile?: boolean;
     /** Autonomous system string, e.g. "AS2516 KDDI CORPORATION". */
     as?: string;
+    /** ISO 3166-1 alpha-2 country, e.g. "JP". */
+    countryCode?: string;
 }
 
 const asnText = (value: unknown): string | null => {
     if (typeof value !== 'string') return null;
     const text = value.replace(/[\r\n\t]+/g, ' ').trim().slice(0, 128);
     return text || null;
+};
+
+const countryText = (value: unknown): string | null => {
+    const code = typeof value === 'string' ? value.trim().toUpperCase() : '';
+    return /^[A-Z]{2}$/.test(code) ? code : null;
 };
 
 export function isPrivateOrLocalIp(value: string): boolean {
@@ -58,6 +65,7 @@ export function mapIpApiResponse(payload: IpApiPayload | null, now: number): IpI
         };
     }
     const asn = asnText(payload.as);
+    const countryCode = countryText(payload.countryCode);
     const flags: IntelFlag[] = [];
     if (payload.proxy === true) flags.push('proxy');
     if (payload.hosting === true) flags.push('hosting');
@@ -69,7 +77,8 @@ export function mapIpApiResponse(payload: IpApiPayload | null, now: number): IpI
             checkedAt: now,
             cached: false,
             detail: `flagged-${flags.join('+')}`,
-            ...(asn ? { asn } : {})
+            ...(asn ? { asn } : {}),
+            ...(countryCode ? { countryCode } : {})
         };
     }
     return {
@@ -78,7 +87,8 @@ export function mapIpApiResponse(payload: IpApiPayload | null, now: number): IpI
         source: IP_INTEL_SOURCE,
         checkedAt: now,
         cached: false,
-        ...(asn ? { asn } : {})
+        ...(asn ? { asn } : {}),
+        ...(countryCode ? { countryCode } : {})
     };
 }
 
@@ -140,7 +150,7 @@ export class IpIntelClient {
         timer.unref?.();
         try {
             const response = await this.fetchImpl(
-                `http://${IP_INTEL_SOURCE}/json/${encodeURIComponent(ip)}?fields=status,message,query,proxy,hosting,mobile,as`,
+                `http://${IP_INTEL_SOURCE}/json/${encodeURIComponent(ip)}?fields=status,message,query,proxy,hosting,mobile,as,countryCode`,
                 { signal: controller.signal, headers: { accept: 'application/json' } }
             );
             if (!response.ok) {

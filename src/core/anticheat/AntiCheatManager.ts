@@ -106,6 +106,41 @@ type Detection = { detector: string; result: DetectionResult };
 type MessageWork = { revision: string; timestamp: number; task: Promise<boolean>; current: boolean };
 const SLOW_DETECTORS = new Set(['redirectLink', 'gifFlash', 'duplicateImage', 'contentSafety']);
 
+/** Staff-facing labels of the weak geo-consistency signal (brief 9). */
+const WEB_AUTH_GEO_LABELS: Record<WebAuthRecord['geoMismatch'], string> = {
+    none: 'なし',
+    tz: 'タイムゾーン',
+    lang: '言語',
+    both: 'タイムゾーン・言語'
+};
+
+/**
+ * Optional 「端末シグナル」 embed field for the brief-9 signals. Returns an
+ * empty array when there is nothing worth showing, so neither log gains an
+ * empty field. Only booleans, counts and coarse country codes appear here;
+ * hashes and raw signals never do.
+ */
+function webAuthSignalFields(record?: WebAuthRecord | null): Array<{ name: string; value: string; inline: boolean }> {
+    if (!record) return [];
+    const notes: string[] = [];
+    const automation = record.automation;
+    if (automation?.webdriver) {
+        notes.push('自動化ブラウザ（webdriver=true）');
+    } else if (automation) {
+        const traits: string[] = [];
+        if (automation.pluginCount === 0) traits.push('プラグイン0');
+        if (automation.outerWidth === 0 || automation.outerHeight === 0) traits.push('ウィンドウ外寸0');
+        if (automation.notificationMismatch) traits.push('通知権限の不整合');
+        if (traits.length) notes.push(`自動化の兆候: ${traits.join('・')}`);
+    }
+    if (record.softwareRenderer) notes.push('ソフトウェア描画（仮想GPU）');
+    if (record.geoMismatch !== 'none') {
+        notes.push(`地理不整合（${WEB_AUTH_GEO_LABELS[record.geoMismatch]}）${record.countryCode ? ` IP国=${record.countryCode}` : ''}`);
+    }
+    if (!notes.length) return [];
+    return [{ name: '端末シグナル', value: notes.join('\n').slice(0, 1024), inline: false }];
+}
+
 export class AntiCheatManager {
     private detectors: Map<string, Detector> = new Map();
     private client: Client | null = null;
@@ -1402,7 +1437,8 @@ export class AntiCheatManager {
     async sendWebAuthCorrelationLog(
         guildId: string,
         userId: string,
-        matches: WebAuthMatch[]
+        matches: WebAuthMatch[],
+        record?: WebAuthRecord | null
     ): Promise<void> {
         if (!matches.length) return;
         const guild = this.client
@@ -1448,7 +1484,8 @@ export class AntiCheatManager {
                     inline: true
                 },
                 { name: '一致したアカウント数', value: `${matches.length}`, inline: true },
-                { name: '一致したアカウント', value: lines.join('\n').slice(0, 1024), inline: false }
+                { name: '一致したアカウント', value: lines.join('\n').slice(0, 1024), inline: false },
+                ...webAuthSignalFields(record)
             );
 
         await logChannel.send({ embeds: [embed], allowedMentions: { parse: [] } }).catch(() => null);
@@ -1462,7 +1499,8 @@ export class AntiCheatManager {
     async sendWebAuthBlockLog(
         guildId: string,
         userId: string,
-        decision: WebAuthBlockDecision
+        decision: WebAuthBlockDecision,
+        record?: WebAuthRecord | null
     ): Promise<void> {
         const guild = this.client
             ? (this.client.guilds.cache.get(guildId) || await this.client.guilds.fetch(guildId).catch(() => null))
@@ -1506,7 +1544,14 @@ export class AntiCheatManager {
                         .slice(0, 1024),
                     inline: false
                 },
-                { name: '一致したアカウント', value: (lines.join('\n') || '不明').slice(0, 1024), inline: false }
+                {
+                    name: '一致したアカウント',
+                    value: (lines.join('\n')
+                        || (decision.rules.includes('automation') ? '該当なし（自動化ブラウザの検出）' : '不明'))
+                        .slice(0, 1024),
+                    inline: false
+                },
+                ...webAuthSignalFields(record)
             );
 
         await logChannel.send({ embeds: [embed], allowedMentions: { parse: [] } }).catch(() => null);

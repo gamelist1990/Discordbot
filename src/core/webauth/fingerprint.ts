@@ -27,6 +27,76 @@ const finiteInt = (value: unknown, min: number, max: number, fallback = 0): numb
     return Math.min(max, Math.max(min, Math.trunc(parsed)));
 };
 
+const finiteFloat = (value: unknown, min: number, max: number, fallback = 0): number => {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) return fallback;
+    return Math.min(max, Math.max(min, Math.round(parsed * 100) / 100));
+};
+
+/** Trimmed, de-duplicated, sorted and bounded string list. */
+const textList = (value: unknown, limit: number, maxLength = 64): string[] => {
+    if (!Array.isArray(value)) return [];
+    const seen = new Set<string>();
+    const result: string[] = [];
+    for (const entry of value) {
+        const name = text(entry, '').slice(0, maxLength);
+        if (!name) continue;
+        const key = name.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        result.push(name);
+    }
+    return result
+        .sort((left, right) => left.localeCompare(right))
+        .slice(0, limit);
+};
+
+const NOTIFICATION_STATES = new Set(['granted', 'denied', 'default']);
+
+const notificationState = (value: unknown): string => {
+    const state = text(value).toLowerCase();
+    return NOTIFICATION_STATES.has(state) ? state : '';
+};
+
+/**
+ * Normalizes the automation summary. `notificationMismatch` is derived here
+ * (both states known and different), never read from the client.
+ */
+export function normalizeAutomation(value: unknown): {
+    webdriver: boolean;
+    pluginCount: number;
+    outerWidth: number;
+    outerHeight: number;
+    notificationPermission: string;
+    notificationApiState: string;
+    notificationMismatch: boolean;
+} {
+    const source = (value && typeof value === 'object' ? value : {}) as Record<string, unknown>;
+    const notificationPermission = notificationState(source.notificationPermission);
+    const notificationApiState = notificationState(source.notificationApiState);
+    return {
+        webdriver: source.webdriver === true,
+        pluginCount: finiteInt(source.pluginCount, 0, 10_000),
+        outerWidth: finiteInt(source.outerWidth, 0, 100_000),
+        outerHeight: finiteInt(source.outerHeight, 0, 100_000),
+        notificationPermission,
+        notificationApiState,
+        notificationMismatch: !!notificationPermission && !!notificationApiState
+            && notificationPermission !== notificationApiState
+    };
+}
+
+const normalizeWebglDetail = (value: unknown): NormalizedFingerprintSignals['webglDetail'] => {
+    const source = (value && typeof value === 'object' ? value : {}) as Record<string, unknown>;
+    return {
+        extensions: textList(source.extensions, 64, 96),
+        maxTextureSize: finiteInt(source.maxTextureSize, 0, 1_000_000),
+        maxViewportWidth: finiteInt(source.maxViewportWidth, 0, 1_000_000),
+        maxViewportHeight: finiteInt(source.maxViewportHeight, 0, 1_000_000),
+        fragmentHighp: text(source.fragmentHighp).slice(0, 64)
+    };
+};
+
 export function normalizeBrandList(value: unknown): BrowserBrand[] {
     if (!Array.isArray(value)) return [];
     const seen = new Set<string>();
@@ -67,7 +137,10 @@ export function normalizeFingerprintSignals(input: FingerprintSignals | null | u
             width: finiteInt(screen.width, 0, 100_000),
             height: finiteInt(screen.height, 0, 100_000),
             colorDepth: finiteInt(screen.colorDepth, 0, 1_000),
-            pixelDepth: finiteInt(screen.pixelDepth, 0, 1_000)
+            pixelDepth: finiteInt(screen.pixelDepth, 0, 1_000),
+            devicePixelRatio: finiteFloat(screen.devicePixelRatio, 0, 100),
+            colorGamut: text(screen.colorGamut).toLowerCase().slice(0, 16),
+            orientation: text(screen.orientation).toLowerCase().slice(0, 32)
         },
         timezone: text(source.timezone),
         languages: (Array.isArray(source.languages) ? source.languages : [])
@@ -80,6 +153,9 @@ export function normalizeFingerprintSignals(input: FingerprintSignals | null | u
         webglVendor: text(source.webglVendor),
         webglRenderer: text(source.webglRenderer),
         audioHash: text(source.audioHash).toLowerCase(),
+        fonts: textList(source.fonts, 40, 64),
+        webglDetail: normalizeWebglDetail(source.webglDetail),
+        automation: normalizeAutomation(source.automation),
         touch: {
             maxTouchPoints: finiteInt(touch.maxTouchPoints, 0, 10_000),
             touchEvent: touch.touchEvent === true
@@ -91,6 +167,11 @@ export function normalizeFingerprintSignals(input: FingerprintSignals | null | u
  * Stable, line-oriented canonical form. Construction order is fixed and the
  * value format is versioned so a future change cannot silently collide with
  * hashes created by this version.
+ *
+ * Brief-9 signal groups (audio, fonts, WebGL detail, display extras,
+ * automation, geo) are deliberately NOT part of this string: `fpHash` is the
+ * exact device hash and adding lines here would stop every pre-brief-9 record
+ * from matching itself. The new groups are hashed per component instead.
  */
 export function canonicalizeFingerprint(input: NormalizedFingerprintSignals): string {
     const brands = input.uaCh.brands
@@ -163,7 +244,13 @@ export const FINGERPRINT_FUZZY_CONFIG: FingerprintFuzzyConfig = {
         platform: 2,
         locale: 1,
         hardware: 1,
-        audio: 2
+        audio: 2,
+        // Brief 9 additions: the device-specific groups stay heaviest and the
+        // new groups are deliberately light, because a font list or an
+        // extension list can change after a browser update.
+        fonts: 2,
+        webgl2: 1,
+        display: 1
     }
 };
 
@@ -187,6 +274,10 @@ export function platformFromUserAgent(userAgent: string): string {
  * Splits the canonical fingerprint back into independent component values.
  * Empty components are omitted from the stored hashes so two missing values
  * never look like a match.
+ *
+ * The `screen` value intentionally stays the four legacy fields. The brief-9
+ * display extras live in their own `display` component so a new record and a
+ * pre-brief-9 record still produce the same `screen` hash.
  */
 export function fingerprintComponentValues(input: NormalizedFingerprintSignals): Record<FingerprintComponentKey, string> {
     const brandList = input.uaCh.brands
@@ -212,6 +303,20 @@ export function fingerprintComponentValues(input: NormalizedFingerprintSignals):
     const webgl = (input.webglVendor || input.webglRenderer)
         ? `${input.webglVendor}|${input.webglRenderer}`
         : '';
+    const display = (input.screen.devicePixelRatio || input.screen.colorGamut || input.screen.orientation)
+        ? `${input.screen.devicePixelRatio}|${input.screen.colorGamut}|${input.screen.orientation}`
+        : '';
+    const fonts = input.fonts.length ? input.fonts.join(',') : '';
+    const detail = input.webglDetail;
+    const webgl2 = (detail.extensions.length || detail.maxTextureSize || detail.maxViewportWidth
+        || detail.maxViewportHeight || detail.fragmentHighp)
+        ? [
+            detail.extensions.join(','),
+            `tex=${detail.maxTextureSize}`,
+            `vp=${detail.maxViewportWidth}x${detail.maxViewportHeight}`,
+            `highp=${detail.fragmentHighp}`
+        ].join('|')
+        : '';
     return {
         canvas: input.canvasHash,
         webgl,
@@ -219,7 +324,10 @@ export function fingerprintComponentValues(input: NormalizedFingerprintSignals):
         platform,
         locale,
         hardware,
-        audio: input.audioHash
+        audio: input.audioHash,
+        fonts,
+        webgl2,
+        display
     };
 }
 
@@ -253,8 +361,8 @@ export interface FingerprintFuzzyScore {
 /**
  * Weighted component similarity. `ratio` is matched weight divided by the
  * weight of the components observed on either side: a group missing on BOTH
- * sides (e.g. audio, which the page does not collect yet) is not held against
- * the pair, while a group present on only one side counts as unconfirmed.
+ * sides (e.g. audio on a pre-brief-9 record) is not held against the pair,
+ * while a group present on only one side counts as unconfirmed.
  *
  * The denominator is therefore never the full configured weight, only what
  * the two records actually expose. A Safari record — no UA-CH platform

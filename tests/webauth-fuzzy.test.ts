@@ -37,9 +37,9 @@ const baseSignals = {
 const normalized = (overrides: Record<string, unknown> = {}) =>
     normalizeFingerprintSignals({ ...baseSignals, ...overrides } as any);
 
-/** Weight of the components this browser actually reports (audio is absent). */
+/** Weight of the components this legacy-shaped payload reports (brief-9 groups absent). */
 const OBSERVABLE_WEIGHT = Object.entries(FINGERPRINT_FUZZY_CONFIG.weights)
-    .filter(([key]) => key !== 'audio')
+    .filter(([key]) => !['audio', 'fonts', 'webgl2', 'display'].includes(key))
     .reduce((sum, [, weight]) => sum + weight, 0);
 
 test('each fingerprint component is hashed independently with the same secret', () => {
@@ -162,9 +162,10 @@ test('a Safari-shaped record matches itself (no UA-CH, no deviceMemory, generic 
     assert.equal(self.ratio, 1);
     assert.equal(self.matches, true);
     // The denominator is the weight the record actually exposes (12), not the
-    // full configured weight (14, audio is never collected by the page).
+    // full configured weight (18: brief-9 audio/fonts/webgl2/display groups
+    // are not in this payload and pre-date it, so they add no weight here).
     const fullWeight = Object.values(FINGERPRINT_FUZZY_CONFIG.weights).reduce((sum, weight) => sum + weight, 0);
-    assert.equal(fullWeight, 14);
+    assert.equal(fullWeight, 18);
     assert.equal(self.totalWeight, 12);
     assert.equal(self.matchedWeight, 12);
 });

@@ -292,13 +292,13 @@ test('each rule can be disabled by its own setting', () => {
 });
 
 test('block settings default to ON and are read per rule', () => {
-    assert.deepEqual(readWebAuthBlockSettings(null), { exact: true, fuzzy: true, graph: true });
-    assert.deepEqual(readWebAuthBlockSettings({ fuzzy: false }), { exact: true, fuzzy: false, graph: true });
-    assert.deepEqual(readWebAuthBlockSettings({ exact: 0, graph: 'off' }), { exact: false, fuzzy: true, graph: false });
+    assert.deepEqual(readWebAuthBlockSettings(null), { automation: true, exact: true, fuzzy: true, graph: true });
+    assert.deepEqual(readWebAuthBlockSettings({ fuzzy: false }), { automation: true, exact: true, fuzzy: false, graph: true });
+    assert.deepEqual(readWebAuthBlockSettings({ exact: 0, graph: 'off', automation: false }), { automation: false, exact: false, fuzzy: true, graph: false });
 });
 
 test('rule labels are the staff-facing names only', () => {
-    assert.deepEqual(Object.keys(WEB_AUTH_BLOCK_RULE_LABELS).sort(), ['exact', 'fuzzy', 'graph']);
+    assert.deepEqual(Object.keys(WEB_AUTH_BLOCK_RULE_LABELS).sort(), ['automation', 'exact', 'fuzzy', 'graph']);
     for (const label of Object.values(WEB_AUTH_BLOCK_RULE_LABELS)) {
         assert.equal(/[0-9a-f]{16,}/.test(label), false);
     }

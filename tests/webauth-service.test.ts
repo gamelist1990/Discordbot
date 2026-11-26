@@ -332,6 +332,104 @@ test('a kicked-device match blocks the auth before any role grant and consumes t
     }
 });
 
+test('a navigator.webdriver=true submit is blocked at the auth point (rule A)', async () => {
+    const { service, tokens, records } = setup();
+    (service as any).annotateRisks = async () => [];
+    let grants = 0;
+    (service as any).grantVerifiedRoles = async () => {
+        grants += 1;
+        return { granted: ['verified'], errors: [], skipped: [] };
+    };
+    const blockLogs: any[] = [];
+    const originalBlockLog = antiCheatManager.sendWebAuthBlockLog;
+    (antiCheatManager as any).sendWebAuthBlockLog = async (...args: any[]) => { blockLogs.push(args); };
+    try {
+        const { token } = service.createToken({ guildId: GUILD_ID, userId: USER_ID });
+        await passChallenge(service, token);
+        const result = await service.submit({
+            token,
+            clientIp: IP,
+            socketIp: '10.0.0.97',
+            signals: {
+                ...SIGNALS,
+                automation: {
+                    webdriver: true,
+                    pluginCount: 0,
+                    outerWidth: 0,
+                    outerHeight: 0
+                }
+            } as any
+        });
+
+        assert.equal(result.ok, false);
+        if (result.ok) return;
+        assert.equal(result.status, 'risk');
+        assert.equal(result.message, WEB_AUTH_BLOCK_MESSAGE);
+        assert.equal(grants, 0, 'no role is granted for an automation block');
+        assert.equal(tokens.peek(token).status, 'missing', 'the token is consumed');
+        assert.equal(blockLogs.length, 1);
+        assert.deepEqual(blockLogs[0][2].rules, ['automation']);
+        assert.equal(blockLogs[0][3].automation.webdriver, true, 'the block log receives the record summary');
+
+        const blocked = (await records.list(GUILD_ID)).find((entry) => entry.userId === USER_ID);
+        assert.ok(blocked);
+        assert.equal(blocked!.verified, false);
+        assert.deepEqual(blocked!.blocked?.rules, ['automation']);
+        assert.equal(blocked!.automation?.webdriver, true);
+    } finally {
+        (antiCheatManager as any).sendWebAuthBlockLog = originalBlockLog;
+    }
+});
+
+test('brief-9 signals are summarised on the stored WebAuth record', async () => {
+    const { service, records } = setup();
+    (service as any).intel = new IpIntelClient({
+        fetchImpl: (async () => new Response(JSON.stringify({
+            status: 'success',
+            proxy: false,
+            hosting: false,
+            countryCode: 'US'
+        }), { status: 200 })) as any
+    });
+    (service as any).annotateRisks = async () => [];
+
+    const { token } = service.createToken({ guildId: GUILD_ID, userId: USER_ID });
+    await passChallenge(service, token);
+    const result = await service.submit({
+        token,
+        clientIp: IP,
+        socketIp: '10.0.0.97',
+        signals: {
+            ...SIGNALS,
+            audioHash: 'audio-signature',
+            fonts: ['Arial', 'Meiryo'],
+            webglRenderer: 'ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero)), SwiftShader driver)',
+            webglDetail: {
+                extensions: ['EXT_color_buffer_float'],
+                maxTextureSize: 16384,
+                maxViewportWidth: 32767,
+                maxViewportHeight: 32767,
+                fragmentHighp: '127/127/23'
+            },
+            screen: { ...SIGNALS.screen, devicePixelRatio: 2, colorGamut: 'srgb', orientation: 'landscape-primary' },
+            automation: { webdriver: false, pluginCount: 0, outerWidth: 0, outerHeight: 0 }
+        } as any
+    });
+    assert.equal(result.ok, true);
+
+    const record = (await records.list(GUILD_ID))[0];
+    assert.equal(record.softwareRenderer, true, 'SwiftShader renderer classified');
+    assert.equal(record.countryCode, 'US', 'ip-api country captured');
+    assert.equal(record.geoMismatch, 'both', 'JP timezone/language vs US IP');
+    assert.equal(record.automation?.webdriver, false);
+    assert.equal(record.automation?.pluginCount, 0);
+    assert.ok(record.signalHashes?.audio);
+    assert.ok(record.signalHashes?.fonts);
+    assert.ok(record.signalHashes?.webgl2);
+    assert.ok(record.signalHashes?.display);
+    assert.equal(JSON.stringify(record).includes('SwiftShader'), false, 'raw renderer string not stored in plain text');
+});
+
 test('staff force-verify still grants roles to a blocked user (false-positive escape hatch)', async () => {
     const { service, records } = setup();
     await records.add(GUILD_ID, createWebAuthRecord({

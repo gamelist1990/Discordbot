@@ -9,6 +9,8 @@ import { riskKickLedger, type RiskKickEntry } from '../anticheat/RiskKicks.js';
 import type { AltGraphSettings, WatchUserEntry, WebAuthBlockSettings } from '../anticheat/types.js';
 import { evaluateWebAuthBlock, type WebAuthBlockDecision } from './authBlock.js';
 import { evaluateBrowserGate } from './browserGate.js';
+import { computeGeoMismatch } from './geo.js';
+import { isSoftwareRenderer } from './renderer.js';
 import {
     describeDragFailure,
     DRAG_CHALLENGE_CONFIG,
@@ -438,7 +440,7 @@ export class WebAuthService {
                 signals: normalized
             };
             const sealed = sealPayload(JSON.stringify(sealedPayload), keys.encryptionKey);
-
+            const countryCode = intel.countryCode ?? null;
             const recordFields = {
                 guildId: token.guildId,
                 userId: token.userId,
@@ -454,6 +456,17 @@ export class WebAuthService {
                 signalHashes,
                 asn: intel.asn ?? null,
                 subnetHash,
+                // Brief-9 signal summary: webdriver can block (rule A); the
+                // rest are staff-visible signals only. A page that did not
+                // post the group at all (pre-deploy page) stores null.
+                automation: input.signals?.automation ? normalized.automation : null,
+                softwareRenderer: isSoftwareRenderer(normalized.webglVendor, normalized.webglRenderer),
+                countryCode,
+                geoMismatch: computeGeoMismatch({
+                    countryCode,
+                    timezone: normalized.timezone,
+                    languages: normalized.languages
+                }),
                 sealed,
                 presetId: token.presetId,
                 createdAt
@@ -501,7 +514,7 @@ export class WebAuthService {
                 // Not released: a refused device cannot retry with the same link.
                 this.tokens.consume(input.token);
                 try {
-                    await antiCheatManager.sendWebAuthBlockLog(token.guildId, token.userId, blocked);
+                    await antiCheatManager.sendWebAuthBlockLog(token.guildId, token.userId, blocked, blockedRecord);
                 } catch (error) {
                     Logger.warn(`[WebAuth] block log failed for ${token.userId} in ${token.guildId}: ${String(error)}`);
                 }
@@ -536,7 +549,7 @@ export class WebAuthService {
                         token.userId,
                         { matchCount: correlation.matchCount, matches: risky }
                     );
-                    await antiCheatManager.sendWebAuthCorrelationLog(token.guildId, token.userId, risky);
+                    await antiCheatManager.sendWebAuthCorrelationLog(token.guildId, token.userId, risky, record);
                 }
             } catch (error) {
                 // The record and role are already committed; correlation is a

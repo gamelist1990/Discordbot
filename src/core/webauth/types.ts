@@ -60,6 +60,11 @@ export interface IpIntelResult {
      * the WebAuth record next to `subnetHash`.
      */
     asn?: string | null;
+    /**
+     * ISO 3166-1 alpha-2 country reported by ip-api (`countryCode`). Coarse
+     * location only; used for the weak geo-consistency signal (brief 9).
+     */
+    countryCode?: string | null;
 }
 
 export interface FingerprintUaCh {
@@ -75,6 +80,40 @@ export interface FingerprintScreen {
     height?: number;
     colorDepth?: number;
     pixelDepth?: number;
+    /** window.devicePixelRatio (1, 2, 1.25, …). */
+    devicePixelRatio?: number;
+    /** First matching `(color-gamut: …)` query: rec2020 / p3 / srgb. */
+    colorGamut?: string;
+    /** screen.orientation.type, or a portrait/landscape fallback. */
+    orientation?: string;
+}
+
+/** WebGL capabilities collected for the `webgl2` component (brief 9). */
+export interface FingerprintWebglDetail {
+    extensions?: string[];
+    maxTextureSize?: number;
+    maxViewportWidth?: number;
+    maxViewportHeight?: number;
+    /** Fragment shader highp precision as `rangeMin/rangeMax/precision`. */
+    fragmentHighp?: string;
+}
+
+/**
+ * Automation / headless summary (brief 9). Booleans, counts and enum-like
+ * strings only; no timing or behavioural data. `webdriver` is the only field
+ * that can block on its own (rule A); the rest are staff-visible signals.
+ */
+export interface FingerprintAutomation {
+    webdriver?: boolean;
+    pluginCount?: number;
+    outerWidth?: number;
+    outerHeight?: number;
+    /** navigator.Notification.permission: granted / denied / default. */
+    notificationPermission?: string;
+    /** navigator.permissions.query({name:'notifications'}).state. */
+    notificationApiState?: string;
+    /** Derived server-side: both known and different. */
+    notificationMismatch?: boolean;
 }
 
 export interface FingerprintTouch {
@@ -94,7 +133,13 @@ export type FingerprintComponentKey =
     | 'platform'
     | 'locale'
     | 'hardware'
-    | 'audio';
+    | 'audio'
+    /** Present font families, measured on canvas (brief 9). */
+    | 'fonts'
+    /** WebGL extensions + key limits, separate from the canonical `webgl`. */
+    | 'webgl2'
+    /** devicePixelRatio + color gamut + orientation, separate from `screen`. */
+    | 'display';
 
 export type FingerprintSignalHashes = Partial<Record<FingerprintComponentKey, string>>;
 
@@ -110,8 +155,14 @@ export interface FingerprintSignals {
     canvasHash?: string;
     webglVendor?: string;
     webglRenderer?: string;
-    /** Optional; the current page does not collect it yet. */
+    /** OfflineAudioContext render signature (brief 9). */
     audioHash?: string;
+    /** Font families detected by canvas measurement (brief 9). */
+    fonts?: string[];
+    /** WebGL extension/limit detail for the `webgl2` component (brief 9). */
+    webglDetail?: FingerprintWebglDetail;
+    /** Automation/headless summary (brief 9). */
+    automation?: FingerprintAutomation;
     touch?: FingerprintTouch;
 }
 
@@ -130,6 +181,9 @@ export interface NormalizedFingerprintSignals {
         height: number;
         colorDepth: number;
         pixelDepth: number;
+        devicePixelRatio: number;
+        colorGamut: string;
+        orientation: string;
     };
     timezone: string;
     languages: string[];
@@ -139,6 +193,23 @@ export interface NormalizedFingerprintSignals {
     webglVendor: string;
     webglRenderer: string;
     audioHash: string;
+    fonts: string[];
+    webglDetail: {
+        extensions: string[];
+        maxTextureSize: number;
+        maxViewportWidth: number;
+        maxViewportHeight: number;
+        fragmentHighp: string;
+    };
+    automation: {
+        webdriver: boolean;
+        pluginCount: number;
+        outerWidth: number;
+        outerHeight: number;
+        notificationPermission: string;
+        notificationApiState: string;
+        notificationMismatch: boolean;
+    };
     touch: {
         maxTouchPoints: number;
         touchEvent: boolean;
@@ -147,8 +218,11 @@ export interface NormalizedFingerprintSignals {
 
 export type WebAuthRecordSource = 'web' | 'staff';
 
-/** Auth-point block rules (brief 8). */
-export type WebAuthBlockRule = 'exact' | 'fuzzy' | 'graph';
+/** Auth-point block rules (brief 8, plus the brief-9 webdriver rule). */
+export type WebAuthBlockRule = 'automation' | 'exact' | 'fuzzy' | 'graph';
+
+/** Coarse IP-country vs browser timezone/language consistency (brief 9). */
+export type GeoMismatch = 'none' | 'tz' | 'lang' | 'both';
 
 /**
  * Evidence kept on an attempt that was refused at the auth point. Only ids,
@@ -194,6 +268,23 @@ export interface WebAuthRecord {
     asn: string | null;
     /** HMAC hex of the /24 (IPv4) or /48 (IPv6) prefix of the client IP. */
     subnetHash: string | null;
+    /**
+     * Automation/headless summary (brief 9). Null on staff records and on
+     * records created before brief 9. Only `webdriver === true` can block.
+     */
+    automation: NonNullable<NormalizedFingerprintSignals['automation']> | null;
+    /**
+     * True when the WebGL renderer string denotes a software rasterizer
+     * (SwiftShader, llvmpipe, …). Staff-visible signal; never a solo block.
+     */
+    softwareRenderer: boolean;
+    /** ISO 3166-1 alpha-2 country from ip-api; null when unknown/staff. */
+    countryCode: string | null;
+    /**
+     * Coarse consistency between the IP country and the browser timezone /
+     * primary language. Weak signal only; never a solo block.
+     */
+    geoMismatch: GeoMismatch;
     /** hex(iv + auth tag + ciphertext); null for staff records. */
     sealed: string | null;
     presetId: string | null;

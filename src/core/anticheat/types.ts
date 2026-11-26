@@ -235,6 +235,11 @@ export const DEFAULT_ALT_GRAPH_SETTINGS: AltGraphSettings = {
  * A user who is merely watch-flagged is never blocked by these rules alone.
  */
 export interface WebAuthBlockSettings {
+    /**
+     * Block when the page reported `navigator.webdriver === true` (brief 9).
+     * A normally browsed Chrome/Edge/Safari never reports true.
+     */
+    automation: boolean;
     /** Block when the device/IP exactly matches a kicked user's record. */
     exact: boolean;
     /** Block when the fuzzy device score meets the 4A threshold against a kicked user. */
@@ -244,6 +249,7 @@ export interface WebAuthBlockSettings {
 }
 
 export const DEFAULT_WEBAUTH_BLOCK_SETTINGS: WebAuthBlockSettings = {
+    automation: true,
     exact: true,
     fuzzy: true,
     graph: true
