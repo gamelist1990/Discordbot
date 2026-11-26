@@ -203,6 +203,105 @@ export interface SealedWebAuthPayload {
     signals: NormalizedFingerprintSignals;
 }
 
+/** One draggable tile of the drag-and-drop human check. */
+export interface DragChallengeItem {
+    id: string;
+    /** Shape glyph rendered in the tile (no external assets). */
+    symbol: string;
+    /** Japanese shape name used in the instruction text. */
+    label: string;
+    /** Tile centre in the challenge's logical coordinate space. */
+    x: number;
+    y: number;
+    /** Tile edge length in logical pixels. */
+    size: number;
+}
+
+export interface DragChallengeTarget {
+    id: string;
+    label: string;
+    x: number;
+    y: number;
+    size: number;
+}
+
+/**
+ * Server-side geometry of one drag check. Clients receive a copy for
+ * rendering, but validation always uses this stored instance, so a client
+ * cannot choose which item is correct or where the goal is.
+ */
+export interface DragChallenge {
+    id: string;
+    instruction: string;
+    correctItemId: string;
+    items: DragChallengeItem[];
+    target: DragChallengeTarget;
+    field: { width: number; height: number };
+    issuedAt: number;
+}
+
+/** Pointer sample posted by the page: relative ms and logical px. */
+export interface DragTrajectorySample {
+    t: number;
+    x: number;
+    y: number;
+}
+
+/** All tunable thresholds of the drag check (brief: one config object). */
+export interface DragChallengeConfig {
+    itemCount: number;
+    minDurationMs: number;
+    maxDurationMs: number;
+    minSamples: number;
+    maxSamples: number;
+    minPathLengthPx: number;
+    maxStepPx: number;
+    minLineDeviationPx: number;
+    startTolerancePx: number;
+    dropGapPx: number;
+    fieldMarginPx: number;
+    maxAttempts: number;
+    /** Layout in the logical 320x220 field. */
+    fieldWidth: number;
+    fieldHeight: number;
+    itemSize: number;
+    targetSize: number;
+    /** The correct item is never placed closer than this to the goal. */
+    minDragDistancePx: number;
+}
+
+export type DragChallengeFailReason =
+    | 'no-challenge'
+    | 'wrong-item'
+    | 'drop-outside-target'
+    | 'too-few-samples'
+    | 'too-many-samples'
+    | 'invalid-sample'
+    | 'duration'
+    | 'path-too-short'
+    | 'step-too-long'
+    | 'start-mismatch'
+    | 'out-of-bounds'
+    | 'drop-mismatch'
+    | 'too-straight';
+
+export interface DragChallengeMetrics {
+    samples: number;
+    durationMs: number;
+    pathLengthPx: number;
+    maxStepPx: number;
+    /** Max perpendicular distance from the start->end straight line. */
+    maxLineDeviationPx: number;
+    startDistancePx: number;
+    dropGapPx: number;
+}
+
+export interface DragChallengeResult {
+    ok: boolean;
+    reason: DragChallengeFailReason | null;
+    metrics: DragChallengeMetrics;
+}
+
 export interface WebAuthTokenRecord {
     guildId: string;
     userId: string;
@@ -211,6 +310,12 @@ export interface WebAuthTokenRecord {
     createdAt: number;
     expiresAt: number;
     claimedAt: number | null;
+    /** Pending drag check, single-use; replaced after every failed attempt. */
+    challenge: DragChallenge | null;
+    /** Server-side truth for the submit gate; never set from a client flag. */
+    challengePassed: boolean;
+    /** Failed drag attempts; the token is invalidated at maxAttempts. */
+    challengeAttempts: number;
 }
 
 export interface WebAuthMatch {

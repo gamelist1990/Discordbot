@@ -78,9 +78,44 @@ function setup(intelVerdict: 'clean' | 'blocked' = 'clean') {
     return { service, tokens, records, data, member, guild, added };
 }
 
+/**
+ * Solves the drag check with a jittered, human-like trajectory so the
+ * submit gate (challengePassed) is satisfied in the flow tests below.
+ */
+async function passChallenge(service: WebAuthService, token: string): Promise<void> {
+    const challenge = service.issueChallenge(token);
+    assert.ok(challenge, 'challenge issued');
+    const item = challenge!.items.find((entry) => entry.id === challenge!.correctItemId)!;
+    const target = challenge!.target;
+    const dx = target.x - item.x;
+    const dy = target.y - item.y;
+    const length = Math.hypot(dx, dy) || 1;
+    const perpendicularX = -dy / length;
+    const perpendicularY = dx / length;
+    const count = 40;
+    const samples = Array.from({ length: count }, (_value, index) => {
+        const ratio = index / (count - 1);
+        const wobble = Math.sin(ratio * Math.PI * 3) * 5;
+        return {
+            t: Math.round(ratio * 800),
+            x: Number((item.x + dx * ratio + perpendicularX * wobble).toFixed(1)),
+            y: Number((item.y + dy * ratio + perpendicularY * wobble).toFixed(1))
+        };
+    });
+    const result = await service.verifyChallenge({
+        token,
+        itemId: item.id,
+        drop: { x: target.x, y: target.y },
+        samples,
+        userAgent: CHROME_UA
+    });
+    assert.equal(result.ok, true, 'drag check passes');
+}
+
 test('submit stores hashes + sealed data, consumes the token and never stores raw values', async () => {
     const { service, tokens, records } = setup();
     const { token } = service.createToken({ guildId: GUILD_ID, userId: USER_ID, presetId: 'preset', roleIds: ['role-a'] });
+    await passChallenge(service, token);
 
     const result = await service.submit({
         token, clientIp: IP, socketIp: '10.0.0.97', signals: SIGNALS as any
@@ -118,6 +153,8 @@ test('submit stores hashes + sealed data, consumes the token and never stores ra
 test('VPN-flagged IPs and non-Chromium browsers are refused and the token stays usable', async () => {
     const { service, tokens } = setup('blocked');
     const { token } = service.createToken({ guildId: GUILD_ID, userId: USER_ID });
+
+    await passChallenge(service, token);
 
     const vpn = await service.submit({ token, clientIp: IP, socketIp: '10.0.0.97', signals: SIGNALS as any });
     assert.equal(vpn.ok, false);
@@ -159,6 +196,7 @@ test('a correlated risk match flags the new user and logs once', async () => {
     (antiCheatManager as any).sendWebAuthCorrelationLog = async (...args: any[]) => { logCalls.push(args); };
     try {
         const { token } = service.createToken({ guildId: GUILD_ID, userId: USER_ID });
+        await passChallenge(service, token);
         const result = await service.submit({ token, clientIp: IP, socketIp: '10.0.0.97', signals: SIGNALS as any });
         assert.equal(result.ok, true);
         if (!result.ok) return;
@@ -180,6 +218,7 @@ test('intel unavailable still verifies and records the unverified verdict', asyn
     });
     (service as any).annotateRisks = async () => [];
     const { token } = service.createToken({ guildId: GUILD_ID, userId: USER_ID });
+    await passChallenge(service, token);
     const result = await service.submit({ token, clientIp: IP, socketIp: '10.0.0.97', signals: SIGNALS as any });
     assert.equal(result.ok, true);
     const record = (await records.list(GUILD_ID))[0];

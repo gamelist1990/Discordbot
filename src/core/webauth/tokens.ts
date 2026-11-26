@@ -59,7 +59,10 @@ export class WebAuthTokenStore {
             roleIds: Array.isArray(input.roleIds) ? [...input.roleIds] : [],
             createdAt: this.now(),
             expiresAt: this.now() + WEBAUTH_TOKEN_TTL_MS,
-            claimedAt: null
+            claimedAt: null,
+            challenge: null,
+            challengePassed: false,
+            challengeAttempts: 0
         };
         this.entries.set(hashWebAuthToken(token), record);
         return { token, record };
@@ -87,6 +90,42 @@ export class WebAuthTokenStore {
     release(token: string): void {
         const entry = this.lookup(token);
         if (entry.record) entry.record.claimedAt = null;
+    }
+
+    /**
+     * Binds the pending drag check to the token. The geometry never leaves the
+     * server except as the copy embedded in that member's page.
+     */
+    setChallenge(token: string, challenge: WebAuthTokenRecord['challenge']): boolean {
+        const entry = this.lookup(token);
+        if (!entry.record) return false;
+        entry.record.challenge = challenge;
+        return true;
+    }
+
+    /** Records a passed drag check. No-op for missing/expired tokens. */
+    markChallengePassed(token: string): boolean {
+        const entry = this.lookup(token);
+        if (!entry.record) return false;
+        entry.record.challengePassed = true;
+        entry.record.challenge = null;
+        return true;
+    }
+
+    /**
+     * Counts one failed drag attempt. At `maxAttempts` the whole token is
+     * invalidated (the member must request a new link).
+     */
+    registerChallengeFailure(token: string, maxAttempts: number): { attempts: number; locked: boolean } | null {
+        const entry = this.lookup(token);
+        if (!entry.record) return null;
+        entry.record.challengeAttempts += 1;
+        const attempts = entry.record.challengeAttempts;
+        if (attempts >= maxAttempts) {
+            this.entries.delete(hashWebAuthToken(token));
+            return { attempts, locked: true };
+        }
+        return { attempts, locked: false };
     }
 
     /** Deletes the token. Only called after a successful submit. */

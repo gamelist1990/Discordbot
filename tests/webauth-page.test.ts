@@ -18,7 +18,21 @@ const READY = {
     browser: { allowed: true, browser: 'chrome' as const, reason: 'ok' as const },
     intel: { verdict: 'clean' as const, flags: [], source: 'ip-api.com', checkedAt: 0, cached: false },
     vpnBlocked: false,
-    message: null
+    message: null,
+    challenge: {
+        id: 'challenge-1',
+        instruction: '★（星）を ゴール へ ドラッグ',
+        correctItemId: 'item-a',
+        items: [
+            { id: 'item-a', symbol: '★', label: '星', x: 60, y: 60, size: 44 },
+            { id: 'item-b', symbol: '■', label: '四角', x: 180, y: 160, size: 44 }
+        ],
+        target: { id: 'target', label: 'ゴール', x: 260, y: 60, size: 64 },
+        field: { width: 320, height: 220 },
+        issuedAt: 0
+    },
+    challengePassed: false,
+    attemptsLeft: 5
 };
 
 test('Discord-provided names are HTML-escaped', () => {
@@ -41,6 +55,31 @@ test('the ready page includes the target, token and a nonce-bound script', () =>
     assert.ok(html.includes('認証する'));
     assert.equal(html.includes('テスト <サーバー>'), false);
     assert.equal(html.includes('/api/webauth/'), true);
+});
+
+test('the drag check renders tiles, the goal and a disabled submit button', () => {
+    const html = renderWebAuthPage(READY, 'n');
+    assert.ok(html.includes('★（星）を ゴール へ ドラッグ'));
+    assert.ok(html.includes('id="ch-field"'));
+    assert.ok(html.includes('data-item-id=') === false, 'tiles are built by JS (CSP blocks style attributes)');
+    assert.ok(html.includes('"item-a"'));
+    assert.ok(html.includes('"item-b"'));
+    assert.ok(html.includes('ゴール'));
+    assert.ok(html.includes('/api/webauth/'));
+    assert.ok(html.includes('challenge'));
+    // The submit button starts disabled until the drag check passes.
+    assert.ok(/id="auth-button"[^>]*disabled/.test(html));
+});
+
+test('a passed drag check removes the field and enables the submit button', () => {
+    const html = renderWebAuthPage({
+        ...READY,
+        challenge: null,
+        challengePassed: true
+    }, 'n');
+    assert.ok(html.includes('操作チェックは完了しています'));
+    assert.equal(html.includes('data-item-id='), false);
+    assert.ok(/id="auth-button"[^>]*disabled/.test(html) === false);
 });
 
 test('a VPN-blocked page disables the button and explains why', () => {
