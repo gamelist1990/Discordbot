@@ -8,6 +8,7 @@ import {
   useDetectionLogs,
   useUserTrust,
   useWatchUsers,
+  useWebAuthRecords,
 } from "./hooks";
 import SettingsWorkspace from "./components/SettingsWorkspace";
 import {
@@ -68,6 +69,13 @@ export default function AntiCheatPage() {
     refetch: refetchWatch,
     dismiss: dismissWatch,
   } = useWatchUsers(guildId);
+  const {
+    webAuthRecords,
+    loading: webAuthLoading,
+    error: webAuthError,
+    refetch: refetchWebAuth,
+    forceVerify: forceVerifyWebAuth,
+  } = useWebAuthRecords(guildId);
   const {
     revokeTimeout,
     resetTrust,
@@ -409,14 +417,17 @@ export default function AntiCheatPage() {
     trustEntries,
     activeTimeouts,
     watchUsers,
+    webAuthRecords,
     logsLoading,
     trustLoading,
     timeoutsLoading,
     watchLoading,
+    webAuthLoading,
     logsError,
     trustError,
     timeoutsError,
     watchError,
+    webAuthError,
     actionError: error || actionError,
     saveNotice,
     excludedRolesText,
@@ -443,6 +454,12 @@ export default function AntiCheatPage() {
     },
     onRefreshWatch: () => {
       void refetchWatch();
+    },
+    onRefreshWebAuth: () => {
+      void refetchWebAuth();
+    },
+    onForceVerifyWebAuth: (userId, note) => {
+      void forceVerifyWebAuth(userId, note);
     },
     onDismissWatch: (entry) => {
       void onDismissWatch(entry);

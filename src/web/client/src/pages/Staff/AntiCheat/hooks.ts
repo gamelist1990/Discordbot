@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { ActiveTimeoutEntry, AntiCheatSettings, DetectionLog, UserTrustDataWithUser, PunishmentAction, WatchUserEntryView } from './types';
+import { ActiveTimeoutEntry, AntiCheatSettings, DetectionLog, UserTrustDataWithUser, PunishmentAction, WatchUserEntryView, WebAuthRecordView } from './types';
 
 const API_BASE = '/api/staff/anticheat';
 
@@ -312,4 +312,63 @@ export function useWatchUsers(guildId: string) {
     }, [fetchWatchUsers]);
 
     return { watchUsers, loading, error, refetch: fetchWatchUsers, dismiss };
+}
+
+/**
+ * Hook for the Web認証 (web fingerprint auth) record list
+ */
+export function useWebAuthRecords(guildId: string) {
+    const [webAuthRecords, setWebAuthRecords] = useState<WebAuthRecordView[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+
+    const fetchRecords = useCallback(async () => {
+        try {
+            setLoading(true);
+            const response = await fetch(`${API_BASE}/${guildId}/webauth`, {
+                credentials: 'include'
+            });
+
+            if (!response.ok) {
+                throw new Error(`Failed to fetch WebAuth records: ${response.statusText}`);
+            }
+
+            const data = await response.json();
+            setWebAuthRecords(data.records || []);
+            setError(null);
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Unknown error');
+        } finally {
+            setLoading(false);
+        }
+    }, [guildId]);
+
+    const forceVerify = useCallback(async (userId: string, note: string) => {
+        try {
+            const response = await fetch(`${API_BASE}/${guildId}/webauth/force-verify`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({ userId, note })
+            });
+
+            if (!response.ok) {
+                const detail = await response.json().catch(() => ({}));
+                throw new Error(detail.error || `Failed to force-verify: ${response.statusText}`);
+            }
+
+            setError(null);
+            await fetchRecords();
+            return true;
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Unknown error');
+            return false;
+        }
+    }, [guildId, fetchRecords]);
+
+    useEffect(() => {
+        fetchRecords();
+    }, [fetchRecords]);
+
+    return { webAuthRecords, loading, error, refetch: fetchRecords, forceVerify };
 }

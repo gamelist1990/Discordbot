@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { AntiCheatController } from '../../controllers/staff/AntiCheatController.js';
+import { WebAuthController } from '../../controllers/staff/WebAuthController.js';
 import { SettingsSession } from '../../types/index.js';
 import { BotClient } from '../../../core/platform/BotClient.js';
 import { verifyAuth } from '../../middleware/auth.js';
@@ -14,6 +15,7 @@ export function createAntiCheatRoutes(
 ): Router {
     const router = Router();
     const controller = new AntiCheatController(botClient);
+    const webAuthController = new WebAuthController(botClient);
     router.get('/:guildId/exclusion-targets', verifyAuth(sessions), controller.getExclusionTargets);
     router.post('/:guildId/content-cache/clear', verifyAuth(sessions), controller.clearContentCache);
 
@@ -47,6 +49,10 @@ export function createAntiCheatRoutes(
     // 警戒ユーザー (watch tier)
     router.get('/:guildId/watch-users', verifyAuth(sessions), controller.getWatchUsers.bind(controller));
     router.post('/:guildId/watch-users/:userId/dismiss', verifyAuth(sessions), controller.dismissWatchUser.bind(controller));
+
+    // Web認証 (web fingerprint auth) records and staff override
+    router.get('/:guildId/webauth', verifyAuth(sessions), webAuthController.getRecords.bind(webAuthController));
+    router.post('/:guildId/webauth/force-verify', verifyAuth(sessions), webAuthController.forceVerify.bind(webAuthController));
 
     return router;
 }

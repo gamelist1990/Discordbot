@@ -21,6 +21,7 @@ import {
 } from 'discord.js';
 
 import { RolePresetManager } from '../../../core/roles/RolePresetManager.js';
+import { webAuthService } from '../../../core/webauth/WebAuthService.js';
 import config from '../../../config.js';
 import { registerModalHandler } from '../../../utils/Modal.js';
 
@@ -141,6 +142,7 @@ function buildPanelUsageDescription(preset: PanelPresetSummary): string {
             lines.push('• 認証方式を確認してから利用してください');
         }
         lines.push('• すでに所持しているロールはスキップされます');
+        lines.push('• 「Web認証」ボタンからも認証できます（Chrome / Edge のみ）');
     } else {
         lines.push('• ボタンをクリックしてロール管理を開始');
         lines.push('• 現在のロール状態を確認可能');
@@ -233,6 +235,11 @@ const rolePanelSubcommand = {
             if (interaction.isButton() && action === 'grant') {
                 const token = parts[4];
                 await this.handleGrantButton(interaction as ButtonInteraction, preset, token);
+                return;
+            }
+
+            if (interaction.isButton() && action === 'webauth') {
+                await this.handleWebAuthEntry(interaction as ButtonInteraction, preset);
                 return;
             }
 
@@ -384,6 +391,55 @@ const rolePanelSubcommand = {
             content: message,
             components: []
         });
+    },
+
+    /** Ephemeral one-time WebAuth link; the public panel never contains a link. */
+    async handleWebAuthEntry(interaction: ButtonInteraction, preset: any): Promise<void> {
+        const member = interaction.member as any;
+        if (!member || !interaction.guild) return;
+
+        const currentRoles = (member.roles as GuildMemberRoleManager).cache.map((r) => r.id);
+        const missingRoleIds = (preset.roles || []).filter((roleId: string) => !currentRoles.includes(roleId));
+
+        if (missingRoleIds.length === 0) {
+            await interaction.reply({
+                content: '✅ すでに必要なロールをすべて所持しています。このパネルでは追加できるロールがありません。',
+                ephemeral: true
+            });
+            return;
+        }
+
+        try {
+            const { url } = webAuthService.createToken({
+                guildId: interaction.guild.id,
+                userId: interaction.user.id,
+                presetId: preset.id,
+                roleIds: missingRoleIds
+            });
+            const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+                new ButtonBuilder()
+                    .setLabel('Web認証ページを開く')
+                    .setStyle(ButtonStyle.Link)
+                    .setURL(url)
+            );
+            await interaction.reply({
+                content: [
+                    '🔐 **Web認証**',
+                    '下のボタンから認証ページを開いてください。',
+                    '・リンクは一度だけ有効で、**10分**で期限切れになります。',
+                    '・Google Chrome または Microsoft Edge で開いてください。',
+                    '・VPN・プロキシ経由では認証できません。',
+                    '・認証すると、このパネルの不足ロールと WEB認証ロールが付与されます。'
+                ].join('\n'),
+                components: [row],
+                ephemeral: true
+            });
+        } catch (error) {
+            await interaction.reply({
+                content: `❌ Web認証リンクを発行できませんでした: ${error instanceof Error ? error.message : '不明なエラー'}`,
+                ephemeral: true
+            });
+        }
     },
 
     async handleGrantMissingEntry(interaction: ButtonInteraction, preset: any): Promise<void> {
@@ -785,6 +841,18 @@ const rolePanelSubcommand = {
 
             const row = new ActionRowBuilder<ButtonBuilder>()
                 .addComponents(roleButton);
+
+            if ((preset.panelType || 'toggle') === 'grant_missing') {
+                // Custom ID button (not a link): the one-time URL is only ever
+                // delivered in the ephemeral reply.
+                row.addComponents(
+                    new ButtonBuilder()
+                        .setCustomId(`rolepanel:${interaction.guild.id}:${preset.id}:webauth`)
+                        .setLabel('Web認証')
+                        .setStyle(ButtonStyle.Secondary)
+                        .setEmoji('🔐')
+                );
+            }
 
             // パネルを投稿
             await (targetChannel as any).send({

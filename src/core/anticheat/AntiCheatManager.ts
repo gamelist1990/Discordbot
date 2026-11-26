@@ -78,6 +78,8 @@ import {
     type WatchPeerCandidate
 } from './WatchUsers.js';
 import type { WatchDangerPoint, WatchSettings, WatchSource, WatchUserEntry } from './types.js';
+import { recordRiskKicksSafely } from './RiskKicks.js';
+import type { WebAuthMatch } from '../webauth/types.js';
 
 type Detection = { detector: string; result: DetectionResult };
 type MessageWork = { revision: string; timestamp: number; task: Promise<boolean>; current: boolean };
@@ -597,6 +599,12 @@ export class AntiCheatManager {
                 Logger.warn(`[AntiRaid] kick failed for ${member.id} in guild ${guild.id}: ${reason}`);
             }
         }
+        if (this.client && report.kicked.length) {
+            // Durable fact used by the WebAuth correlation later (the guild
+            // settings do not keep raid kick history). The client guard keeps
+            // unit tests from touching the real ledger.
+            await recordRiskKicksSafely(guild.id, report.kicked.map((entry) => entry.id), 'raid', RAID_KICK_REASON);
+        }
         return report;
     }
 
@@ -802,7 +810,7 @@ export class AntiCheatManager {
         const accountCreatedAt = Number(member.user?.createdTimestamp) || 0;
         const avatarHash = member.user?.avatar || null;
         const peers = this.buildWatchPeers(settings, guild.id, member.id, now);
-        const signals = matchWatchSignals({
+        const signals = [...matchWatchSignals({
             userId: member.id,
             username,
             displayName,
@@ -811,10 +819,22 @@ export class AntiCheatManager {
             now,
             newAccountDays: config.newAccountDays,
             peers
-        });
+        })];
 
         const latest = this.settingsCache.get(guild.id) || settings;
         const existing = latest.watchUsers?.[member.id] || null;
+
+        // A WebAuth IP/device match is a hard correlation signal: keep it until
+        // staff explicitly dismisses the entry, even if none of the heuristic
+        // signals match on this re-evaluation.
+        if (
+            existing
+            && !existing.dismissed
+            && (existing.source === 'webauth-match' || existing.signals?.includes('webauth-match'))
+            && !signals.includes('webauth-match')
+        ) {
+            signals.push('webauth-match');
+        }
 
         // Nothing matches any more: the auto entry ages out, like the name
         // signals. Dismissed tombstones are dropped as well once clean.
@@ -1000,6 +1020,9 @@ export class AntiCheatManager {
         // counter so the next threshold window can act again.
         const after = this.settingsCache.get(guild.id) || latest;
         if (kicked) {
+            if (this.client) {
+                await recordRiskKicksSafely(guild.id, [userId], 'watch-danger', WATCH_KICK_REASON);
+            }
             delete after.watchUsers[userId];
             delete after.userTrust[userId];
             after.recentLogs = after.recentLogs.filter((log) => log.userId !== userId);
@@ -1106,6 +1129,102 @@ export class AntiCheatManager {
         await this.setSettings(guildId, latest);
         Logger.info(`[WatchUsers] dismissed ${userId} in ${guildId}`);
         return true;
+    }
+
+    /**
+     * Correlation flag from the WebAuth flow. Sticky until staff dismisses it
+     * (see the webauth-match preservation in evaluateWatchMember).
+     */
+    async flagWatchUserFromWebAuth(
+        guildId: string,
+        userId: string,
+        details: { matchCount: number; matches: WebAuthMatch[] }
+    ): Promise<boolean> {
+        const settings = await this.getSettings(guildId);
+        if (!settings.enabled) return false;
+
+        const guild = this.client
+            ? (this.client.guilds.cache.get(guildId) || await this.client.guilds.fetch(guildId).catch(() => null))
+            : null;
+        const member = guild
+            ? (guild.members.cache.get(userId) || await guild.members.fetch(userId).catch(() => null))
+            : null;
+
+        const latest = this.settingsCache.get(guildId) || settings;
+        const existing = latest.watchUsers?.[userId] || null;
+        const now = Date.now();
+        const displayName = (member?.displayName || existing?.nameSnapshot || '').trim();
+        const createdAt = Number(member?.user?.createdTimestamp) || 0;
+
+        latest.watchUsers[userId] = {
+            reason: 'webauth-match',
+            signals: ['webauth-match'],
+            since: existing && !existing.dismissed ? existing.since : new Date(now).toISOString(),
+            source: 'webauth-match',
+            nameSnapshot: displayName,
+            accountCreatedAt: createdAt ? new Date(createdAt).toISOString() : (existing?.accountCreatedAt ?? null),
+            avatarHash: member?.user?.avatar ?? existing?.avatarHash ?? null,
+            normalizedName: normalizeWatchName(displayName) || normalizeWatchName(member?.user?.username) || existing?.normalizedName || '',
+            dismissed: null,
+            dangerPoints: existing?.dangerPoints || [],
+            lastDangerAt: existing?.lastDangerAt ?? null
+        };
+        await this.setSettings(guildId, latest);
+        Logger.info(`[WatchUsers] flagged ${userId} in ${guildId} via webauth-match (${details.matchCount} matches)`);
+        return true;
+    }
+
+    /** One log embed naming the matched accounts and hash types; never raw values. */
+    async sendWebAuthCorrelationLog(
+        guildId: string,
+        userId: string,
+        matches: WebAuthMatch[]
+    ): Promise<void> {
+        if (!matches.length) return;
+        const guild = this.client
+            ? (this.client.guilds.cache.get(guildId) || await this.client.guilds.fetch(guildId).catch(() => null))
+            : null;
+        if (!guild) return;
+        const settings = this.settingsCache.get(guildId) || await this.getSettings(guildId);
+        const logChannel = await this.fetchLogChannel(guild, settings.logChannelId);
+        if (!logChannel) return;
+
+        const selfMember = guild.members.cache.get(userId)
+            || await guild.members.fetch(userId).catch(() => null);
+        const riskLabels: Record<string, string> = {
+            'raid-kick': 'AntiRaidでキック済み',
+            'watch-danger-kick': '警戒ユーザーの危険判定でキック済み',
+            'watch-flagged': '現在の警戒ユーザー'
+        };
+        const lines: string[] = [];
+        for (const match of matches.slice(0, 15)) {
+            const member = guild.members.cache.get(match.userId)
+                || await guild.members.fetch(match.userId).catch(() => null);
+            const label = member?.user?.tag || member?.user?.username || match.userId;
+            const hashes = [
+                match.hashTypes.includes('ip') ? 'IP' : '',
+                match.hashTypes.includes('fp') ? '端末' : ''
+            ].filter(Boolean).join('・');
+            const risks = match.risks.map((risk) => riskLabels[risk] || risk).join(' / ');
+            lines.push(`• ${label} (${match.userId})\n  一致: ${hashes || '不明'} / 理由: ${risks || '不明'}`);
+        }
+
+        const embed = new EmbedBuilder()
+            .setTitle('🚨 Web認証で同一IP/端末の警戒アカウントと一致')
+            .setColor(Colors.Red)
+            .setTimestamp()
+            .setDescription('Web認証されたアカウントが、キック済みまたは警戒中のアカウントと同一のIP/端末ハッシュを持っています。')
+            .addFields(
+                {
+                    name: '認証したユーザー',
+                    value: `${selfMember?.user?.tag || userId}\n${userId}`.slice(0, 1024),
+                    inline: true
+                },
+                { name: '一致したアカウント数', value: `${matches.length}`, inline: true },
+                { name: '一致したアカウント', value: lines.join('\n').slice(0, 1024), inline: false }
+            );
+
+        await logChannel.send({ embeds: [embed], allowedMentions: { parse: [] } }).catch(() => null);
     }
 
     async onGuildMemberUpdate(oldMember: GuildMember, newMember: GuildMember): Promise<void> {

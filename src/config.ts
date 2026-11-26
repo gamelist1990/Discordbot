@@ -23,6 +23,11 @@ export interface AppConfig {
     brave?: string;
     WEB_BASE_URL?: string;
     owner?: string[];
+    /** WebAuth (web fingerprint authentication) key material. Prefer env. */
+    webAuth?: {
+        hmacSecret?: string;
+        encryptionKey?: string;
+    };
     openai?: {
         apiKey: string;
         apiEndpoint: string;
@@ -97,6 +102,10 @@ export const config: Required<AppConfig> = {
     brave: raw.brave || '',
     WEB_BASE_URL: raw.WEB_BASE_URL || raw.BASE_URL || 'http://localhost:3000',
     owner: raw.owner || [],
+    webAuth: {
+        hmacSecret: raw.webAuth?.hmacSecret || '',
+        encryptionKey: raw.webAuth?.encryptionKey || '',
+    },
     openai: {
         apiKey: raw.openai?.apiKey || '',
         apiEndpoint: raw.openai?.apiEndpoint || '',

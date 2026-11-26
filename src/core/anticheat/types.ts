@@ -129,10 +129,11 @@ export type WatchSignal =
     | 'new-account'
     | 'batch-creation'
     | 'shared-avatar'
-    | 'similar-name';
+    | 'similar-name'
+    | 'webauth-match';
 
 /** Where the classification was triggered from. */
-export type WatchSource = 'join' | 'member-update' | 'message';
+export type WatchSource = 'join' | 'member-update' | 'message' | 'webauth-match';
 
 /** One applied detection-point event inside the rolling watch window. */
 export interface WatchDangerPoint {
