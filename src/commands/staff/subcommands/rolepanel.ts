@@ -22,7 +22,6 @@ import {
 
 import { RolePresetManager } from '../../../core/roles/RolePresetManager.js';
 import { webAuthService } from '../../../core/webauth/WebAuthService.js';
-import config from '../../../config.js';
 import { registerModalHandler } from '../../../utils/Modal.js';
 
 /**
@@ -30,17 +29,6 @@ import { registerModalHandler } from '../../../utils/Modal.js';
  */
 function canManageRole(role: any, botMember: any): boolean {
     return role && role.position < botMember.roles.highest.position;
-}
-
-function resolveAuthUrl(preset: any): string {
-    if (typeof preset?.authUrl === 'string' && preset.authUrl.trim()) {
-        return preset.authUrl.trim();
-    }
-    const base = (config as any)?.BASE_URL;
-    if (typeof base === 'string' && base.trim()) {
-        return `${base.replace(/\/+$/g, '')}/api/auth/discord`;
-    }
-    return '/api/auth/discord';
 }
 
 type AuthCodeRecord = {
@@ -72,17 +60,6 @@ const ONE_DIGIT_MIN = 1;
 const ONE_DIGIT_MAX = 9;
 const authCodeRecords = new Map<string, AuthCodeRecord>();
 const authMathRecords = new Map<string, AuthMathRecord>();
-const authGrantRecords = new Map<string, {
-    guildId: string;
-    presetId: string;
-    userId: string;
-    roles: string[];
-    expiresAt: number;
-}>();
-
-function generateAuthToken(prefix: string): string {
-    return `${prefix}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 9)}`;
-}
 
 function cleanupExpiredAuthRecords(): void {
     const now = Date.now();
@@ -94,11 +71,6 @@ function cleanupExpiredAuthRecords(): void {
     for (const [token, record] of authMathRecords.entries()) {
         if (record.expiresAt <= now) {
             authMathRecords.delete(token);
-        }
-    }
-    for (const [token, record] of authGrantRecords.entries()) {
-        if (record.expiresAt <= now) {
-            authGrantRecords.delete(token);
         }
     }
 }
@@ -123,7 +95,13 @@ function getAuthRecordKey(guildId: string, presetId: string, userId: string): st
     return `${guildId}:${presetId}:${userId}`;
 }
 
-function buildPanelUsageDescription(preset: PanelPresetSummary): string {
+/** Preset roles the member does not hold yet. */
+function getMissingPresetRoleIds(preset: any, member: any): string[] {
+    const currentRoles = (member.roles as GuildMemberRoleManager).cache.map((r) => r.id);
+    return (preset.roles || []).filter((roleId: string) => !currentRoles.includes(roleId));
+}
+
+export function buildPanelUsageDescription(preset: PanelPresetSummary): string {
     const panelType = preset.panelType || 'toggle';
     const authType = preset.authType || 'none';
 
@@ -133,7 +111,7 @@ function buildPanelUsageDescription(preset: PanelPresetSummary): string {
         if (authType === 'none') {
             lines.push('• 不足ロールをそのまま一括付与');
         } else if (authType === 'web') {
-            lines.push('• Web認証完了後に不足ロールを一括付与');
+            lines.push('• 「不足ロールを受け取る」→ Web認証（Chrome / Edge のみ）→ 不足ロールを自動で一括付与');
         } else if (authType === 'code') {
             lines.push('• ダイアログで認証コードを入力すると不足ロールを一括付与');
         } else if (authType === 'math') {
@@ -142,7 +120,11 @@ function buildPanelUsageDescription(preset: PanelPresetSummary): string {
             lines.push('• 認証方式を確認してから利用してください');
         }
         lines.push('• すでに所持しているロールはスキップされます');
-        lines.push('• 「Web認証」ボタンからも認証できます（Chrome / Edge のみ）');
+        // The 🔐 button exists only for non-web presets (web presets use the
+        // 「不足ロールを受け取る」 button for the same fingerprint flow).
+        if (authType !== 'web') {
+            lines.push('• 「Web認証」ボタンからも認証できます（Chrome / Edge のみ）');
+        }
     } else {
         lines.push('• ボタンをクリックしてロール管理を開始');
         lines.push('• 現在のロール状態を確認可能');
@@ -232,14 +214,19 @@ const rolePanelSubcommand = {
                 return;
             }
 
-            if (interaction.isButton() && action === 'grant') {
-                const token = parts[4];
-                await this.handleGrantButton(interaction as ButtonInteraction, preset, token);
+            if (interaction.isButton() && action === 'webauth') {
+                await this.handleWebAuthEntry(interaction as ButtonInteraction, preset);
                 return;
             }
 
-            if (interaction.isButton() && action === 'webauth') {
-                await this.handleWebAuthEntry(interaction as ButtonInteraction, preset);
+            if (interaction.isButton() && action === 'grant') {
+                // Legacy "認証後に一括付与" button from ephemeral replies issued
+                // by the removed OAuth flow. Those messages live ~15 minutes;
+                // the unified flow is the 🎭 button.
+                await interaction.reply({
+                    content: '❌ この認証方法は廃止されました。パネルの「不足ロールを受け取る」からやり直してください。',
+                    ephemeral: true
+                });
                 return;
             }
 
@@ -393,21 +380,18 @@ const rolePanelSubcommand = {
         });
     },
 
-    /** Ephemeral one-time WebAuth link; the public panel never contains a link. */
-    async handleWebAuthEntry(interaction: ButtonInteraction, preset: any): Promise<void> {
-        const member = interaction.member as any;
-        if (!member || !interaction.guild) return;
-
-        const currentRoles = (member.roles as GuildMemberRoleManager).cache.map((r) => r.id);
-        const missingRoleIds = (preset.roles || []).filter((roleId: string) => !currentRoles.includes(roleId));
-
-        if (missingRoleIds.length === 0) {
-            await interaction.reply({
-                content: '✅ すでに必要なロールをすべて所持しています。このパネルでは追加できるロールがありません。',
-                ephemeral: true
-            });
-            return;
-        }
+    /**
+     * Single Web認証 implementation for role panels: issues the fingerprint
+     * one-time link in an ephemeral reply (the public panel never contains a
+     * link or token). Used by the 🎭「不足ロールを受け取る」 flow for
+     * `authType: 'web'` presets and by the legacy 🔐 button.
+     */
+    async issueWebAuthLink(
+        interaction: ButtonInteraction,
+        preset: any,
+        missingRoleIds: string[]
+    ): Promise<void> {
+        if (!interaction.guild) return;
 
         try {
             const { url } = webAuthService.createToken({
@@ -442,6 +426,23 @@ const rolePanelSubcommand = {
         }
     },
 
+    /** 🔐 panel button: kept for none/code/math presets (and old web panels). */
+    async handleWebAuthEntry(interaction: ButtonInteraction, preset: any): Promise<void> {
+        const member = interaction.member as any;
+        if (!member || !interaction.guild) return;
+
+        const missingRoleIds = getMissingPresetRoleIds(preset, member);
+        if (missingRoleIds.length === 0) {
+            await interaction.reply({
+                content: '✅ すでに必要なロールをすべて所持しています。このパネルでは追加できるロールがありません。',
+                ephemeral: true
+            });
+            return;
+        }
+
+        await this.issueWebAuthLink(interaction, preset, missingRoleIds);
+    },
+
     async handleGrantMissingEntry(interaction: ButtonInteraction, preset: any): Promise<void> {
         cleanupExpiredAuthRecords();
 
@@ -449,8 +450,7 @@ const rolePanelSubcommand = {
         if (!member || !interaction.guild) return;
 
         const botMember = interaction.guild.members.me;
-        const currentRoles = (member.roles as GuildMemberRoleManager).cache.map((r) => r.id);
-        const missingRoleIds = (preset.roles || []).filter((roleId: string) => !currentRoles.includes(roleId));
+        const missingRoleIds = getMissingPresetRoleIds(preset, member);
 
         if (missingRoleIds.length === 0) {
             await interaction.reply({
@@ -468,32 +468,9 @@ const rolePanelSubcommand = {
 
         const authType = preset.authType || 'none';
         if (authType === 'web') {
-            const token = generateAuthToken('grant');
-            authGrantRecords.set(token, {
-                guildId: interaction.guild.id,
-                presetId: preset.id,
-                userId: interaction.user.id,
-                roles: missingRoleIds,
-                expiresAt: Date.now() + AUTH_TTL_MS
-            });
-
-            const authUrl = resolveAuthUrl(preset);
-            const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-                new ButtonBuilder()
-                    .setLabel('Web認証を開く')
-                    .setStyle(ButtonStyle.Link)
-                    .setURL(authUrl),
-                new ButtonBuilder()
-                    .setCustomId(`rolepanel:${interaction.guild.id}:${preset.id}:grant:${token}`)
-                    .setLabel('認証後に一括付与')
-                    .setStyle(ButtonStyle.Success)
-                    .setEmoji('✅')
-            );
-            await interaction.reply({
-                content: `🔐 Web認証を完了してから「認証後に一括付与」を押してください。\n認証URL: ${authUrl}`,
-                components: [row],
-                ephemeral: true
-            });
+            // Unified Web認証: the 🎭 flow issues the same fingerprint
+            // one-time link as the 🔐 button; success grants the roles.
+            await this.issueWebAuthLink(interaction, preset, missingRoleIds);
             return;
         }
 
@@ -586,46 +563,6 @@ const rolePanelSubcommand = {
         }
 
         await interaction.reply({ content: '❌ 不明な認証モーダルです。', ephemeral: true });
-    },
-
-    async handleGrantButton(interaction: ButtonInteraction, preset: any, token: string): Promise<void> {
-        cleanupExpiredAuthRecords();
-        const respond = async (content: string): Promise<void> => {
-            if (interaction.deferred || interaction.replied) {
-                await interaction.followUp({ content, ephemeral: true });
-                return;
-            }
-            await interaction.update({ content, components: [] });
-        };
-        const record = authGrantRecords.get(token);
-        if (!record || !interaction.guild) {
-            await respond('❌ 認証情報が見つからないか期限切れです。');
-            return;
-        }
-
-        if (
-            record.guildId !== interaction.guild.id
-            || record.presetId !== preset.id
-            || record.userId !== interaction.user.id
-            || record.expiresAt <= Date.now()
-        ) {
-            authGrantRecords.delete(token);
-            await respond('❌ 認証情報が一致しません。もう一度やり直してください。');
-            return;
-        }
-
-        const member = interaction.member as any;
-        if (!member) {
-            await respond('❌ メンバー情報を取得できませんでした。');
-            return;
-        }
-
-        const botMember = interaction.guild.members.me;
-        const currentRoles = (member.roles as GuildMemberRoleManager).cache.map((r) => r.id);
-        const stillMissing = record.roles.filter((roleId) => !currentRoles.includes(roleId));
-        const message = await this.grantMissingRoles(interaction.guild.id, preset.id, member, botMember, stillMissing);
-        authGrantRecords.delete(token);
-        await respond(message);
     },
 
     async grantMissingRoles(guildId: string, presetId: string, member: any, botMember: any, roleIds: string[]): Promise<string> {
@@ -843,15 +780,19 @@ const rolePanelSubcommand = {
                 .addComponents(roleButton);
 
             if ((preset.panelType || 'toggle') === 'grant_missing') {
+                // 'web' presets use the 🎭 button itself for Web認証, so the
+                // separate 🔐 button is only added for none/code/math.
                 // Custom ID button (not a link): the one-time URL is only ever
                 // delivered in the ephemeral reply.
-                row.addComponents(
-                    new ButtonBuilder()
-                        .setCustomId(`rolepanel:${interaction.guild.id}:${preset.id}:webauth`)
-                        .setLabel('Web認証')
-                        .setStyle(ButtonStyle.Secondary)
-                        .setEmoji('🔐')
-                );
+                if ((preset.authType || 'none') !== 'web') {
+                    row.addComponents(
+                        new ButtonBuilder()
+                            .setCustomId(`rolepanel:${interaction.guild.id}:${preset.id}:webauth`)
+                            .setLabel('Web認証')
+                            .setStyle(ButtonStyle.Secondary)
+                            .setEmoji('🔐')
+                    );
+                }
             }
 
             // パネルを投稿
