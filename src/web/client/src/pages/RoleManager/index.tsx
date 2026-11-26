@@ -19,7 +19,6 @@ type Preset = {
   allowMulti: boolean;
   panelType: "toggle" | "grant_missing";
   authType: "none" | "web" | "code" | "math";
-  authUrl?: string;
 };
 const blank = (): Preset => ({
   id: "",
@@ -29,7 +28,6 @@ const blank = (): Preset => ({
   allowMulti: true,
   panelType: "toggle",
   authType: "none",
-  authUrl: "",
 });
 export default function RoleManagerPage() {
   return (
@@ -239,17 +237,6 @@ function Presets({ guildId }: { guildId: string }) {
                       <option value="math">計算認証</option>
                     </select>
                   </label>
-                  {draft.authType === "web" && (
-                    <label className={ui.wide}>
-                      認証URL
-                      <input
-                        type="url"
-                        value={draft.authUrl || ""}
-                        onChange={(e) => patch({ authUrl: e.target.value })}
-                        placeholder="https://…"
-                      />
-                    </label>
-                  )}
                 </div>
                 <label className={ui.check}>
                   <input

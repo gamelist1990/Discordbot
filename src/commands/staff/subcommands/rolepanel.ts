@@ -32,10 +32,7 @@ function canManageRole(role: any, botMember: any): boolean {
     return role && role.position < botMember.roles.highest.position;
 }
 
-function resolveAuthUrl(preset: any): string {
-    if (typeof preset?.authUrl === 'string' && preset.authUrl.trim()) {
-        return preset.authUrl.trim();
-    }
+function resolveAuthUrl(): string {
     const base = (config as any)?.BASE_URL;
     if (typeof base === 'string' && base.trim()) {
         return `${base.replace(/\/+$/g, '')}/api/auth/discord`;
@@ -477,7 +474,7 @@ const rolePanelSubcommand = {
                 expiresAt: Date.now() + AUTH_TTL_MS
             });
 
-            const authUrl = resolveAuthUrl(preset);
+            const authUrl = resolveAuthUrl();
             const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
                 new ButtonBuilder()
                     .setLabel('Web認証を開く')

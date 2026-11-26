@@ -141,7 +141,7 @@ export class RolePresetController {
     async createPreset(req: Request, res: Response): Promise<void> {
         const session = (req as any).session as SettingsSession;
         const guildId = req.params.guildId;
-        const { id, name, description, roles, allowMulti, panelType, authType, authUrl } = req.body;
+        const { id, name, description, roles, allowMulti, panelType, authType } = req.body;
 
         if (!guildId) {
             res.status(400).json({ error: 'guildId is required' });
@@ -162,26 +162,32 @@ export class RolePresetController {
             return;
         }
 
-        // バリデーション
-        if (!id || !name || !description || !Array.isArray(roles)) {
-            res.status(400).json({ error: 'Invalid request body' });
+        // バリデーション（description は任意、id は未指定なら自動生成）
+        if (!name || typeof name !== 'string' || !name.trim()) {
+            res.status(400).json({ error: 'name is required' });
             return;
         }
+        if (!Array.isArray(roles)) {
+            res.status(400).json({ error: 'roles must be an array' });
+            return;
+        }
+        const presetId = typeof id === 'string' && id.trim()
+            ? id.trim()
+            : `preset-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
 
         try {
             const preset = await RolePresetManager.createPreset(guildId, {
-                id,
+                id: presetId,
                 name,
-                description,
+                description: typeof description === 'string' ? description : '',
                 roles,
                 allowMulti: allowMulti ?? true,
                 panelType: panelType === 'grant_missing' ? 'grant_missing' : 'toggle',
                 authType: authType === 'web' || authType === 'code' || authType === 'math' ? authType : 'none',
-                authUrl: typeof authUrl === 'string' && authUrl.trim() ? authUrl.trim() : null,
                 createdBy: session.userId
             });
 
-            Logger.info(`Role preset '${id}' created in guild ${guildId} by user ${session.userId}`);
+            Logger.info(`Role preset '${presetId}' created in guild ${guildId} by user ${session.userId}`);
 
             // キャッシュをクリア
             CacheManager.delete(`presets_${guildId}`);
@@ -201,7 +207,7 @@ export class RolePresetController {
         const session = (req as any).session as SettingsSession;
         const guildId = req.params.guildId;
         const presetId = req.params.id;
-        const { name, description, roles, allowMulti, panelType, authType, authUrl } = req.body;
+        const { name, description, roles, allowMulti, panelType, authType } = req.body;
 
         if (!guildId || !presetId) {
             res.status(400).json({ error: 'guildId and presetId are required' });
@@ -230,7 +236,6 @@ export class RolePresetController {
             if (allowMulti !== undefined) updates.allowMulti = allowMulti;
             if (panelType !== undefined) updates.panelType = panelType === 'grant_missing' ? 'grant_missing' : 'toggle';
             if (authType !== undefined) updates.authType = authType === 'web' || authType === 'code' || authType === 'math' ? authType : 'none';
-            if (authUrl !== undefined) updates.authUrl = typeof authUrl === 'string' && authUrl.trim() ? authUrl.trim() : null;
 
             const preset = await RolePresetManager.updatePreset(guildId, presetId, updates);
 

@@ -12,7 +12,6 @@ export interface RolePreset {
     allowMulti: boolean;
     panelType?: 'toggle' | 'grant_missing';
     authType?: 'none' | 'web' | 'code' | 'math';
-    authUrl?: string | null;
     createdBy: string; // User ID
     createdAt: string; // ISO timestamp
     updatedAt?: string;
@@ -101,7 +100,6 @@ export class RolePresetManager {
             ...preset,
             panelType: preset.panelType || 'toggle',
             authType: preset.authType || 'none',
-            authUrl: preset.authUrl || null,
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString()
         };
