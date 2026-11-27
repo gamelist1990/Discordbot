@@ -50,6 +50,13 @@ export function createAntiCheatRoutes(
     router.get('/:guildId/watch-users', verifyAuth(sessions), controller.getWatchUsers.bind(controller));
     router.post('/:guildId/watch-users/:userId/dismiss', verifyAuth(sessions), controller.dismissWatchUser.bind(controller));
 
+    // AntiNuke スナップショット / 復元 (AN2)
+    router.get('/:guildId/antinuke/snapshots', verifyAuth(sessions), controller.listSnapshots.bind(controller));
+    router.post('/:guildId/antinuke/snapshots', verifyAuth(sessions), controller.captureSnapshot.bind(controller));
+    router.get('/:guildId/antinuke/restore/preview', verifyAuth(sessions), controller.previewRestore.bind(controller));
+    router.post('/:guildId/antinuke/restore', verifyAuth(sessions), controller.startRestore.bind(controller));
+    router.get('/:guildId/antinuke/restore/:jobId', verifyAuth(sessions), controller.getRestoreJob.bind(controller));
+
     // Web認証 (web fingerprint auth) records and staff override
     router.get('/:guildId/webauth', verifyAuth(sessions), webAuthController.getRecords.bind(webAuthController));
     router.post('/:guildId/webauth/force-verify', verifyAuth(sessions), webAuthController.forceVerify.bind(webAuthController));

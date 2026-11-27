@@ -1224,6 +1224,30 @@ export class AntiNukeManager {
         return Array.isArray(stored) ? stored : [];
     }
 
+    /**
+     * Close the incidents a restore consumed so the next unban window does not
+     * keep growing. Only `open` records change; resolved ones stay as they are.
+     */
+    async markIncidentsRestored(guildId: string, incidentIds: readonly string[]): Promise<number> {
+        if (!incidentIds.length) return 0;
+        const wanted = new Set(incidentIds);
+        let updated = 0;
+        await this.enqueueIncidentWrite(guildId, async () => {
+            const key = ANTINUKE_INCIDENTS_KEY(guildId);
+            const stored = await database.get<AntiNukeIncident[]>(guildId, key).catch(() => null);
+            if (!Array.isArray(stored)) return;
+            let changed = false;
+            for (const incident of stored) {
+                if (!incident || !wanted.has(incident.id) || incident.status !== 'open') continue;
+                incident.status = 'restored';
+                changed = true;
+                updated += 1;
+            }
+            if (changed) await database.set(guildId, key, stored);
+        });
+        return updated;
+    }
+
     /** Latest snapshot pointer written by AN2, or null when none exists. */
     async resolveLatestSnapshotId(guildId: string): Promise<string | null> {
         const stored = await database.get<any>(guildId, ANTINUKE_SNAPSHOTS_KEY(guildId)).catch(() => null);

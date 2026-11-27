@@ -180,6 +180,21 @@ export interface AntiNukeSelfDefense {
     ownerDm: boolean;
 }
 
+/** Snapshot / restore knobs (brief AN2 §A). */
+export interface AntiNukeSnapshotSettings {
+    /** Scheduled capture. Manual capture and the pre-restore snapshot always work. */
+    enabled: boolean;
+    /** Hours between scheduled snapshots. */
+    intervalHours: number;
+    /** Newest snapshots kept per guild; older documents are deleted. */
+    keep: number;
+    includeBans: boolean;
+    includeEmojis: boolean;
+    includeMemberRoles: boolean;
+    /** Upper bound on members scanned for role assignments per snapshot. */
+    memberRoleCap: number;
+}
+
 export interface AntiNukeSettings {
     enabled: boolean;
     whitelistUsers: string[];
@@ -188,6 +203,7 @@ export interface AntiNukeSettings {
     rules: Record<NukeAction, NukeVelocityRule>;
     instant: AntiNukeInstantRules;
     selfDefense: AntiNukeSelfDefense;
+    snapshots: AntiNukeSnapshotSettings;
 }
 
 /** Defaults from brief AN1 (thresholds from shipping anti-nuke products). */
@@ -215,6 +231,15 @@ export const DEFAULT_ANTINUKE_SETTINGS: AntiNukeSettings = {
         enabled: true,
         positionAudit: true,
         ownerDm: true
+    },
+    snapshots: {
+        enabled: true,
+        intervalHours: 6,
+        keep: 10,
+        includeBans: true,
+        includeEmojis: true,
+        includeMemberRoles: true,
+        memberRoleCap: 5000
     }
 };
 

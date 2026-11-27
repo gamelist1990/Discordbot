@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { ActiveTimeoutEntry, AntiCheatSettings, DetectionLog, UserTrustDataWithUser, PunishmentAction, WatchUserEntryView, WebAuthRecordView } from './types';
+import { ActiveTimeoutEntry, AntiCheatSettings, DetectionLog, RestoreJobView, RestorePreviewView, SnapshotMetaView, UserTrustDataWithUser, PunishmentAction, WatchUserEntryView, WebAuthRecordView } from './types';
 
 const API_BASE = '/api/staff/anticheat';
 
@@ -371,4 +371,147 @@ export function useWebAuthRecords(guildId: string) {
     }, [fetchRecords]);
 
     return { webAuthRecords, loading, error, refetch: fetchRecords, forceVerify };
+}
+
+const SNAPSHOT_API = '/api/staff/anticheat';
+
+/**
+ * AntiNuke snapshots + restore (AN2). Restores run as tracked background jobs,
+ * so this polls the job record until it leaves `running`.
+ */
+export function useAntiNukeSnapshots(guildId: string) {
+    const [snapshots, setSnapshots] = useState<SnapshotMetaView[]>([]);
+    const [jobs, setJobs] = useState<RestoreJobView[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+    const [capturing, setCapturing] = useState(false);
+    const [restoring, setRestoring] = useState(false);
+    const [preview, setPreview] = useState<RestorePreviewView | null>(null);
+    const [previewLoading, setPreviewLoading] = useState(false);
+    const [activeJob, setActiveJob] = useState<RestoreJobView | null>(null);
+
+    const refetch = useCallback(async () => {
+        try {
+            setLoading(true);
+            const response = await fetch(`${SNAPSHOT_API}/${guildId}/antinuke/snapshots`, {
+                credentials: 'include'
+            });
+            if (!response.ok) throw new Error('スナップショット一覧を取得できませんでした。');
+            const data = await response.json();
+            setSnapshots(Array.isArray(data.snapshots) ? data.snapshots : []);
+            setJobs(Array.isArray(data.restores) ? data.restores : []);
+            setError(null);
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'スナップショット一覧を取得できませんでした。');
+        } finally {
+            setLoading(false);
+        }
+    }, [guildId]);
+
+    useEffect(() => {
+        void refetch();
+    }, [refetch]);
+
+    const capture = useCallback(async () => {
+        try {
+            setCapturing(true);
+            const response = await fetch(`${SNAPSHOT_API}/${guildId}/antinuke/snapshots`, {
+                method: 'POST',
+                credentials: 'include'
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(data.error || 'スナップショットを取得できませんでした。');
+            setError(null);
+            await refetch();
+            return data.snapshot as SnapshotMetaView;
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'スナップショットを取得できませんでした。');
+            return null;
+        } finally {
+            setCapturing(false);
+        }
+    }, [guildId, refetch]);
+
+    const loadPreview = useCallback(async (snapshotId: string, incidentIds: string[] = []) => {
+        try {
+            setPreviewLoading(true);
+            const url = new URL(`${SNAPSHOT_API}/${guildId}/antinuke/restore/preview`, window.location.origin);
+            url.searchParams.set('snapshotId', snapshotId);
+            if (incidentIds.length) url.searchParams.set('incidentId', incidentIds.join(','));
+            const response = await fetch(url.toString(), { credentials: 'include' });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(data.error || '復元プレビューを取得できませんでした。');
+            setPreview(data.preview as RestorePreviewView);
+            setError(null);
+            return data.preview as RestorePreviewView;
+        } catch (err) {
+            setError(err instanceof Error ? err.message : '復元プレビューを取得できませんでした。');
+            return null;
+        } finally {
+            setPreviewLoading(false);
+        }
+    }, [guildId]);
+
+    const clearPreview = useCallback(() => setPreview(null), []);
+
+    const pollJob = useCallback(async (jobId: string): Promise<RestoreJobView | null> => {
+        const response = await fetch(`${SNAPSHOT_API}/${guildId}/antinuke/restore/${jobId}`, {
+            credentials: 'include'
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || '復元ジョブを取得できませんでした。');
+        return data.job as RestoreJobView;
+    }, [guildId]);
+
+    const startRestore = useCallback(async (
+        snapshotId: string,
+        options: { unbanAdded: boolean; rebanSnapshotBans: boolean }
+    ) => {
+        try {
+            setRestoring(true);
+            const response = await fetch(`${SNAPSHOT_API}/${guildId}/antinuke/restore`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({ snapshotId, confirm: 'RESTORE', ...options })
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(data.error || '復元を開始できませんでした。');
+            let job = data.job as RestoreJobView;
+            setActiveJob(job);
+            setError(null);
+            for (let attempt = 0; attempt < 200 && job.status === 'running'; attempt += 1) {
+                await new Promise((resolve) => setTimeout(resolve, 3000));
+                const next = await pollJob(job.id).catch(() => null);
+                if (!next) break;
+                job = next;
+                setActiveJob(job);
+            }
+            await refetch();
+            return job;
+        } catch (err) {
+            setError(err instanceof Error ? err.message : '復元を開始できませんでした。');
+            return null;
+        } finally {
+            setRestoring(false);
+        }
+    }, [guildId, pollJob, refetch]);
+
+    return {
+        snapshots,
+        jobs,
+        loading,
+        error,
+        capturing,
+        restoring,
+        preview,
+        previewLoading,
+        activeJob,
+        refetch,
+        capture,
+        loadPreview,
+        clearPreview,
+        startRestore,
+        clearError: () => setError(null),
+    };
 }

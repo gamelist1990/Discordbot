@@ -54,6 +54,7 @@ export interface AntiNukeSettings {
         positionAudit: boolean;
         ownerDm: boolean;
     };
+    snapshots: AntiNukeSnapshotSettings;
 }
 
 export interface WatchSettings {
@@ -197,4 +198,104 @@ export interface ActiveTimeoutEntry {
 export interface AntiCheatApiResponse {
     settings: AntiCheatSettings;
     userTrustCount: number;
+}
+
+export interface AntiNukeSnapshotSettings {
+    enabled: boolean;
+    intervalHours: number;
+    keep: number;
+    includeBans: boolean;
+    includeEmojis: boolean;
+    includeMemberRoles: boolean;
+    memberRoleCap: number;
+}
+
+export interface SnapshotCounts {
+    roles: number;
+    categories: number;
+    channels: number;
+    emojis: number;
+    bans: number;
+    membersWithRoles: number;
+}
+
+export interface SnapshotMetaView {
+    id: string;
+    createdAt: string;
+    trigger: 'scheduled' | 'manual' | 'prerestore';
+    requestedBy: string | null;
+    counts: SnapshotCounts;
+    bytes: number;
+}
+
+export interface RestoreUnbanSelectionView {
+    unban: string[];
+    alreadyLifted: string[];
+    keptFromSnapshot: string[];
+    protectedUsers: string[];
+}
+
+export interface RestorePreviewView {
+    snapshotId: string;
+    guildName: string;
+    createdAt: string;
+    ageSeconds: number;
+    counts: SnapshotCounts;
+    recreate: {
+        roles: number;
+        categories: number;
+        channels: number;
+        emojis: number;
+        memberRoleHolders: number;
+        bansInSnapshot: number;
+    };
+    limitations: string[];
+    notes: string[];
+    unban: RestoreUnbanSelectionView;
+    rebanCandidates: string[];
+    incidentWindowStart: string;
+    incidents: Array<{ id: string; rule: string; detectedAt: string; windowStart: string }>;
+}
+
+export interface RestoreTotalsView {
+    restored: number;
+    skipped: number;
+    failed: number;
+}
+
+export interface RestoreReportView {
+    safetySnapshotId: string | null;
+    incidentWindowStart: string | null;
+    startedAt: string;
+    finishedAt: string | null;
+    totals: Record<string, RestoreTotalsView>;
+    entries: Array<{
+        kind: string;
+        name: string;
+        sourceId: string | null;
+        targetId: string | null;
+        outcome: 'restored' | 'skipped' | 'failed';
+        reason?: string;
+    }>;
+    unbanned: string[];
+    alreadyLifted: string[];
+    protectedUsers: string[];
+    rebanned: string[];
+    errors: string[];
+}
+
+export interface RestoreJobView {
+    id: string;
+    guildId: string;
+    snapshotId: string;
+    safetySnapshotId: string | null;
+    status: 'running' | 'done' | 'failed';
+    startedAt: string;
+    finishedAt: string | null;
+    requestedBy: string | null;
+    options: { unbanAdded: boolean; rebanSnapshotBans: boolean; incidentIds: string[] };
+    phase: string;
+    progress: { done: number; total: number };
+    report: RestoreReportView | null;
+    error: string | null;
 }

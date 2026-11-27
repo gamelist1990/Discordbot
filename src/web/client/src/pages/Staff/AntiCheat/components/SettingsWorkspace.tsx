@@ -55,6 +55,12 @@ const sections = [
     icon: "bell",
   },
   {
+    id: "snapshots",
+    title: "スナップショット・復元",
+    hint: "サーバー構造の保存と復旧",
+    icon: "archive",
+  },
+  {
     id: "activity",
     title: "検知・対応履歴",
     hint: "ログとタイムアウトの管理",
@@ -90,6 +96,7 @@ const paths: Record<string, string> = {
     "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2 M9 3a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z M17 4a4 4 0 0 1 0 7 M22 21v-2a4 4 0 0 0-3-4",
   bell: "M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9 M10 21h4",
   activity: "M3 12h4l3-8 4 16 3-8h4",
+  archive: "M3 4h18v5H3V4Z m2 5v11h14V9 M9 13h6",
 };
 function Icon({ name }: { name: string }) {
   return (
@@ -238,7 +245,8 @@ export default function SettingsWorkspace(p: AntiCheatViewProps) {
           )}
           {!p.draft.enabled &&
             section !== "general" &&
-            section !== "activity" && (
+            section !== "activity" &&
+            section !== "snapshots" && (
               <div className={styles.hint}>
                 保護全体が停止に設定されています。検知を動作させるには、基本設定で保護を有効にして保存してください。
               </div>
@@ -324,6 +332,7 @@ export default function SettingsWorkspace(p: AntiCheatViewProps) {
               )}
             </fieldset>
           </form>
+          {section === "snapshots" && <SnapshotSettings {...p} />}
           {section === "activity" && <Activity {...p} />}
         </div>
       </div>
@@ -1242,6 +1251,351 @@ function Activity(p: AntiCheatViewProps) {
               <div className={styles.empty}>信頼スコアの記録はありません。</div>
             ))}
         </div>
+      )}
+    </div>
+  );
+}
+
+const SNAPSHOT_TRIGGER_LABELS: Record<string, string> = {
+  scheduled: "定期",
+  manual: "手動",
+  prerestore: "復元前の安全保存",
+};
+
+const RESTORE_KIND_LABELS: Record<string, string> = {
+  role: "ロール",
+  category: "カテゴリ",
+  channel: "チャンネル",
+  overwrite: "権限上書き",
+  guildSettings: "サーバー設定",
+  emoji: "絵文字",
+  memberRoles: "メンバーのロール",
+  ban: "BAN解除",
+};
+
+function formatAge(seconds: number): string {
+  if (seconds < 60) return `${seconds}秒前`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}分前`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 48) return `${hours}時間前`;
+  return `${Math.floor(hours / 24)}日前`;
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+function SnapshotSettings(p: AntiCheatViewProps) {
+  const snapshots = p.draft.antiNuke.snapshots;
+  const patch = (updates: Partial<typeof snapshots>) =>
+    p.updateDraft((current) => ({
+      ...current,
+      antiNuke: {
+        ...current.antiNuke,
+        snapshots: { ...current.antiNuke.snapshots, ...updates },
+      },
+    }));
+  const [unbanAdded, setUnbanAdded] = useState(true);
+  const [rebanSnapshotBans, setRebanSnapshotBans] = useState(false);
+  const job = p.activeRestoreJob;
+  const jobRunning = job?.status === "running";
+  const preview = p.restorePreview;
+
+  return (
+    <div className={styles.stack}>
+      <article className={styles.card}>
+        <div className={styles.cardHeading}>
+          <h3>スナップショット</h3>
+          <p>
+            サーバーのロール・カテゴリ・チャンネル・権限上書き・絵文字・BAN一覧・メンバーのロールを
+            Bot側のデータベースへ保存します。Botがキックされても残り、破壊行為のあとで復元できます。
+            メッセージ履歴は保存も復元もできません。
+          </p>
+        </div>
+        <div className={styles.automaticRow}>
+          <div>
+            <h4>定期取得</h4>
+            <p>
+              有効にすると、各サーバーで一定間隔ごとに自動取得します。手動取得と復元前の安全保存は
+              この設定に関係なく動作します。
+            </p>
+          </div>
+          <SettingSwitch
+            label="定期スナップショット"
+            checked={snapshots.enabled}
+            onChange={(enabled) => patch({ enabled })}
+          />
+          <label className={styles.duration}>
+            間隔（時間）
+            <input
+              type="number"
+              min={1}
+              max={168}
+              required
+              value={snapshots.intervalHours}
+              disabled={!snapshots.enabled}
+              onChange={(event) =>
+                patch({ intervalHours: Number(event.target.value) })
+              }
+            />
+            <small>既定 6 時間</small>
+          </label>
+          <label className={styles.duration}>
+            保持する世代
+            <input
+              type="number"
+              min={1}
+              max={50}
+              required
+              value={snapshots.keep}
+              onChange={(event) => patch({ keep: Number(event.target.value) })}
+            />
+            <small>古い世代は自動削除</small>
+          </label>
+        </div>
+        <div className={styles.automaticRow}>
+          <div>
+            <h4>BAN一覧・絵文字・メンバーのロール</h4>
+            <p>
+              BAN一覧は復元時の「攻撃で追加されたBANの解除」判定に使います。メンバーのロールは
+              @everyone 以外のロールを持つメンバーだけを上限
+              {snapshots.memberRoleCap}人まで記録します。
+            </p>
+          </div>
+          <SettingSwitch
+            label="BAN一覧を含める"
+            checked={snapshots.includeBans}
+            onChange={(includeBans) => patch({ includeBans })}
+          />
+          <SettingSwitch
+            label="絵文字を含める"
+            checked={snapshots.includeEmojis}
+            onChange={(includeEmojis) => patch({ includeEmojis })}
+          />
+          <SettingSwitch
+            label="メンバーのロールを含める"
+            checked={snapshots.includeMemberRoles}
+            onChange={(includeMemberRoles) => patch({ includeMemberRoles })}
+          />
+        </div>
+      </article>
+
+      <article className={styles.card}>
+        <div className={styles.activityToolbar}>
+          <div>
+            <h3>取得済みスナップショット</h3>
+            <p>
+              {p.snapshotsLoading
+                ? "読み込み中…"
+                : `${p.snapshots.length}件を保持しています（新しい世代から表示）。`}
+            </p>
+          </div>
+          <div className={styles.saveActions}>
+            <button
+              type="button"
+              className={styles.secondary}
+              disabled={p.snapshotsLoading}
+              onClick={p.onRefreshSnapshots}
+            >
+              再取得
+            </button>
+            <button
+              type="button"
+              className={styles.primary}
+              disabled={p.capturingSnapshot || jobRunning}
+              onClick={p.onCaptureSnapshot}
+            >
+              {p.capturingSnapshot ? "取得中…" : "今すぐ取得"}
+            </button>
+          </div>
+        </div>
+        {p.snapshotsError && (
+          <div role="alert" className={styles.error}>
+            {p.snapshotsError}
+          </div>
+        )}
+        {p.snapshots.length === 0 && !p.snapshotsLoading ? (
+          <div className={styles.empty}>
+            まだスナップショットがありません。「今すぐ取得」で作成できます。
+          </div>
+        ) : (
+          p.snapshots.map((snapshot) => {
+            const counts = snapshot.counts;
+            return (
+              <div className={styles.activityEntry} key={snapshot.id}>
+                <div>
+                  <strong>
+                    {formatDate(snapshot.createdAt)} ·{" "}
+                    {SNAPSHOT_TRIGGER_LABELS[snapshot.trigger] || snapshot.trigger}
+                  </strong>
+                  <small>
+                    {snapshot.id} · {formatBytes(snapshot.bytes)}
+                  </small>
+                  <p>
+                    ロール {counts.roles} / カテゴリ {counts.categories} /
+                    チャンネル {counts.channels} / 絵文字 {counts.emojis} /
+                    BAN {counts.bans} / ロール保持メンバー{" "}
+                    {counts.membersWithRoles}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className={styles.secondary}
+                  disabled={p.restorePreviewLoading || jobRunning}
+                  onClick={() => p.onPreviewRestore(snapshot.id)}
+                >
+                  復元プレビュー
+                </button>
+              </div>
+            );
+          })
+        )}
+      </article>
+
+      {preview && (
+        <article className={styles.card}>
+          <div className={styles.cardHeading}>
+            <h3>復元プレビュー</h3>
+            <p>
+              {formatDate(preview.createdAt)} のスナップショット（
+              {formatAge(preview.ageSeconds)}）から復元します。
+            </p>
+          </div>
+          <div className={styles.hint}>
+            <strong>再作成されるもの</strong>
+            <br />
+            ロール {preview.recreate.roles} / カテゴリ{" "}
+            {preview.recreate.categories} / チャンネル{" "}
+            {preview.recreate.channels} / 絵文字 {preview.recreate.emojis} /
+            メンバーのロール {preview.recreate.memberRoleHolders}人分 / BAN一覧{" "}
+            {preview.recreate.bansInSnapshot}件（再適用は既定で行いません）
+          </div>
+          <div className={styles.hint}>
+            <strong>復元できないもの</strong>
+            <br />
+            {preview.limitations.map((line) => `・${line}`).join("\n")}
+          </div>
+          {preview.notes.length > 0 && (
+            <div className={styles.hint}>
+              <strong>注意</strong>
+              <br />
+              {preview.notes.map((line) => `・${line}`).join("\n")}
+            </div>
+          )}
+          <div className={styles.hint}>
+            <strong>BANの扱い（攻撃期間: {formatDate(preview.incidentWindowStart)} 以降）</strong>
+            <br />
+            解除対象: {preview.unban.unban.length}件 / 既に解除済み:{" "}
+            {preview.unban.alreadyLifted.length}件 / スナップショット時点からBAN中で維持:{" "}
+            {preview.unban.keptFromSnapshot.length}件 / AntiNukeがBANした実行者として保護:{" "}
+            {preview.unban.protectedUsers.length}件
+          </div>
+          <div className={styles.automaticRow}>
+            <div>
+              <h4>実行オプション</h4>
+              <p>
+                復元の前に、現在の状態を安全スナップショットとして自動保存します。
+              </p>
+            </div>
+            <SettingSwitch
+              label="攻撃で追加されたBANを解除する"
+              checked={unbanAdded}
+              onChange={setUnbanAdded}
+            />
+            <SettingSwitch
+              label="スナップショットのBANを再適用する（既定OFF）"
+              checked={rebanSnapshotBans}
+              onChange={setRebanSnapshotBans}
+            />
+          </div>
+          <div className={styles.saveActions}>
+            <button
+              type="button"
+              className={styles.secondary}
+              disabled={p.restoringSnapshot || jobRunning}
+              onClick={p.onCancelRestore}
+            >
+              キャンセル
+            </button>
+            <button
+              type="button"
+              className={styles.danger}
+              disabled={p.restoringSnapshot || jobRunning}
+              onClick={() =>
+                p.onStartRestore(preview.snapshotId, {
+                  unbanAdded,
+                  rebanSnapshotBans,
+                })
+              }
+            >
+              {p.restoringSnapshot ? "実行中…" : "このスナップショットから復元する"}
+            </button>
+          </div>
+        </article>
+      )}
+
+      {job && (
+        <article className={styles.card}>
+          <div className={styles.cardHeading}>
+            <h3>復元ジョブ</h3>
+            <p>
+              {job.status === "running"
+                ? `実行中: ${job.phase}（${job.progress.done}/${job.progress.total}）`
+                : job.status === "done"
+                  ? `完了 ${formatDate(job.finishedAt)}`
+                  : `失敗 ${job.error || "理由不明"}`}
+            </p>
+          </div>
+          {job.report && (
+            <div className={styles.hint}>
+              {Object.entries(job.report.totals).map(([kind, totals]) => (
+                <div key={kind}>
+                  {RESTORE_KIND_LABELS[kind] || kind}: 復元 {totals.restored} /
+                  スキップ {totals.skipped} / 失敗 {totals.failed}
+                </div>
+              ))}
+              <div>
+                安全スナップショット: {job.report.safetySnapshotId || "取得できませんでした"}
+              </div>
+              <div>BAN解除: {job.report.unbanned.length}件</div>
+            </div>
+          )}
+        </article>
+      )}
+
+      {p.restoreJobs.length > 0 && (
+        <article className={styles.card}>
+          <div className={styles.cardHeading}>
+            <h3>復元履歴</h3>
+            <p>直近{p.restoreJobs.length}件の復元ジョブです。</p>
+          </div>
+          {p.restoreJobs.map((entry) => (
+            <div className={styles.activityEntry} key={entry.id}>
+              <div>
+                <strong>
+                  {formatDate(entry.startedAt)} ·{" "}
+                  {entry.status === "done"
+                    ? "完了"
+                    : entry.status === "failed"
+                      ? "失敗"
+                      : "実行中"}
+                </strong>
+                <small>
+                  {entry.id} · 復元元 {entry.snapshotId} · 実行者{" "}
+                  {entry.requestedBy || "不明"}
+                </small>
+                <p>
+                  {entry.status === "running"
+                    ? `${entry.phase}（${entry.progress.done}/${entry.progress.total}）`
+                    : entry.error || "レポートを保存しました"}
+                </p>
+              </div>
+            </div>
+          ))}
+        </article>
       )}
     </div>
   );

@@ -349,6 +349,10 @@ export class AntiCheatManager {
                 selfDefense: {
                     ...normalizedBase.antiNuke.selfDefense,
                     ...(updates.antiNuke?.selfDefense || {})
+                },
+                snapshots: {
+                    ...normalizedBase.antiNuke.snapshots,
+                    ...(updates.antiNuke?.snapshots || {})
                 }
             }),
             punishments: updates.punishments !== undefined ? updates.punishments : normalizedBase.punishments,

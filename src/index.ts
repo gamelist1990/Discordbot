@@ -134,6 +134,11 @@ async function main() {
         antiNukeManager.setClient(botClient.client);
         Logger.info('🛡️ AntiNukeManager を初期化しました');
 
+        // AntiNuke スナップショット / 復元（AN2）
+        const { snapshotManager } = await import('./core/anticheat/SnapshotManager.js');
+        snapshotManager.setClient(botClient.client);
+        Logger.info('🗂️ SnapshotManager を初期化しました');
+
         const { coreFeatureManager } = await import('./core/corepanel/CoreFeatureManager.js');
         coreFeatureManager.setClient(botClient.client);
         Logger.info('🧩 CoreFeatureManager を初期化しました');

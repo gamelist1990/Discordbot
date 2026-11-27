@@ -7,6 +7,7 @@ import { GuildAntiCheatSettings, PunishmentAction } from '../../../core/antichea
 import { Logger } from '../../../utils/Logger.js';
 import { TextChannel, PermissionFlagsBits } from 'discord.js';
 import { validateExclusions } from '../../../core/anticheat/ExclusionPolicy.js';
+import { snapshotManager } from '../../../core/anticheat/SnapshotManager.js';
 
 /** Runtime state is exposed by dedicated endpoints and must not be echoed into
  * the editable settings document. Apart from leaking history to the browser,
@@ -587,6 +588,176 @@ export class AntiCheatController {
         }
     };
 
+    // ------------------------------------------------------------------
+    // AntiNuke snapshots / restore (brief AN2)
+    // ------------------------------------------------------------------
+
+    /**
+     * GET /api/staff/anticheat/:guildId/antinuke/snapshots
+     * Snapshot list + recent restore jobs.
+     */
+    listSnapshots = async (req: Request, res: Response): Promise<void> => {
+        const guildId = String(req.params.guildId);
+        const session = (req as any).session;
+        if (!session || !hasAccessToGuild(session, guildId)) {
+            res.status(403).json({ error: 'Access denied to this guild' });
+            return;
+        }
+        try {
+            const [index, jobs] = await Promise.all([
+                snapshotManager.listSnapshots(guildId),
+                snapshotManager.listJobs(guildId)
+            ]);
+            res.json({
+                snapshots: index.snapshots,
+                latestSnapshotId: index.latestSnapshotId,
+                restores: jobs,
+                restoring: snapshotManager.isRestoring(guildId)
+            });
+        } catch (error) {
+            Logger.error('Error listing AntiNuke snapshots:', error);
+            res.status(500).json({ error: 'スナップショット一覧を取得できませんでした。' });
+        }
+    };
+
+    /**
+     * POST /api/staff/anticheat/:guildId/antinuke/snapshots
+     * On-demand capture (staff action).
+     */
+    captureSnapshot = async (req: Request, res: Response): Promise<void> => {
+        const guildId = String(req.params.guildId);
+        const session = (req as any).session;
+        if (!session || !(await hasGuildMutationAccess(this.botClient, session, guildId))) {
+            res.status(403).json({ error: 'Access denied to this guild' });
+            return;
+        }
+        try {
+            const guild = await this.botClient.client.guilds.fetch(guildId);
+            const requestedBy = typeof session.userId === 'string' ? session.userId : null;
+            const snapshot = await snapshotManager.captureAndStore(guild, 'manual', requestedBy);
+            res.json({
+                success: true,
+                snapshot: {
+                    id: snapshot.id,
+                    createdAt: snapshot.createdAt,
+                    trigger: snapshot.trigger,
+                    counts: snapshot.counts,
+                    warnings: snapshot.warnings
+                }
+            });
+        } catch (error) {
+            Logger.error('Error capturing AntiNuke snapshot:', error);
+            res.status(500).json({ error: 'スナップショットを取得できませんでした。' });
+        }
+    };
+
+    /**
+     * GET /api/staff/anticheat/:guildId/antinuke/restore/preview?snapshotId=…
+     * Pre-restore summary: age, recreate counts, unban diff, limitations.
+     */
+    previewRestore = async (req: Request, res: Response): Promise<void> => {
+        const guildId = String(req.params.guildId);
+        const session = (req as any).session;
+        if (!session || !hasAccessToGuild(session, guildId)) {
+            res.status(403).json({ error: 'Access denied to this guild' });
+            return;
+        }
+        const snapshotId = String(req.query.snapshotId || '');
+        if (!snapshotId) {
+            res.status(400).json({ error: 'snapshotId が必要です。' });
+            return;
+        }
+        try {
+            const guild = await this.botClient.client.guilds.fetch(guildId);
+            const preview = await snapshotManager.previewRestore(guild, snapshotId, readIncidentIds(req.query.incidentId));
+            res.json({ preview });
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'プレビューを取得できませんでした。';
+            Logger.error('Error previewing AntiNuke restore:', error);
+            res.status(400).json({ error: message });
+        }
+    };
+
+    /**
+     * POST /api/staff/anticheat/:guildId/antinuke/restore
+     * Starts a tracked background restore; poll the job for progress.
+     */
+    startRestore = async (req: Request, res: Response): Promise<void> => {
+        const guildId = String(req.params.guildId);
+        const session = (req as any).session;
+        if (!session || !(await hasGuildMutationAccess(this.botClient, session, guildId))) {
+            res.status(403).json({ error: 'Access denied to this guild' });
+            return;
+        }
+        const body = (req.body || {}) as {
+            snapshotId?: string;
+            unbanAdded?: boolean;
+            rebanSnapshotBans?: boolean;
+            incidentIds?: string[];
+            confirm?: string;
+        };
+        if (!body.snapshotId) {
+            res.status(400).json({ error: 'snapshotId が必要です。' });
+            return;
+        }
+        if (body.confirm !== 'RESTORE') {
+            res.status(400).json({ error: 'confirm=RESTORE が指定されていません。プレビューを確認してから実行してください。' });
+            return;
+        }
+        try {
+            const guild = await this.botClient.client.guilds.fetch(guildId);
+            const requestedBy = typeof session.userId === 'string' ? session.userId : null;
+            const job = await snapshotManager.startRestore(guild, String(body.snapshotId), {
+                unbanAdded: body.unbanAdded !== false,
+                rebanSnapshotBans: body.rebanSnapshotBans === true,
+                incidentIds: Array.isArray(body.incidentIds) ? body.incidentIds.filter((id) => typeof id === 'string') : []
+            }, requestedBy);
+            res.json({ success: true, job });
+        } catch (error) {
+            const message = error instanceof Error ? error.message : '復元を開始できませんでした。';
+            Logger.error('Error starting AntiNuke restore:', error);
+            res.status(400).json({ error: message });
+        }
+    };
+
+    /**
+     * GET /api/staff/anticheat/:guildId/antinuke/restore/:jobId
+     * Progress + persisted report for one restore job.
+     */
+    getRestoreJob = async (req: Request, res: Response): Promise<void> => {
+        const guildId = String(req.params.guildId);
+        const session = (req as any).session;
+        if (!session || !hasAccessToGuild(session, guildId)) {
+            res.status(403).json({ error: 'Access denied to this guild' });
+            return;
+        }
+        try {
+            const job = await snapshotManager.getJob(guildId, String(req.params.jobId));
+            if (!job) {
+                res.status(404).json({ error: '復元ジョブが見つかりません。' });
+                return;
+            }
+            res.json({ job });
+        } catch (error) {
+            Logger.error('Error getting AntiNuke restore job:', error);
+            res.status(500).json({ error: '復元ジョブを取得できませんでした。' });
+        }
+    };
+
+}
+
+/** Incident ids for the unban window: `?incidentId=a,b` or repeated params. */
+function readIncidentIds(value: unknown): string[] {
+    const raw = Array.isArray(value) ? value : [value];
+    const ids: string[] = [];
+    for (const entry of raw) {
+        if (typeof entry !== 'string') continue;
+        for (const part of entry.split(',')) {
+            const id = part.trim();
+            if (id && /^[\w:-]{4,80}$/.test(id) && !ids.includes(id)) ids.push(id);
+        }
+    }
+    return ids;
 }
 
 /** Mutation guard for state-changing AntiCheat endpoints (settings update,
@@ -597,8 +768,7 @@ export class AntiCheatController {
  * with a live Discord fallback (owner / Administrator / ManageGuild) for
  * sessions whose stored level undercounts. Legacy token sessions without a
  * permissions array stay bound to their single guild, as before. */
-export async function hasGuildMutationAccess(botClient: BotClient, session: any, guildId: string): Promise<boolean> {
-    if (!session || !hasAccessToGuild(session, guildId)) return false;
+export async function hasGuildMutationAccess(botClient: BotClient, session: any, guildId: string): Promise<boolean> {    if (!session || !hasAccessToGuild(session, guildId)) return false;
     return (await getLiveGuildManagementLevel(botClient, session, guildId)) >= 1;
 }
 

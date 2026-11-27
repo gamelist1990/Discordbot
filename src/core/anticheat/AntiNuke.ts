@@ -111,6 +111,15 @@ export function readAntiNukeSettings(value: unknown): AntiNukeSettings {
             enabled: isEnabled(source.selfDefense?.enabled, defaults.selfDefense.enabled),
             positionAudit: isEnabled(source.selfDefense?.positionAudit, defaults.selfDefense.positionAudit),
             ownerDm: isEnabled(source.selfDefense?.ownerDm, defaults.selfDefense.ownerDm)
+        },
+        snapshots: {
+            enabled: isEnabled(source.snapshots?.enabled, defaults.snapshots.enabled),
+            intervalHours: positiveInt(source.snapshots?.intervalHours, defaults.snapshots.intervalHours, 1, 168),
+            keep: positiveInt(source.snapshots?.keep, defaults.snapshots.keep, 1, 50),
+            includeBans: isEnabled(source.snapshots?.includeBans, defaults.snapshots.includeBans),
+            includeEmojis: isEnabled(source.snapshots?.includeEmojis, defaults.snapshots.includeEmojis),
+            includeMemberRoles: isEnabled(source.snapshots?.includeMemberRoles, defaults.snapshots.includeMemberRoles),
+            memberRoleCap: positiveInt(source.snapshots?.memberRoleCap, defaults.snapshots.memberRoleCap, 100, 50_000)
         }
     };
 }
