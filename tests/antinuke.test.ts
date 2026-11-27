@@ -75,7 +75,15 @@ function setupManager() {
         dms.push(embed);
         return { status: 'sent' as const };
     };
-    return { manager, incidents, order, dms };
+    const positionAudits = new Map<string, any>();
+    (manager as any).readPositionAuditState = async (guildId: string) => {
+        const stored = positionAudits.get(guildId);
+        return stored ? structuredClone(stored) : null;
+    };
+    (manager as any).writePositionAuditState = async (guildId: string, state: any) => {
+        positionAudits.set(guildId, structuredClone(state));
+    };
+    return { manager, incidents, order, dms, positionAudits };
 }
 
 // ---------------------------------------------------------------------------
@@ -630,4 +638,163 @@ test('manager: self-tamper without attribution still warns the owner without inv
     assert.equal(final.rule, 'selfTamper');
     assert.equal(final.attribution, 'none');
     assert.equal(final.actions.ban, 'skipped');
+});
+
+// ---------------------------------------------------------------------------
+// Position audit dedupe persistence (brief AN4)
+// ---------------------------------------------------------------------------
+
+/** Guild where our bot sits at position 5 and a dangerous role sits above it. */
+function positionGuild(options: {
+    roleName?: string;
+    roleAbove?: boolean;
+    evilBotPosition?: number | null;
+} = {}): { guild: any; evilBot: any } {
+    const dangerousRole = (id: string, position: number, name: string) => ({
+        id,
+        name,
+        position,
+        managed: false,
+        permissions: { has: (permission: bigint) => permission === PermissionFlagsBits.ManageRoles }
+    });
+    const selfMember: any = {
+        id: 'self-bot',
+        user: { id: 'self-bot', bot: true, tag: 'self#0001' },
+        roles: { highest: { position: 5 }, cache: new Collection() },
+        permissions: { has: () => false }
+    };
+    const evilBot: any = {
+        id: 'evil-bot',
+        user: { id: 'evil-bot', bot: true, tag: 'evil#0001' },
+        roles: { highest: { position: 3 }, cache: new Collection() },
+        permissions: { has: (permission: bigint) => permission === PermissionFlagsBits.Administrator }
+    };
+    const members = new Collection<any, any>([['self-bot', selfMember]]);
+    if (options.evilBotPosition !== null) {
+        members.set('evil-bot', evilBot);
+        evilBot.roles.highest = { position: options.evilBotPosition ?? 3 };
+    }
+    const guild = fakeGuild({
+        members: {
+            me: selfMember,
+            cache: members,
+            fetch: async () => null,
+            fetchMe: async () => selfMember
+        },
+        roles: {
+            fetch: async () => new Collection(options.roleAbove === false
+                ? []
+                : [['role-above', dangerousRole('role-above', 20, options.roleName ?? 'role-above')]])
+        }
+    });
+    return { guild, evilBot };
+}
+
+test('position audit: first run warns once for an existing offender set and stores it', async () => {
+    const { manager, dms, positionAudits } = setupManager();
+    const { guild } = positionGuild();
+
+    const offenders = await manager.auditPositions(guild, settings());
+
+    assert.equal(offenders.length, 1);
+    assert.equal(dms.length, 1);
+    const stored = positionAudits.get('guild');
+    assert.deepEqual(stored.offenders, ['role-above']);
+    assert.ok(stored.lastWarnedAt);
+});
+
+test('position audit: first run with no offenders posts nothing and records the empty set', async () => {
+    const { manager, dms, positionAudits } = setupManager();
+    const { guild } = positionGuild({ roleAbove: false, evilBotPosition: null });
+
+    const offenders = await manager.auditPositions(guild, settings());
+
+    assert.deepEqual(offenders, []);
+    assert.equal(dms.length, 0);
+    assert.deepEqual(positionAudits.get('guild').offenders, []);
+});
+
+test('position audit: unchanged set stays silent across simulated restarts', async () => {
+    const first = setupManager();
+    const { guild } = positionGuild();
+    await first.manager.auditPositions(guild, settings());
+    assert.equal(first.dms.length, 1);
+
+    // Same persisted store, brand-new manager = process restart.
+    const restarted = new AntiNukeManager();
+    restarted.setClock(() => NOW);
+    (restarted as any).client = (first.manager as any).client;
+    (restarted as any).readPositionAuditState = async (guildId: string) => {
+        const stored = first.positionAudits.get(guildId);
+        return stored ? structuredClone(stored) : null;
+    };
+    (restarted as any).writePositionAuditState = async (guildId: string, state: any) => {
+        first.positionAudits.set(guildId, structuredClone(state));
+    };
+    const restartedDms: any[] = [];
+    (restarted as any).dmOwner = async (_guild: any, _settings: any, embed: any) => {
+        restartedDms.push(embed);
+        return { status: 'sent' as const };
+    };
+    let logPosts = 0;
+    (restarted as any).postToLogChannel = async () => { logPosts += 1; return true; };
+
+    // Startup pass, then role events — all with the same offender set.
+    await restarted.auditPositions(guild, settings());
+    await restarted.auditPositions(guild, settings());
+
+    assert.equal(restartedDms.length, 0);
+    assert.equal(logPosts, 0);
+    assert.equal(first.dms.length, 1);
+    assert.deepEqual(first.positionAudits.get('guild').offenders, ['role-above']);
+});
+
+test('position audit: a new offender posts once with the full current list', async () => {
+    const { manager, dms, positionAudits } = setupManager();
+    const { guild, evilBot } = positionGuild();
+
+    await manager.auditPositions(guild, settings());
+    assert.equal(dms.length, 1);
+
+    // The offending bot moves above us: the set grows.
+    evilBot.roles.highest = { position: 30 };
+    const offenders = await manager.auditPositions(guild, settings());
+
+    assert.equal(offenders.length, 2);
+    assert.equal(dms.length, 2);
+    const field = dms[1].data.fields.find((entry: any) => entry.name === '該当アクター');
+    assert.match(field.value, /role-above/);
+    assert.match(field.value, /evil-bot/);
+    assert.deepEqual(positionAudits.get('guild').offenders, ['evil-bot', 'role-above']);
+
+    // Repeating the same state does not post again.
+    await manager.auditPositions(guild, settings());
+    assert.equal(dms.length, 2);
+});
+
+test('position audit: a role rename is not an offender-set change', async () => {
+    const { manager, dms } = setupManager();
+    const first = positionGuild({ roleName: 'old-name' });
+    await manager.auditPositions(first.guild, settings());
+    assert.equal(dms.length, 1);
+
+    const renamed = positionGuild({ roleName: 'new-name' });
+    await manager.auditPositions(renamed.guild, settings());
+    assert.equal(dms.length, 1);
+});
+
+test('position audit: clearing the set posts no embed and keeps the resolved state', async () => {
+    const { manager, dms, positionAudits } = setupManager();
+    const { guild } = positionGuild();
+    await manager.auditPositions(guild, settings());
+    assert.equal(dms.length, 1);
+
+    const cleared = positionGuild({ roleAbove: false, evilBotPosition: null });
+    const offenders = await manager.auditPositions(cleared.guild, settings());
+
+    assert.deepEqual(offenders, []);
+    assert.equal(dms.length, 1);
+    assert.deepEqual(positionAudits.get('guild').offenders, []);
+    // The historical warning timestamp is retained, not overwritten by the clear.
+    assert.ok(positionAudits.get('guild').lastWarnedAt);
 });

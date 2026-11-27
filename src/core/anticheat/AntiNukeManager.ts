@@ -41,6 +41,8 @@ import {
 /** DB keys: incidents and snapshot pointers survive the bot being kicked. */
 export const ANTINUKE_INCIDENTS_KEY = (guildId: string) => `Guild/${guildId}/antinuke/incidents`;
 export const ANTINUKE_SNAPSHOTS_KEY = (guildId: string) => `Guild/${guildId}/antinuke/snapshots`;
+/** Position-audit dedupe survives restarts (brief AN4). */
+export const ANTINUKE_POSITION_AUDIT_KEY = (guildId: string) => `Guild/${guildId}/antinuke/position-audit`;
 const MAX_INCIDENTS_PER_GUILD = 50;
 /** One response per actor+rule per window; stops ban spam from parallel events. */
 const TRIGGER_COOLDOWN_MS = 10_000;
@@ -59,6 +61,19 @@ export interface AntiNukeAffected {
 }
 
 export type NukeIncidentKind = 'velocity' | 'instant' | 'selfTamper' | 'selfKick' | 'positionAudit';
+
+/**
+ * Persisted state of the position audit (brief AN4). The offender set is the
+ * sorted list of role/bot ids reported by the last audit; it is independent of
+ * display names so renames do not look like a state change.
+ */
+export interface AntiNukePositionAuditState {
+    offenders: string[];
+    /** When the last warning embed was posted, or null if none ever was. */
+    lastWarnedAt: string | null;
+    /** When the state was last written (warn or clear). */
+    updatedAt: string;
+}
 
 export interface AntiNukeIncidentActions {
     ban: 'success' | 'failed' | 'skipped';
@@ -178,7 +193,7 @@ export class AntiNukeManager {
     private consumedEntries = new Map<string, number>();
     private triggerCooldowns = new Map<string, number>();
     private incidentWrites = new Map<string, Promise<void>>();
-    private positionStates = new Map<string, string>();
+    private positionAuditLocks = new Map<string, Promise<unknown>>();
     private positionTimers = new Map<string, ReturnType<typeof setTimeout>>();
     private selfDangerousRoleIds = new Map<string, Set<string>>();
     private announcedRejoins = new Set<string>();
@@ -1248,7 +1263,9 @@ export class AntiNukeManager {
 
     /**
      * Warn the owner when a non-whitelisted bot or role sits above this bot and
-     * holds dangerous permissions. Warns once per state change only.
+     * holds dangerous permissions. The offender set is persisted per guild, so
+     * the warning is posted only when that set changes — never on restart,
+     * reconnect or an unchanged role event (brief AN4).
      */
     async auditPositions(guild: Guild, settings: AntiNukeSettings): Promise<string[]> {
         if (!settings.enabled || !settings.selfDefense.positionAudit) return [];
@@ -1256,6 +1273,7 @@ export class AntiNukeManager {
         if (!me) return [];
         const myTop = me.roles.highest.position;
         const offenders: string[] = [];
+        const offenderIds: string[] = [];
 
         const roles = await guild.roles.fetch().catch(() => null);
         if (roles) {
@@ -1266,6 +1284,7 @@ export class AntiNukeManager {
                 if (role.managed) continue;
                 if (!roleHoldsDangerous(role)) continue;
                 offenders.push(`ロール「${role.name}」(${role.id})`);
+                offenderIds.push(role.id);
             }
         }
         for (const member of guild.members.cache.values()) {
@@ -1278,38 +1297,97 @@ export class AntiNukeManager {
                 continue;
             }
             offenders.push(`BOT「${member.user.tag}」(${member.id})`);
+            offenderIds.push(member.id);
         }
 
-        const state = offenders.sort().join('|');
-        if (this.positionStates.get(guild.id) === state) return offenders;
-        this.positionStates.set(guild.id, state);
-        if (!offenders.length) return offenders;
+        const state = offenderIds.slice().sort();
+        await this.withPositionAuditLock(guild.id, async () => {
+            const stored = await this.readPositionAuditState(guild.id);
+            if (stored && sameStringSet(stored.offenders, state)) return;
 
-        const embed = new EmbedBuilder()
-            .setTitle('⚠️ AntiNuke: ロール位置の警告')
-            .setColor(Colors.Orange)
-            .setDescription(
-                '次のアクターはこのBotより上位にあり、危険な権限を持っています。'
-                + 'このBotが動く前にロールを外したりキックしたりできます。'
-            )
-            .addFields({
-                name: '該当アクター',
-                value: offenders.slice(0, 15).join('\n').slice(0, 1024),
-                inline: false
-            })
-            .addFields({
-                name: '対処',
-                value: 'このBotのロールを対象アクターより上へ移動するか、不要な権限を外してください。',
-                inline: false
-            })
-            .setFooter({ text: 'AntiNuke / position audit' });
-        await Promise.allSettled([
-            this.dmOwner(guild, settings, embed, null),
-            this.postToLogChannel(guild, embed)
-        ]);
-        Logger.warn(`[AntiNuke] position audit guild=${guild.id} offenders=${offenders.length}`);
+            const nowIso = new Date(this.now()).toISOString();
+            if (!state.length) {
+                if (stored?.offenders.length) {
+                    Logger.info(`[AntiNuke] position audit resolved guild=${guild.id}`);
+                }
+                await this.writePositionAuditState(guild.id, {
+                    offenders: [],
+                    lastWarnedAt: stored?.lastWarnedAt ?? null,
+                    updatedAt: nowIso
+                });
+                return;
+            }
+
+            const embed = new EmbedBuilder()
+                .setTitle('⚠️ AntiNuke: ロール位置の警告')
+                .setColor(Colors.Orange)
+                .setDescription(
+                    '次のアクターはこのBotより上位にあり、危険な権限を持っています。'
+                    + 'このBotが動く前にロールを外したりキックしたりできます。'
+                )
+                .addFields({
+                    name: '該当アクター',
+                    value: offenders.slice(0, 15).join('\n').slice(0, 1024),
+                    inline: false
+                })
+                .addFields({
+                    name: '対処',
+                    value: 'このBotのロールを対象アクターより上へ移動するか、不要な権限を外してください。',
+                    inline: false
+                })
+                .setFooter({ text: 'AntiNuke / position audit' });
+            await Promise.allSettled([
+                this.dmOwner(guild, settings, embed, null),
+                this.postToLogChannel(guild, embed)
+            ]);
+            // Persist after posting: a crash before this write re-posts once on
+            // the next audit (at-least-once), while normal restarts stay silent.
+            await this.writePositionAuditState(guild.id, {
+                offenders: state,
+                lastWarnedAt: nowIso,
+                updatedAt: nowIso
+            });
+            Logger.warn(`[AntiNuke] position audit guild=${guild.id} offenders=${offenders.length}`);
+        });
         return offenders;
     }
+
+    /** Serialize the read-compare-post-write step per guild. */
+    private async withPositionAuditLock<T>(guildId: string, task: () => Promise<T>): Promise<T> {
+        const previous = this.positionAuditLocks.get(guildId) || Promise.resolve();
+        const next = previous.catch(() => undefined).then(task);
+        this.positionAuditLocks.set(guildId, next);
+        try {
+            return await next;
+        } finally {
+            if (this.positionAuditLocks.get(guildId) === next) this.positionAuditLocks.delete(guildId);
+        }
+    }
+
+    /** Persisted offender set for the position audit, or null when never run. */
+    async readPositionAuditState(guildId: string): Promise<AntiNukePositionAuditState | null> {
+        const stored = await database
+            .get<AntiNukePositionAuditState>(guildId, ANTINUKE_POSITION_AUDIT_KEY(guildId))
+            .catch((error) => {
+                Logger.debug(`[AntiNuke] position audit state read failed: ${String(error)}`);
+                return null;
+            });
+        if (!stored || !Array.isArray(stored.offenders)) return null;
+        return {
+            offenders: stored.offenders.filter((id): id is string => typeof id === 'string'),
+            lastWarnedAt: typeof stored.lastWarnedAt === 'string' ? stored.lastWarnedAt : null,
+            updatedAt: typeof stored.updatedAt === 'string' ? stored.updatedAt : ''
+        };
+    }
+
+    private async writePositionAuditState(guildId: string, state: AntiNukePositionAuditState): Promise<void> {
+        try {
+            await database.set(guildId, ANTINUKE_POSITION_AUDIT_KEY(guildId), state);
+        } catch (error) {
+            Logger.error('[AntiNuke] failed to persist position audit state:', error);
+        }
+    }
+
 
     // ------------------------------------------------------------------
     // Persistence
@@ -1477,6 +1555,13 @@ function unknownActor(id: string, isBot: boolean): NukeActorLike {
 
 function pushUnique(list: string[], value: string): void {
     if (!list.includes(value)) list.push(value);
+}
+
+/** Stored ids are written sorted; compare as sets so ordering never matters. */
+function sameStringSet(left: readonly string[], right: readonly string[]): boolean {
+    if (left.length !== right.length) return false;
+    const a = new Set(left);
+    return right.every((value) => a.has(value));
 }
 
 const GLOBAL_KEY = '__antiNukeManager_v1';
