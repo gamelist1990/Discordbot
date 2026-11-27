@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { AntiCheatViewProps, DetectorDefinition } from "../viewTypes";
-import { formatDate, formatRemaining } from "../model";
+import { formatDate, formatRemaining, parseListText } from "../model";
 import { DetectorBody, PolicyEditor } from "./SettingsEditors";
 import { SettingSwitch } from "./ContentSafetyControls";
 import styles from "./SettingsWorkspace.module.css";
@@ -411,6 +411,120 @@ function DetectorSettings({
   );
 }
 
+function IdListEditor({
+  label,
+  description,
+  value,
+  disabled,
+  onChange,
+}: {
+  label: string;
+  description: string;
+  value: string[];
+  disabled: boolean;
+  onChange: (ids: string[]) => void;
+}) {
+  const [text, setText] = useState(value.join("\n"));
+  useEffect(() => {
+    setText((current) =>
+      parseListText(current).join("\n") === value.join("\n")
+        ? current
+        : value.join("\n"),
+    );
+  }, [value]);
+  return (
+    <label className={styles.wide}>
+      {label}
+      <textarea
+        rows={3}
+        value={text}
+        disabled={disabled}
+        placeholder="1行に1つ、またはカンマ区切りでIDを入力"
+        onChange={(event) => setText(event.target.value)}
+        onBlur={() => onChange(parseListText(text))}
+      />
+      <small>{description}</small>
+    </label>
+  );
+}
+
+function AntiNukeCard(p: AntiCheatViewProps) {
+  const d = p.draft;
+  const a = d.antiNuke;
+  const patch = (updates: Partial<typeof a>) =>
+    p.updateDraft((current) => ({
+      ...current,
+      antiNuke: { ...current.antiNuke, ...updates },
+    }));
+  const thresholds = Object.entries(a.rules || {})
+    .map(([key, rule]) => `${key} ${rule.threshold}/${rule.windowSeconds}s`)
+    .join(" / ");
+  return (
+    <article className={styles.card}>
+      <div className={styles.cardHeading}>
+        <h3>AntiNuke（破壊行為対策）</h3>
+        <p>
+          チャンネル・ロール・メンバーなどの破壊的行為を実行者ごとに監視し、
+          しきい値を超えた瞬間、または管理者権限の付与を検知した瞬間に
+          実行者をBANします。BANできない場合はロールを剥奪し、それも失敗した
+          場合はその旨をログとオーナーDMに記録します（成功として扱いません）。
+          スナップショットとインシデントはBot側のDBに保存され、Botが
+          キックされても残ります。
+        </p>
+      </div>
+      <div className={styles.automaticRow}>
+        <div>
+          <h4>AntiNukeを有効にする</h4>
+          <p>
+            既定で有効です。しきい値・即時ルール・自己防衛の詳細は
+            設定JSON（antiNuke）で調整でき、現在値は下に表示しています。
+          </p>
+        </div>
+        <SettingSwitch
+          label="AntiNuke"
+          checked={a.enabled}
+          onChange={(enabled) => patch({ enabled })}
+        />
+      </div>
+      <div className={styles.automaticRow}>
+        <div>
+          <h4>ホワイトリスト</h4>
+          <p>
+            サーバー所有者とこのBotは常に対象外です。ここに追加した
+            ユーザー・ロール・BOTは検知対象から除外されます。
+          </p>
+        </div>
+      </div>
+      <IdListEditor
+        label="除外ユーザーID"
+        description="BAN対象にしないユーザーのID"
+        value={a.whitelistUsers}
+        disabled={!a.enabled}
+        onChange={(whitelistUsers) => patch({ whitelistUsers })}
+      />
+      <IdListEditor
+        label="除外ロールID"
+        description="このロールを持つメンバーは対象外"
+        value={a.whitelistRoles}
+        disabled={!a.enabled}
+        onChange={(whitelistRoles) => patch({ whitelistRoles })}
+      />
+      <IdListEditor
+        label="除外BOT ID"
+        description="BAN対象にしないBOTアカウントのID"
+        value={a.whitelistBots}
+        disabled={!a.enabled}
+        onChange={(whitelistBots) => patch({ whitelistBots })}
+      />
+      <p className={styles.hint}>
+        <strong>現在のしきい値（回数/秒）</strong>
+        <br />
+        {thresholds || "既定値"}
+      </p>
+    </article>
+  );
+}
+
 function BasicSettings(p: AntiCheatViewProps) {
   const d = p.draft;
   return (
@@ -635,6 +749,7 @@ function BasicSettings(p: AntiCheatViewProps) {
           </label>
         </div>
       </article>
+      <AntiNukeCard {...p} />
       <div className={styles.hint}>
         <strong>アンチレイド：{d.raidMode.active ? "発動中" : "待機中"}</strong>
         <p>

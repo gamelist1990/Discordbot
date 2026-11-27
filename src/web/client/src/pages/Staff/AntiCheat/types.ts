@@ -29,6 +29,31 @@ export interface AntiCheatSettings {
     };
     raidMode: RaidModeState;
     watch: WatchSettings;
+    antiNuke: AntiNukeSettings;
+}
+
+export interface AntiNukeVelocityRule {
+    enabled: boolean;
+    threshold: number;
+    windowSeconds: number;
+}
+
+export interface AntiNukeSettings {
+    enabled: boolean;
+    whitelistUsers: string[];
+    whitelistRoles: string[];
+    whitelistBots: string[];
+    rules: Record<string, AntiNukeVelocityRule>;
+    instant: {
+        adminRoleGrant: boolean;
+        adminBotInvite: boolean;
+        vanityNameChange: boolean;
+    };
+    selfDefense: {
+        enabled: boolean;
+        positionAudit: boolean;
+        ownerDm: boolean;
+    };
 }
 
 export interface WatchSettings {

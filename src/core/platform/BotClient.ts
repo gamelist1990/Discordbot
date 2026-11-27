@@ -41,6 +41,8 @@ export class BotClient {
                 GatewayIntentBits.GuildMessages,
                 GatewayIntentBits.MessageContent,
                 GatewayIntentBits.GuildMembers,
+                GatewayIntentBits.GuildModeration,
+                GatewayIntentBits.GuildEmojisAndStickers,
                 GatewayIntentBits.GuildPresences, // メンバーのオンライン状態を取得
             ],
             partials: [

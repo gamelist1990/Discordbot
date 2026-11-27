@@ -83,6 +83,7 @@ import type {
     WatchSource,
     WatchUserEntry
 } from './types.js';
+import { readAntiNukeSettings } from './AntiNuke.js';
 import { riskKickLedger, recordRiskKicksSafely, type RiskKickEntry } from './RiskKicks.js';
 import {
     ALT_GRAPH_BAD_LABELS,
@@ -334,6 +335,22 @@ export class AntiCheatManager {
                 ...normalizedBase.webAuthBlock,
                 ...(updates.webAuthBlock || {})
             },
+            antiNuke: readAntiNukeSettings({
+                ...normalizedBase.antiNuke,
+                ...(updates.antiNuke || {}),
+                rules: {
+                    ...normalizedBase.antiNuke.rules,
+                    ...(updates.antiNuke?.rules || {})
+                },
+                instant: {
+                    ...normalizedBase.antiNuke.instant,
+                    ...(updates.antiNuke?.instant || {})
+                },
+                selfDefense: {
+                    ...normalizedBase.antiNuke.selfDefense,
+                    ...(updates.antiNuke?.selfDefense || {})
+                }
+            }),
             punishments: updates.punishments !== undefined ? updates.punishments : normalizedBase.punishments,
             excludedRoles: updates.excludedRoles !== undefined ? updates.excludedRoles : normalizedBase.excludedRoles,
             excludedChannels: updates.excludedChannels !== undefined ? updates.excludedChannels : normalizedBase.excludedChannels,
@@ -2459,6 +2476,7 @@ export class AntiCheatManager {
             watch: readWatchSettings(settings?.watch, DEFAULT_ANTICHEAT_SETTINGS.watch),
             altGraph: readAltGraphSettings(settings?.altGraph),
             webAuthBlock: readWebAuthBlockSettings(settings?.webAuthBlock),
+            antiNuke: readAntiNukeSettings(settings?.antiNuke),
             userTrust: settings?.userTrust || {},
             watchUsers: normalizeWatchUserEntries(settings?.watchUsers),
             recentLogs: Array.isArray(settings?.recentLogs) ? settings.recentLogs.slice(-this.MAX_LOGS) : []

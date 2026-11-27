@@ -141,6 +141,83 @@ export const DEFAULT_RAID_JOIN_ENTROPY: RaidJoinEntropyConfig = {
     cvThreshold: 0.35
 };
 
+// ---------------------------------------------------------------------------
+// AntiNuke (brief AN1)
+// ---------------------------------------------------------------------------
+
+export type NukeAction =
+    | 'channelDelete'
+    | 'roleDelete'
+    | 'memberBan'
+    | 'memberKick'
+    | 'channelCreate'
+    | 'roleCreate'
+    | 'webhookCreate'
+    | 'emojiDelete';
+
+export interface NukeVelocityRule {
+    enabled: boolean;
+    /** Events by the same actor inside windowSeconds that trigger a response. */
+    threshold: number;
+    windowSeconds: number;
+}
+
+export interface AntiNukeInstantRules {
+    /** A bot grants or creates a role with Administrator, or this bot receives Administrator. */
+    adminRoleGrant: boolean;
+    /** A bot is added to the guild with Administrator by a non-owner, non-whitelisted actor. */
+    adminBotInvite: boolean;
+    /** Guild vanity URL or name changed by a bot account. */
+    vanityNameChange: boolean;
+}
+
+export interface AntiNukeSelfDefense {
+    /** Pre-empt tampering with this bot's roles / permissions. */
+    enabled: boolean;
+    /** Report actors positioned above this bot that hold dangerous permissions. */
+    positionAudit: boolean;
+    /** DM the guild owner on incidents (falls back to the log channel only). */
+    ownerDm: boolean;
+}
+
+export interface AntiNukeSettings {
+    enabled: boolean;
+    whitelistUsers: string[];
+    whitelistRoles: string[];
+    whitelistBots: string[];
+    rules: Record<NukeAction, NukeVelocityRule>;
+    instant: AntiNukeInstantRules;
+    selfDefense: AntiNukeSelfDefense;
+}
+
+/** Defaults from brief AN1 (thresholds from shipping anti-nuke products). */
+export const DEFAULT_ANTINUKE_SETTINGS: AntiNukeSettings = {
+    enabled: true,
+    whitelistUsers: [],
+    whitelistRoles: [],
+    whitelistBots: [],
+    rules: {
+        channelDelete: { enabled: true, threshold: 3, windowSeconds: 60 },
+        roleDelete: { enabled: true, threshold: 3, windowSeconds: 60 },
+        memberBan: { enabled: true, threshold: 4, windowSeconds: 60 },
+        memberKick: { enabled: true, threshold: 5, windowSeconds: 60 },
+        channelCreate: { enabled: true, threshold: 8, windowSeconds: 60 },
+        roleCreate: { enabled: true, threshold: 8, windowSeconds: 60 },
+        webhookCreate: { enabled: true, threshold: 3, windowSeconds: 60 },
+        emojiDelete: { enabled: true, threshold: 3, windowSeconds: 60 }
+    },
+    instant: {
+        adminRoleGrant: true,
+        adminBotInvite: true,
+        vanityNameChange: true
+    },
+    selfDefense: {
+        enabled: true,
+        positionAudit: true,
+        ownerDm: true
+    }
+};
+
 /** Signals used to auto-classify a member as a 警戒 (watch) user. */
 export type WatchSignal =
     | 'name-match'
@@ -279,6 +356,8 @@ export interface GuildAntiCheatSettings {
     altGraph: AltGraphSettings;
     /** Auth-point block rules for WebAuth (brief 8). */
     webAuthBlock: WebAuthBlockSettings;
+    /** AntiNuke destruction detection (brief AN1). */
+    antiNuke: AntiNukeSettings;
     userTrust: Record<string, UserTrustData>;
     watchUsers: Record<string, WatchUserEntry>;
     recentLogs: DetectionLog[];
@@ -512,6 +591,7 @@ export const DEFAULT_ANTICHEAT_SETTINGS: GuildAntiCheatSettings = {
         }
     },
     webAuthBlock: { ...DEFAULT_WEBAUTH_BLOCK_SETTINGS },
+    antiNuke: structuredClone(DEFAULT_ANTINUKE_SETTINGS),
     userTrust: {},
     watchUsers: {},
     recentLogs: []
