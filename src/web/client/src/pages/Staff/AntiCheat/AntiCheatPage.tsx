@@ -5,6 +5,7 @@ import {
   useActiveTimeouts,
   useAntiCheatActions,
   useAntiCheatSettings,
+  useAntiNukeSnapshots,
   useDetectionLogs,
   useUserTrust,
   useWatchUsers,
@@ -82,6 +83,22 @@ export default function AntiCheatPage() {
     executing,
     error: actionError,
   } = useAntiCheatActions(guildId);
+  const {
+    snapshots,
+    jobs: restoreJobs,
+    loading: snapshotsLoading,
+    error: snapshotsError,
+    capturing: capturingSnapshot,
+    restoring: restoringSnapshot,
+    preview: restorePreview,
+    previewLoading: restorePreviewLoading,
+    activeJob: activeRestoreJob,
+    refetch: refetchSnapshots,
+    capture: captureSnapshot,
+    loadPreview: loadRestorePreview,
+    clearPreview: clearRestorePreview,
+    startRestore,
+  } = useAntiNukeSnapshots(guildId);
 
   const [guildName, setGuildName] = useState("AntiCheat");
   const [draft, setDraft] = useState<AntiCheatSettings | null>(null);
@@ -430,6 +447,15 @@ export default function AntiCheatPage() {
     webAuthError,
     actionError: error || actionError,
     saveNotice,
+    snapshots,
+    restoreJobs,
+    snapshotsLoading,
+    snapshotsError,
+    capturingSnapshot,
+    restoringSnapshot,
+    restorePreview,
+    restorePreviewLoading,
+    activeRestoreJob,
     excludedRolesText,
     excludedChannelsText,
     detectors: DETECTORS,
@@ -472,6 +498,25 @@ export default function AntiCheatPage() {
     },
     onResetTrust: (userId) => {
       void onResetTrust(userId);
+    },
+    onRefreshSnapshots: () => {
+      void refetchSnapshots();
+    },
+    onCaptureSnapshot: () => {
+      void captureSnapshot();
+    },
+    onPreviewRestore: (snapshotId) => {
+      void loadRestorePreview(snapshotId);
+    },
+    onCancelRestore: () => clearRestorePreview(),
+    onStartRestore: (snapshotId, options) => {
+      if (
+        !window.confirm(
+          "このスナップショットから復元を実行しますか？\n復元前に現在の状態を自動でスナップショットします。削除されたメッセージ履歴は戻りません。",
+        )
+      )
+        return;
+      void startRestore(snapshotId, options);
     },
     setExcludedRolesText,
     setExcludedChannelsText,

@@ -5,6 +5,9 @@ import type {
   DetectorConfig,
   PunishmentAction,
   PunishmentThreshold,
+  RestoreJobView,
+  RestorePreviewView,
+  SnapshotMetaView,
   UserTrustDataWithUser,
   WatchUserEntryView,
   WebAuthRecordView,
@@ -57,6 +60,15 @@ export interface AntiCheatViewProps {
   webAuthError: string | null;
   actionError: string | null;
   saveNotice: string | null;
+  snapshots: SnapshotMetaView[];
+  restoreJobs: RestoreJobView[];
+  snapshotsLoading: boolean;
+  snapshotsError: string | null;
+  capturingSnapshot: boolean;
+  restoringSnapshot: boolean;
+  restorePreview: RestorePreviewView | null;
+  restorePreviewLoading: boolean;
+  activeRestoreJob: RestoreJobView | null;
   excludedRolesText: string;
   excludedChannelsText: string;
   detectors: DetectorDefinition[];
@@ -74,6 +86,14 @@ export interface AntiCheatViewProps {
   onRevokeLogTimeout: (log: DetectionLog) => void;
   onRevokeActiveTimeout: (entry: ActiveTimeoutEntry) => void;
   onResetTrust: (userId: string) => void;
+  onRefreshSnapshots: () => void;
+  onCaptureSnapshot: () => void;
+  onPreviewRestore: (snapshotId: string) => void;
+  onCancelRestore: () => void;
+  onStartRestore: (
+    snapshotId: string,
+    options: { unbanAdded: boolean; rebanSnapshotBans: boolean },
+  ) => void;
   setExcludedRolesText: (value: string) => void;
   setExcludedChannelsText: (value: string) => void;
   updateDraft: (

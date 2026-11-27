@@ -129,6 +129,16 @@ async function main() {
         antiCheatManager.setClient(botClient.client);
         Logger.info('🛡️ AntiCheatManager を初期化しました');
 
+        // AntiNuke（破壊行為の検知・即時BAN・自己防衛）
+        const { antiNukeManager } = await import('./core/anticheat/AntiNukeManager.js');
+        antiNukeManager.setClient(botClient.client);
+        Logger.info('🛡️ AntiNukeManager を初期化しました');
+
+        // AntiNuke スナップショット / 復元（AN2）
+        const { snapshotManager } = await import('./core/anticheat/SnapshotManager.js');
+        snapshotManager.setClient(botClient.client);
+        Logger.info('🗂️ SnapshotManager を初期化しました');
+
         const { coreFeatureManager } = await import('./core/corepanel/CoreFeatureManager.js');
         coreFeatureManager.setClient(botClient.client);
         Logger.info('🧩 CoreFeatureManager を初期化しました');
