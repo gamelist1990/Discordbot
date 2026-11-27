@@ -54,6 +54,7 @@ export interface AntiNukeAffected {
     channelsCreated: string[];
     rolesCreated: string[];
     webhooksCreated: string[];
+    emojisCreated: string[];
     emojisDeleted: string[];
 }
 
@@ -67,6 +68,24 @@ export interface AntiNukeIncidentActions {
     logPosted: boolean;
     ownerDm: 'sent' | 'failed' | 'skipped';
     ownerDmError?: string;
+}
+
+/**
+ * Automatic recovery state, persisted on the incident (brief AN3 §C).
+ * `startedAt` is also the "scheduled" time: there is no timer, recovery starts
+ * immediately after the response sequence.
+ */
+export interface AntiNukeAutoRestoreState {
+    mode: 'cleanup' | 'full';
+    status: 'running' | 'done' | 'stopped' | 'failed' | 'skipped';
+    startedAt: string;
+    finishedAt: string | null;
+    stopRequestedAt: string | null;
+    stopRequestedBy: string | null;
+    jobId: string | null;
+    reportId: string | null;
+    snapshotId: string | null;
+    error: string | null;
 }
 
 export interface AntiNukeIncident {
@@ -93,7 +112,23 @@ export interface AntiNukeIncident {
     actions: AntiNukeIncidentActions;
     status: 'open' | 'resolved' | 'restored';
     attribution: 'audit' | 'event' | 'none';
+    /** Persisted staff cancellation flag for the automatic recovery (AN3). */
+    autoRestoreStopRequested?: boolean;
+    autoRestore?: AntiNukeAutoRestoreState | null;
 }
+
+/** What the recovery engine needs from AntiNukeManager (brief AN3 §B). */
+export interface AutoRestoreRequest {
+    guild: Guild;
+    incident: AntiNukeIncident;
+    mode: 'cleanup' | 'full';
+    actorId: string | null;
+    /** Ban failed and the strip fallback did not neutralize the actor. */
+    reDamageRisk: boolean;
+    settings: AntiNukeSettings;
+}
+
+export type AutoRestoreStarter = (request: AutoRestoreRequest) => Promise<unknown>;
 
 const emptyAffected = (): AntiNukeAffected => ({
     channelsDeleted: [],
@@ -103,6 +138,7 @@ const emptyAffected = (): AntiNukeAffected => ({
     channelsCreated: [],
     rolesCreated: [],
     webhooksCreated: [],
+    emojisCreated: [],
     emojisDeleted: []
 });
 
@@ -147,6 +183,7 @@ export class AntiNukeManager {
     private selfDangerousRoleIds = new Map<string, Set<string>>();
     private announcedRejoins = new Set<string>();
     private now: () => number = () => Date.now();
+    private autoRestoreStarter: AutoRestoreStarter | null = null;
     private responseHooks: {
         ban?: (guild: Guild, actorId: string, reason: string) => Promise<{ ok: boolean; error?: string }>;
         strip?: (guild: Guild, actorId: string, reason: string) => Promise<{ ok: boolean; error?: string }>;
@@ -173,6 +210,14 @@ export class AntiNukeManager {
     /** Test seam: observe/replace the ban and role-strip side effects. */
     setResponseHooks(hooks: AntiNukeManager['responseHooks']): void {
         this.responseHooks = hooks;
+    }
+
+    /**
+     * Register the recovery engine. SnapshotManager calls this from setClient,
+     * so a process without the snapshot engine never claims recovery started.
+     */
+    setAutoRestoreStarter(starter: AutoRestoreStarter | null): void {
+        this.autoRestoreStarter = starter;
     }
 
     private wire(client: Client): void {
@@ -797,6 +842,32 @@ export class AntiNukeManager {
         if (incident.affected.membersBanned.length === 0 && banResult?.ok) {
             incident.affected.membersBanned.push(actor.id);
         }
+
+        // Brief AN3: automatic recovery is announced as *started* before the
+        // log/DM go out, and the engine is invoked immediately after the
+        // response sequence (no timer, no scheduling).
+        const autoMode = settings.autoRestore;
+        const autoRestore = this.autoRestoreStarter && autoMode !== 'off'
+            ? {
+                mode: autoMode,
+                startedAt: new Date(this.now()).toISOString()
+            } as const
+            : null;
+        if (autoRestore) {
+            incident.autoRestoreStopRequested = false;
+            incident.autoRestore = {
+                mode: autoRestore.mode,
+                status: 'running',
+                startedAt: autoRestore.startedAt,
+                finishedAt: null,
+                stopRequestedAt: null,
+                stopRequestedBy: null,
+                jobId: null,
+                reportId: null,
+                snapshotId: null,
+                error: null
+            };
+        }
         await this.persistIncident(incident);
 
         const embed = this.buildIncidentEmbed(incident);
@@ -806,10 +877,45 @@ export class AntiNukeManager {
         if (dm.error) incident.actions.ownerDmError = dm.error;
         await this.persistIncident(incident);
 
+        if (autoRestore) {
+            this.launchAutoRestore({
+                guild,
+                incident,
+                mode: autoRestore.mode,
+                actorId: actor.id || null,
+                reDamageRisk: incident.actions.ban !== 'success'
+                    && !incident.actions.rolesStripped
+                    && actor.id !== guild.ownerId
+                    && actor.id !== this.client?.user?.id,
+                settings
+            });
+        }
+
         Logger.warn(
             `[AntiNuke] incident ${incident.id} guild=${guild.id} rule=${rule} actor=${actor.id} `
             + `ban=${incident.actions.ban} strip=${incident.actions.rolesStripped} snapshot=${snapshotId ?? 'none'}`
+            + (autoRestore ? ` autoRestore=${autoRestore.mode}` : '')
         );
+    }
+
+    /**
+     * Invoke the recovery engine synchronously: the brief forbids a quiet timer
+     * or any delay between the response and the start of recovery. The returned
+     * promise is intentionally not awaited — a full restore takes minutes and
+     * must not hold the gateway event handler — but the engine's first step
+     * begins in this turn.
+     */
+    private launchAutoRestore(request: AutoRestoreRequest): void {
+        const starter = this.autoRestoreStarter;
+        if (!starter) return;
+        void starter(request).catch((error) => {
+            Logger.error(`[AntiNuke] auto-recovery failed guild=${request.guild.id} incident=${request.incident.id}:`, error);
+            void this.updateAutoRestoreState(request.guild.id, request.incident.id, {
+                status: 'failed',
+                finishedAt: new Date(this.now()).toISOString(),
+                error: String(error instanceof Error ? error.message : error).slice(0, 300)
+            }).catch(() => undefined);
+        });
     }
 
     private async banActor(guild: Guild, actorId: string, reason: string): Promise<{ ok: boolean; error?: string }> {
@@ -861,6 +967,7 @@ export class AntiNukeManager {
                 case AuditLogEvent.ChannelCreate: pushUnique(affected.channelsCreated, entry.targetId); break;
                 case AuditLogEvent.RoleCreate: pushUnique(affected.rolesCreated, entry.targetId); break;
                 case AuditLogEvent.WebhookCreate: pushUnique(affected.webhooksCreated, entry.targetId); break;
+                case AuditLogEvent.EmojiCreate: pushUnique(affected.emojisCreated, entry.targetId); break;
                 case AuditLogEvent.EmojiDelete:
                 case AuditLogEvent.StickerDelete: pushUnique(affected.emojisDeleted, entry.targetId); break;
                 default: break;
@@ -905,6 +1012,7 @@ export class AntiNukeManager {
             `作成チャンネル: ${incident.affected.channelsCreated.length}`,
             `作成ロール: ${incident.affected.rolesCreated.length}`,
             `Webhook: ${incident.affected.webhooksCreated.length}`,
+            `作成絵文字: ${incident.affected.emojisCreated?.length ?? 0}`,
             `絵文字/ステッカー: ${incident.affected.emojisDeleted.length}`
         ];
 
@@ -937,6 +1045,15 @@ export class AntiNukeManager {
 
         if (incident.addedById) {
             embed.addFields({ name: 'BOTを追加した実行者', value: incident.addedById, inline: false });
+        }
+        if (incident.autoRestore) {
+            embed.addFields({
+                name: '自動復旧',
+                value: incident.autoRestore.mode === 'full'
+                    ? '完全復旧（作成物の削除・BAN解除・スナップショット復元）を開始しました。スタッフUIの「停止」で中断できます。'
+                    : 'クリーンアップ（攻撃で作成されたものの削除・BAN解除）を開始しました。スタッフUIの「停止」で中断できます。',
+                inline: false
+            });
         }
         return embed;
     }
@@ -1222,6 +1339,85 @@ export class AntiNukeManager {
     async readIncidents(guildId: string): Promise<AntiNukeIncident[]> {
         const stored = await database.get<AntiNukeIncident[]>(guildId, ANTINUKE_INCIDENTS_KEY(guildId)).catch(() => null);
         return Array.isArray(stored) ? stored : [];
+    }
+
+    async getIncident(guildId: string, incidentId: string): Promise<AntiNukeIncident | null> {
+        const incidents = await this.readIncidents(guildId);
+        return incidents.find((incident) => incident?.id === incidentId) ?? null;
+    }
+
+    /**
+     * Merge the recovery result into the persisted incident. Reads the stored
+     * record (never a stale in-memory copy) so a concurrent stop request and the
+     * job's own progress updates cannot overwrite each other.
+     */
+    async updateAutoRestoreState(
+        guildId: string,
+        incidentId: string,
+        patch: Partial<AntiNukeAutoRestoreState>
+    ): Promise<boolean> {
+        let updated = false;
+        await this.enqueueIncidentWrite(guildId, async () => {
+            const key = ANTINUKE_INCIDENTS_KEY(guildId);
+            const stored = await database.get<AntiNukeIncident[]>(guildId, key).catch(() => null);
+            if (!Array.isArray(stored)) return;
+            const incident = stored.find((entry) => entry?.id === incidentId);
+            if (!incident) return;
+            const previous = incident.autoRestore;
+            incident.autoRestore = {
+                mode: patch.mode ?? previous?.mode ?? 'cleanup',
+                status: patch.status ?? previous?.status ?? 'running',
+                startedAt: patch.startedAt ?? previous?.startedAt ?? new Date(this.now()).toISOString(),
+                finishedAt: patch.finishedAt !== undefined ? patch.finishedAt : previous?.finishedAt ?? null,
+                stopRequestedAt: patch.stopRequestedAt !== undefined ? patch.stopRequestedAt : previous?.stopRequestedAt ?? null,
+                stopRequestedBy: patch.stopRequestedBy !== undefined ? patch.stopRequestedBy : previous?.stopRequestedBy ?? null,
+                jobId: patch.jobId !== undefined ? patch.jobId : previous?.jobId ?? null,
+                reportId: patch.reportId !== undefined ? patch.reportId : previous?.reportId ?? null,
+                snapshotId: patch.snapshotId !== undefined ? patch.snapshotId : previous?.snapshotId ?? null,
+                error: patch.error !== undefined ? patch.error : previous?.error ?? null
+            };
+            updated = true;
+            await database.set(guildId, key, stored);
+        });
+        return updated;
+    }
+
+    /**
+     * Staff cancellation: persist `autoRestoreStopRequested` on the incident.
+     * The cleanup phases and the restore job poll this flag between steps and
+     * halt cleanly. A finished run keeps the flag as an audit trail but its
+     * status is not rewritten to 'stopped'.
+     */
+    async requestAutoRestoreStop(
+        guildId: string,
+        incidentId: string,
+        staffUserId: string | null
+    ): Promise<'set' | 'finished' | 'not-found'> {
+        let result: 'set' | 'finished' | 'not-found' = 'not-found';
+        await this.enqueueIncidentWrite(guildId, async () => {
+            const key = ANTINUKE_INCIDENTS_KEY(guildId);
+            const stored = await database.get<AntiNukeIncident[]>(guildId, key).catch(() => null);
+            if (!Array.isArray(stored)) return;
+            const incident = stored.find((entry) => entry?.id === incidentId);
+            if (!incident) return;
+            const requestedAt = new Date(this.now()).toISOString();
+            incident.autoRestoreStopRequested = true;
+            if (incident.autoRestore) {
+                incident.autoRestore.stopRequestedAt = requestedAt;
+                incident.autoRestore.stopRequestedBy = staffUserId;
+                result = incident.autoRestore.status === 'running' ? 'set' : 'finished';
+            } else {
+                result = 'finished';
+            }
+            await database.set(guildId, key, stored);
+        });
+        return result;
+    }
+
+    /** Fresh read: the recovery loop must see a flag persisted by another request. */
+    async isAutoRestoreStopRequested(guildId: string, incidentId: string): Promise<boolean> {
+        const incident = await this.getIncident(guildId, incidentId).catch(() => null);
+        return incident?.autoRestoreStopRequested === true;
     }
 
     /**

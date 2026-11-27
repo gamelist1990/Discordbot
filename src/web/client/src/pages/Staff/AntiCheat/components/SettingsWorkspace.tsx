@@ -530,6 +530,37 @@ function AntiNukeCard(p: AntiCheatViewProps) {
         <br />
         {thresholds || "既定値"}
       </p>
+      <div className={styles.automaticRow}>
+        <div>
+          <h4>自動復旧（AN3）</h4>
+          <p>
+            AntiNukeの発動後、即時対応（BAN／ロール剥奪・ログ・オーナーDM）が
+            終わった直後に自動で復旧を開始します。待機時間はありません。
+            実行中の自動復旧は「スナップショット・復元」画面の停止ボタンで
+            途中停止できます（次の区切りで反映）。
+          </p>
+        </div>
+        <label className={styles.duration}>
+          復旧範囲
+          <select
+            aria-label="自動復旧の範囲"
+            value={a.autoRestore}
+            disabled={!a.enabled}
+            onChange={(event) =>
+              patch({
+                autoRestore: event.target.value as typeof a.autoRestore,
+              })
+            }
+          >
+            <option value="off">オフ（手動復元のみ）</option>
+            <option value="cleanup">クリーンアップのみ（作成物削除・BAN解除）</option>
+            <option value="full">
+              完全復旧（クリーンアップ＋スナップショット復元）
+            </option>
+          </select>
+          <small>既定: 完全復旧</small>
+        </label>
+      </div>
     </article>
   );
 }
@@ -1273,6 +1304,19 @@ const RESTORE_KIND_LABELS: Record<string, string> = {
   ban: "BAN解除",
 };
 
+const AUTO_RESTORE_STATUS_LABELS: Record<string, string> = {
+  running: "実行中",
+  done: "完了",
+  stopped: "停止",
+  failed: "失敗",
+  skipped: "実行済み",
+};
+
+const AUTO_RESTORE_MODE_LABELS: Record<string, string> = {
+  cleanup: "クリーンアップのみ",
+  full: "完全復旧",
+};
+
 function formatAge(seconds: number): string {
   if (seconds < 60) return `${seconds}秒前`;
   const minutes = Math.floor(seconds / 60);
@@ -1455,6 +1499,63 @@ function SnapshotSettings(p: AntiCheatViewProps) {
         )}
       </article>
 
+      <article className={styles.card}>
+        <div className={styles.cardHeading}>
+          <h3>自動復旧（インシデント）</h3>
+          <p>
+            AntiNuke発動後に自動で開始された復旧の状態です。実行中のものは
+            「停止」で次の区切りから中断できます（それまでの削除・BAN解除は
+            取り消されません）。
+          </p>
+        </div>
+        {p.antiNukeIncidents.length === 0 ? (
+          <div className={styles.empty}>インシデントの記録はありません。</div>
+        ) : (
+          p.antiNukeIncidents.slice(0, 10).map((incident) => {
+            const auto = incident.autoRestore;
+            const running = auto?.status === "running";
+            return (
+              <div className={styles.activityEntry} key={incident.id}>
+                <div>
+                  <strong>
+                    {formatDate(incident.detectedAt)} · {incident.ruleLabel}
+                  </strong>
+                  <small>
+                    {incident.id} · 実行者 {incident.actorTag || incident.actorId || "不明"}
+                  </small>
+                  <p>
+                    {auto
+                      ? `自動復旧: ${
+                          AUTO_RESTORE_STATUS_LABELS[auto.status] || auto.status
+                        }（${
+                          AUTO_RESTORE_MODE_LABELS[auto.mode] || auto.mode
+                        }）${
+                          auto.snapshotId ? ` / 復元元 ${auto.snapshotId}` : ""
+                        }${auto.jobId ? ` / ジョブ ${auto.jobId}` : ""}${
+                          auto.reportId ? ` / レポート ${auto.reportId}` : ""
+                        }${auto.error ? ` / ${auto.error}` : ""}`
+                      : "自動復旧: 未実行（設定オフまたは停止済み）"}
+                    {incident.autoRestoreStopRequested && running
+                      ? " / 停止要求済み（次の区切りで停止）"
+                      : ""}
+                  </p>
+                </div>
+                {running && !incident.autoRestoreStopRequested && (
+                  <button
+                    type="button"
+                    className={styles.danger}
+                    disabled={p.stoppingRestore === incident.id}
+                    onClick={() => p.onStopAutoRestore(incident.id)}
+                  >
+                    {p.stoppingRestore === incident.id ? "停止中…" : "停止"}
+                  </button>
+                )}
+              </div>
+            );
+          })
+        )}
+      </article>
+
       {preview && (
         <article className={styles.card}>
           <div className={styles.cardHeading}>
@@ -1579,9 +1680,11 @@ function SnapshotSettings(p: AntiCheatViewProps) {
                   {formatDate(entry.startedAt)} ·{" "}
                   {entry.status === "done"
                     ? "完了"
-                    : entry.status === "failed"
-                      ? "失敗"
-                      : "実行中"}
+                    : entry.status === "stopped"
+                      ? "停止"
+                      : entry.status === "failed"
+                        ? "失敗"
+                        : "実行中"}
                 </strong>
                 <small>
                   {entry.id} · 復元元 {entry.snapshotId} · 実行者{" "}

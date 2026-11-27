@@ -195,6 +195,17 @@ export interface AntiNukeSnapshotSettings {
     memberRoleCap: number;
 }
 
+/**
+ * Automatic recovery after an AntiNuke trigger (brief AN3).
+ * - off: staff-only restore, exactly as before AN3.
+ * - cleanup: delete what the attacker created and unban who they banned.
+ * - full: cleanup, then the AN2 snapshot restore from the newest snapshot
+ *   taken *before* the incident started.
+ */
+export type AntiNukeAutoRestoreMode = 'off' | 'cleanup' | 'full';
+
+export const ANTINUKE_AUTO_RESTORE_MODES: readonly AntiNukeAutoRestoreMode[] = ['off', 'cleanup', 'full'];
+
 export interface AntiNukeSettings {
     enabled: boolean;
     whitelistUsers: string[];
@@ -204,6 +215,8 @@ export interface AntiNukeSettings {
     instant: AntiNukeInstantRules;
     selfDefense: AntiNukeSelfDefense;
     snapshots: AntiNukeSnapshotSettings;
+    /** Automatic recovery after a trigger; default 'full' (brief AN3). */
+    autoRestore: AntiNukeAutoRestoreMode;
 }
 
 /** Defaults from brief AN1 (thresholds from shipping anti-nuke products). */
@@ -240,7 +253,8 @@ export const DEFAULT_ANTINUKE_SETTINGS: AntiNukeSettings = {
         includeEmojis: true,
         includeMemberRoles: true,
         memberRoleCap: 5000
-    }
+    },
+    autoRestore: 'full'
 };
 
 /** Signals used to auto-classify a member as a 警戒 (watch) user. */

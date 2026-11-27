@@ -1,6 +1,7 @@
 import type {
   ActiveTimeoutEntry,
   AntiCheatSettings,
+  AntiNukeIncidentView,
   DetectionLog,
   DetectorConfig,
   PunishmentAction,
@@ -62,10 +63,12 @@ export interface AntiCheatViewProps {
   saveNotice: string | null;
   snapshots: SnapshotMetaView[];
   restoreJobs: RestoreJobView[];
+  antiNukeIncidents: AntiNukeIncidentView[];
   snapshotsLoading: boolean;
   snapshotsError: string | null;
   capturingSnapshot: boolean;
   restoringSnapshot: boolean;
+  stoppingRestore: string | null;
   restorePreview: RestorePreviewView | null;
   restorePreviewLoading: boolean;
   activeRestoreJob: RestoreJobView | null;
@@ -94,6 +97,7 @@ export interface AntiCheatViewProps {
     snapshotId: string,
     options: { unbanAdded: boolean; rebanSnapshotBans: boolean },
   ) => void;
+  onStopAutoRestore: (incidentId: string) => void;
   setExcludedRolesText: (value: string) => void;
   setExcludedChannelsText: (value: string) => void;
   updateDraft: (

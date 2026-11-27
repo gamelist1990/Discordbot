@@ -86,10 +86,12 @@ export default function AntiCheatPage() {
   const {
     snapshots,
     jobs: restoreJobs,
+    incidents: antiNukeIncidents,
     loading: snapshotsLoading,
     error: snapshotsError,
     capturing: capturingSnapshot,
     restoring: restoringSnapshot,
+    stopping: stoppingRestore,
     preview: restorePreview,
     previewLoading: restorePreviewLoading,
     activeJob: activeRestoreJob,
@@ -98,6 +100,7 @@ export default function AntiCheatPage() {
     loadPreview: loadRestorePreview,
     clearPreview: clearRestorePreview,
     startRestore,
+    stopAutoRestore,
   } = useAntiNukeSnapshots(guildId);
 
   const [guildName, setGuildName] = useState("AntiCheat");
@@ -449,10 +452,12 @@ export default function AntiCheatPage() {
     saveNotice,
     snapshots,
     restoreJobs,
+    antiNukeIncidents,
     snapshotsLoading,
     snapshotsError,
     capturingSnapshot,
     restoringSnapshot,
+    stoppingRestore,
     restorePreview,
     restorePreviewLoading,
     activeRestoreJob,
@@ -517,6 +522,15 @@ export default function AntiCheatPage() {
       )
         return;
       void startRestore(snapshotId, options);
+    },
+    onStopAutoRestore: (incidentId) => {
+      if (
+        !window.confirm(
+          "このインシデントの自動復旧を停止しますか？\n停止は次のステップの区切りで反映され、それまでの処理は取り消されません。",
+        )
+      )
+        return;
+      void stopAutoRestore(incidentId);
     },
     setExcludedRolesText,
     setExcludedChannelsText,
