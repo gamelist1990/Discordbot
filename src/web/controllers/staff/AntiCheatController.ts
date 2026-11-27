@@ -8,6 +8,7 @@ import { Logger } from '../../../utils/Logger.js';
 import { TextChannel, PermissionFlagsBits } from 'discord.js';
 import { validateExclusions } from '../../../core/anticheat/ExclusionPolicy.js';
 import { snapshotManager } from '../../../core/anticheat/SnapshotManager.js';
+import { antiNukeManager } from '../../../core/anticheat/AntiNukeManager.js';
 
 /** Runtime state is exposed by dedicated endpoints and must not be echoed into
  * the editable settings document. Apart from leaking history to the browser,
@@ -717,6 +718,76 @@ export class AntiCheatController {
             const message = error instanceof Error ? error.message : '復元を開始できませんでした。';
             Logger.error('Error starting AntiNuke restore:', error);
             res.status(400).json({ error: message });
+        }
+    };
+
+    /**
+     * GET /api/staff/anticheat/:guildId/antinuke/incidents
+     * Recent incidents with their automatic-recovery state (brief AN3).
+     */
+    listIncidents = async (req: Request, res: Response): Promise<void> => {
+        const guildId = String(req.params.guildId);
+        const session = (req as any).session;
+        if (!session || !hasAccessToGuild(session, guildId)) {
+            res.status(403).json({ error: 'Access denied to this guild' });
+            return;
+        }
+        try {
+            const incidents = await antiNukeManager.readIncidents(guildId);
+            res.json({
+                incidents: incidents.map((incident) => ({
+                    id: incident.id,
+                    rule: incident.rule,
+                    ruleLabel: incident.ruleLabel,
+                    kind: incident.kind,
+                    actorId: incident.actorId,
+                    actorTag: incident.actorTag,
+                    detectedAt: incident.detectedAt,
+                    windowStart: incident.windowStart,
+                    status: incident.status,
+                    affected: incident.affected,
+                    autoRestoreStopRequested: incident.autoRestoreStopRequested === true,
+                    autoRestore: incident.autoRestore ?? null
+                }))
+            });
+        } catch (error) {
+            Logger.error('Error listing AntiNuke incidents:', error);
+            res.status(500).json({ error: 'インシデント一覧を取得できませんでした。' });
+        }
+    };
+
+    /**
+     * POST /api/staff/anticheat/:guildId/antinuke/incidents/:incidentId/stop
+     * Persists `autoRestoreStopRequested` so the cleanup phases / restore job
+     * halt at the next step boundary (brief AN3 §B2).
+     */
+    stopAutoRestore = async (req: Request, res: Response): Promise<void> => {
+        const guildId = String(req.params.guildId);
+        const session = (req as any).session;
+        if (!session || !(await hasGuildMutationAccess(this.botClient, session, guildId))) {
+            res.status(403).json({ error: 'Access denied to this guild' });
+            return;
+        }
+        const incidentId = String(req.params.incidentId || '');
+        if (!incidentId) {
+            res.status(400).json({ error: 'incidentId が必要です。' });
+            return;
+        }
+        try {
+            const requestedBy = typeof session.userId === 'string' ? session.userId : null;
+            const result = await antiNukeManager.requestAutoRestoreStop(guildId, incidentId, requestedBy);
+            if (result === 'not-found') {
+                res.status(404).json({ error: 'インシデントが見つかりません。' });
+                return;
+            }
+            res.json({
+                success: true,
+                requested: result === 'set',
+                alreadyFinished: result === 'finished'
+            });
+        } catch (error) {
+            Logger.error('Error stopping AntiNuke auto-recovery:', error);
+            res.status(500).json({ error: '自動復旧を停止できませんでした。' });
         }
     };
 

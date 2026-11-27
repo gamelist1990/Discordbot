@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { ActiveTimeoutEntry, AntiCheatSettings, DetectionLog, RestoreJobView, RestorePreviewView, SnapshotMetaView, UserTrustDataWithUser, PunishmentAction, WatchUserEntryView, WebAuthRecordView } from './types';
+import { ActiveTimeoutEntry, AntiCheatSettings, AntiNukeIncidentView, DetectionLog, RestoreJobView, RestorePreviewView, SnapshotMetaView, UserTrustDataWithUser, PunishmentAction, WatchUserEntryView, WebAuthRecordView } from './types';
 
 const API_BASE = '/api/staff/anticheat';
 
@@ -382,10 +382,12 @@ const SNAPSHOT_API = '/api/staff/anticheat';
 export function useAntiNukeSnapshots(guildId: string) {
     const [snapshots, setSnapshots] = useState<SnapshotMetaView[]>([]);
     const [jobs, setJobs] = useState<RestoreJobView[]>([]);
+    const [incidents, setIncidents] = useState<AntiNukeIncidentView[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [capturing, setCapturing] = useState(false);
     const [restoring, setRestoring] = useState(false);
+    const [stopping, setStopping] = useState<string | null>(null);
     const [preview, setPreview] = useState<RestorePreviewView | null>(null);
     const [previewLoading, setPreviewLoading] = useState(false);
     const [activeJob, setActiveJob] = useState<RestoreJobView | null>(null);
@@ -393,13 +395,18 @@ export function useAntiNukeSnapshots(guildId: string) {
     const refetch = useCallback(async () => {
         try {
             setLoading(true);
-            const response = await fetch(`${SNAPSHOT_API}/${guildId}/antinuke/snapshots`, {
-                credentials: 'include'
-            });
-            if (!response.ok) throw new Error('スナップショット一覧を取得できませんでした。');
-            const data = await response.json();
+            const [snapshotResponse, incidentResponse] = await Promise.all([
+                fetch(`${SNAPSHOT_API}/${guildId}/antinuke/snapshots`, { credentials: 'include' }),
+                fetch(`${SNAPSHOT_API}/${guildId}/antinuke/incidents`, { credentials: 'include' }),
+            ]);
+            if (!snapshotResponse.ok) throw new Error('スナップショット一覧を取得できませんでした。');
+            const data = await snapshotResponse.json();
             setSnapshots(Array.isArray(data.snapshots) ? data.snapshots : []);
             setJobs(Array.isArray(data.restores) ? data.restores : []);
+            if (incidentResponse.ok) {
+                const incidentData = await incidentResponse.json();
+                setIncidents(Array.isArray(incidentData.incidents) ? incidentData.incidents : []);
+            }
             setError(null);
         } catch (err) {
             setError(err instanceof Error ? err.message : 'スナップショット一覧を取得できませんでした。');
@@ -497,13 +504,35 @@ export function useAntiNukeSnapshots(guildId: string) {
         }
     }, [guildId, pollJob, refetch]);
 
+    const stopAutoRestore = useCallback(async (incidentId: string) => {
+        try {
+            setStopping(incidentId);
+            const response = await fetch(
+                `${SNAPSHOT_API}/${guildId}/antinuke/incidents/${encodeURIComponent(incidentId)}/stop`,
+                { method: 'POST', credentials: 'include' }
+            );
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(data.error || '自動復旧を停止できませんでした。');
+            setError(null);
+            await refetch();
+            return true;
+        } catch (err) {
+            setError(err instanceof Error ? err.message : '自動復旧を停止できませんでした。');
+            return false;
+        } finally {
+            setStopping(null);
+        }
+    }, [guildId, refetch]);
+
     return {
         snapshots,
         jobs,
+        incidents,
         loading,
         error,
         capturing,
         restoring,
+        stopping,
         preview,
         previewLoading,
         activeJob,
@@ -512,6 +541,7 @@ export function useAntiNukeSnapshots(guildId: string) {
         loadPreview,
         clearPreview,
         startRestore,
+        stopAutoRestore,
         clearError: () => setError(null),
     };
 }

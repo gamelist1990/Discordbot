@@ -16,12 +16,24 @@ import {
 import { Logger } from '../../utils/Logger.js';
 import { database } from '../persistence/Database.js';
 import { antiCheatManager } from './AntiCheatManager.js';
-import { antiNukeManager, ANTINUKE_SNAPSHOTS_KEY } from './AntiNukeManager.js';
+import { antiNukeManager, ANTINUKE_SNAPSHOTS_KEY, type AutoRestoreRequest } from './AntiNukeManager.js';
 import { discordErrorInfo, type AntiNukeSettings } from './AntiNuke.js';
+import type { AntiNukeAutoRestoreState, AntiNukeIncident } from './AntiNukeManager.js';
+import {
+    AUTO_RESTORE_LIMITATIONS,
+    emptyAutoRestoreReport,
+    formatCleanupTotals,
+    incidentStartMs,
+    planAutoRestoreCleanup,
+    recordCleanup,
+    selectPreIncidentSnapshot,
+    type AutoRestoreReport
+} from './AutoRestore.js';
 import {
     DEFAULT_SNAPSHOT_KEEP,
     DISCORD_CHANNEL_LIMIT,
     DISCORD_ROLE_LIMIT,
+    RESTORE_KIND_LABELS,
     RESTORE_LIMITATIONS,
     THREAD_CHANNEL_TYPES,
     addSnapshotToIndex,
@@ -56,14 +68,20 @@ import {
 /** Snapshot documents and restore jobs live in the bot DB, outside Discord. */export const ANTINUKE_SNAPSHOT_DOC_KEY = (guildId: string, snapshotId: string) =>
     `Guild/${guildId}/antinuke/snapshot/${snapshotId}`;
 export const ANTINUKE_RESTORE_JOBS_KEY = (guildId: string) => `Guild/${guildId}/antinuke/restores`;
+/** Automatic recovery reports (brief AN3), newest first. */
+export const ANTINUKE_AUTORESTORE_REPORTS_KEY = (guildId: string) =>
+    `Guild/${guildId}/antinuke/autorestores`;
 
 const MAX_RESTORE_JOBS = 5;
+const MAX_AUTORESTORE_REPORTS = 20;
 const SCHEDULER_TICK_MS = 5 * 60_000;
 /** Sequential creates with a small gap; Discord's REST layer owns 429 retries. */
 const RESTORE_PACE_MS = 250;
 const BAN_FETCH_LIMIT = 1000;
+/** How often inside a long phase the stop flag is re-read. */
+const STOP_CHECK_EVERY = 10;
 
-export type RestoreJobStatus = 'running' | 'done' | 'failed';
+export type RestoreJobStatus = 'running' | 'done' | 'failed' | 'stopped';
 
 export interface RestoreOptions {
     /** Lift bans the attack added (default true). */
@@ -72,6 +90,12 @@ export interface RestoreOptions {
     rebanSnapshotBans: boolean;
     /** Incident ids that define the attack window; empty = every open incident. */
     incidentIds: string[];
+}
+
+/** Internal seams for the automatic recovery (brief AN3). */
+export interface RestoreHooks {
+    /** Polled between steps; when true the run halts cleanly as 'stopped'. */
+    shouldStop?: () => Promise<boolean>;
 }
 
 export interface RestoreJob {
@@ -132,15 +156,34 @@ export class SnapshotManager {
     private timer: ReturnType<typeof setInterval> | null = null;
     private writes = new Map<string, Promise<void>>();
     private running = new Set<string>();
+    private jobRuns = new Map<string, Promise<void>>();
+    /** Serialises automatic recovery per guild (never two at once). */
+    private autoRuns = new Map<string, Promise<void>>();
     private now: () => number = () => Date.now();
     private paceMs = RESTORE_PACE_MS;
     private incidentSource: (guildId: string) => Promise<IncidentLike[]> =
         (guildId) => antiNukeManager.readIncidents(guildId);
     private incidentCloser: (guildId: string, ids: string[]) => Promise<number> =
         (guildId, ids) => antiNukeManager.markIncidentsRestored(guildId, ids);
+    /** Auto-recovery reads/writes the incident record through these (test seam). */
+    private autoRestoreIncident: {
+        get: (guildId: string, incidentId: string) => Promise<AntiNukeIncident | null>;
+        update: (guildId: string, incidentId: string, patch: Partial<AntiNukeAutoRestoreState>) => Promise<boolean>;
+        stopRequested: (guildId: string, incidentId: string) => Promise<boolean>;
+    } = {
+        get: (guildId, incidentId) => antiNukeManager.getIncident(guildId, incidentId),
+        update: (guildId, incidentId, patch) => antiNukeManager.updateAutoRestoreState(guildId, incidentId, patch),
+        stopRequested: (guildId, incidentId) => antiNukeManager.isAutoRestoreStopRequested(guildId, incidentId)
+    };
+    /** Log channel used to protect the report destination (test seam). */
+    private logChannelSource: (guildId: string) => Promise<string | null> =
+        async (guildId) => (await antiCheatManager.getSettings(guildId)).logChannelId;
 
     setClient(client: Client): void {
         this.client = client;
+        // Brief AN3: the recovery engine is wired here, so a process that never
+        // starts the snapshot engine never claims auto-recovery is running.
+        antiNukeManager.setAutoRestoreStarter((request) => this.startAutoRestore(request));
         if (this.wired) return;
         this.wired = true;
         const start = () => this.startScheduler();
@@ -179,6 +222,16 @@ export class SnapshotManager {
     /** Test seam: replace the incident closer (default: AntiNuke incidents). */
     setIncidentCloser(closer: (guildId: string, ids: string[]) => Promise<number>): void {
         this.incidentCloser = closer;
+    }
+
+    /** Test seam: replace the auto-recovery incident record operations. */
+    setAutoRestoreIncidentOps(ops: SnapshotManager['autoRestoreIncident']): void {
+        this.autoRestoreIncident = ops;
+    }
+
+    /** Test seam: replace the log-channel lookup used to protect the report channel. */
+    setLogChannelSource(source: (guildId: string) => Promise<string | null>): void {
+        this.logChannelSource = source;
     }
 
     isRestoring(guildId: string): boolean {
@@ -543,7 +596,8 @@ export class SnapshotManager {
         guild: Guild,
         snapshotId: string,
         options: Partial<RestoreOptions> | null,
-        requestedBy: string | null
+        requestedBy: string | null,
+        hooks?: RestoreHooks
     ): Promise<RestoreJob> {
         if (this.running.has(guild.id)) throw new Error('このサーバーでは既に復元が実行中です');
         const snapshot = await this.getSnapshot(guild.id, snapshotId);
@@ -566,7 +620,7 @@ export class SnapshotManager {
         };
         this.running.add(guild.id);
         await this.persistJob(job);
-        void this.runRestore(guild, snapshot, job).catch(async (error) => {
+        const run = this.runRestore(guild, snapshot, job, hooks).catch(async (error) => {
             const info = discordErrorInfo(error);
             job.status = 'failed';
             job.error = info.message;
@@ -575,10 +629,29 @@ export class SnapshotManager {
             await this.persistJob(job).catch(() => undefined);
             Logger.error(`[Snapshot] restore failed guild=${guild.id} job=${job.id}:`, error);
         });
+        this.jobRuns.set(job.id, run);
+        const forget = () => {
+            if (this.jobRuns.get(job.id) === run) this.jobRuns.delete(job.id);
+        };
+        void run.then(forget, forget);
         return job;
     }
 
-    private async runRestore(guild: Guild, snapshot: GuildSnapshot, job: RestoreJob): Promise<void> {
+    /**
+     * Wait for a restore job started in this process (used by auto-recovery so
+     * it can write the incident + report once the AN2 job has finished). Returns
+     * immediately when the job is not tracked here (e.g. after a restart).
+     */
+    async waitForJob(jobId: string): Promise<void> {
+        await (this.jobRuns.get(jobId) ?? Promise.resolve());
+    }
+
+    private async runRestore(
+        guild: Guild,
+        snapshot: GuildSnapshot,
+        job: RestoreJob,
+        hooks?: RestoreHooks
+    ): Promise<void> {
         const settings = await this.getSettings(guild.id);
         const report = emptyRestoreReport(null, job.startedAt);
         const order = planRestoreOrder(snapshot);
@@ -586,11 +659,38 @@ export class SnapshotManager {
             + 9 + snapshot.emojis.length + snapshot.memberRoles.length + snapshot.bans.length;
         job.progress = { done: 0, total: estimate };
 
+        // Stop checks are latched: once staff asked to stop, the run never
+        // resumes even if the read fails.
+        let stopped = false;
+        const shouldStop = async (): Promise<boolean> => {
+            if (stopped) return true;
+            if (!hooks?.shouldStop) return false;
+            try {
+                stopped = await hooks.shouldStop();
+            } catch {
+                stopped = false;
+            }
+            return stopped;
+        };
+
         const touch = async (phase: string) => {
             job.phase = phase;
             job.progress = { done: report.entries.length, total: estimate };
             job.report = report;
             await this.persistJob(job).catch(() => undefined);
+        };
+        const halt = async (phase: string): Promise<void> => {
+            report.stopped = true;
+            report.stopReason = 'スタッフの停止操作により中断しました';
+            finalizeRestoreReport(report, new Date(this.now()).toISOString());
+            job.status = 'stopped';
+            job.phase = phase;
+            job.finishedAt = report.finishedAt;
+            job.report = report;
+            job.progress = { done: report.entries.length, total: estimate };
+            await this.persistJob(job);
+            await this.postRestoreReport(guild, job, report);
+            Logger.info(`[Snapshot] restore stopped by staff guild=${guild.id} job=${job.id} phase=${phase}`);
         };
         const pace = () => new Promise<void>((resolve) => {
             const timer = setTimeout(resolve, this.paceMs);
@@ -598,11 +698,18 @@ export class SnapshotManager {
         });
 
         try {
+            // 0. A stop requested before anything happened must cost nothing.
+            if (await shouldStop()) {
+                await halt('stopped');
+                return;
+            }
+
             // 1. Safety snapshot of the current state before touching anything.
             await touch('safety-snapshot');
             const safety = await this.captureAndStore(guild, 'prerestore', job.requestedBy, settings);
             job.safetySnapshotId = safety.id;
             report.safetySnapshotId = safety.id;
+            if (await shouldStop()) { await halt('safety-snapshot'); return; }
 
             // 2. Roles, bottom-up, building the old→new map.
             await touch('roles');
@@ -632,39 +739,59 @@ export class SnapshotManager {
                 }
             }
 
-            for (const role of order.roles) {
+            for (let index = 0; index < order.roles.length; index += 1) {
+                const role = order.roles[index];
                 await this.restoreRole(guild, role, idMap, report);
                 await pace();
                 if (report.entries.length % 10 === 0) await touch('roles');
+                if ((index + 1) % STOP_CHECK_EVERY === 0 && await shouldStop()) {
+                    await halt('roles');
+                    return;
+                }
             }
+            if (await shouldStop()) { await halt('roles'); return; }
 
             // 3. Categories first, then channels in position order.
             await touch('channels');
             const channelIdMap: Record<string, string> = {};
-            for (const category of order.categories) {
-                await this.restoreChannel(guild, category, null, idMap, channelIdMap, report);
+            for (let index = 0; index < order.categories.length; index += 1) {
+                await this.restoreChannel(guild, order.categories[index], null, idMap, channelIdMap, report);
                 await pace();
+                if ((index + 1) % STOP_CHECK_EVERY === 0 && await shouldStop()) {
+                    await halt('channels');
+                    return;
+                }
             }
-            for (const channel of order.channels) {
+            for (let index = 0; index < order.channels.length; index += 1) {
+                const channel = order.channels[index];
                 const parentId = channel.parentId ? channelIdMap[channel.parentId] ?? null : null;
                 await this.restoreChannel(guild, channel, parentId, idMap, channelIdMap, report);
                 await pace();
+                if ((index + 1) % STOP_CHECK_EVERY === 0 && await shouldStop()) {
+                    await halt('channels');
+                    return;
+                }
             }
+            if (await shouldStop()) { await halt('channels'); return; }
 
             // 4. Guild settings + icon.
             await this.restoreGuildSettings(guild, snapshot, channelIdMap, report);
+            if (await shouldStop()) { await halt('guild-settings'); return; }
 
             // 5. Bans: mass-ban undo (default), re-ban only on explicit request.
             await touch('bans');
-            await this.restoreBans(guild, snapshot, job, report);
+            await this.restoreBans(guild, snapshot, job, report, shouldStop);
+            if (await shouldStop()) { await halt('bans'); return; }
 
             // 6. Member role assignments for members still present.
             await touch('member-roles');
-            await this.restoreMemberRoles(guild, snapshot, idMap, report);
+            await this.restoreMemberRoles(guild, snapshot, idMap, report, shouldStop);
+            if (await shouldStop()) { await halt('member-roles'); return; }
 
             // 7. Emojis up to the available slots.
             await touch('emojis');
-            await this.restoreEmojis(guild, snapshot, report);
+            await this.restoreEmojis(guild, snapshot, report, shouldStop);
+            if (await shouldStop()) { await halt('emojis'); return; }
 
             finalizeRestoreReport(report, new Date(this.now()).toISOString());
             // The restore consumed this attack's incidents: close them so the
@@ -973,7 +1100,8 @@ export class SnapshotManager {
         guild: Guild,
         snapshot: GuildSnapshot,
         job: RestoreJob,
-        report: RestoreReport
+        report: RestoreReport,
+        shouldStop?: () => Promise<boolean>
     ): Promise<void> {
         const incidents = selectIncidents(await this.incidentSource(guild.id), job.options.incidentIds);
         const windowStart = incidentWindowStart(incidents) ?? snapshot.createdAt;
@@ -1004,7 +1132,9 @@ export class SnapshotManager {
             report.keptFromSnapshot.push(...selection.keptFromSnapshot);
             report.protectedUsers = selection.protectedUsers;
 
-            for (const userId of selection.unban) {
+            for (let index = 0; index < selection.unban.length; index += 1) {
+                if (shouldStop && (index + 1) % STOP_CHECK_EVERY === 0 && await shouldStop()) return;
+                const userId = selection.unban[index];
                 try {
                     await guild.bans.remove(userId, 'AntiNuke restore: 攻撃で追加されたBANの解除');
                     report.unbanned.push(userId);
@@ -1038,7 +1168,9 @@ export class SnapshotManager {
             currentBannedIds: Array.from(current.keys())
         });
         const reasonById = new Map(snapshot.bans.map((ban) => [ban.userId, ban.reason]));
-        for (const userId of reban) {
+        for (let index = 0; index < reban.length; index += 1) {
+            if (shouldStop && (index + 1) % STOP_CHECK_EVERY === 0 && await shouldStop()) return;
+            const userId = reban[index];
             try {
                 await guild.bans.create(userId, {
                     reason: `AntiNuke restore: ${reasonById.get(userId) || 'snapshot ban'}`
@@ -1060,7 +1192,8 @@ export class SnapshotManager {
         guild: Guild,
         snapshot: GuildSnapshot,
         idMap: RoleIdMap,
-        report: RestoreReport
+        report: RestoreReport,
+        shouldStop?: () => Promise<boolean>
     ): Promise<void> {
         // One paged scan instead of a fetch per member: a 5,000-member snapshot
         // must not become 5,000 sequential requests.
@@ -1075,7 +1208,9 @@ export class SnapshotManager {
             if (listed.size < 1000) break;
         }
 
-        for (const entry of snapshot.memberRoles) {
+        for (let index = 0; index < snapshot.memberRoles.length; index += 1) {
+            if (shouldStop && (index + 1) % STOP_CHECK_EVERY === 0 && await shouldStop()) return;
+            const entry = snapshot.memberRoles[index];
             const member: GuildMember | null = present.get(entry.memberId) ?? null;
             if (!member) {
                 recordRestore(report, {
@@ -1116,10 +1251,17 @@ export class SnapshotManager {
         }
     }
 
-    private async restoreEmojis(guild: Guild, snapshot: GuildSnapshot, report: RestoreReport): Promise<void> {
+    private async restoreEmojis(
+        guild: Guild,
+        snapshot: GuildSnapshot,
+        report: RestoreReport,
+        shouldStop?: () => Promise<boolean>
+    ): Promise<void> {
         const slots = emojiSlots(guild);
         const existingNames = new Set(guild.emojis.cache.map((emoji) => emoji.name).filter(Boolean) as string[]);
-        for (const emoji of snapshot.emojis) {
+        for (let index = 0; index < snapshot.emojis.length; index += 1) {
+            if (shouldStop && (index + 1) % STOP_CHECK_EVERY === 0 && await shouldStop()) return;
+            const emoji = snapshot.emojis[index];
             if (emoji.name && existingNames.has(emoji.name)) {
                 recordRestore(report, {
                     kind: 'emoji', name: emoji.name, sourceId: emoji.id, targetId: null,
@@ -1157,6 +1299,500 @@ export class SnapshotManager {
     }
 
     // ------------------------------------------------------------------
+    // Automatic recovery (brief AN3)
+    // ------------------------------------------------------------------
+
+    /**
+     * Entry point registered on AntiNukeManager. Runs are serialised per guild:
+     * a second trigger queues behind the first instead of racing it, and a
+     * running AN2 restore makes the snapshot phase skip (the cleanup already
+     * happened) with a log line.
+     */
+    async startAutoRestore(request: AutoRestoreRequest): Promise<AutoRestoreReport> {
+        const guildId = request.guild.id;
+        const previous = this.autoRuns.get(guildId) ?? Promise.resolve();
+        const run = previous.catch(() => undefined).then(() => this.runAutoRestore(request));
+        this.autoRuns.set(guildId, run.then(() => undefined, () => undefined));
+        return run;
+    }
+
+    private async runAutoRestore(request: AutoRestoreRequest): Promise<AutoRestoreReport> {
+        const { guild, incident, mode } = request;
+        const stopCheck = () => this.autoRestoreIncident.stopRequested(guild.id, incident.id);
+        const report = emptyAutoRestoreReport({
+            id: `autorestore-${guild.id}-${this.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            guildId: guild.id,
+            incidentId: incident.id,
+            mode,
+            startedAt: new Date(this.now()).toISOString(),
+            reDamageRisk: request.reDamageRisk
+        });
+        const stopPhase = async (phase: string): Promise<boolean> => {
+            if (!(await stopCheck())) return false;
+            report.stopped = true;
+            report.stopReason = 'スタッフの停止操作により中断しました';
+            report.notes.push(`${phase}の区切りで停止しました`);
+            Logger.info(`[AutoRestore] stopped by staff guild=${guild.id} incident=${incident.id} phase=${phase}`);
+            return true;
+        };
+
+        try {
+            // Once per incident: a second run for the same record is a no-op.
+            const stored = await this.autoRestoreIncident.get(guild.id, incident.id).catch(() => null);
+            if (stored?.autoRestore && stored.autoRestore.status !== 'running') {
+                report.status = 'skipped';
+                report.notes.push('このインシデントの自動復旧は既に実行済みのため、再実行しませんでした');
+                return this.completeAutoRestore(request, report);
+            }
+
+            // A stop pressed before the first step costs nothing.
+            if (await stopPhase('開始前')) {
+                report.status = 'stopped';
+                return this.completeAutoRestore(request, report);
+            }
+
+            // The only legal restore source: newest snapshot created at or
+            // before the incident start. Never a post-attack snapshot.
+            const index = await this.readIndex(guild.id);
+            const pre = selectPreIncidentSnapshot(index.snapshots, incidentStartMs(incident));
+            const snapshot = pre ? await this.getSnapshot(guild.id, pre.id) : null;
+            report.snapshotId = snapshot?.id ?? null;
+            if (!snapshot) {
+                report.notes.push(
+                    '攻撃開始前のスナップショットが存在しないため、クリーンアップのみ実行します'
+                    + '（作成物の削除。BAN解除は攻撃前からのBANか判別できないため行いません）'
+                );
+            }
+
+            const { plan, notes } = planAutoRestoreCleanup({
+                incident,
+                snapshotBannedIds: snapshot?.bans.map((ban) => ban.userId) ?? [],
+                protectIds: [guild.ownerId, this.client?.user?.id ?? '']
+            });
+            report.notes.push(...notes);
+            if (!snapshot && plan.unbans.length) {
+                for (const userId of plan.unbans.splice(0)) {
+                    plan.skipUnbans.push({
+                        userId,
+                        reason: '攻撃前のスナップショットがないためBAN解除しません（攻撃前からのBANか判別できません）'
+                    });
+                }
+            }
+            if (!incident.actorId) {
+                report.notes.push('実行者が特定できていないため、作成物の削除は行いません');
+            }
+
+            const protectedChannels = new Set(
+                [
+                    await this.logChannelSource(guild.id).catch(() => null),
+                    guild.systemChannelId,
+                    guild.afkChannelId
+                ].filter((id): id is string => Boolean(id))
+            );
+
+            // (a) Delete only what the attacker created (audit-verified lists).
+            if (!report.stopped && await stopPhase('チャンネル削除')) { /* stopped */ }
+            if (!report.stopped) {
+                for (let indexNumber = 0; indexNumber < plan.channels.length; indexNumber += 1) {
+                    if ((indexNumber + 1) % STOP_CHECK_EVERY === 0 && await stopPhase('チャンネル削除')) break;
+                    await this.cleanupChannel(guild, plan.channels[indexNumber], protectedChannels, report);
+                }
+            }
+            if (!report.stopped && await stopPhase('ロール削除')) { /* stopped */ }
+            if (!report.stopped) {
+                for (let indexNumber = 0; indexNumber < plan.roles.length; indexNumber += 1) {
+                    if ((indexNumber + 1) % STOP_CHECK_EVERY === 0 && await stopPhase('ロール削除')) break;
+                    await this.cleanupRole(guild, plan.roles[indexNumber], report);
+                }
+            }
+            if (!report.stopped && await stopPhase('Webhook削除')) { /* stopped */ }
+            if (!report.stopped) {
+                for (let indexNumber = 0; indexNumber < plan.webhooks.length; indexNumber += 1) {
+                    if ((indexNumber + 1) % STOP_CHECK_EVERY === 0 && await stopPhase('Webhook削除')) break;
+                    await this.cleanupWebhook(guild, plan.webhooks[indexNumber], incident.actorId, report);
+                }
+            }
+            if (!report.stopped && await stopPhase('絵文字削除')) { /* stopped */ }
+            if (!report.stopped) {
+                for (let indexNumber = 0; indexNumber < plan.emojis.length; indexNumber += 1) {
+                    if ((indexNumber + 1) % STOP_CHECK_EVERY === 0 && await stopPhase('絵文字削除')) break;
+                    await this.cleanupEmoji(guild, plan.emojis[indexNumber], report);
+                }
+            }
+
+            // (b) Unban exactly the users the attacker banned, excluding the
+            // attacker, protected ids and anyone the snapshot already banned.
+            if (!report.stopped && await stopPhase('BAN解除')) { /* stopped */ }
+            if (!report.stopped) {
+                await this.cleanupUnbans(guild, plan, report, stopPhase);
+            }
+
+            // (c) 'full' additionally runs the AN2 restore from the pre-incident
+            // snapshot as a normal background job (safety snapshot + report).
+            if (mode === 'full' && !report.stopped) {
+                if (!snapshot) {
+                    report.notes.push('スナップショット復元は実行できません（攻撃前のスナップショットなし）');
+                } else if (this.running.has(guild.id)) {
+                    Logger.warn(
+                        `[AutoRestore] guild=${guild.id} incident=${incident.id} `
+                        + 'snapshot restore skipped: another restore job is already running'
+                    );
+                    report.notes.push('別の復元ジョブが実行中のため、スナップショット復元はスキップしました（クリーンアップのみ）');
+                } else if (!(await stopPhase('復元開始前'))) {
+                    const job = await this.startRestore(
+                        guild,
+                        snapshot.id,
+                        { unbanAdded: true, rebanSnapshotBans: false, incidentIds: [incident.id] },
+                        null,
+                        { shouldStop: stopCheck }
+                    );
+                    await this.autoRestoreIncident.update(guild.id, incident.id, {
+                        jobId: job.id,
+                        snapshotId: snapshot.id
+                    }).catch(() => false);
+                    await this.waitForJob(job.id);
+                    const finished = await this.getJob(guild.id, job.id);
+                    report.restore = {
+                        jobId: job.id,
+                        snapshotId: snapshot.id,
+                        status: finished?.status ?? job.status,
+                        totals: finished?.report?.totals ?? null
+                    };
+                    if (finished?.report?.stopped) {
+                        report.stopped = true;
+                        report.stopReason = finished.report.stopReason ?? 'スタッフの停止操作により中断しました';
+                    }
+                }
+            }
+
+            report.status = report.stopped ? 'stopped' : 'done';
+            return await this.completeAutoRestore(request, report);
+        } catch (error) {
+            const info = discordErrorInfo(error);
+            report.status = 'failed';
+            report.notes.push(`自動復旧に失敗しました: ${info.message}`);
+            Logger.error(`[AutoRestore] failed guild=${guild.id} incident=${incident.id}:`, error);
+            return await this.completeAutoRestore(request, report);
+        }
+    }
+
+    private async cleanupChannel(
+        guild: Guild,
+        channelId: string,
+        protectedChannels: Set<string>,
+        report: AutoRestoreReport
+    ): Promise<void> {
+        const base = { kind: 'channel' as const, id: channelId, name: null };
+        if (protectedChannels.has(channelId)) {
+            recordCleanup(report, { ...base, outcome: 'skipped', reason: 'ログ・システム・AFKチャンネルのため削除しません' });
+            return;
+        }
+        const channel = guild.channels.cache.get(channelId)
+            ?? await guild.channels.fetch(channelId).catch(() => null);
+        if (!channel) {
+            recordCleanup(report, { ...base, outcome: 'skipped', reason: '既に削除されています' });
+            return;
+        }
+        try {
+            await (channel as any).delete('AntiNuke auto-recovery: 攻撃で作成されたチャンネル');
+            recordCleanup(report, { ...base, name: (channel as any).name ?? null, outcome: 'deleted' });
+        } catch (error) {
+            recordCleanup(report, { ...base, outcome: 'failed', reason: discordErrorInfo(error).message });
+        }
+    }
+
+    private async cleanupRole(guild: Guild, roleId: string, report: AutoRestoreReport): Promise<void> {
+        const base = { kind: 'role' as const, id: roleId, name: null };
+        if (roleId === guild.id) {
+            recordCleanup(report, { ...base, name: '@everyone', outcome: 'skipped', reason: '@everyoneは削除できません' });
+            return;
+        }
+        const role = guild.roles.cache.get(roleId)
+            ?? await guild.roles.fetch(roleId).catch(() => null);
+        if (!role) {
+            recordCleanup(report, { ...base, outcome: 'skipped', reason: '既に削除されています' });
+            return;
+        }
+        if (role.managed) {
+            recordCleanup(report, { ...base, name: role.name, outcome: 'skipped', reason: '管理ロール（Bot/連携）は削除できません' });
+            return;
+        }
+        try {
+            await role.delete('AntiNuke auto-recovery: 攻撃で作成されたロール');
+            recordCleanup(report, { ...base, name: role.name, outcome: 'deleted' });
+        } catch (error) {
+            recordCleanup(report, { ...base, name: role.name, outcome: 'failed', reason: discordErrorInfo(error).message });
+        }
+    }
+
+    private async cleanupWebhook(
+        guild: Guild,
+        webhookId: string,
+        actorId: string | null,
+        report: AutoRestoreReport
+    ): Promise<void> {
+        const base = { kind: 'webhook' as const, id: webhookId, name: null };
+        const hooks = await guild.fetchWebhooks().catch(() => null);
+        const webhook = hooks?.get(webhookId) ?? null;
+        if (!webhook) {
+            recordCleanup(report, { ...base, outcome: 'skipped', reason: '既に削除されています' });
+            return;
+        }
+        // Second creator check when Discord exposes the webhook owner: the audit
+        // entry already identifies the attacker, this guards a reused id.
+        if (actorId && webhook.owner?.id && webhook.owner.id !== actorId) {
+            recordCleanup(report, { ...base, name: webhook.name, outcome: 'skipped', reason: '作成者が実行者と一致しないため削除しません' });
+            return;
+        }
+        try {
+            await webhook.delete('AntiNuke auto-recovery: 攻撃で作成されたWebhook');
+            recordCleanup(report, { ...base, name: webhook.name, outcome: 'deleted' });
+        } catch (error) {
+            recordCleanup(report, { ...base, name: webhook.name, outcome: 'failed', reason: discordErrorInfo(error).message });
+        }
+    }
+
+    private async cleanupEmoji(guild: Guild, emojiId: string, report: AutoRestoreReport): Promise<void> {
+        const base = { kind: 'emoji' as const, id: emojiId, name: null };
+        const emoji = guild.emojis.cache.get(emojiId)
+            ?? await guild.emojis.fetch(emojiId).catch(() => null);
+        if (!emoji) {
+            recordCleanup(report, { ...base, outcome: 'skipped', reason: '既に削除されています' });
+            return;
+        }
+        if (emoji.managed) {
+            recordCleanup(report, { ...base, name: emoji.name, outcome: 'skipped', reason: '管理絵文字は削除できません' });
+            return;
+        }
+        try {
+            await emoji.delete('AntiNuke auto-recovery: 攻撃で作成された絵文字');
+            recordCleanup(report, { ...base, name: emoji.name, outcome: 'deleted' });
+        } catch (error) {
+            recordCleanup(report, { ...base, name: emoji.name, outcome: 'failed', reason: discordErrorInfo(error).message });
+        }
+    }
+
+    private async cleanupUnbans(
+        guild: Guild,
+        plan: { unbans: string[]; skipUnbans: Array<{ userId: string; reason: string }> },
+        report: AutoRestoreReport,
+        stopPhase: (phase: string) => Promise<boolean>
+    ): Promise<void> {
+        for (const skipped of plan.skipUnbans) {
+            recordCleanup(report, {
+                kind: 'ban', id: skipped.userId, name: `BAN解除 ${skipped.userId}`,
+                outcome: 'skipped', reason: skipped.reason
+            });
+        }
+        if (!plan.unbans.length) return;
+
+        const current = await guild.bans.fetch({ limit: BAN_FETCH_LIMIT }).catch(() => null);
+        if (!current) {
+            recordCleanup(report, {
+                kind: 'ban', id: 'ban-list', name: 'BAN一覧の取得',
+                outcome: 'failed', reason: 'BAN一覧を取得できません（BANメンバー権限を確認してください）'
+            });
+            return;
+        }
+        for (let index = 0; index < plan.unbans.length; index += 1) {
+            if ((index + 1) % STOP_CHECK_EVERY === 0 && await stopPhase('BAN解除')) return;
+            const userId = plan.unbans[index];
+            if (!current.has(userId)) {
+                recordCleanup(report, {
+                    kind: 'ban', id: userId, name: `BAN解除 ${userId}`,
+                    outcome: 'skipped', reason: '既に解除されています'
+                });
+                continue;
+            }
+            try {
+                await guild.bans.remove(userId, 'AntiNuke auto-recovery: 攻撃で追加されたBANの解除');
+                recordCleanup(report, {
+                    kind: 'ban', id: userId, name: `BAN解除 ${userId}`, outcome: 'deleted'
+                });
+            } catch (error) {
+                recordCleanup(report, {
+                    kind: 'ban', id: userId, name: `BAN解除 ${userId}`,
+                    outcome: 'failed', reason: discordErrorInfo(error).message
+                });
+            }
+        }
+    }
+
+    /** Persist the report, stamp the incident and send the log/DM report. */
+    private async completeAutoRestore(
+        request: AutoRestoreRequest,
+        report: AutoRestoreReport
+    ): Promise<AutoRestoreReport> {
+        report.finishedAt = new Date(this.now()).toISOString();
+        await this.persistAutoRestoreReport(report).catch(() => undefined);
+        await this.autoRestoreIncident.update(request.guild.id, request.incident.id, {
+            status: report.status,
+            finishedAt: report.finishedAt,
+            reportId: report.id,
+            snapshotId: report.snapshotId,
+            jobId: report.restore?.jobId ?? null,
+            error: report.status === 'failed' ? (report.notes[report.notes.length - 1] ?? '自動復旧に失敗しました') : null
+        }).catch(() => false);
+        await this.postAutoRestoreReport(request.guild, request.incident, report, request.settings).catch((error) => {
+            Logger.debug(`[AutoRestore] report post failed guild=${request.guild.id}: ${String(error)}`);
+        });
+        Logger.info(
+            `[AutoRestore] ${report.status} guild=${request.guild.id} incident=${request.incident.id} `
+            + `mode=${report.mode} deleted=${report.cleanup.totals.channel.deleted + report.cleanup.totals.role.deleted} `
+            + `unbanned=${report.cleanup.totals.ban.deleted} restore=${report.restore?.jobId ?? 'none'}`
+        );
+        return report;
+    }
+
+    private async persistAutoRestoreReport(report: AutoRestoreReport): Promise<void> {
+        await this.enqueue(report.guildId, async () => {
+            const key = ANTINUKE_AUTORESTORE_REPORTS_KEY(report.guildId);
+            const stored = await database.get<AutoRestoreReport[]>(report.guildId, key).catch(() => null);
+            const list = Array.isArray(stored) ? stored.slice() : [];
+            const index = list.findIndex((entry) => entry?.id === report.id);
+            const record: AutoRestoreReport = {
+                ...report,
+                cleanup: { ...report.cleanup, entries: report.cleanup.entries.slice(0, 200) }
+            };
+            if (index >= 0) list[index] = record;
+            else list.unshift(record);
+            await database.set(report.guildId, key, list.slice(0, MAX_AUTORESTORE_REPORTS));
+        });
+    }
+
+    async listAutoRestoreReports(guildId: string): Promise<AutoRestoreReport[]> {
+        const stored = await database.get<AutoRestoreReport[]>(
+            guildId,
+            ANTINUKE_AUTORESTORE_REPORTS_KEY(guildId)
+        ).catch(() => null);
+        return Array.isArray(stored) ? stored : [];
+    }
+
+    async getAutoRestoreReport(guildId: string, reportId: string): Promise<AutoRestoreReport | null> {
+        const reports = await this.listAutoRestoreReports(guildId);
+        return reports.find((entry) => entry.id === reportId) ?? null;
+    }
+
+    private buildAutoRestoreEmbed(report: AutoRestoreReport, incident: AutoRestoreRequest['incident']): EmbedBuilder {
+        const color: ColorResolvable = report.status === 'failed'
+            ? Colors.Red
+            : report.status === 'stopped' ? Colors.Orange : Colors.Green;
+        const title = report.status === 'stopped'
+            ? '🛠️ AntiNuke 自動復旧レポート（停止）'
+            : report.status === 'failed'
+                ? '🛠️ AntiNuke 自動復旧レポート（失敗）'
+                : report.status === 'skipped'
+                    ? '🛠️ AntiNuke 自動復旧（実行済み）'
+                    : '🛠️ AntiNuke 自動復旧レポート';
+        const embed = new EmbedBuilder()
+            .setTitle(title)
+            .setColor(color)
+            .setTimestamp(new Date(report.finishedAt ?? report.startedAt))
+            .setDescription(
+                report.mode === 'full'
+                    ? '攻撃で作成されたものの削除・BAN解除と、攻撃前スナップショットからの復元を実行しました。'
+                    : '攻撃で作成されたものの削除と、攻撃で追加されたBANの解除を実行しました。'
+            )
+            .addFields(
+                {
+                    name: '対象',
+                    value: `${incident.ruleLabel} (${incident.rule}) / 実行者: ${incident.actorId || '特定できませんでした'}`,
+                    inline: false
+                },
+                {
+                    name: '復元元',
+                    value: report.snapshotId
+                        ? `\`${report.snapshotId}\`（攻撃開始前の最新スナップショット）`
+                        : 'なし（攻撃開始前のスナップショットが存在しないためクリーンアップのみ）',
+                    inline: false
+                },
+                {
+                    name: 'クリーンアップ',
+                    value: formatCleanupTotals(report.cleanup.totals).join('\n').slice(0, 1024),
+                    inline: false
+                }
+            )
+            .setFooter({ text: `AntiNuke / auto-recovery ${report.id}` });
+
+        if (report.restore) {
+            const lines = [`ジョブ: ${report.restore.jobId}（${report.restore.status}）`];
+            if (report.restore.totals) {
+                for (const [kind, totals] of Object.entries(report.restore.totals)) {
+                    const label = (RESTORE_KIND_LABELS as Record<string, string>)[kind] ?? kind;
+                    lines.push(`${label}: 復元 ${totals.restored} / スキップ ${totals.skipped} / 失敗 ${totals.failed}`);
+                }
+            }
+            embed.addFields({ name: 'スナップショット復元', value: lines.join('\n').slice(0, 1024), inline: false });
+        }
+
+        const problems = report.cleanup.entries
+            .filter((entry) => entry.outcome !== 'deleted')
+            .slice(0, 10)
+            .map((entry) => `・${entry.name || entry.id} (${entry.kind}): ${entry.reason || entry.outcome}`);
+        if (problems.length) {
+            embed.addFields({ name: 'スキップ・失敗（先頭10件）', value: problems.join('\n').slice(0, 1024), inline: false });
+        }
+        if (report.notes.length) {
+            embed.addFields({ name: '補足', value: report.notes.map((line) => `・${line}`).join('\n').slice(0, 1024), inline: false });
+        }
+        if (report.stopped) {
+            embed.addFields({
+                name: '停止',
+                value: `${report.stopReason || 'スタッフの停止操作により中断しました'}`
+                    + (report.cleanup.entries.length ? `（停止時点までの処理: ${report.cleanup.entries.length}件）` : ''),
+                inline: false
+            });
+        }
+        if (report.reDamageRisk) {
+            embed.addFields({
+                name: '注意: 再破壊の可能性',
+                value: '実行者をBANできず、ロール剥奪も完了していません。実行者がまだ権限を持つ場合は再破壊が起こり得ます。'
+                    + '新しい破壊的行為にはAntiNukeが再度発火します。',
+                inline: false
+            });
+        }
+        embed.addFields({
+            name: '復元できないもの',
+            value: AUTO_RESTORE_LIMITATIONS.map((line) => `・${line}`).join('\n').slice(0, 1024),
+            inline: false
+        });
+        return embed;
+    }
+
+    private async postAutoRestoreReport(
+        guild: Guild,
+        incident: AutoRestoreRequest['incident'],
+        report: AutoRestoreReport,
+        settings: AntiNukeSettings
+    ): Promise<void> {
+        const embed = this.buildAutoRestoreEmbed(report, incident);
+        try {
+            const antiCheatSettings = await antiCheatManager.getSettings(guild.id);
+            const channelId = antiCheatSettings.logChannelId;
+            if (channelId) {
+                const cached = guild.channels.cache.get(channelId);
+                const channel = cached?.isTextBased()
+                    ? cached as TextChannel
+                    : await guild.channels.fetch(channelId).then((value) => value as TextChannel | null).catch(() => null);
+                if (channel?.isTextBased()) {
+                    await channel.send({ embeds: [embed], allowedMentions: { parse: [] } });
+                }
+            }
+        } catch (error) {
+            Logger.debug(`[AutoRestore] log post failed guild=${guild.id}: ${String(error)}`);
+        }
+        if (!settings.selfDefense.ownerDm) return;
+        const ownerId = guild.ownerId || await guild.fetchOwner().then((owner) => owner.id).catch(() => null);
+        if (!ownerId || !this.client) return;
+        try {
+            const owner = await this.client.users.fetch(ownerId);
+            await owner.send({ embeds: [embed], allowedMentions: { parse: [] } });
+        } catch (error) {
+            Logger.debug(`[AutoRestore] owner DM failed guild=${guild.id}: ${String(error)}`);
+        }
+    }
+
+    // ------------------------------------------------------------------
     // Job persistence + report
     // ------------------------------------------------------------------
 
@@ -1189,7 +1825,7 @@ export class SnapshotManager {
             : Colors.Red;
         const lines = formatRestoreTotals(report.totals);
         const embed = new EmbedBuilder()
-            .setTitle('🛠️ AntiNuke 復元レポート')
+            .setTitle(job.status === 'stopped' ? '🛠️ AntiNuke 復元レポート（スタッフ操作で停止）' : '🛠️ AntiNuke 復元レポート')
             .setColor(color)
             .setTimestamp(new Date(report.finishedAt ?? new Date().toISOString()))
             .setDescription('スナップショットからの復元結果です。復元できなかった項目は理由付きで記録しています。')

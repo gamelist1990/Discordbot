@@ -1,13 +1,16 @@
 import { PermissionFlagsBits } from 'discord.js';
 import { readToggle } from './RaidEnforcement.js';
 import {
+    ANTINUKE_AUTO_RESTORE_MODES,
     DEFAULT_ANTINUKE_SETTINGS,
+    type AntiNukeAutoRestoreMode,
     type AntiNukeSettings,
     type NukeAction,
     type NukeVelocityRule
 } from './types.js';
 
 export type {
+    AntiNukeAutoRestoreMode,
     AntiNukeInstantRules,
     AntiNukeSelfDefense,
     AntiNukeSettings,
@@ -120,8 +123,18 @@ export function readAntiNukeSettings(value: unknown): AntiNukeSettings {
             includeEmojis: isEnabled(source.snapshots?.includeEmojis, defaults.snapshots.includeEmojis),
             includeMemberRoles: isEnabled(source.snapshots?.includeMemberRoles, defaults.snapshots.includeMemberRoles),
             memberRoleCap: positiveInt(source.snapshots?.memberRoleCap, defaults.snapshots.memberRoleCap, 100, 50_000)
-        }
+        },
+        // Brief AN3: invalid/absent values fall back to the default ('full').
+        autoRestore: readAutoRestoreMode(source.autoRestore)
     };
+}
+
+/** 'off' | 'cleanup' | 'full'; the stored value is matched case-insensitively. */
+export function readAutoRestoreMode(value: unknown): AntiNukeAutoRestoreMode {
+    const raw = typeof value === 'string' ? value.trim().toLowerCase() : '';
+    return (ANTINUKE_AUTO_RESTORE_MODES as readonly string[]).includes(raw)
+        ? raw as AntiNukeAutoRestoreMode
+        : DEFAULT_ANTINUKE_SETTINGS.autoRestore;
 }
 
 export interface VelocityHit {

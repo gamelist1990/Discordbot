@@ -55,6 +55,8 @@ export interface AntiNukeSettings {
         ownerDm: boolean;
     };
     snapshots: AntiNukeSnapshotSettings;
+    /** Automatic recovery after a trigger: off / cleanup / full (AN3, default full). */
+    autoRestore: 'off' | 'cleanup' | 'full';
 }
 
 export interface WatchSettings {
@@ -289,7 +291,7 @@ export interface RestoreJobView {
     guildId: string;
     snapshotId: string;
     safetySnapshotId: string | null;
-    status: 'running' | 'done' | 'failed';
+    status: 'running' | 'done' | 'failed' | 'stopped';
     startedAt: string;
     finishedAt: string | null;
     requestedBy: string | null;
@@ -298,4 +300,33 @@ export interface RestoreJobView {
     progress: { done: number; total: number };
     report: RestoreReportView | null;
     error: string | null;
+}
+
+/** Automatic recovery state persisted on an incident (brief AN3). */
+export interface AutoRestoreStateView {
+    mode: 'cleanup' | 'full';
+    status: 'running' | 'done' | 'stopped' | 'failed' | 'skipped';
+    startedAt: string;
+    finishedAt: string | null;
+    stopRequestedAt: string | null;
+    stopRequestedBy: string | null;
+    jobId: string | null;
+    reportId: string | null;
+    snapshotId: string | null;
+    error: string | null;
+}
+
+export interface AntiNukeIncidentView {
+    id: string;
+    rule: string;
+    ruleLabel: string;
+    kind: string;
+    actorId: string | null;
+    actorTag: string | null;
+    detectedAt: string;
+    windowStart: string;
+    status: 'open' | 'resolved' | 'restored';
+    affected: Record<string, string[]>;
+    autoRestoreStopRequested: boolean;
+    autoRestore: AutoRestoreStateView | null;
 }

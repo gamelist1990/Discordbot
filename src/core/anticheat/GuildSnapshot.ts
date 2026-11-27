@@ -628,6 +628,9 @@ export interface RestoreReport {
     protectedUsers: string[];
     rebanned: string[];
     errors: string[];
+    /** Set when staff stopped the run at a phase boundary (brief AN3). */
+    stopped?: boolean;
+    stopReason?: string | null;
 }
 
 export function emptyRestoreReport(safetySnapshotId: string | null, startedAt = new Date().toISOString()): RestoreReport {
@@ -644,7 +647,9 @@ export function emptyRestoreReport(safetySnapshotId: string | null, startedAt = 
         keptFromSnapshot: [],
         protectedUsers: [],
         rebanned: [],
-        errors: []
+        errors: [],
+        stopped: false,
+        stopReason: null
     };
 }
 
