@@ -1,5 +1,7 @@
 import { Router, type Request, type Response } from 'express';
 import crypto from 'node:crypto';
+import { readFile } from 'node:fs/promises';
+import { gzipSync } from 'node:zlib';
 import { webAuthService } from '../../core/webauth/WebAuthService.js';
 import { isWellFormedWebAuthToken } from '../../core/webauth/tokens.js';
 import type { FingerprintSignals } from '../../core/webauth/types.js';
@@ -14,14 +16,66 @@ import {
 const PAGE_CSP = (nonce: string): string => [
     "default-src 'none'",
     `script-src 'nonce-${nonce}'`,
-    `style-src 'nonce-${nonce}' https://fonts.googleapis.com`,
-    'font-src https://fonts.gstatic.com',
+    // The only stylesheet is the nonce-bound local @font-face sheet under
+    // /webauth/fonts/ ('self'); inline styles still require the nonce.
+    `style-src 'nonce-${nonce}' 'self'`,
+    // フォントは同一オリジンの自前配信のみ。外部フォントCDNは許可しない。
+    "font-src 'self'",
     "connect-src 'self'",
     "img-src 'none'",
     "base-uri 'none'",
     "form-action 'none'",
     "frame-ancestors 'none'"
 ].join('; ');
+
+/**
+ * Self-hosted WebAuth fonts (see `src/web/webauth/fonts/`). The filenames are
+ * fixed by the generator, so a strict allow-list is enough to keep traversal
+ * and arbitrary file reads out of the picture.
+ */
+const FONT_DIR_URL = new URL('../webauth/fonts/', import.meta.url);
+const FONT_NAME = /^(?:fonts\.css|plex-sans-[a-z-]+\.woff2|plex-jp-(?:slice-\d+|[a-z-]+)-\d{3}\.woff2)$/;
+const FONT_CACHE_CONTROL = 'public, max-age=31536000, immutable';
+
+type CachedSheet = { raw: Buffer; gzip: Buffer };
+let fontSheetCache: CachedSheet | null = null;
+
+async function loadFontSheet(): Promise<CachedSheet> {
+    if (!fontSheetCache) {
+        const raw = await readFile(new URL('fonts.css', FONT_DIR_URL));
+        fontSheetCache = { raw, gzip: gzipSync(raw, { level: 9 }) };
+    }
+    return fontSheetCache;
+}
+
+async function serveFontFile(req: Request, res: Response): Promise<void> {
+    const file = String(req.params.file || '');
+    if (!FONT_NAME.test(file)) {
+        res.status(404).type('text/plain').send('not found');
+        return;
+    }
+    res.setHeader('Cache-Control', FONT_CACHE_CONTROL);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    try {
+        if (file === 'fonts.css') {
+            const sheet = await loadFontSheet();
+            res.setHeader('Content-Type', 'text/css; charset=utf-8');
+            res.setHeader('Vary', 'Accept-Encoding');
+            if (/\bgzip\b/.test(String(req.headers['accept-encoding'] || ''))) {
+                res.setHeader('Content-Encoding', 'gzip');
+                res.send(sheet.gzip);
+            } else {
+                res.send(sheet.raw);
+            }
+            return;
+        }
+        const bytes = await readFile(new URL(file, FONT_DIR_URL));
+        res.setHeader('Content-Type', 'font/woff2');
+        res.send(bytes);
+    } catch {
+        res.status(404).type('text/plain').send('not found');
+    }
+}
 
 function rateKey(req: Request): string {
     const resolved = (req as any).clientIp as ResolvedClientIp | undefined;
@@ -44,6 +98,11 @@ function sendPage(res: Response, status: number, html: string, nonce: string): v
 export function createWebAuthPageRoutes(): Router {
     const router = Router();
     const pageLimiter = new FixedWindowRateLimiter(60_000, 30);
+    // Fonts are requested in bulk by the page (one request per unicode-range
+    // slice on first paint), so they are served before the page rate limiter.
+    router.get('/fonts/:file', (req: Request, res: Response) => {
+        void serveFontFile(req, res);
+    });
     router.use(attachClientIp);
     router.use(createRateLimitMiddleware(pageLimiter, rateKey, 'アクセスが集中しています。しばらく待ってから再試行してください。'));
     router.use((_req, res, next) => {

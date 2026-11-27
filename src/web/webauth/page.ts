@@ -113,11 +113,8 @@ button{padding:14px 16px}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 `;
 
-const FONT_LINKS = `
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Sans+JP:wght@400;500;600;700&display=swap" rel="stylesheet">
-`;
+const FONT_LINKS = (nonce: string): string =>
+    `<link rel="stylesheet" href="/webauth/fonts/fonts.css" nonce="${escapeHtml(nonce)}">`;
 
 function shell(body: string, script: string, nonce: string): string {
     return `<!doctype html>
@@ -128,7 +125,7 @@ function shell(body: string, script: string, nonce: string): string {
 <meta name="color-scheme" content="light dark">
 <meta name="robots" content="noindex,nofollow">
 <title>Web認証</title>
-${FONT_LINKS}
+${FONT_LINKS(nonce)}
 <style nonce="${escapeHtml(nonce)}">${PAGE_STYLE}</style>
 </head>
 <body>

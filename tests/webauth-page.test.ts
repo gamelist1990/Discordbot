@@ -125,7 +125,10 @@ test('the page is styled with the staff theme and a Safari-safe font stack', () 
     assert.ok(html.includes('#59534b'), 'site accent');
     assert.ok(html.includes('#302e2b'), 'site ink');
     assert.ok(html.includes('IBM Plex Sans JP'));
-    assert.ok(html.includes('fonts.googleapis.com'));
+    // Fonts are self-hosted; the page must not reference a third-party origin.
+    assert.ok(html.includes('/webauth/fonts/fonts.css'));
+    assert.equal(html.includes('fonts.googleapis.com'), false);
+    assert.equal(html.includes('fonts.gstatic.com'), false);
     assert.ok(html.includes('prefers-color-scheme:dark'), 'dark scheme mirrors global.css');
     assert.ok(html.includes('touch-action:none'));
 });
